@@ -1,0 +1,22 @@
+{
+	"name": "lens",
+	"description": "The most atomic part of telescope, Lens is the function that lints or validates a specific part of an OpenAPI specification.",
+	"module": "index.ts",
+	"type": "module",
+	"private": true,
+	"dependencies": {
+		"blueprint": "workspace:*",
+		"engine": "workspace:*",
+		"indexer": "workspace:*",
+		"loader": "workspace:*",
+		"host": "workspace:*",
+		"vscode-languageserver": "^9.0.1",
+		"yaml": "^2.4.0"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
+}

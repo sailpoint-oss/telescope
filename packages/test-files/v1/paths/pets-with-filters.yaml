@@ -1,0 +1,62 @@
+get:
+  summary: List pets with filters
+  operationId: listPetsWithFilters
+  tags:
+    - Pets
+  description: Retrieve filtered list of pets using standard collection parameters
+  security:
+    - userAuth: []
+  parameters:
+    - name: filters
+      in: query
+      description: Filter criteria in the format 'field:operator:value' separated by commas. Supported operators: eq, ne, gt, gte, lt, lte, contains, startsWith, endsWith
+      required: false
+      schema:
+        type: string
+      example: "status:eq:active,name:contains:Fluffy"
+    - name: sorters
+      in: query
+      description: Sort criteria in the format 'field:direction' separated by commas. Direction can be 'asc' or 'desc'
+      required: false
+      schema:
+        type: string
+      example: "name:asc,createdAt:desc"
+    - name: limit
+      in: query
+      description: Maximum number of items to return
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+      example: 20
+    - name: offset
+      in: query
+      description: Number of items to skip
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+      example: 0
+  responses:
+    "200":
+      description: Successful response
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "../schemas/Pet.yaml#/components/schemas/Pet"
+    "400":
+      description: Bad request
+    "401":
+      description: Unauthorized
+    "403":
+      description: Forbidden
+    "429":
+      description: Too many requests
+    "500":
+      description: Internal server error
+

@@ -1,0 +1,9 @@
+openapi: 3.1.0
+x-sailpoint-api:
+  version: v2025
+  audience: external-public
+info:
+  title: Test
+  version: 1.0.0
+paths: {}
+

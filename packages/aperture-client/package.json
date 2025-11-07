@@ -1,0 +1,69 @@
+{
+	"name": "aperture",
+	"displayName": "Aperture OpenAPI Language Server",
+	"description": "Language server for OpenAPI specifications",
+	"version": "0.0.1",
+	"main": "./out/extension.js",
+	"engines": {
+		"vscode": "^1.99.3"
+	},
+	"activationEvents": [
+		"onLanguage:yaml",
+		"onLanguage:yml",
+		"onLanguage:json"
+	],
+	"contributes": {
+		"languages": [
+			{
+				"id": "yaml",
+				"aliases": [
+					"YAML",
+					"yaml"
+				],
+				"extensions": [
+					".yaml",
+					".yml"
+				]
+			},
+			{
+				"id": "json",
+				"aliases": [
+					"JSON",
+					"json"
+				],
+				"extensions": [
+					".json"
+				]
+			}
+		],
+		"configuration": {
+			"title": "Aperture"
+		}
+	},
+	"private": true,
+	"scripts": {
+		"clean": "rm -rf out",
+		"build": "bun run clean && bun run tsc",
+		"tsc": "tsc --project tsconfig.json",
+		"watch": "tsc --project tsconfig.json --watch"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/node": "^20.0.0",
+		"@types/vscode": "^1.105.0",
+		"typescript": "^5.6.3"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"files": [
+		"out",
+		"README.md",
+		"package.json"
+	],
+	"dependencies": {
+		"@volar/language-server": "^2.4.23",
+		"@volar/vscode": "^2.4.23",
+		"vscode-languageclient": "^9.0.1"
+	}
+}

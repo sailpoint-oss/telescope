@@ -1,0 +1,21 @@
+openapi: 3.1.0
+x-sailpoint-api:
+  version: v2025
+  audience: external-public
+info:
+  title: Test
+  version: 1.0.0
+tags: []
+paths:
+  /test1:
+    get:
+      operationId: duplicateId
+      responses:
+        "200":
+          description: OK
+  /test2:
+    get:
+      operationId: duplicateId
+      responses:
+        "200":
+          description: OK

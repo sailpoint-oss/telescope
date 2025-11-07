@@ -1,0 +1,9 @@
+{
+	"name": "test-files",
+	"private": true,
+	"type": "module",
+	"description": "Shared OpenAPI fixture documents for testing and integration.",
+	"exports": {
+		"./*": "./*"
+	}
+}

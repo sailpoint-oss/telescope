@@ -1,0 +1,22 @@
+{
+	"name": "cli",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"telescope-lint": "./src/bin.ts"
+	},
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"lint": "bun ./src/bin.ts",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"host": "workspace:*",
+		"loader": "workspace:*",
+		"indexer": "workspace:*",
+		"engine": "workspace:*",
+		"lens": "workspace:*"
+	}
+}

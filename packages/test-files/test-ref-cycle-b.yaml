@@ -1,0 +1,5 @@
+components:
+  schemas:
+    B:
+      $ref: "./test-ref-cycle-main.yaml#/components/schemas/A"
+

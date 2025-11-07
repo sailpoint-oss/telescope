@@ -1,0 +1,89 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build:client",
+			"type": "shell",
+			"command": "bun run build",
+			"options": {
+				"cwd": "${workspaceFolder}/packages/aperture-client"
+			},
+			"group": "build",
+			"presentation": {
+				"panel": "dedicated",
+				"reveal": "always",
+				"focus": false,
+				"clear": true
+			},
+			"problemMatcher": "$tsc"
+		},
+		{
+			"label": "build:lsp",
+			"type": "shell",
+			"command": "bun run build",
+			"options": {
+				"cwd": "${workspaceFolder}/packages/aperture-lsp"
+			},
+			"group": "build",
+			"presentation": {
+				"panel": "dedicated",
+				"reveal": "always",
+				"focus": false,
+				"clear": true
+			},
+			"problemMatcher": "$tsc"
+		},
+		{
+			"label": "build",
+			"dependsOn": ["build:lsp", "build:client"],
+			"dependsOrder": "sequence",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": "$tsc"
+		},
+		{
+			"label": "watch:client",
+			"type": "shell",
+			"command": "bun run watch",
+			"options": {
+				"cwd": "${workspaceFolder}/packages/aperture-client"
+			},
+			"isBackground": true,
+			"group": "build",
+			"presentation": {
+				"panel": "dedicated",
+				"reveal": "always",
+				"focus": false,
+				"clear": false
+			},
+			"problemMatcher": "$tsc-watch"
+		},
+		{
+			"label": "watch:lsp",
+			"type": "shell",
+			"command": "bun run watch",
+			"options": {
+				"cwd": "${workspaceFolder}/packages/aperture-lsp"
+			},
+			"isBackground": true,
+			"group": "build",
+			"presentation": {
+				"panel": "dedicated",
+				"reveal": "always",
+				"focus": false,
+				"clear": false
+			},
+			"problemMatcher": "$tsc-watch"
+		},
+		{
+			"label": "watch",
+			"dependsOn": ["watch:lsp", "watch:client"],
+			"dependsOrder": "parallel",
+			"isBackground": true,
+			"group": "build",
+			"problemMatcher": "$tsc-watch"
+		}
+	]
+}

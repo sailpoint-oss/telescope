@@ -1,0 +1,17 @@
+{
+	"name": "telescope",
+	"private": true,
+	"type": "module",
+	"packageManager": "bun@1.1.13",
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"build": "bun run --filter ./packages/** build",
+		"test": "bun run --filter ./packages/** test",
+		"lint": "bun run --filter ./packages/** lint"
+	},
+	"dependencies": {
+		"@types/bun": "^1.3.1"
+	}
+}

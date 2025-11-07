@@ -1,0 +1,640 @@
+openapi: 3.1.0
+x-sailpoint-api:
+  version: v2025
+  audience: external-public
+info:
+  title: Comprehensive Valid Test Cases
+  version: 1.0.0
+  description: All valid/passing test cases consolidated into a single document
+tags:
+  - name: Authentication
+  - name: Pets
+  - name: Users
+paths:
+  # Operation Basic Fields - Valid
+  /test/operation-basic-fields-valid:
+    get:
+      operationId: testOperationBasicFieldsValid
+      summary: Get test data
+      description: This is a detailed description that exceeds the minimum length requirement
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+
+  # Operation Responses - Valid
+  /test/operation-responses-valid:
+    get:
+      operationId: testOperationResponsesValid
+      summary: Get responses
+      description: Operation with all required responses
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad request
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden
+        "429":
+          description: Too many requests
+        "500":
+          description: Internal server error
+
+  # Operation Summary - Valid (5 words or less)
+  /test/operation-summary-valid:
+    get:
+      operationId: testOperationSummaryValid
+      summary: Get user information
+      description: Retrieve user information by ID
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+
+  # Operation ID Format - Valid (camelCase)
+  /test/operation-id-format-valid:
+    get:
+      operationId: getUser
+      summary: Get user
+      description: Retrieve a user by ID
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+
+  # Operation Tags - Valid (Title Case)
+  /test/operation-tags-valid:
+    get:
+      operationId: testOperationTagsValid
+      summary: Get users
+      description: Retrieve list of users
+      tags:
+        - Users
+        - Authentication
+      responses:
+        "200":
+          description: OK
+
+  # Operation Security Requirements - Valid (empty object for public)
+  /test/operation-security-valid-public:
+    get:
+      operationId: testOperationSecurityValidPublic
+      summary: Public endpoint
+      description: Public endpoint with empty security
+      security:
+        - {}
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+
+  # Operation Security Requirements - Valid (with auth)
+  /test/operation-security-valid-auth:
+    get:
+      operationId: testOperationSecurityValidAuth
+      summary: Protected endpoint
+      description: Protected endpoint with userAuth
+      security:
+        - userAuth: []
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+
+  # Operation User Levels - Valid
+  /test/operation-user-levels-valid:
+    get:
+      operationId: testOperationUserLevelsValid
+      summary: Get admin data
+      description: Operation with valid user levels
+      x-sailpoint-userLevels:
+        - ORG_ADMIN
+        - USER
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+
+  # Operation ID Unique in Path - Valid
+  /test/operation-id-unique-in-path-valid:
+    get:
+      operationId: getTest
+      summary: Get test
+      description: First operation in path
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+    post:
+      operationId: createTest
+      summary: Create test
+      description: Second operation with unique ID
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+
+  # Pagination - Valid
+  /test/pagination-valid:
+    get:
+      operationId: listUsers
+      summary: List users
+      description: List operation with proper pagination
+      tags:
+        - Users
+      parameters:
+        - name: limit
+          in: query
+          required: true
+          description: Maximum number of items to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          required: true
+          description: Number of items to skip
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  # Parameter Description - Valid
+  /test/parameter-description-valid:
+    get:
+      operationId: testParameterDescriptionValid
+      summary: Get with parameter
+      description: Operation with parameter that has valid description
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The unique identifier for the user
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter Example - Valid
+  /test/parameter-example-valid:
+    get:
+      operationId: testParameterExampleValid
+      summary: Get with example
+      description: Parameter with example value
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          example: "123"
+          description: User identifier
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter Example Keys - Valid Length
+  /test/parameter-example-keys-valid-length:
+    get:
+      operationId: testParameterExampleKeysValidLength
+      summary: Get with examples
+      description: Parameter with valid example keys
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: query
+          required: false
+          description: User identifier
+          examples:
+            default-value:
+              value: "123"
+            custom-input:
+              value: "456"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter Formats - Valid (integer with format)
+  /test/parameter-formats-valid:
+    get:
+      operationId: testParameterFormatsValid
+      summary: Get with format
+      description: Parameter with valid integer format
+      tags:
+        - Users
+      parameters:
+        - name: count
+          in: query
+          required: true
+          description: Number of items
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: OK
+
+  # Parameter Required - Valid (explicitly set)
+  /test/parameter-required-valid:
+    get:
+      operationId: testParameterRequiredValid
+      summary: Get with required
+      description: Parameter with explicit required flag
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User identifier
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter Default - Valid (boolean with default)
+  /test/parameter-default-valid:
+    get:
+      operationId: testParameterDefaultValid
+      summary: Get with default
+      description: Optional boolean parameter with default
+      tags:
+        - Users
+      parameters:
+        - name: active
+          in: query
+          required: false
+          description: Filter by active status
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: OK
+
+  # Parameter Filters - Valid
+  /test/parameter-filters-valid:
+    get:
+      operationId: testParameterFiltersValid
+      summary: Get with filters
+      description: Filters parameter with proper description
+      tags:
+        - Users
+      parameters:
+        - name: filters
+          in: query
+          required: false
+          description: Filter results using standard-collection-parameters#filtering-results
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter Sorters - Valid
+  /test/parameter-sorters-valid:
+    get:
+      operationId: testParameterSortersValid
+      summary: Get with sorters
+      description: Sorters parameter with proper description
+      tags:
+        - Users
+      parameters:
+        - name: sorters
+          in: query
+          required: false
+          description: Sort results using standard-collection-parameters#sorting-results
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter In - Valid (query)
+  /test/parameter-in-valid-query:
+    get:
+      operationId: testParameterInValidQuery
+      summary: Get with query param
+      description: Parameter with valid 'in' value (query)
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: query
+          required: false
+          description: User identifier
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter In - Valid (path)
+  /test/parameter-in-valid-path:
+    get:
+      operationId: testParameterInValidPath
+      summary: Get with path param
+      description: Parameter with valid 'in' value (path)
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User identifier
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter In - Valid (header)
+  /test/parameter-in-valid-header:
+    get:
+      operationId: testParameterInValidHeader
+      summary: Get with header param
+      description: Parameter with valid 'in' value (header)
+      tags:
+        - Users
+      parameters:
+        - name: X-Request-ID
+          in: header
+          required: false
+          description: Request identifier
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Parameter In - Valid (cookie)
+  /test/parameter-in-valid-cookie:
+    get:
+      operationId: testParameterInValidCookie
+      summary: Get with cookie param
+      description: Parameter with valid 'in' value (cookie)
+      tags:
+        - Users
+      parameters:
+        - name: sessionId
+          in: cookie
+          required: false
+          description: Session identifier
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Path Params Match - Valid
+  /test/path-params-match-valid:
+    get:
+      operationId: testPathParamsMatchValid
+      summary: Get user by ID
+      description: Path parameter correctly declared
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: User identifier
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+
+  # Schema Description - Valid (properties have descriptions)
+  /test/schema-description-valid:
+    get:
+      operationId: testSchemaDescriptionValid
+      summary: Get schema
+      description: Schema with properties that have descriptions
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                description: A user object
+                properties:
+                  name:
+                    type: string
+                    description: The user's name
+
+  # Schema Example - Valid (properties have examples)
+  /test/schema-example-valid:
+    get:
+      operationId: testSchemaExampleValid
+      summary: Get schema with examples
+      description: Schema properties with example values
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    example: "John Doe"
+                  age:
+                    type: integer
+                    example: 30
+
+  # Schema Example Keys - Valid
+  /test/schema-example-keys-valid:
+    get:
+      operationId: testSchemaExampleKeysValid
+      summary: Get schema with example keys
+      description: Schema with valid example keys
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                examples:
+                  success-response:
+                    name: "John"
+                  error-case:
+                    name: null
+
+  # Schema Formats - Valid (integer with format)
+  /test/schema-formats-valid:
+    get:
+      operationId: testSchemaFormatsValid
+      summary: Get schema with format
+      description: Schema property with valid integer format
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  age:
+                    type: integer
+                    format: int32
+                    description: User age
+
+  # Schema Required - Valid (object with required array)
+  /test/schema-required-valid:
+    get:
+      operationId: testSchemaRequiredValid
+      summary: Get schema with required
+      description: Object schema with required array
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: []
+                properties:
+                  name:
+                    type: string
+                  email:
+                    type: string
+
+  # Schema Default - Valid (boolean with default)
+  /test/schema-default-valid:
+    get:
+      operationId: testSchemaDefaultValid
+      summary: Get schema with default
+      description: Optional boolean property with default
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:
+                    type: boolean
+                    default: false
+                    description: Active status
+
+  # Schema Structure - Valid
+  /test/schema-structure-valid:
+    get:
+      operationId: testSchemaStructureValid
+      summary: Get valid schema
+      description: Schema with valid structure including array with items
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  items:
+                    type: array
+                    items:
+                      type: string
+
+  # Operation Description HTML - Valid (clean)
+  /test/operation-description-html-valid:
+    get:
+      operationId: testOperationDescriptionHtmlValid
+      summary: Get clean description
+      description: This is a clean description without HTML
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+
+components:
+  schemas:
+    SchemaRequiredValid:
+      type: object
+      required: []
+      properties:
+        name:
+          type: string
+          description: User name
+        email:
+          type: string
+          description: User email
+    SchemaDefaultValid:
+      type: object
+      properties:
+        active:
+          type: boolean
+          default: false
+          description: Active status
+    SchemaStructureValid:
+      type: object
+      properties:
+        name:
+          type: string
+    SchemaStructureValidArray:
+      type: array
+      items:
+        type: string
+  securitySchemes:
+    userAuth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://example.com/oauth/authorize
+          tokenUrl: https://example.com/oauth/token
+          scopes:
+            read: Read access
+            write: Write access
+

@@ -1,0 +1,8 @@
+get:
+  operationId: list_pets
+  tags:
+    - pets
+  responses:
+    "200":
+      description: OK
+

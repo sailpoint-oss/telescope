@@ -1,0 +1,13 @@
+openapi: 3.1.0
+x-sailpoint-api:
+  version: v4
+  audience: external-public
+info:
+  title: Test API v4
+  version: 1.0.0
+tags:
+  - name: users
+    description: Users operations
+paths:
+  /users:
+    $ref: "./v3/paths/users.yaml"

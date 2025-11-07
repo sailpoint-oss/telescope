@@ -1,0 +1,25 @@
+get:
+  summary: Get users list
+  operationId: listUsers
+  tags:
+    - Users
+  description: Retrieve users
+  security:
+    - userAuth: []
+  parameters:
+    - name: enabled
+      in: query
+      description: Filter by enabled status
+      required: false
+      schema:
+        type: boolean
+  responses:
+    "200":
+      description: Successful response
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: "../schemas/User.yaml#/components/schemas/User"
+

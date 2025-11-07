@@ -1,0 +1,5 @@
+type: object
+properties:
+  b:
+    $ref: "./cycle-b.yaml"
+

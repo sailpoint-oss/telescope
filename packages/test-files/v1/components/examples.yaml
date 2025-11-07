@@ -1,0 +1,18 @@
+components:
+  examples:
+    PetExample:
+      summary: Example pet
+      value:
+        id: 12345
+        name: Fluffy
+        tag: dog
+        isActive: true
+    UserExample:
+      summary: Example user
+      value:
+        id: 1001
+        email: user@example.com
+        name: John Doe
+        age: 30
+        isVerified: false
+

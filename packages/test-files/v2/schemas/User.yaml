@@ -1,0 +1,14 @@
+type: object
+properties:
+  id:
+    type: integer
+    format: int64
+    description: User ID
+    example: 1001
+  email:
+    type: string
+    description: Email
+    example: user@example.com
+  isVerified:
+    type: boolean
+    description: Verified status

@@ -1,0 +1,10 @@
+openapi: 3.1.0
+info:
+  title: Test
+  version: 1.0.0
+  x-audience: external-public
+components:
+  schemas:
+    A:
+      $ref: "./test-ref-cycle-b.yaml#/components/schemas/B"
+paths: {}

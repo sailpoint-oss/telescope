@@ -1,0 +1,30 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "./out",
+		"rootDir": "./",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022"],
+		"target": "ES2020",
+		"noEmit": true,
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": false,
+		"verbatimModuleSyntax": false,
+		"esModuleInterop": true,
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"isolatedModules": true
+	},
+	"include": [
+		"./server.ts",
+		"./context.ts",
+		"./documents.ts",
+		"./host.ts",
+		"./languageModule.ts",
+		"./volar-fs-host.ts",
+		"./plugins/**/*.ts",
+		"./shared/**/*.ts"
+	],
+	"exclude": ["node_modules", "out"]
+}

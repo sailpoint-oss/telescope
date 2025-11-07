@@ -1,0 +1,15 @@
+{
+	"name": "host",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"chokidar": "^3.6.0",
+		"fast-glob": "^3.3.2",
+		"vscode-languageserver": "^9.0.1",
+		"vscode-languageserver-textdocument": "^1.0.12",
+		"vscode-uri": "^3.0.8"
+	}
+}

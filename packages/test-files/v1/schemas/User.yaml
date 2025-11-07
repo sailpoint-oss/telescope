@@ -1,0 +1,31 @@
+type: object
+required:
+  - id
+  - email
+  - name
+properties:
+  id:
+    type: integer
+    format: int64
+    description: Unique identifier for the user
+    example: 1001
+  email:
+    type: string
+    format: email
+    description: Email address of the user
+    example: user@example.com
+  name:
+    type: string
+    description: Full name of the user
+    example: John Doe
+  age:
+    type: integer
+    format: int32
+    description: Age of the user in years
+    example: 30
+  isVerified:
+    type: boolean
+    description: Whether the user account is verified
+    default: false
+    example: false
+

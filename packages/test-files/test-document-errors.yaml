@@ -1,0 +1,23 @@
+openapi: 3.2.0
+x-sailpoint-api:
+  version: v2025
+  audience: external-public
+info:
+  title: API de Tienda de Mascotas 🐾
+  version: 1.0.0
+  x-audience: external-public
+  description: |
+    Una API de ejemplo que demuestra el manejo de caracteres no ASCII.
+    This API demonstrates handling of non-ASCII characters.
+
+    Examples:
+    - Chinese: 这是一个测试 API
+    - Japanese: これはテストAPIです
+    - Arabic: هذا اختبار API
+    - Emojis: 🐶 🐱 🐰 🐹
+    - Accented: café, résumé, naïve, jalapeño
+tags:
+  - name: pets
+    description: Pets operations
+paths: {}
+

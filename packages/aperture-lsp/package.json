@@ -1,0 +1,43 @@
+{
+	"name": "aperture-lsp",
+	"description": "Aperture Language Server",
+	"version": "0.0.1",
+	"main": "./out/server.js",
+	"private": true,
+	"scripts": {
+		"clean": "rm -rf out",
+		"build": "bun run clean && rollup -c && test -f out/server.js && echo '✅ Build successful: out/server.js created'",
+		"tsc": "tsc --project tsconfig.json",
+		"watch": "rollup -c -w"
+	},
+	"dependencies": {
+		"@volar/language-core": "^2.4.23",
+		"@volar/language-server": "^2.4.23",
+		"@volar/language-service": "^2.4.23",
+		"engine": "workspace:*",
+		"host": "workspace:*",
+		"lens": "workspace:*",
+		"chokidar": "^3.6.0",
+		"fast-glob": "^3.3.2",
+		"jsonc-parser": "^3.3.1",
+		"vscode-languageserver-protocol": "^3.17.5",
+		"vscode-languageserver-textdocument": "^1.0.12",
+		"vscode-uri": "^3.1.0",
+		"yaml": "^2.8.1"
+	},
+	"devDependencies": {
+		"@rollup/plugin-alias": "^6.0.0",
+		"@rollup/plugin-commonjs": "^29.0.0",
+		"@rollup/plugin-json": "^6.1.0",
+		"@rollup/plugin-node-resolve": "^16.0.3",
+		"@types/node": "^20.0.0",
+		"esbuild": "^0.24.0",
+		"rollup": "^4.52.5",
+		"rollup-plugin-typescript2": "^0.36.0",
+		"typescript": "^5.6.3"
+	},
+	"files": [
+		"out",
+		"package.json"
+	]
+}

@@ -1,0 +1,16 @@
+get:
+  summary: Get user
+  operationId: getUser
+  tags:
+    - Users
+  description: Get user without path parameter
+  parameters:
+    - name: userId
+      in: query
+      required: true
+      schema:
+        type: string
+  responses:
+    "200":
+      description: OK
+

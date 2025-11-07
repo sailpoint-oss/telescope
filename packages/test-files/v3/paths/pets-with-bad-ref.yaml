@@ -1,0 +1,13 @@
+get:
+  summary: List pets
+  operationId: listPets
+  tags:
+    - Pets
+  description: Retrieve pets with unresolved reference
+  responses:
+    "200":
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/NonExistent.yaml"

@@ -1,0 +1,21 @@
+components:
+  responses:
+    ErrorResponse:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - error
+              - message
+            properties:
+              error:
+                type: string
+                description: Error code
+                example: "VALIDATION_ERROR"
+              message:
+                type: string
+                description: Human-readable error message
+                example: "The request contains invalid data"
+
