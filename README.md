@@ -8,19 +8,20 @@ Telescope is a greenfield OpenAPI linting tool that shares a single pipeline bet
 - Project-aware linting with fragment and multi-root modes for large API workspaces
 - Strongly typed rule authoring powered by Zod schemas for OpenAPI 3.0/3.1/3.2
 - Bun-first workflow for installs, scripts, tests, and packaging
-- Rich fixture catalog under `packages/examples` for regression coverage
+- Rich fixture catalog under `packages/test-files` for regression coverage
 
 ## Monorepo layout
 
-- `packages/aperture` – VS Code language server + client (legacy LSP + Volar experimental stack)
+- `packages/aperture-client` – VS Code extension client that launches the language server
+- `packages/aperture-lsp` – Volar-based language server implementing the LSP protocol
 - `packages/blueprint` – strongly-typed OpenAPI schemas (Zod) + rule catalog and presets
 - `packages/cli` – Bun CLI entrypoint with built-in formatters
 - `packages/engine` – rule API, runner, visitor wiring, and fixes
-- `packages/examples` – shared OpenAPI fixtures for tests and demos
 - `packages/host` – virtual filesystem adapters for Node and VS Code
 - `packages/indexer` – reverse lookups, typed references, and `$ref` dependency graph
 - `packages/lens` – document lint orchestration, workspace discovery, and configuration resolution
 - `packages/loader` – YAML/JSON parsing, source maps, and document detection
+- `packages/test-files` – shared OpenAPI fixtures for tests and demos
 
 ## How the pipeline fits together
 
@@ -28,7 +29,8 @@ Telescope is a greenfield OpenAPI linting tool that shares a single pipeline bet
 flowchart TB
     subgraph Entry["Entry Points"]
         CLI[CLI]
-        Aperture[Aperture LSP]
+        ApertureClient[Aperture Client]
+        ApertureLSP[Aperture LSP]
     end
 
     subgraph Host["Host Layer"]
@@ -58,7 +60,8 @@ flowchart TB
     end
 
     CLI --> NodeHost
-    Aperture --> LspHost
+    ApertureClient --> ApertureLSP
+    ApertureLSP --> LspHost
     NodeHost --> Config
     LspHost --> Context
     Config --> Rules
@@ -70,7 +73,8 @@ flowchart TB
     Engine --> Diagnostics
     Engine --> Fixes
     Diagnostics --> CLI
-    Diagnostics --> Aperture
+    Diagnostics --> ApertureLSP
+    ApertureLSP --> ApertureClient
 ```
 
 For a detailed architecture diagram showing exact package interactions and data flow, see [ARCHITECTURE.md](./ARCHITECTURE.md).
@@ -99,14 +103,19 @@ Prefer Bun commands wherever possible—scripts, testing, and dev tooling are al
 
 ## Aperture language server
 
-The Aperture extension (`packages/aperture`) reuses this pipeline to surface diagnostics inside VS Code. When it activates it:
+The Aperture VS Code extension consists of two packages:
+
+- **`packages/aperture-client`** – VS Code extension that launches and communicates with the language server
+- **`packages/aperture-lsp`** – Volar-based language server that implements the LSP protocol
+
+When the extension activates, the language server:
 
 1. Discovers workspace entrypoints via `packages/lens`
 2. Streams documents through the shared host/loader/graph/indexer stack
 3. Filters rules based on the current linting mode (project, fragment, multi-root)
 4. Returns diagnostics and quick-fix metadata back to the editor
 
-Use VS Code’s “Run Extension” launch target to develop Aperture locally (details in `packages/aperture/README.md`). Set the VS Code setting `aperture.experimental.useVolar` to opt into the Volar-based server after building with `bun run --filter aperture build`.
+Use VS Code's "Run Extension" launch target to develop Aperture locally. Build both packages with `bun run --filter aperture-client build` and `bun run --filter aperture-lsp build` (see individual READMEs for details).
 
 ## Rules and presets
 
@@ -118,7 +127,7 @@ To enable or disable rules, extend the default config and re-run either the CLI 
 
 - Keep edits ASCII-only unless a file already relies on Unicode
 - Prefer Bun equivalents over Node/npm/pnpm/vite when running scripts
-- Add or update fixtures in `packages/examples` when introducing new validation behavior
+- Add or update fixtures in `packages/test-files` when introducing new validation behavior
 - Place new rules under `packages/blueprint/rules` and re-export them through the preset metadata in `packages/blueprint/rules/presets.ts`
 
 Happy linting!
