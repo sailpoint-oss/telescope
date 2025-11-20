@@ -1,12 +1,12 @@
 {
 	"name": "blueprint",
 	"description": "The schemas that telescope uses to lint OpenAPI specifications.",
-	"main": "index.ts",
-	"module": "index.ts",
+	"main": "src/index.ts",
+	"module": "src/index.ts",
 	"type": "module",
 	"private": true,
 	"exports": {
-		".": "./index.ts"
+		".": "./src/index.ts"
 	},
 	"devDependencies": {
 		"@types/bun": "latest"
@@ -15,11 +15,10 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
+		"@volar/language-service": "^2.4.23",
 		"zod": "^4.1.12",
-		"engine": "workspace:*",
-		"indexer": "workspace:*",
-		"loader": "workspace:*",
-		"host": "workspace:*",
+		"lens": "workspace:*",
+		"shared": "workspace:*",
 		"vscode-languageserver": "^9.0.1"
 	}
 }

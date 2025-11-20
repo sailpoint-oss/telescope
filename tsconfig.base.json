@@ -19,6 +19,12 @@
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false,
-		"types": ["bun"]
+		"types": ["bun"],
+		"baseUrl": ".",
+		"paths": {
+			"lens": ["./packages/lens/src/index.ts"],
+			"blueprint": ["./packages/blueprint/src/index.ts"],
+			"shared/*": ["./packages/shared/src/*"]
+		}
 	}
 }

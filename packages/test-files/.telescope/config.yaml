@@ -1,0 +1,33 @@
+# New structured configuration format
+OpenAPI:
+  base:
+    - "@telescope-openapi/default"
+  patterns:
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "!**/node_modules/**"
+    - "!**/dist/**"
+    - "!**/test-*.yaml"
+  rules:
+    - rule: example-custom-openapi-rule.ts
+      patterns:
+        - "**/custom-openapi-*.yaml"
+        - "**/test-*.yaml"
+
+# Additional validation configuration for non-OpenAPI files
+AdditionalValidation:
+  zod-schema-validation: # Zod schema validation entry, this label is user specified
+    patterns:
+      - "**/custom-zod-schema-*.yaml"
+    schemas:
+      - schema: example-zod-schema.ts
+  json-schema-validation: # JSON schema validation entry, this label is user specified
+    patterns:
+      - "**/custom-json-schema-*.yaml"
+    schemas:
+      - schema: example-json-schema.json
+  generic-rule: # Generic rule entry, this label is user specified
+    patterns:
+      - "**/custom-generic-*.yaml"
+    rules:
+      - rule: example-generic-rule.ts

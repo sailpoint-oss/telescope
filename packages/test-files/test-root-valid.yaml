@@ -8,7 +8,10 @@ info:
   description: API with info section present
 tags:
   - name: Authentication
+    description: Authentication and authorization related operations for managing user access and security tokens
   - name: Pets
+    description: Operations for managing pet resources including creation, retrieval, and updates
   - name: Users
+    description: User management operations for creating, updating, and retrieving user information
 paths: {}
 

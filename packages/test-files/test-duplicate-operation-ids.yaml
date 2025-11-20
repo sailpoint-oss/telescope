@@ -10,12 +10,16 @@ paths:
   /test1:
     get:
       operationId: duplicateId
+      tags:
+        - Tests
       responses:
         "200":
           description: OK
   /test2:
     get:
       operationId: duplicateId
+      tags:
+        - Tests
       responses:
         "200":
           description: OK

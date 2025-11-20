@@ -1,36 +1,50 @@
-// A launch configuration that compiles the extension and then opens it inside a new window
 {
 	"version": "0.2.0",
 	"configurations": [
 		{
+			"name": "Launch Extension",
 			"type": "extensionHost",
 			"request": "launch",
-			"name": "Launch Client",
-			"runtimeExecutable": "${execPath}",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}/packages/aperture-client",
-				"${workspaceFolder}/packages/test-files"
+				"--extensionDevelopmentPath=${workspaceFolder}/packages/aperture-client"
 			],
-			"outFiles": [
-				"${workspaceFolder}/packages/aperture-client/out/**/*.js",
-				"${workspaceFolder}/packages/aperture-lsp/out/**/*.js"
-			],
-			"preLaunchTask": "build"
+			"outFiles": ["${workspaceFolder}/packages/aperture-client/out/**/*.js"],
+			"preLaunchTask": "build:all",
+			"presentation": {
+				"hidden": false,
+				"group": "",
+				"order": 1
+			}
 		},
 		{
+			"name": "Attach to Server (Bun)",
 			"type": "node",
 			"request": "attach",
-			"name": "Attach to Server",
 			"port": 6009,
 			"restart": true,
-			"outFiles": ["${workspaceFolder}/packages/aperture-lsp/out/**/*.js"]
+			"address": "localhost",
+			"outFiles": ["${workspaceFolder}/packages/aperture-lsp/out/**/*.js"],
+			"sourceMaps": true,
+			"skipFiles": ["<node_internals>/**"],
+			"preLaunchTask": "build:all",
+			"presentation": {
+				"hidden": false,
+				"group": "",
+				"order": 2
+			}
 		}
 	],
 	"compounds": [
 		{
-			"name": "Client + Server",
-			"configurations": ["Launch Client", "Attach to Server"],
-			"stopAll": true
+			"name": "Launch Extension + Attach Server (Bun)",
+			"configurations": ["Launch Extension", "Attach to Server (Bun)"],
+			"preLaunchTask": "build:all",
+			"stopAll": true,
+			"presentation": {
+				"hidden": false,
+				"group": "",
+				"order": 0
+			}
 		}
 	]
 }

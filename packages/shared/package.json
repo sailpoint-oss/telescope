@@ -1,0 +1,24 @@
+{
+	"name": "shared",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./ref-utils": "./src/ref-utils.ts",
+		"./hash-utils": "./src/hash-utils.ts",
+		"./file-system-utils": "./src/file-system-utils.ts",
+		"./document-utils": "./src/document-utils.ts",
+		"./document-type-utils": "./src/document-type-utils.ts",
+		"./pointer-utils": "./src/pointer-utils.ts",
+		"./line-offset-utils": "./src/line-offset-utils.ts",
+		"./logger": "./src/logger.ts"
+	},
+	"dependencies": {
+		"@volar/language-service": "^2.4.23",
+		"vscode-uri": "^3.1.0",
+		"yaml": "^2.8.1"
+	},
+	"devDependencies": {
+		"@types/node": "^20.0.0"
+	}
+}
+

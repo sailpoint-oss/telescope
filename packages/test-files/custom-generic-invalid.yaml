@@ -1,0 +1,8 @@
+# Root object missing version field - should trigger generic rule error
+name: My Application
+settings:
+  debug: true
+  timeout: 30
+  # Nested object also missing version field - should trigger another error
+  nested:
+    data: "test"

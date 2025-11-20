@@ -1,0 +1,5 @@
+# Missing required fields: name and version
+# Also missing required nested field: settings.debug
+settings:
+  timeout: -100  # Invalid: negative number violates minimum constraint
+

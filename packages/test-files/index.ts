@@ -1,5 +1,5 @@
-import { join } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const TEST_FILES_DIR = new URL("./", import.meta.url);
 

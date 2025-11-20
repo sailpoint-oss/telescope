@@ -1,6 +1,10 @@
 # Blueprint — OpenAPI 3.x Schemas (Zod) + Rules
 
-Blueprint publishes the Zod schemas that underpin Telescope's type safety. The schemas mirror OpenAPI 3.0/3.1/3.2 and are consumed by rule authors, the loader/indexer pipeline, and any tooling that needs structural validation. Blueprint also contains the rule implementations and presets (e.g., `recommended31`) that Telescope uses to lint OpenAPI specifications.
+Blueprint publishes the Zod schemas that underpin Telescope's type safety. The schemas mirror OpenAPI 3.0/3.1/3.2 and are consumed by rule authors, the loader/indexer pipeline, and any tooling that needs structural validation. Blueprint also contains the rule implementations and presets (e.g., `defaultPreset`, `sailpointPreset`) that Telescope uses to lint OpenAPI specifications.
+
+## Documentation
+
+For comprehensive documentation on all available rules, rule metadata options, and how to create custom rules, see [RULES.md](./RULES.md).
 
 ## Responsibilities
 
@@ -23,7 +27,9 @@ The package's entrypoint re-exports every schema module and the rule catalog. Co
 
 **Rules:**
 - `rules` – map of all rule implementations
-- `recommended31` – preset containing recommended rules for OpenAPI 3.1
+- `defaultPreset` – general OpenAPI best practices preset (recommended for all users)
+- `sailpointPreset` – SailPoint-specific preset (extends default, adds SailPoint rules)
+- `recommended31` – backward compatibility preset (extends default + SailPoint rules)
 - `pathParamsMatch`, `operationIdUnique` – individual rule exports
 
 Refer to `schemas/*` for the complete list of schema modules and `rules/*` for rule implementations.

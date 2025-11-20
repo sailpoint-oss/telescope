@@ -1,0 +1,16 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /pets/{petId}/owners/{ownerId}:
+    get:
+      summary: Get pet owner
+      operationId: getPetOwner
+      description: Get pet owner by petId and ownerId
+      tags:
+        - pets
+      responses:
+        "200":
+          description: Pet owner information
+

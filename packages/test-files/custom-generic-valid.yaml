@@ -1,0 +1,9 @@
+name: My Application
+version: 1.0.0
+settings:
+  debug: true
+  timeout: 30
+  nested:
+    version: 2.0.0
+    data: "test"
+

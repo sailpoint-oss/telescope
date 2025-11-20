@@ -9,7 +9,7 @@ get:
   parameters:
     - name: filters
       in: query
-      description: Filter criteria in the format 'field:operator:value' separated by commas. Supported operators: eq, ne, gt, gte, lt, lte, contains, startsWith, endsWith
+      description: "Filter criteria in the format 'field:operator:value' separated by commas. Supported operators: eq, ne, gt, gte, lt, lte, contains, startsWith, endsWith"
       required: false
       schema:
         type: string
@@ -59,4 +59,3 @@ get:
       description: Too many requests
     "500":
       description: Internal server error
-

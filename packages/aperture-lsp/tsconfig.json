@@ -2,8 +2,8 @@
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"outDir": "./out",
-		"rootDir": "./",
-		"module": "ESNext",
+		"rootDir": "../",
+		"module": "Preserve",
 		"moduleResolution": "bundler",
 		"lib": ["ES2022"],
 		"target": "ES2020",
@@ -16,15 +16,6 @@
 		"noUnusedParameters": false,
 		"isolatedModules": true
 	},
-	"include": [
-		"./server.ts",
-		"./context.ts",
-		"./documents.ts",
-		"./host.ts",
-		"./languageModule.ts",
-		"./volar-fs-host.ts",
-		"./plugins/**/*.ts",
-		"./shared/**/*.ts"
-	],
+	"include": ["src/**/*.ts"],
 	"exclude": ["node_modules", "out"]
 }

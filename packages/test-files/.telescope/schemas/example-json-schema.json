@@ -1,0 +1,30 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"type": "object",
+	"properties": {
+		"name": {
+			"type": "string",
+			"description": "The name of the configuration"
+		},
+		"version": {
+			"type": "string",
+			"description": "The version of the configuration",
+			"pattern": "^\\d+\\.\\d+\\.\\d+$"
+		},
+		"settings": {
+			"type": "object",
+			"properties": {
+				"debug": {
+					"type": "boolean"
+				},
+				"timeout": {
+					"type": "number",
+					"minimum": 0
+				}
+			},
+			"required": ["debug"]
+		}
+	},
+	"required": ["name", "version"]
+}
+

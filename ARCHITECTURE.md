@@ -7,13 +7,7 @@ This document outlines the exact flow of how all packages work together in Teles
 ```mermaid
 flowchart TB
     subgraph EntryPoints["Entry Points"]
-        CLI["CLI<br/>(packages/cli)"]
-        Aperture["Aperture LSP<br/>(packages/aperture)"]
-    end
-
-    subgraph HostLayer["Virtual Filesystem Layer"]
-        NodeHost["NodeHost<br/>(packages/host)"]
-        LspHost["LspHost<br/>(packages/host)"]
+        Aperture["Aperture LSP<br/>(packages/aperture-lsp)"]
     end
 
     subgraph LensLayer["Lens - Orchestration & Configuration"]
@@ -23,9 +17,9 @@ flowchart TB
     end
 
     subgraph LoaderLayer["Loader - Document Parsing"]
-        Loader["loadDocument()<br/>(packages/loader)"]
-        DocDetection["Document Detection<br/>(packages/loader)"]
-        SourceMaps["Source Maps<br/>(packages/loader)"]
+        Loader["loadDocument()<br/>(lens/src/load-document.ts)"]
+        DocDetection["Document Detection<br/>(engine)"]
+        SourceMaps["Source Maps<br/>(engine IR)"]
     end
 
     subgraph IndexerLayer["Indexer - Graph & Indexing"]
@@ -49,59 +43,49 @@ flowchart TB
     subgraph Output["Output"]
         Diagnostics["Diagnostics<br/>(engine/Diagnostic)"]
         Fixes["Code Fixes<br/>(engine/FilePatch)"]
-        Formatters["Formatters<br/>(cli/formatters.ts)"]
     end
 
     %% Entry point flows
-    CLI -->|"1. Create NodeHost"| NodeHost
-    Aperture -->|"1. Create LspHost"| LspHost
-
-    %% Host to Lens
-    NodeHost -->|"2. Resolve entrypoints"| Config
-    LspHost -->|"2. Resolve workspace"| ContextResolver
+    Aperture -->|"1. Resolve workspace"| ContextResolver
 
     %% Configuration flow
-    Config -->|"3a. resolveConfig()"| Presets
-    Config -->|"3b. materializeRules()"| Rules
+    Config -->|"2a. resolveConfig()"| Presets
+    Config -->|"2b. materializeRules()"| Rules
     Rules -->|"Uses"| Schemas
     Presets -->|"Contains"| Rules
 
     %% Context resolution flow
-    ContextResolver -->|"4a. Check cache"| DocumentCache
-    ContextResolver -->|"4b. Load documents"| Loader
-    ContextResolver -->|"4c. Discover roots"| Loader
+    ContextResolver -->|"3a. Check cache"| DocumentCache
+    ContextResolver -->|"3b. Load documents"| Loader
+    ContextResolver -->|"3c. Discover roots"| Loader
     DocumentCache -->|"Cache lookup"| DocDetection
 
     %% Document loading flow
-    NodeHost -->|"5. Read files"| Loader
-    LspHost -->|"5. Read files"| Loader
     Loader -->|"Parse YAML/JSON"| SourceMaps
     Loader -->|"Detect type"| DocDetection
     Loader -->|"Returns ParsedDocument"| RefGraph
 
     %% Graph building flow
-    RefGraph -->|"6a. Traverse $ref"| GraphTypes
-    RefGraph -->|"6b. Build edges"| GraphTypes
-    RefGraph -->|"6c. Create resolver"| ProjectIndex
-    ProjectIndex -->|"7. Build indexes"| GraphTypes
+    RefGraph -->|"4a. Traverse $ref"| GraphTypes
+    RefGraph -->|"4b. Build edges"| GraphTypes
+    RefGraph -->|"4c. Create resolver"| ProjectIndex
+    ProjectIndex -->|"5. Build indexes"| GraphTypes
 
     %% Engine execution flow
-    ProjectIndex -->|"8. ProjectContext"| RuleFilter
-    Rules -->|"8. Rule[]"| RuleFilter
+    ProjectIndex -->|"6. ProjectContext"| RuleFilter
+    Rules -->|"6. Rule[]"| RuleFilter
     RuleFilter -->|"Filtered rules"| RuleRunner
-    RuleRunner -->|"9. Execute visitors"| RuleAPI
+    RuleRunner -->|"7. Execute visitors"| RuleAPI
     RuleAPI -->|"Uses"| Schemas
-    RuleRunner -->|"10. Generate"| Diagnostics
-    RuleRunner -->|"10. Generate"| Fixes
+    RuleRunner -->|"8. Generate"| Diagnostics
+    RuleRunner -->|"8. Generate"| Fixes
 
     %% Output flow
-    Diagnostics -->|"CLI output"| Formatters
     Diagnostics -->|"LSP output"| Aperture
     Fixes -->|"LSP code actions"| Aperture
 
     %% Styling
     classDef entryPoint fill:#e1f5ff,stroke:#01579b,stroke-width:2px
-    classDef host fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
     classDef lens fill:#fff3e0,stroke:#e65100,stroke-width:2px
     classDef loader fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
     classDef indexer fill:#fff9c4,stroke:#f57f17,stroke-width:2px
@@ -109,24 +93,21 @@ flowchart TB
     classDef blueprint fill:#e0f2f1,stroke:#004d40,stroke-width:2px
     classDef output fill:#f1f8e9,stroke:#33691e,stroke-width:2px
 
-    class CLI,Aperture entryPoint
-    class NodeHost,LspHost host
+    class Aperture entryPoint
     class Config,ContextResolver,DocumentCache lens
     class Loader,DocDetection,SourceMaps loader
     class RefGraph,ProjectIndex,GraphTypes indexer
     class RuleFilter,RuleRunner,RuleAPI engine
     class Schemas,Rules,Presets blueprint
-    class Diagnostics,Fixes,Formatters output
+    class Diagnostics,Fixes output
 ```
 
 ## Detailed Flow Description
 
-### Phase 1: Entry & Host Setup
+### Phase 1: Entry & Setup
 
-1. **CLI** or **Aperture LSP** receives input (file paths or document URIs)
-2. Creates appropriate **Host** implementation:
-   - CLI → `NodeHost` (filesystem access)
-   - Aperture → `LspHost` (VS Code TextDocuments)
+1. **Aperture LSP** receives document URIs from VS Code
+2. Uses Volar's FileSystem interface for file access
 
 ### Phase 2: Configuration & Context Resolution
 
@@ -137,9 +118,9 @@ flowchart TB
 
 ### Phase 3: Document Loading
 
-4. **Loader** reads files through the **Host**:
+4. **Loader** reads files through Volar's **FileSystem**:
    - Parses YAML/JSON into AST
-   - Builds source maps for position tracking
+   - Builds IR (Intermediate Representation) with source maps for position tracking
    - Detects document type (root, fragment, unknown)
    - Returns `ParsedDocument` objects
 
@@ -164,23 +145,21 @@ flowchart TB
 7. **Output** is generated:
    - **Diagnostics**: Rule violations with positions, messages, severity
    - **Fixes**: Optional code patches for auto-fixable issues
-   - **Formatters** (CLI only): Formats diagnostics as stylish or JSON
+   - Diagnostics are sent back to VS Code via LSP protocol
 
 ## Key Package Responsibilities
 
-- **host**: Virtual filesystem abstraction (Node/LSP implementations)
-- **lens**: Orchestration, configuration resolution, context management
-- **loader**: YAML/JSON parsing, source maps, document type detection
+- **lens**: Orchestration, configuration resolution, context management, document loading
 - **indexer**: `$ref` graph building, reverse lookups, project indexing
-- **engine**: Rule API, visitor pattern, rule filtering, execution
+- **engine**: Rule API, visitor pattern, rule filtering, execution, IR building
 - **blueprint**: Zod schemas for OpenAPI types, rule implementations, presets
-- **cli**: CLI entrypoint with built-in formatters
-- **aperture**: VS Code extension (LSP client + server)
+- **aperture-client**: VS Code extension client
+- **aperture-lsp**: Volar-based language server (LSP server)
 
 ## Data Flow Summary
 
 ```
-URIs/Paths → Host → Loader → ParsedDocuments
+URIs → Volar FileSystem → Loader → ParsedDocuments
                                     ↓
                             Indexer (Graph + Index)
                                     ↓
@@ -194,5 +173,5 @@ URIs/Paths → Host → Loader → ParsedDocuments
                                     ↓
                             Diagnostics + Fixes
                                     ↓
-                    CLI Formatters / LSP Diagnostics
+                            LSP Diagnostics
 ```

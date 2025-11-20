@@ -1,7 +1,7 @@
 {
 	"name": "aperture",
 	"displayName": "Aperture OpenAPI Language Server",
-	"description": "Language server for OpenAPI specifications",
+	"description": "Language server for OpenAPI specifications. Requires Bun runtime (https://bun.sh).",
 	"version": "0.0.1",
 	"main": "./out/extension.js",
 	"engines": {
@@ -62,6 +62,7 @@
 		"package.json"
 	],
 	"dependencies": {
+		"aperture-lsp": "workspace:*",
 		"@volar/language-server": "^2.4.23",
 		"@volar/vscode": "^2.4.23",
 		"vscode-languageclient": "^9.0.1"

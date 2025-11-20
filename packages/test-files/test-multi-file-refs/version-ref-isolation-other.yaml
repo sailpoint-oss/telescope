@@ -1,0 +1,12 @@
+openapi: 3.2.0
+info:
+  title: Other API
+  version: 1.0.0
+components:
+  schemas:
+    TestSchema:
+      type: object
+      properties:
+        name:
+          type: string
+

@@ -161,6 +161,9 @@ paths:
           description: Maximum number of items to return
           schema:
             type: integer
+            format: int32
+            description: Maximum number of items
+            example: 10
             minimum: 1
             maximum: 100
         - name: offset
@@ -169,6 +172,9 @@ paths:
           description: Number of items to skip
           schema:
             type: integer
+            format: int32
+            description: Number of items to skip
+            example: 0
             minimum: 0
       responses:
         "200":
@@ -177,8 +183,12 @@ paths:
             application/json:
               schema:
                 type: array
+                description: Array of items
                 items:
                   type: object
+                  description: Item object
+                  required: []
+                  properties: {}
 
   # Parameter Description - Valid
   /test/parameter-description-valid:
@@ -195,6 +205,8 @@ paths:
           description: The unique identifier for the user
           schema:
             type: string
+            description: User identifier
+            example: "123"
       responses:
         "200":
           description: OK
@@ -215,6 +227,8 @@ paths:
           description: User identifier
           schema:
             type: string
+            description: User identifier
+            example: "123"
       responses:
         "200":
           description: OK
@@ -239,6 +253,8 @@ paths:
               value: "456"
           schema:
             type: string
+            description: User identifier
+            example: "123"
       responses:
         "200":
           description: OK
@@ -259,6 +275,8 @@ paths:
           schema:
             type: integer
             format: int32
+            description: Number of items
+            example: 10
       responses:
         "200":
           description: OK
@@ -278,6 +296,8 @@ paths:
           description: User identifier
           schema:
             type: string
+            description: User identifier
+            example: "123"
       responses:
         "200":
           description: OK
@@ -298,6 +318,8 @@ paths:
           schema:
             type: boolean
             default: false
+            description: Active status
+            example: true
       responses:
         "200":
           description: OK
@@ -317,6 +339,8 @@ paths:
           description: Filter results using standard-collection-parameters#filtering-results
           schema:
             type: string
+            description: Filter string
+            example: "name eq 'John'"
       responses:
         "200":
           description: OK
@@ -336,6 +360,8 @@ paths:
           description: Sort results using standard-collection-parameters#sorting-results
           schema:
             type: string
+            description: Sort string
+            example: "+name"
       responses:
         "200":
           description: OK
@@ -355,6 +381,8 @@ paths:
           description: User identifier
           schema:
             type: string
+            description: User identifier
+            example: "123"
       responses:
         "200":
           description: OK
@@ -374,6 +402,8 @@ paths:
           description: User identifier
           schema:
             type: string
+            description: User identifier
+            example: "123"
       responses:
         "200":
           description: OK
@@ -393,6 +423,8 @@ paths:
           description: Request identifier
           schema:
             type: string
+            description: Request identifier
+            example: "req-123"
       responses:
         "200":
           description: OK
@@ -412,6 +444,8 @@ paths:
           description: Session identifier
           schema:
             type: string
+            description: Session identifier
+            example: "session-123"
       responses:
         "200":
           description: OK
@@ -431,6 +465,8 @@ paths:
           description: User identifier
           schema:
             type: string
+            description: User identifier
+            example: "123"
       responses:
         "200":
           description: OK
@@ -451,10 +487,12 @@ paths:
               schema:
                 type: object
                 description: A user object
+                required: []
                 properties:
                   name:
                     type: string
                     description: The user's name
+                    example: "John Doe"
 
   # Schema Example - Valid (properties have examples)
   /test/schema-example-valid:
@@ -471,12 +509,17 @@ paths:
             application/json:
               schema:
                 type: object
+                description: User object with name and age
+                required: []
                 properties:
                   name:
                     type: string
+                    description: User name
                     example: "John Doe"
                   age:
                     type: integer
+                    format: int32
+                    description: User age
                     example: 30
 
   # Schema Example Keys - Valid
@@ -494,6 +537,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required: []
+                description: Example schema
                 examples:
                   success-response:
                     name: "John"
@@ -515,11 +560,14 @@ paths:
             application/json:
               schema:
                 type: object
+                description: Object with age property
+                required: []
                 properties:
                   age:
                     type: integer
                     format: int32
                     description: User age
+                    example: 30
 
   # Schema Required - Valid (object with required array)
   /test/schema-required-valid:
@@ -536,12 +584,17 @@ paths:
             application/json:
               schema:
                 type: object
+                description: User object with name and email
                 required: []
                 properties:
                   name:
                     type: string
+                    description: User name
+                    example: "John Doe"
                   email:
                     type: string
+                    description: User email
+                    example: "john.doe@example.com"
 
   # Schema Default - Valid (boolean with default)
   /test/schema-default-valid:
@@ -558,11 +611,14 @@ paths:
             application/json:
               schema:
                 type: object
+                description: Object with active status
+                required: []
                 properties:
                   active:
                     type: boolean
                     default: false
                     description: Active status
+                    example: true
 
   # Schema Structure - Valid
   /test/schema-structure-valid:
@@ -579,13 +635,20 @@ paths:
             application/json:
               schema:
                 type: object
+                description: Object with name and items array
+                required: []
                 properties:
                   name:
                     type: string
+                    description: Name
+                    example: "Test Name"
                   items:
                     type: array
+                    description: Array of items
                     items:
                       type: string
+                      description: Item
+                      example: "item"
 
   # Operation Description HTML - Valid (clean)
   /test/operation-description-html-valid:
@@ -603,30 +666,43 @@ components:
   schemas:
     SchemaRequiredValid:
       type: object
+      description: Schema with required array
       required: []
       properties:
         name:
           type: string
           description: User name
+          example: "John Doe"
         email:
           type: string
           description: User email
+          example: "john.doe@example.com"
     SchemaDefaultValid:
       type: object
+      description: Schema with default value
+      required: []
       properties:
         active:
           type: boolean
           default: false
           description: Active status
+          example: true
     SchemaStructureValid:
       type: object
+      description: Schema with valid structure
+      required: []
       properties:
         name:
           type: string
+          description: Name
+          example: "Test Name"
     SchemaStructureValidArray:
       type: array
+      description: Array of strings
       items:
         type: string
+        description: String item
+        example: "item"
   securitySchemes:
     userAuth:
       type: oauth2

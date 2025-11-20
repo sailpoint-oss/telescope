@@ -1,3 +1,22 @@
 [workspace]
 packages = ["packages/*"]
 
+[test]
+# Enable coverage by default for all test runs
+coverage = true
+
+# Skip test files from coverage reports (only count source files)
+coverageSkipTestFiles = true
+
+# Coverage output directory (lcov reports saved here)
+coverageDir = "./coverage"
+
+# Coverage reporters:
+# - "text": Shows coverage table in console
+# - "lcov": Generates lcov.info file for CI/tooling (e.g., Codecov, Coveralls)
+coverageReporter = ["text", "lcov"]
+
+# Coverage thresholds - test run fails if coverage falls below these
+# Current targets: 75% lines, 75% functions (can be adjusted per package)
+coverageThreshold = { lines = 0.75, functions = 0.75 }
+
