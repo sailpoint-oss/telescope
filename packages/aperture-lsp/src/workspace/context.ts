@@ -20,6 +20,7 @@ import { URI as Uri } from "vscode-uri";
 import type { z } from "zod";
 import { Core } from "../core/core.js";
 import { loadSchema } from "../services/validation/schema-loader.js";
+import type { ValidationRule } from "../types.js";
 import { OpenAPIDocumentStore } from "./documents";
 
 export interface DiagnosticsLogger {
@@ -43,20 +44,16 @@ export class ApertureVolarContext {
 	private configSignature: string;
 	private resolvedRules: ResolvedRule[];
 	private genericRules: GenericRule[] = [];
-	private jsonSchemas: Array<{
-		schema: unknown;
-		groupLabel: string;
-		schemaPattern?: string;
-		zodSchema?: z.ZodType<unknown>;
-	}> = [];
+	private validationRules: ValidationRule[] = [];
 	private workspaceFolderUris: string[] = [];
 	private workspaceFolderPaths: string[] = [];
 	private affectedUris = new Set<string>();
 	private rootDocumentUris = new Set<string>(); // Track root documents discovered via file watcher
 	private hasPerformedInitialScan = false; // Track if we've done initial workspace scan
+	public rulesLoadPromise: Promise<void> = Promise.resolve();
 
-	constructor(logger: DiagnosticsLogger = console, server?: LanguageServer) {
-		this.logger = logger;
+	constructor(server?: LanguageServer) {
+		this.logger = console;
 		this.server = server;
 		// Load config from workspace root if available
 		const workspaceRoot = this.getWorkspaceRoot();
@@ -65,9 +62,9 @@ export class ApertureVolarContext {
 		// Initialize rules synchronously (will be reloaded async on first use)
 		this.resolvedRules = [];
 		this.genericRules = [];
-		this.jsonSchemas = [];
+		this.validationRules = [];
 		// Load rules asynchronously
-		void this.loadRules();
+		this.rulesLoadPromise = this.loadRules();
 	}
 
 	get core(): Core {
@@ -139,11 +136,15 @@ export class ApertureVolarContext {
 		this.config = resolveConfig(workspaceRoot);
 		this.configSignature = computeConfigSignature(this.config);
 		// Reload rules asynchronously
-		void this.loadRules();
+		this.rulesLoadPromise = this.loadRules();
 	}
 
 	getWorkspaceFolders(): string[] {
 		return this.workspaceFolderUris;
+	}
+
+	getWorkspacePaths(): string[] {
+		return this.workspaceFolderPaths;
 	}
 
 	getResolvedRules(): ResolvedRule[] {
@@ -156,6 +157,10 @@ export class ApertureVolarContext {
 
 	getConfigSignature(): string {
 		return this.configSignature;
+	}
+
+	getConfig(): LintConfig {
+		return this.config;
 	}
 
 	reloadConfiguration(): boolean {
@@ -171,7 +176,7 @@ export class ApertureVolarContext {
 		this.config = nextConfig;
 		this.configSignature = nextSignature;
 		// Reload rules asynchronously
-		void this.loadRules();
+		this.rulesLoadPromise = this.loadRules();
 		this.logger.log?.(
 			`[Context] Configuration reloaded - new signature ${this.configSignature}`,
 		);
@@ -193,14 +198,14 @@ export class ApertureVolarContext {
 				workspaceRoot,
 			);
 
-			// Load JSON schemas - store with group label for simple lookup
-			this.jsonSchemas = [];
+			// Load validation rules (JSON/Zod schemas)
+			this.validationRules = [];
 			if (workspaceRoot && this.config.additionalValidation?.groups) {
 				for (const [label, group] of Object.entries(
 					this.config.additionalValidation.groups,
 				)) {
 					if (group.schemas) {
-						for (const schemaConfig of group.schemas) {
+						for (const [index, schemaConfig] of group.schemas.entries()) {
 							try {
 								// Resolve schema path - try .telescope/schemas/ first, then workspace root
 								let schemaPath: string;
@@ -229,11 +234,21 @@ export class ApertureVolarContext {
 									// Use shared schema loader to handle both JSON and TS/Zod schemas
 									const loaded = await loadSchema(schemaPath);
 									if (loaded) {
-										this.jsonSchemas.push({
-											schema: loaded.jsonSchema,
+										let patterns: string[] = [];
+										if (schemaConfig.pattern) {
+											patterns = Array.isArray(schemaConfig.pattern)
+												? schemaConfig.pattern
+												: [schemaConfig.pattern];
+										} else if (group.patterns) {
+											patterns = group.patterns;
+										}
+
+										this.validationRules.push({
+											id: `${label}-${index}`,
+											label,
+											patterns,
+											jsonSchema: loaded.jsonSchema,
 											zodSchema: loaded.zodSchema,
-											groupLabel: label,
-											schemaPattern: schemaConfig.pattern, // Optional per-schema pattern
 										});
 									} else {
 										this.logger.warn?.(
@@ -301,13 +316,8 @@ export class ApertureVolarContext {
 		return this.config.additionalValidation?.groups ?? {};
 	}
 
-	getJsonSchemas(): Array<{
-		schema: unknown;
-		groupLabel: string;
-		schemaPattern?: string;
-		zodSchema?: z.ZodType<unknown>;
-	}> {
-		return this.jsonSchemas;
+	getValidationRules(): ValidationRule[] {
+		return this.validationRules;
 	}
 
 	/**
@@ -328,8 +338,11 @@ export class ApertureVolarContext {
 	shouldProcessFile(uri: string): boolean {
 		return matchesPattern(
 			uri,
-			this.config.include,
-			this.config.exclude,
+			this.config.openapi?.patterns,
+			undefined, // Excludes are typically handled within patterns via ! prefix or not at all in this simple check?
+			// Actually matchesPattern supports explicit exclude array.
+			// But new config puts excludes in patterns array with ! prefix.
+			// So we pass undefined for explicit exclude array.
 			this.workspaceFolderPaths,
 		);
 	}
@@ -412,31 +425,44 @@ function computeConfigSignature(config: LintConfig): string {
 }
 
 function normalizeConfig(config: LintConfig): unknown {
+	const openapi = config.openapi
+		? {
+				base: config.openapi.base ? [...config.openapi.base].sort() : undefined,
+				patterns: config.openapi.patterns
+					? [...config.openapi.patterns].sort()
+					: undefined,
+				rules: config.openapi.rules
+					? [...config.openapi.rules].sort((a, b) =>
+							(a.pattern ?? "").localeCompare(b.pattern ?? ""),
+						)
+					: undefined,
+				rulesOverrides: config.openapi.rulesOverrides
+					? Object.fromEntries(
+							Object.entries(config.openapi.rulesOverrides).sort(([a], [b]) =>
+								a.localeCompare(b),
+							),
+						)
+					: undefined,
+				overrides: config.openapi.overrides
+					? config.openapi.overrides.map((override) => ({
+							files: [...override.files],
+							rules: Object.fromEntries(
+								Object.entries(override.rules).sort(([a], [b]) =>
+									a.localeCompare(b),
+								),
+							),
+						}))
+					: undefined,
+				customRules: config.openapi.customRules
+					? [...config.openapi.customRules].sort((a, b) =>
+							(a.pattern ?? "").localeCompare(b.pattern ?? ""),
+						)
+					: undefined,
+			}
+		: undefined;
+
 	return {
-		ruleset: config.ruleset ? [...config.ruleset] : undefined,
-		rules: config.rules
-			? Object.fromEntries(
-					Object.entries(config.rules).sort(([a], [b]) => a.localeCompare(b)),
-				)
-			: undefined,
-		overrides: config.overrides
-			? config.overrides.map((override) => ({
-					files: [...override.files],
-					rules: Object.fromEntries(
-						Object.entries(override.rules).sort(([a], [b]) =>
-							a.localeCompare(b),
-						),
-					),
-				}))
-			: undefined,
-		versionOverride: config.versionOverride,
-		include: config.include ? [...config.include].sort() : undefined,
-		exclude: config.exclude ? [...config.exclude].sort() : undefined,
-		customRules: config.customRules
-			? [...config.customRules].sort((a, b) =>
-					(a.pattern ?? "").localeCompare(b.pattern ?? ""),
-				)
-			: undefined,
+		openapi,
 		additionalValidation: config.additionalValidation
 			? {
 					groups: config.additionalValidation.groups

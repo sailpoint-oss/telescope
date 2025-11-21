@@ -110,6 +110,7 @@ describe("Core", () => {
 
 		const token: CancellationToken = {
 			isCancellationRequested: true,
+			onCancellationRequested: (listener) => ({ dispose: () => {} }),
 		};
 
 		core.updateDocument("file:///test.json", json, "json", 1, token);

@@ -15,29 +15,12 @@
 				"group": "",
 				"order": 1
 			}
-		},
-		{
-			"name": "Attach to Server (Bun)",
-			"type": "node",
-			"request": "attach",
-			"port": 6009,
-			"restart": true,
-			"address": "localhost",
-			"outFiles": ["${workspaceFolder}/packages/aperture-lsp/out/**/*.js"],
-			"sourceMaps": true,
-			"skipFiles": ["<node_internals>/**"],
-			"preLaunchTask": "build:all",
-			"presentation": {
-				"hidden": false,
-				"group": "",
-				"order": 2
-			}
 		}
 	],
 	"compounds": [
 		{
-			"name": "Launch Extension + Attach Server (Bun)",
-			"configurations": ["Launch Extension", "Attach to Server (Bun)"],
+			"name": "Launch Extension",
+			"configurations": ["Launch Extension"],
 			"preLaunchTask": "build:all",
 			"stopAll": true,
 			"presentation": {

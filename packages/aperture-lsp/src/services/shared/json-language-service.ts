@@ -10,6 +10,7 @@ import type {
 import * as json from "vscode-json-languageservice";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import { URI, Utils } from "vscode-uri";
+import type { SchemaConfiguration, SchemaResolver } from "../../types.js";
 
 export interface ProvideJson {
 	"json/jsonDocument": (
@@ -18,7 +19,7 @@ export interface ProvideJson {
 	"json/languageService": () => json.LanguageService;
 }
 
-export interface JSONSchemaSettings {
+export interface SchemaConfig {
 	fileMatch?: string[];
 	url?: string;
 	schema?: json.JSONSchema;
@@ -91,9 +92,8 @@ export function create({
 		languageSettings.schemas ??= [];
 
 		const schemas =
-			(await context.env.getConfiguration<JSONSchemaSettings[]>?.(
-				"json.schemas",
-			)) ?? [];
+			(await context.env.getConfiguration<SchemaConfig[]>?.("json.schemas")) ??
+			[];
 
 		for (let i = 0; i < schemas.length; i++) {
 			const schema = schemas[i];
@@ -128,6 +128,7 @@ export function create({
 			},
 		};
 	},
+	getSchemasForDocument,
 }: {
 	documentSelector?: DocumentSelector;
 	getWorkspaceContextService?(
@@ -153,6 +154,7 @@ export function create({
 		listener: () => void,
 		context: LanguageServiceContext,
 	): Disposable;
+	getSchemasForDocument?: SchemaResolver;
 } = {}): LanguageServicePlugin {
 	return {
 		name: "json",
@@ -180,17 +182,31 @@ export function create({
 				TextDocument,
 				[number, json.JSONDocument]
 			>();
+			const inlineSchemas = new Map<string, Record<string, unknown>>();
+
 			const jsonLs = json.getLanguageService({
-				schemaRequestService: async (uri) =>
-					(await context.env.fs?.readFile(URI.parse(uri))) ?? "",
+				schemaRequestService: async (uri) => {
+					const inline = inlineSchemas.get(uri);
+					if (inline) return JSON.stringify(inline);
+					return (await context.env.fs?.readFile(URI.parse(uri))) ?? "";
+				},
 				workspaceContext: getWorkspaceContextService(context),
 				clientCapabilities: context.env.clientCapabilities,
 			});
 			const disposable = onDidChangeLanguageSettings(() => {
 				initializing = undefined;
+				documentConfigCache.clear();
+				inlineSchemas.clear();
 			}, context);
 
 			let initializing: Promise<void> | undefined;
+			const documentConfigCache = new Map<
+				string,
+				{
+					schemas: SchemaConfiguration[] | undefined;
+					version: number;
+				}
+			>();
 
 			return {
 				dispose() {
@@ -311,6 +327,50 @@ export function create({
 				initializing ??= initialize();
 				await initializing;
 
+				// Resolve schemas
+				let schemas: SchemaConfiguration[] | undefined;
+				const cacheKey = `${document.uri}:${document.version}`;
+				const cached = documentConfigCache.get(cacheKey);
+				if (cached && cached.version === document.version) {
+					schemas = cached.schemas;
+				} else {
+					if (getSchemasForDocument) {
+						schemas = await getSchemasForDocument(document, context);
+					}
+					documentConfigCache.set(cacheKey, {
+						schemas,
+						version: document.version,
+					});
+				}
+
+				// Configure service if schemas found
+				if (schemas && schemas.length > 0) {
+					const baseSettings = await getLanguageSettings(context);
+					const jsonSchemas: NonNullable<json.LanguageSettings["schemas"]> =
+						schemas.map((config) => {
+							if (config.schema) {
+								inlineSchemas.set(config.uri, config.schema);
+							}
+							return {
+								uri: config.uri,
+								fileMatch: config.fileMatch,
+								schema: undefined, // schemaRequestService will handle it
+								folderUri: config.folderUri,
+							};
+						});
+
+					if (jsonSchemas.length > 0) {
+						// Merge with existing schemas? Or replace?
+						// Native patterns might be in baseSettings.schemas
+						// We should append.
+						const existingSchemas = baseSettings.schemas || [];
+						jsonLs.configure({
+							...baseSettings,
+							schemas: [...existingSchemas, ...jsonSchemas],
+						});
+					}
+				}
+
 				return await callback(jsonDocument);
 			}
 
@@ -341,6 +401,24 @@ export function create({
 	};
 }
 
+export function createCustomJsonService({
+	schemaResolver,
+	documentSelector = [{ language: "json", pattern: "**/*.json" }],
+	name = "telescope-json-service",
+}: {
+	schemaResolver: SchemaResolver;
+	documentSelector?: DocumentSelector;
+	name?: string;
+}): LanguageServicePlugin {
+	return {
+		...create({
+			documentSelector,
+			getSchemasForDocument: schemaResolver,
+		}),
+		name,
+	};
+}
+
 function matchDocument(selector: DocumentSelector, document: TextDocument) {
 	for (const sel of selector) {
 		if (
@@ -351,56 +429,4 @@ function matchDocument(selector: DocumentSelector, document: TextDocument) {
 		}
 	}
 	return false;
-}
-
-/**
- * Create a JSON language service with pattern-based schema selection.
- *
- * @param options - Configuration options for the pattern-based JSON service
- */
-export function createPatternBasedJsonService({
-	schemaPatterns,
-	documentSelector = [{ language: "json", pattern: "**/*.json" }],
-	name = "telescope-json-service",
-}: {
-	schemaPatterns:
-		| Array<{
-				schema: Record<string, unknown>;
-				pattern: string;
-		  }>
-		| (() =>
-				| Array<{
-						schema: Record<string, unknown>;
-						pattern: string;
-				  }>
-				| Promise<
-						Array<{
-							schema: Record<string, unknown>;
-							pattern: string;
-						}>
-				  >);
-	documentSelector?: DocumentSelector;
-	name?: string;
-}): LanguageServicePlugin {
-	return {
-		...create({
-			documentSelector,
-			getLanguageSettings: async () => {
-				const patterns =
-					typeof schemaPatterns === "function"
-						? await schemaPatterns()
-						: schemaPatterns;
-				return {
-					validate: true,
-					allowComments: true,
-					schemas: patterns.map(({ schema, pattern }, index) => ({
-						uri: `telescope-json-${name}-${index}`,
-						fileMatch: [pattern],
-						schema: schema as json.JSONSchema,
-					})),
-				};
-			},
-		}),
-		name,
-	};
 }

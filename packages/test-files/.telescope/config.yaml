@@ -1,5 +1,5 @@
 # New structured configuration format
-OpenAPI:
+openapi:
   base:
     - "@telescope-openapi/default"
   patterns:
@@ -12,10 +12,9 @@ OpenAPI:
     - rule: example-custom-openapi-rule.ts
       patterns:
         - "**/custom-openapi-*.yaml"
-        - "**/test-*.yaml"
 
 # Additional validation configuration for non-OpenAPI files
-AdditionalValidation:
+additionalValidation:
   zod-schema-validation: # Zod schema validation entry, this label is user specified
     patterns:
       - "**/custom-zod-schema-*.yaml"

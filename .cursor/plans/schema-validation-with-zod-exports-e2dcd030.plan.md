@@ -1,87 +1,62 @@
 <!-- e2dcd030-d1df-4888-b221-1c24aa9972c0 39815565-b40d-40ba-a081-28e754bf4fbc -->
-# Unified Custom Schema Service Architecture
+# Universal Parsing & Validation Architecture
 
-I will build a robust foundation for schema validation that supports both current pattern-based custom schemas and future content-aware OpenAPI validation, ensuring zero redundant parsing.
+I will re-architect the system to use **Language Plugins** for parsing and **Service Plugins** for validation, connected by a shared interface. This ensures "Parse Once" efficiency and consistency across standard JSON/YAML and future OpenAPI workflows.
 
-## Implementation Strategy
+## Implementation Steps
 
-### 1. Centralized Rule Compilation (`ApertureVolarContext`)
+### 1. Documentation
 
-I will implement a "Compile Once" strategy for configuration.
+- **Task**: Create `plans/openapi-implementation.md`.
+- **Content**: A concise, actionable plan for the full OpenAPI implementation (OpenAPI Language Plugin, Virtual Code, Schema Detection, Validation Flow) based on the user's vision.
 
-- **Modification**: Update `packages/aperture-lsp/src/workspace/context.ts`.
-- **Logic**:
-  - `loadRules()` will read config and `schema-loader` results.
-  - It will flatten them into a `ValidationRule[]`:
-    ```typescript
-    interface ValidationRule {
-      id: string;
-      label: string;
-      patterns: string[];      // Glob patterns
-      jsonSchema?: Schema;     // For Native LS
-      zodSchema?: ZodSchema;   // For Custom Checks
-    }
-    ```
+### 2. Unified Interface & Parsing
 
-  - **Updates**: Expose an event or callback mechanism (`onRulesChange`) so plugins can update their internal state immediately upon config reload.
-
-### 2. Generic `createCustomSchemaService`
-
-I will refactor both `yaml-language-service.ts` and `json-language-service.ts` to use a unified factory pattern.
-
-- **New Factory**: `createCustomSchemaService(options)`
-- **Options**:
+- **Interface**: Define `ParsedContent` (or similar) in `shared` or `lens`.
   ```typescript
-  interface CustomSchemaServiceOptions {
-    // ... standard options ...
-    schemaResolver: (
-      doc: TextDocument, 
-      context?: LanguageServiceContext
-    ) => Promise<SchemaResult[]>; 
+  interface ParsedContent {
+      parsedObject: unknown;
+      ast: unknown; // Generic AST wrapper
+      type: 'json' | 'yaml';
   }
   ```
 
-- **Behavior**: The service delegates schema selection entirely to the resolver, allowing the "brain" to be in the plugin layer (supporting both pattern matching and future VirtualCode inspection).
+- **Universal Language Plugin**: Create `packages/aperture-lsp/src/languages/universal-plugin.ts`.
+  - Logic: Matches `**/*.{json,yaml}` (excluding Config/OpenAPI patterns).
+  - Action: Parses content once.
+  - Output: Returns a `VirtualCode` implementing `ParsedContent`.
 
-### 3. "Parse Once" Document Cache
+### 3. Context & Rule Compilation
 
-To satisfy the performance requirement, I will implement a caching layer in `validation.ts`.
+- **Refactor**: Update `ApertureVolarContext` to pre-compile `validationRules` (flattened list of patterns/schemas).
+- **Access**: Expose these rules for the validation service.
 
-- **Component**: `DocumentParseCache`
-- **Storage**: `Map<string /* uri */, { version: number, ast: AST, json: unknown }>`
+### 4. Distinct Service Wrappers
+
+- **Refactor**: Update `createPatternBasedYamlService` and `createPatternBasedJsonService` (keeping them separate).
+- **Change**: Both will accept a `schemaResolver` function.
+- **Goal**: Standardize the *configuration* interface while keeping the *implementation* specific to the underlying LS.
+
+### 5. Validation Service (`validation.ts`)
+
 - **Logic**:
-  - On validation request, check cache for `(uri, version)`.
-  - If miss, parse (using `yaml` or `JSON.parse`) and cache.
-  - Reuse this result for:
+  - Retrieve `VirtualCode` from the document (accessing the pre-parsed `ParsedContent`).
+  - **Resolver**: Match patterns (from Context) to find applicable schemas.
+  - **Native Validation**: Pass JSON Schemas to the Native LS (via the wrapper).
+  - **Custom Validation**: Use `ParsedContent.parsedObject` to run `zodSchema.safeParse`.
+  - **Diagnostics**: Map Zod errors using the existing (improved) logic, utilizing `ParsedContent.ast` for ranges.
 
-    1. Zod Validation (`safeParse` on the cached json object).
-    2. Generic Rules (if they need the AST).
-    3. Future OpenAPI detection (checking root keys).
+## Benefits
 
-### 4. Implementation in `validation.ts`
+- **Parse Once**: Parsing happens only in the Language Plugin. Validation Service just reads.
+- **Exclusion**: The Universal Plugin naturally handles exclusions, preventing double-parsing when OpenAPI plugin arrives.
+- **Consistency**: Standard interface for all file types.
 
-I will rewire the plugin to use these components:
+## Verification
 
-- **Init**: Load rules from Context. Subscribe to rule updates.
-- **Schema Resolution**: Implement `schemaResolver` that:
-
-  1. Checks `validationRules` against file path (Pattern Match).
-  2. (Future stub) Checks `DocumentParseCache` for content signatures (Content Match).
-  3. Returns applicable JSON schemas to the Native LS.
-
-- **Diagnostics**:
-  - Retrieve valid rules for the document.
-  - **Standard**: Native LS runs (using the resolved JSON schemas).
-  - **Custom**: Get cached parse result. Run `zodSchema.safeParse`. Map errors using `zodErrorsToDiagnostics`.
-  - **Generic**: Run generic rules.
-
-## Verification & Testing
-
-- **Unit Tests**: Verify `DocumentParseCache` invalidation logic.
-- **Integration Tests**: 
-  - Ensure Zod validation works with the new flow.
-  - Ensure `0:0` ranges are fixed (using the previously improved logic).
-  - Verify Native LS validation works (mirrored for JSON and YAML).
+- Verify `plans/openapi-implementation.md` is created.
+- Verify standard validation works with the new Language Plugin flow.
+- Verify performance and ranges.
 
 ### To-dos
 

@@ -8,18 +8,21 @@ import {
 	createSimpleProject,
 } from "@volar/language-server/node";
 import { createConfigLanguagePlugin } from "./languages/config/config-plugin.js";
+import { createOpenAPILanguagePlugin } from "./languages/openapi/openapi-plugin.js";
+import { createUniversalLanguagePlugin } from "./languages/universal/universal-plugin.js";
 import {
 	createConfigServicePlugin,
 	isConfigFile,
 } from "./services/config/config.js";
+import { createOpenAPIServicePlugin } from "./services/openapi/openapi.js";
 import { createAdditionalValidationPlugin } from "./services/validation/validation.js";
 import { ApertureVolarContext } from "./workspace/context.js";
 
 const connection = createConnection();
 const server = createServer(connection);
 
-const shared = new ApertureVolarContext(connection.console, server);
-const logger = shared.getLogger("Server");
+const shared = new ApertureVolarContext(server);
+const logger = shared.getLogger("Main");
 
 // Instantiate the plugins
 const configLanguagePlugin = createConfigLanguagePlugin(shared);
@@ -27,12 +30,8 @@ const configLanguagePlugin = createConfigLanguagePlugin(shared);
 // Build the array of Language Plugins
 const languagePlugins: LanguagePlugin[] = [
 	configLanguagePlugin,
-	// createOpenAPILanguagePlugin(
-	//   shared.documents,
-	//   shared.core,
-	//   shared,
-	//   shared.getLogger()
-	// ),
+	createUniversalLanguagePlugin(shared),
+	createOpenAPILanguagePlugin(shared),
 ];
 
 logger.log(`Loading ${languagePlugins.length} language plugin(s)`);
@@ -44,7 +43,7 @@ const additionalValidationPlugin = createAdditionalValidationPlugin(shared);
 // Build the array of Language Service Plugins
 const languageServicePlugins: LanguageServicePlugin[] = [
 	configServicePlugin,
-	// createOpenAPIServicePlugin(shared),
+	createOpenAPIServicePlugin(shared),
 	additionalValidationPlugin,
 ];
 

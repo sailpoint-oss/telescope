@@ -1,18 +1,9 @@
-/**
- * Additional Validation Service Plugin - validates non-OpenAPI YAML/JSON files
- * with custom schemas and generic rules.
- *
- * Uses createPatternBasedYamlService for YAML files and a custom JSON service for JSON files.
- */
-
-import { resolve } from "node:path";
 import type {
 	LanguageServiceContext,
 	LanguageServicePlugin,
 	LanguageServicePluginInstance,
 } from "@volar/language-service";
-import type { GenericRule } from "lens";
-import { loadDocument, loadGenericRule, runGenericRules } from "lens";
+import { type GenericRule, matchesPattern, runGenericRules } from "lens";
 import { normalizeBaseUri } from "shared/document-utils";
 import { globFiles, readFileWithMetadata } from "shared/file-system-utils";
 import type {
@@ -21,26 +12,27 @@ import type {
 } from "vscode-languageserver-protocol";
 import { URI } from "vscode-uri";
 import * as yaml from "yaml";
-import type { z } from "zod";
+import type { ParsedContent, SchemaResolver } from "../../types.js";
 import type { ApertureVolarContext } from "../../workspace/context.js";
 import { isConfigFile } from "../config/config.js";
 import { toLspDiagnostic } from "../shared/diagnostic-converter.js";
 import {
-	createPatternBasedJsonService,
+	createCustomJsonService,
 	type ProvideJson,
 } from "../shared/json-language-service.js";
 import {
-	createPatternBasedYamlService,
+	createCustomYamlService,
 	type ProvideYaml,
 } from "../shared/yaml-language-service.js";
 import { zodErrorsToDiagnostics } from "../shared/zod-to-diag.js";
-import { loadSchema } from "./schema-loader.js";
 
 // Helper to load generic rules
 async function loadGroupRules(
 	groupRules: Array<{ rule: string; pattern?: string }>,
 	workspaceRoot?: string,
 ): Promise<Array<{ rule: GenericRule; pattern?: string }>> {
+	// Dynamic import to avoid circular deps or just use what we have
+	const { loadGenericRule } = await import("lens");
 	const rules: Array<{ rule: GenericRule; pattern?: string }> = [];
 	for (const ruleConfig of groupRules) {
 		const rule = await loadGenericRule(ruleConfig.rule, workspaceRoot);
@@ -51,168 +43,55 @@ async function loadGroupRules(
 	return rules;
 }
 
-// Helper to match file pattern for Generic Rules (since LS handles schema matching internally)
-function fileMatchesPattern(
-	uri: string,
-	pattern: string,
-	workspaceRoots: string[],
-): boolean {
-	const uriPath = URI.parse(uri).fsPath;
-	const normalizedUri = uriPath.replace(/\\/g, "/");
-
-	// Check against workspace roots for relative path matching
-	for (const root of workspaceRoots) {
-		try {
-			const resolvedPath = resolve(root, pattern);
-			const normalizedPattern = resolvedPath.replace(/\\/g, "/");
-			if (
-				normalizedUri === normalizedPattern ||
-				normalizedUri.endsWith(normalizedPattern)
-			) {
-				return true;
-			}
-		} catch {
-			// Continue
-		}
-	}
-
-	// Fallback to simple string match or glob check (basic implementation)
-	const globStarPlaceholder = "___GLOBSTAR___";
-	const regexPattern = pattern
-		.replace(/\*\*/g, globStarPlaceholder)
-		.replace(/\*/g, "[^/]*")
-		.replace(new RegExp(globStarPlaceholder, "g"), ".*")
-		.replace(/\?/g, ".");
-	const regex = new RegExp(`^${regexPattern}$`);
-	return regex.test(uri) || uri.includes(pattern);
-}
-
-/**
- * Create Additional Validation service plugin.
- */
 export function createAdditionalValidationPlugin(
 	shared: ApertureVolarContext,
 ): LanguageServicePlugin<ProvideYaml & ProvideJson> {
 	const logger = shared.getLogger("Validation Service");
-	logger.log(`Creating validation service plugin`);
+	logger.log("Creating validation service plugin");
 
-	// 1. Prepare Schema Patterns from Config
-	const groups = shared.getAdditionalValidationGroups();
-	const workspaceRoots = shared.getWorkspaceFolders().map((uri) => {
-		try {
-			return URI.parse(uri).fsPath;
-		} catch {
-			return uri.replace(/^file:\/\//, "");
-		}
-	});
-	const workspaceRoot = workspaceRoots[0];
+	// Schema Resolver for Native Services
+	const schemaResolver: SchemaResolver = async (document, _context) => {
+		const rules = shared.getValidationRules();
+		const matchingRules = [];
+		const workspaceFolders = shared.getWorkspaceFolders();
 
-	// Define a getter for schema patterns to support lazy loading
-	const getSchemaPatterns = async () => {
-		const groups = shared.getAdditionalValidationGroups();
-		// preloadedSchemas are the JSON ones loaded by context (legacy/json support)
-		const preloadedSchemas = shared.getJsonSchemas();
-		const patterns: Array<{
-			schema: Record<string, unknown>;
-			pattern: string;
-			zodSchema?: z.ZodType<unknown>;
-			label?: string;
-		}> = [];
+		// Filter rules matching the document
+		for (const rule of rules) {
+			const matches = rule.patterns.some((p) =>
+				matchesPattern(document.uri, [p], [], workspaceFolders),
+			);
 
-		for (const {
-			schema,
-			groupLabel,
-			schemaPattern,
-			zodSchema,
-		} of preloadedSchemas) {
-			const group = groups[groupLabel];
-			if (group) {
-				// If specific pattern on schema, use it.
-				// Else use all group patterns.
-				const p = schemaPattern ? [schemaPattern] : group.patterns || [];
-
-				for (const pattern of p) {
-					// Exclude patterns start with '!' - skip them for schema association
-					if (!pattern.startsWith("!")) {
-						patterns.push({
-							schema: schema as Record<string, unknown>,
-							pattern,
-							zodSchema,
-							label: groupLabel,
-						});
-					}
-				}
+			if (matches && rule.jsonSchema) {
+				matchingRules.push({
+					uri: `telescope-${rule.id}`,
+					fileMatch: [document.uri], // Bind explicitly to this document
+					schema: rule.jsonSchema,
+				});
 			}
 		}
 
-		// Load TS schemas from config
-		for (const [label, group] of Object.entries(groups)) {
-			if (group.schemas) {
-				for (const schemaConfig of group.schemas) {
-					let schemaPath = schemaConfig.schema;
-					// Check if it is likely a TS file (or JS) and not already loaded (preloaded ones are from context loadRules which handles JSON)
-					// Actually context loadRules loads everything that ends with .json or .yaml or .yml?
-					// context.ts loadRules filters files ending with .json for jsonSchemas.
-					// So here we specifically target .ts or .js files or anything not caught by context.
-					// Or we can just blindly try to load everything that looks like a file path if we want to unify.
-					// But to avoid double loading JSONs, let's check extension.
-					if (
-						schemaPath &&
-						(schemaPath.endsWith(".ts") ||
-							schemaPath.endsWith(".js") ||
-							schemaPath.endsWith(".mts") ||
-							schemaPath.endsWith(".mjs"))
-					) {
-						if (!schemaPath.startsWith("/") && !/^[a-zA-Z]:/.test(schemaPath)) {
-							schemaPath = resolve(workspaceRoot || "", schemaPath);
-						}
-
-						const loaded = await loadSchema(schemaPath);
-						if (loaded) {
-							const p = schemaConfig.pattern
-								? [schemaConfig.pattern]
-								: group.patterns || [];
-							for (const pattern of p) {
-								if (!pattern.startsWith("!")) {
-									patterns.push({
-										schema: loaded.jsonSchema,
-										pattern,
-										zodSchema: loaded.zodSchema,
-										label,
-									});
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		return patterns;
+		return matchingRules.length > 0 ? matchingRules : undefined;
 	};
 
-	// 2. Initialize Base Services
-	const yamlService = createPatternBasedYamlService({
+	// Initialize Services
+	const yamlService = createCustomYamlService({
 		name: "telescope-additional-yaml",
-		// biome-ignore lint/suspicious/noExplicitAny: Schema pattern types need update
-		schemaPatterns: getSchemaPatterns as any,
+		schemaResolver,
 		documentSelector: [
 			{ language: "yaml", pattern: "**/*.yaml" },
 			{ language: "yaml", pattern: "**/*.yml" },
 		],
 	});
 
-	const jsonService = createPatternBasedJsonService({
+	const jsonService = createCustomJsonService({
 		name: "telescope-additional-json",
-		// biome-ignore lint/suspicious/noExplicitAny: Schema pattern types need update
-		schemaPatterns: getSchemaPatterns as any,
+		schemaResolver,
 		documentSelector: [{ language: "json", pattern: "**/*.json" }],
 	});
 
 	return {
 		name: "telescope-additional-validation",
 		capabilities: {
-			// Merge capabilities from both
 			...yamlService.capabilities,
 			...jsonService.capabilities,
 			diagnosticProvider: {
@@ -234,26 +113,22 @@ export function createAdditionalValidationPlugin(
 					...jsonInstance.provide,
 				},
 
-				// Unified Diagnostic Provider
 				async provideDiagnostics(document, token) {
 					if (token?.isCancellationRequested) {
 						return [];
 					}
 
 					const sourceUri = normalizeBaseUri(document.uri);
-
-					// Skip config files
 					if (isConfigFile(sourceUri)) {
 						return [];
 					}
 
 					const diagnostics: VsDiagnostic[] = [];
 
-					// 1. Run Base Validation (Schema)
+					// 1. Native Validation
 					if (document.languageId === "yaml") {
 						let baseDiagnostics =
 							(await yamlInstance.provideDiagnostics?.(document, token)) ?? [];
-						// Filter out unwanted warnings
 						baseDiagnostics = baseDiagnostics.filter(
 							(d) => d.code !== "DisallowedExtraPropWarning" && d.code !== 513,
 						);
@@ -266,118 +141,165 @@ export function createAdditionalValidationPlugin(
 						return [];
 					}
 
-					// 2. Run Zod Validation (if applicable)
+					// 2. Custom (Zod) & Generic Validation
+					const rules = shared.getValidationRules();
+					const workspaceFolders = shared.getWorkspaceFolders();
+					const groups = shared.getAdditionalValidationGroups();
+
+					// Attempt to get pre-parsed content from Universal Plugin
+					let parsedContent: ParsedContent | undefined;
 					try {
-						const patterns = await getSchemaPatterns();
-						for (const { pattern, zodSchema, label } of patterns) {
-							if (
-								zodSchema &&
-								fileMatchesPattern(sourceUri, pattern, workspaceRoots)
-							) {
-								const text = document.getText();
-								let docObject: unknown;
-								let ast: any;
-								let lineCounter: any;
-
-								try {
-									if (document.languageId === "yaml") {
-										const lc = new yaml.LineCounter();
-										const d = yaml.parseDocument(text, { lineCounter: lc });
-										docObject = d.toJS();
-										// biome-ignore lint/suspicious/noExplicitAny: YAML AST type
-										ast = d as any;
-										// biome-ignore lint/suspicious/noExplicitAny: LineCounter type
-										lineCounter = lc as any;
-									} else {
-										docObject = JSON.parse(text);
-									}
-
-									const result = zodSchema.safeParse(docObject);
-									if (!result.success) {
-										// Only map errors if we have YAML AST (for now)
-										if (document.languageId === "yaml" && ast && lineCounter) {
-											const zodDiags = zodErrorsToDiagnostics(
-												result.error,
-												ast,
-												lineCounter,
-												label || "zod-schema",
-												zodSchema,
-											);
-											// biome-ignore lint/suspicious/noExplicitAny: Diagnostics type mismatch
-											diagnostics.push(...(zodDiags as any));
-										} else {
-											// Basic error reporting for JSON (or fallback)
-											// TODO: Improve JSON location mapping
-											diagnostics.push({
-												range: {
-													start: { line: 0, character: 0 },
-													end: { line: 0, character: 0 },
-												},
-												message: `Validation failed: ${result.error.message}`,
-												severity: 1, // Error
-												source: label || "zod-schema",
-											});
-										}
-									}
-								} catch (_e) {
-									// Ignore parse errors here, already caught
+						// context.language is available in newer Volar versions.
+						// Check if it exists on context
+						if ("language" in context) {
+							// biome-ignore lint/suspicious/noExplicitAny: Cast for Volar 2 compat
+							const language = (context as any).language;
+							const script = language.scripts.get(document.uri);
+							if (script?.generated?.root) {
+								const root = script.generated.root;
+								if (root.parsedObject !== undefined && root.ast !== undefined) {
+									parsedContent = root as ParsedContent;
 								}
 							}
 						}
-					} catch (e) {
-						logger.warn?.(`Zod validation failed: ${e}`);
+					} catch (_e) {
+						// ignore
 					}
 
-					// 3. Run Generic Rules
+					// If not found (e.g. excluded file), fallback to local parse
+					if (!parsedContent) {
+						const text = document.getText();
+						if (document.languageId === "yaml") {
+							const lineCounter = new yaml.LineCounter();
+							const doc = yaml.parseDocument(text, { lineCounter });
+							parsedContent = {
+								id: "fallback-yaml",
+								languageId: "yaml",
+								snapshot: {
+									getText: (start, end) => text.substring(start, end),
+									getLength: () => text.length,
+									getChangeRange: () => undefined,
+								},
+								mappings: [],
+								embeddedCodes: [],
+								type: "yaml",
+								parsedObject: doc.toJS(),
+								ast: { doc, lineCounter },
+							};
+						} else if (document.languageId === "json") {
+							try {
+								const obj = JSON.parse(text);
+								parsedContent = {
+									id: "fallback-json",
+									languageId: "json",
+									snapshot: {
+										getText: (start, end) => text.substring(start, end),
+										getLength: () => text.length,
+										getChangeRange: () => undefined,
+									},
+									mappings: [],
+									embeddedCodes: [],
+									type: "json",
+									parsedObject: obj,
+									ast: undefined,
+								};
+							} catch {
+								// Parse error
+							}
+						}
+					}
+
+					if (!parsedContent) return diagnostics;
+
+					// Run Zod Validation
+					for (const rule of rules) {
+						const matches = rule.patterns.some((p) =>
+							matchesPattern(document.uri, [p], [], workspaceFolders),
+						);
+
+						if (matches && rule.zodSchema) {
+							try {
+								const result = rule.zodSchema.safeParse(
+									parsedContent.parsedObject,
+								);
+								if (!result.success) {
+									if (parsedContent.type === "yaml" && parsedContent.ast) {
+										const { doc, lineCounter } = parsedContent.ast as {
+											doc: yaml.Document;
+											lineCounter: yaml.LineCounter;
+										};
+										const zodDiags = zodErrorsToDiagnostics(
+											result.error,
+											doc,
+											lineCounter,
+											rule.label,
+											rule.zodSchema,
+										);
+										// biome-ignore lint/suspicious/noExplicitAny: Diagnostics type mismatch
+										diagnostics.push(...(zodDiags as any));
+									} else {
+										diagnostics.push({
+											range: {
+												start: { line: 0, character: 0 },
+												end: { line: 0, character: 0 },
+											},
+											message: `Validation failed: ${result.error.message}`,
+											severity: 1,
+											source: rule.label,
+										});
+									}
+								}
+							} catch (e) {
+								logger.warn?.(`Zod validation failed for ${rule.label}: ${e}`);
+							}
+						}
+					}
+
+					// Run Generic Rules
 					try {
-						// Find applicable rules for this file
 						for (const [_label, group] of Object.entries(groups)) {
-							// Check excludes
 							const isExcluded = group.patterns?.some(
 								(p: string) =>
 									p.startsWith("!") &&
-									fileMatchesPattern(sourceUri, p.slice(1), workspaceRoots),
+									matchesPattern(
+										document.uri,
+										[p.slice(1)],
+										[],
+										workspaceFolders,
+									),
 							);
 							if (isExcluded) continue;
 
-							// Check matches
 							const matchesGroup = group.patterns?.some(
 								(p: string) =>
 									!p.startsWith("!") &&
-									fileMatchesPattern(sourceUri, p, workspaceRoots),
+									matchesPattern(document.uri, [p], [], workspaceFolders),
 							);
 							if (!matchesGroup) continue;
 
 							if (group.rules) {
 								const groupRules = await loadGroupRules(
 									group.rules,
-									workspaceRoot,
+									shared.getWorkspaceFolders()[0],
 								);
+
 								for (const { rule, pattern } of groupRules) {
-									// If specific pattern exists, must match it. Else it matches because group matched.
 									if (
 										pattern &&
-										!fileMatchesPattern(sourceUri, pattern, workspaceRoots)
+										!matchesPattern(
+											document.uri,
+											[pattern],
+											[],
+											workspaceFolders,
+										)
 									) {
 										continue;
 									}
 
-									// Pass the document text directly to loadDocument
-									// This ensures we parse the current content in the editor, not what's on disk
-									const parsedDoc = await loadDocument(
-										{
-											fileSystem: shared.getFileSystem(),
-											uri: sourceUri,
-											// Pass content from the document object provided by Volar/LSP
-											text: document.getText(),
-										},
-										true, // allowNonOpenAPI
-									);
-
 									const result = runGenericRules(
 										sourceUri,
-										parsedDoc.ast,
-										parsedDoc.rawText,
+										undefined,
+										document.getText(),
 										{ rules: [rule] },
 									);
 
@@ -388,26 +310,33 @@ export function createAdditionalValidationPlugin(
 							}
 						}
 					} catch (error) {
-						logger.warn?.(`Failed to run rules on ${sourceUri}: ${error}`);
+						logger.warn?.(`Failed to run generic rules: ${error}`);
 					}
 
 					return diagnostics;
 				},
 
-				// Maintain workspace diagnostics capability
 				async provideWorkspaceDiagnostics(token) {
-					// Re-using the logic from previous implementation or delegating?
-					// Since we now have a proper LSP service, we can rely on the client asking for diagnostics
-					// OR we can implement a lightweight scanner if needed.
-					// For now, to keep parity, we can iterate files and call provideDiagnostics.
-
-					if (token?.isCancellationRequested) {
-						return null;
-					}
+					if (token?.isCancellationRequested) return null;
 
 					const workspaceFolders = shared.getWorkspaceFolders();
-					// Gather all relevant files
+					const groups = shared.getAdditionalValidationGroups();
 					const allFiles = new Set<string>();
+
+					// Collect files from validation rules
+					const rules = shared.getValidationRules();
+					for (const rule of rules) {
+						const files = await globFiles(
+							shared.getFileSystem(),
+							rule.patterns,
+							workspaceFolders.map((u) => URI.parse(u)),
+						);
+						for (const f of files) {
+							allFiles.add(f);
+						}
+					}
+
+					// Collect files from generic groups
 					for (const group of Object.values(groups)) {
 						if (!group.patterns) continue;
 						const includePatterns = group.patterns.filter(
@@ -429,10 +358,6 @@ export function createAdditionalValidationPlugin(
 						if (token.isCancellationRequested) break;
 						const sourceUri = normalizeBaseUri(uri);
 
-						// Mock a document for validation
-						// Note: This is expensive if we read all files.
-						// Ideally, we trust the client to open files or request diagnostics.
-						// But 'workspaceDiagnostics' implies we report on everything.
 						try {
 							const fileContent = await readFileWithMetadata(
 								shared.getFileSystem(),
@@ -444,11 +369,12 @@ export function createAdditionalValidationPlugin(
 								sourceUri.endsWith(".yaml") || sourceUri.endsWith(".yml");
 							const languageId = isYaml ? "yaml" : "json";
 
-							// Create a simple text document interface
-							const document = {
+							// Mock document
+							// biome-ignore lint/suspicious/noExplicitAny: Mocking document
+							const document: any = {
 								uri: sourceUri,
 								languageId,
-								version: 0, // Version 0 for file-on-disk
+								version: 0,
 								getText: () => fileContent.text,
 								positionAt: (offset: number) => {
 									const lines = fileContent.text
@@ -459,22 +385,21 @@ export function createAdditionalValidationPlugin(
 										character: lines[lines.length - 1]?.length ?? 0,
 									};
 								},
-								offsetAt: (_position: { line: number; character: number }) => 0, // Simplified
+								offsetAt: (_position: { line: number; character: number }) => 0,
 								lineCount: fileContent.text.split("\n").length,
 							};
 
-							// Call our unified provider
 							const items =
 								(await this.provideDiagnostics?.(document, token)) ?? [];
 
 							reports.push({
 								kind: "full",
 								uri: sourceUri,
-								version: null, // null for file on disk
+								version: null,
 								items: items,
 							});
 						} catch {
-							// ignore errors reading files
+							// ignore
 						}
 					}
 

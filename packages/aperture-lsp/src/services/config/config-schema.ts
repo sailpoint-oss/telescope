@@ -23,7 +23,7 @@ const RuleConfigEntrySchema = z
 	);
 
 // Schema for OpenAPI rule configuration
-const OpenApiRuleConfigSchema = z
+const OpenAPIRuleConfigSchema = z
 	.object({
 		rule: z
 			.string()
@@ -104,7 +104,7 @@ const AdditionalValidationGroupSchema = z
 // Telescope configuration schema
 export const TelescopeConfigSchema = z
 	.object({
-		OpenAPI: z
+		openapi: z
 			.object({
 				base: z
 					.array(z.string())
@@ -119,7 +119,7 @@ export const TelescopeConfigSchema = z
 						"Glob patterns for files. Use ! prefix to exclude. Example: **/*.yaml or !**/node_modules/**",
 					),
 				rules: z
-					.array(OpenApiRuleConfigSchema)
+					.array(OpenAPIRuleConfigSchema)
 					.optional()
 					.describe(
 						"Custom OpenAPI rules. Each rule requires rule (path to file) and optionally pattern.",
@@ -166,7 +166,7 @@ export const TelescopeConfigSchema = z
 			.describe(
 				"OpenAPI configuration. All fields are optional.\n\nFields: base, patterns, rules, rulesOverrides, overrides, versionOverride",
 			),
-		AdditionalValidation: z
+		additionalValidation: z
 			.record(z.string(), AdditionalValidationGroupSchema)
 			.optional()
 			.describe(

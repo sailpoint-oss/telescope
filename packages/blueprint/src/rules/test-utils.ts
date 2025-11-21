@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Diagnostic, ProjectContext } from "lens";
 import { getValueAtPointer } from "lens";
 import { buildIndex, buildRefGraph } from "lens";
-import { loadDocument } from "lens/src/load-document.js";
+import { loadDocument } from "lens"; // Fixed import
 import { MemoryFileSystem } from "shared/file-system-utils";
 import { URI } from "vscode-uri";
 

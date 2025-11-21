@@ -154,7 +154,7 @@ export function runEngineIR(
 		dispatch(visitors, "Document", {
 			uri: fileUri,
 			pointer: "#",
-			node: ir.root,
+			node: getValueAtPointer(ir, "#"),
 		});
 
 		// Dispatch PathItem visitors (group operations by path)
@@ -191,7 +191,7 @@ export function runEngineIR(
 					dispatch(visitors, "PathItem", {
 						uri: fileUri,
 						pointer: pathItemNode.ptr,
-						node: pathItemNode,
+						node: getValueAtPointer(ir, pathItemNode.ptr),
 					});
 				}
 			}
@@ -211,7 +211,7 @@ export function runEngineIR(
 						uri: op.uri,
 						pointer: op.ptr,
 						method: op.method,
-						node,
+						node: getValueAtPointer(ir, op.ptr),
 					});
 				}
 			}
@@ -231,7 +231,7 @@ export function runEngineIR(
 				dispatch(visitors, "Component", {
 					uri: component.uri,
 					pointer: component.ptr,
-					node,
+					node: getValueAtPointer(ir, component.ptr),
 				});
 			}
 		}
@@ -250,7 +250,7 @@ export function runEngineIR(
 				dispatch(visitors, "Schema", {
 					uri: schema.uri,
 					pointer: schema.ptr,
-					node,
+					node: getValueAtPointer(ir, schema.ptr),
 				});
 			}
 		}
@@ -269,7 +269,7 @@ export function runEngineIR(
 				dispatch(visitors, "SecurityRequirement", {
 					uri: scheme.uri,
 					pointer: scheme.ptr,
-					node,
+					node: getValueAtPointer(ir, scheme.ptr),
 					level: "root" as const, // Default to root, could be enhanced
 				});
 			}
@@ -298,7 +298,7 @@ export function runEngineIR(
 						pointer: edge.fromPtr,
 						refPointer: edge.fromPtr, // The pointer to the node containing $ref
 						ref: edge.ref,
-						node,
+						node: getValueAtPointer(ir, edge.fromPtr),
 					});
 				}
 			}

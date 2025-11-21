@@ -14,7 +14,7 @@ import { ConfigVirtualCode } from "./config-virtual-code.js";
 export function createConfigLanguagePlugin(
 	shared: ApertureVolarContext,
 ): LanguagePlugin<URI, ConfigVirtualCode> {
-	const logger = shared.getLogger("Config Plugin");
+	const logger = shared.getLogger("Config Language");
 	return {
 		getLanguageId(scriptId) {
 			const uri = scriptId.toString();

@@ -73,13 +73,31 @@ function zodIssueToDiagnostic(
 	// Find the node in the YAML CST that corresponds to this path
 	const node = findNodeByPath(ast.contents, path);
 
-	if (issue.code === "invalid_type") {
-		console.log(issue);
+	// Special handling for missing values (invalid_type where node is missing)
+	if (issue.code === "invalid_type" && !node) {
 		// Handle missing required keys logic
+		// Highlight the key of the parent object that is missing the property
 		const parentPath = path.slice(0, -1);
-		const parentNode = findNodeByPath(ast.contents, parentPath);
+		const parentKeyNode = findKeyNodeByPath(ast.contents, parentPath);
 
-		// If it's a missing property on an object, mark the parent object
+		// If we found the parent key, use it
+		if (parentKeyNode) {
+			const range = getNodeRange(parentKeyNode, lineCounter);
+			if (range) {
+				return [
+					{
+						range,
+						message: formatZodIssueMessage(issue, false),
+						severity: DiagnosticSeverity.Error,
+						source,
+						code: String(issue.code),
+					},
+				];
+			}
+		}
+
+		// Fallback to parent value node (the map itself) if key not found (e.g. root)
+		const parentNode = findNodeByPath(ast.contents, parentPath);
 		if (parentNode) {
 			const range = getNodeRange(parentNode, lineCounter);
 			if (range) {
@@ -117,7 +135,6 @@ function zodIssueToDiagnostic(
 					// Check for suggestions
 					let suggestion = "";
 					if (validKeys.length > 0) {
-						console.log(key, validKeys);
 						const match = closest(key, validKeys);
 						suggestion = `. Did you mean "${match}"?`;
 					}
@@ -198,6 +215,7 @@ function findNodeByPath(
 					// Zod "invalid_type" with received "undefined" implies missing key IF we are looking for it?
 					// But findNodeByPath is traversing EXISTING nodes.
 					// If a key exists but value is missing/null, item.value is null or a Null node.
+					// biome-ignore lint/suspicious/noExplicitAny: Cast for Volar compat
 					return item.value || item.key || (item as any);
 				}
 				return findNodeByPath(item.value as Node, rest);
@@ -222,6 +240,36 @@ function findNodeByPath(
 			return findNodeByPath(node.value as Node, rest);
 		}
 	}
+
+	return null;
+}
+
+/**
+ * Find the KEY node for a given path.
+ * Useful for highlighting the parent key when a child is missing.
+ */
+function findKeyNodeByPath(
+	node: Node | null | undefined,
+	path: (string | number)[],
+): Node | null {
+	if (!node || path.length === 0) {
+		return null; // Root has no key
+	}
+
+	const [key, ...rest] = path;
+
+	if (yaml.isMap(node)) {
+		for (const item of node.items) {
+			if (yaml.isScalar(item.key) && item.key.value === key) {
+				if (rest.length === 0) {
+					return item.key as Node;
+				}
+				return findKeyNodeByPath(item.value as Node, rest);
+			}
+		}
+	}
+	// Similar traversal for other types if needed, but keys usually exist in Maps.
+	// Sequences don't have keys (indexes).
 
 	return null;
 }
