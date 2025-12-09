@@ -11,15 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial public release of Telescope OpenAPI linting tool
 - VS Code extension (`aperture-client`) with real-time diagnostics
 - Volar-based language server (`aperture-server`) with LSP support
-- 27 built-in OpenAPI rules covering best practices:
+- 30 built-in OpenAPI rules covering best practices:
   - Core: `$ref` cycle detection, unresolved reference checking
   - Operations: operationId uniqueness, summary, tags, descriptions
   - Parameters: required fields, examples, descriptions, formats
   - Schemas: structure validation, allOf conflicts, required arrays
   - Components: naming conventions
-- 11 SailPoint-specific rules for enterprise API standards
+- 22 SailPoint-specific rules for enterprise API standards
 - Custom rule support with `defineRule()` and `defineGenericRule()`
-- Custom Zod schema validation with `defineSchema()`
+- Custom TypeBox schema validation with `defineSchema()`
 - Multi-file OpenAPI project support with `$ref` resolution
 - Pattern-based file matching with glob support
 - Configuration via `.telescope/config.yaml`

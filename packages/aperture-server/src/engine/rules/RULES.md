@@ -6,7 +6,7 @@ This document lists all built-in validation rules for OpenAPI specifications.
 
 Rules are organized into a three-tier validation system:
 
-1. **Zod Schemas** - Enforce OpenAPI spec compliance (structural validity, required fields per spec)
+1. **TypeBox Schemas** - Enforce OpenAPI spec compliance (structural validity, required fields per spec)
 2. **OpenAPI Rules** - Suggest best practices (warnings/info/hints for optional improvements)
 3. **SailPoint Rules** - Require fields that OpenAPI says are optional but SailPoint mandates (errors)
 
@@ -19,7 +19,7 @@ Rules are organized into a three-tier validation system:
 | `info` | Information | Informational suggestions |
 | `hint` | Hint | Minor style suggestions |
 
-## OpenAPI Best Practice Rules (~25 rules)
+## OpenAPI Best Practice Rules (30 rules)
 
 These rules suggest improvements for any OpenAPI specification. Most are warnings/info/hints.
 
@@ -103,7 +103,7 @@ These rules suggest improvements for any OpenAPI specification. Most are warning
 
 ---
 
-## SailPoint Rules (~22 rules)
+## SailPoint Rules (22 rules)
 
 These rules enforce SailPoint's business requirements. They require fields that OpenAPI says are optional.
 Enable with `openapi.sailpoint: true` in `.telescope/config.yaml`.

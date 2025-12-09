@@ -10,9 +10,9 @@
 ### Validation & Diagnostics
 
 - **Real-time Diagnostics** - See linting issues as you type in VS Code
-- **38 Built-in Rules** - Covering OpenAPI best practices and SailPoint standards
+- **52 Built-in Rules** - Covering OpenAPI best practices and SailPoint standards
 - **Multi-file Support** - Full `$ref` resolution across your API project
-- **Custom Rules** - Extend with your own TypeScript rules and Zod schemas
+- **Custom Rules** - Extend with your own TypeScript rules and TypeBox schemas
 - **Pattern Matching** - Glob-based file inclusion/exclusion
 
 ### Code Intelligence
@@ -122,7 +122,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Built-in Rules
 
-Telescope includes 27 OpenAPI best practice rules and 11 SailPoint-specific rules:
+Telescope includes 30 OpenAPI best practice rules and 22 SailPoint-specific rules:
 
 | Category | Rules |
 |----------|-------|

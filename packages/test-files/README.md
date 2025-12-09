@@ -77,7 +77,7 @@ The `.telescope/` directory contains example custom rules for reference:
 │   ├── require-operationid.ts         # Simple OpenAPI rule example
 │   └── yaml-key-order.ts              # Generic key ordering rule
 └── schemas/
-    ├── example-zod-schema.ts          # Custom Zod schema
+    ├── example-zod-schema.ts          # Custom TypeBox schema
     └── example-json-schema.json       # JSON Schema example
 ```
 
@@ -166,20 +166,20 @@ export default defineGenericRule({
 });
 ```
 
-### Example Zod Schema
+### Example TypeBox Schema
 
 ```typescript
 // .telescope/schemas/example-zod-schema.ts
 import { defineSchema } from "aperture-server";
 
-export default defineSchema((z) =>
-  z.object({
-    name: z.string(),
-    version: z.string().regex(/^\d+\.\d+\.\d+$/),
-    settings: z.object({
-      debug: z.boolean(),
-      timeout: z.number().min(0).optional(),
-    }).optional(),
+export default defineSchema((Type) =>
+  Type.Object({
+    name: Type.String(),
+    version: Type.String({ pattern: "^\\d+\\.\\d+\\.\\d+$" }),
+    settings: Type.Optional(Type.Object({
+      debug: Type.Boolean(),
+      timeout: Type.Optional(Type.Number({ minimum: 0 })),
+    })),
   })
 );
 ```
@@ -196,7 +196,7 @@ Test files for validating custom rules and schemas:
 - `custom-generic-valid.yaml` - Objects with `version` fields (passes)
 - `custom-generic-invalid.yaml` - Missing `version` fields (fails)
 
-### Zod Schema Tests (`custom/`)
+### TypeBox Schema Tests (`custom/`)
 - `custom-zod-schema-valid.yaml` - Valid configuration (passes)
 - `custom-zod-schema-invalid.yaml` - Missing required fields (fails)
 
@@ -219,7 +219,7 @@ additionalValidation:
     rules:
       - rule: example-generic-rule.ts
   
-  zod-schema-validation:
+  typebox-schema-validation:
     patterns:
       - "custom/custom-zod-schema-*.yaml"
     schemas: 

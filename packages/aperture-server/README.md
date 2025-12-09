@@ -8,7 +8,7 @@ The server provides:
 
 - LSP implementation using Volar's `@volar/language-server` framework
 - Language plugins for YAML and JSON documents
-- OpenAPI linting with 38 built-in rules
+- OpenAPI linting with 52 built-in rules
 - Custom rule and schema support
 - Multi-file project handling with `$ref` resolution
 - Workspace diagnostics for full project linting
@@ -32,7 +32,7 @@ The server has two main layers:
 - **Indexes** - Graph building, project indexing, atom extraction
 - **IR** - Intermediate representation with location tracking
 - **Rules** - Rule API and built-in rules
-- **Schemas** - Zod schemas for OpenAPI 3.0/3.1/3.2
+- **Schemas** - TypeBox schemas for OpenAPI 3.0/3.1/3.2
 
 ## Running
 
@@ -62,7 +62,7 @@ src/
     ├── indexes/        # Graph building, indexing
     ├── ir/             # Intermediate representation
     ├── rules/          # Rule API and built-in rules
-    ├── schemas/        # OpenAPI Zod schemas
+    ├── schemas/        # OpenAPI TypeBox schemas
     └── utils/          # Utility functions
 ```
 
@@ -158,10 +158,10 @@ openapi:
 
 ## Built-in Rules
 
-The server includes 38 built-in rules:
+The server includes 52 built-in rules:
 
-- **27 OpenAPI Rules** - General best practices
-- **11 SailPoint Rules** - SailPoint-specific standards
+- **30 OpenAPI Rules** - General best practices
+- **22 SailPoint Rules** - SailPoint-specific standards
 
 See [RULES.md](src/engine/rules/RULES.md) for the complete rule reference.
 
@@ -173,7 +173,7 @@ See [RULES.md](src/engine/rules/RULES.md) for the complete rule reference.
 | Workspace diagnostics | Lints entire workspace when supported |
 | Multi-root support | Handles multiple workspace folders |
 | Document type detection | Auto-identifies roots, fragments, and non-OpenAPI files |
-| Schema validation | Uses Zod schemas converted to JSON Schema |
+| Schema validation | Uses TypeBox schemas converted to JSON Schema |
 | Reference graph | Builds `$ref` dependency graphs for cross-file validation |
 | Pattern matching | Prettier-style glob patterns with comprehensive testing |
 

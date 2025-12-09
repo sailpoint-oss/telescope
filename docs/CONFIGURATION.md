@@ -64,7 +64,7 @@ additionalValidation:
     patterns:
       - "configs/**/*.yaml"
     
-    # Custom Zod schemas for validation
+    # Custom TypeBox schemas for validation
     schemas:
       - schema: my-schema.ts
         patterns:
@@ -106,13 +106,13 @@ Enable SailPoint-specific rules for enterprise API standards.
 
 ```yaml
 openapi:
-  sailpoint: true  # Adds 11 additional rules
+  sailpoint: true  # Adds 22 additional rules
 ```
 
 | Value | Rules Loaded |
 |-------|--------------|
-| `false` (default) | 27 OpenAPI best practice rules |
-| `true` | 38 rules (27 OpenAPI + 11 SailPoint) |
+| `false` (default) | 30 OpenAPI best practice rules |
+| `true` | 52 rules (30 OpenAPI + 22 SailPoint) |
 
 ### `openapi.rulesOverrides`
 
@@ -198,7 +198,7 @@ additionalValidation:
 
 ### Schema Validation
 
-Register Zod schemas for structural validation:
+Register TypeBox schemas for structural validation:
 
 ```yaml
 additionalValidation:

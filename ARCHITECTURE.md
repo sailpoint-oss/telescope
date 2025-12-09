@@ -30,7 +30,7 @@ telescope/
 │   │           ├── indexes/    # Graph building, project indexing
 │   │           ├── ir/         # Intermediate representation
 │   │           ├── rules/      # Rule API and built-in rules
-│   │           ├── schemas/    # OpenAPI Zod schemas
+│   │           ├── schemas/    # OpenAPI TypeBox schemas
 │   │           └── utils/      # Utility functions
 │   │
 │   └── test-files/             # Test fixtures and examples
@@ -62,7 +62,7 @@ flowchart TB
             Indexes["Graph + Indexes"]
             Execution["Rule Execution"]
             Rules["Built-in Rules"]
-            Schemas["Zod Schemas"]
+            Schemas["TypeBox Schemas"]
         end
     end
 
@@ -133,7 +133,7 @@ flowchart TB
 7. **Execution Layer** runs rules against indexed content:
    - **IR Runner**: Processes rules against IR documents
    - **Visitor Pattern**: Rules receive typed callbacks (Operation, Schema, etc.)
-   - **Zod Schemas**: Provide type safety for rule authors
+   - **TypeBox Schemas**: Provide type safety for rule authors
 
 ### Phase 5: Results
 
@@ -164,7 +164,7 @@ flowchart TB
 | Indexes | `indexes/` | Graph building, atom extraction, project indexing |
 | IR | `ir/` | Intermediate representation with location tracking |
 | Rules | `rules/` | Rule API, built-in rules (generic + SailPoint) |
-| Schemas | `schemas/` | Zod schemas for OpenAPI 3.0/3.1/3.2 |
+| Schemas | `schemas/` | TypeBox schemas for OpenAPI 3.0/3.1/3.2 |
 | Utils | `utils/` | Pointer math, logging, file system utilities |
 
 ## Document Types
@@ -282,13 +282,13 @@ Wraps `yaml-language-server` for generic YAML support:
 - Code actions, code lens with resolution
 - Completions with schema awareness
 - Definition navigation
-- Diagnostics (Zod + JSON Schema)
+- Diagnostics (TypeBox + JSON Schema)
 - Document symbols, hover, document links
 - Folding ranges, selection ranges
 - On-type formatting
 
 Schema validation uses a priority system:
-1. **Zod schemas** (if available) - Better error messages
+1. **TypeBox schemas** (if available) - Better error messages
 2. **JSON Schema** - Standard validation fallback
 
 ### JSON Service (`json-service.ts`)
@@ -297,7 +297,7 @@ Wraps `vscode-json-languageservice` for generic JSON support:
 
 - Completions with resolve support
 - Definition navigation
-- Diagnostics (Zod + JSON Schema)
+- Diagnostics (TypeBox + JSON Schema)
 - Hover, document links
 - Document symbols, colors
 - Folding ranges, selection ranges
@@ -416,14 +416,14 @@ export default defineRule({
 
 ### Custom Schemas
 
-Zod schemas for file validation:
+TypeBox schemas for file validation:
 
 ```typescript
 import { defineSchema } from "aperture-server";
 
-export default defineSchema((z) => z.object({
-  name: z.string(),
-  version: z.string(),
+export default defineSchema((Type) => Type.Object({
+  name: Type.String(),
+  version: Type.String(),
 }));
 ```
 
