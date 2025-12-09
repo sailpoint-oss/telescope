@@ -402,6 +402,86 @@ export interface InfoNode {
 }
 
 /**
+ * Reference to the Info section of an OpenAPI document.
+ * The Info object provides metadata about the API.
+ *
+ * @see {@link Visitors.Info} - Visitor callback that receives InfoRef
+ *
+ * @example
+ * ```typescript
+ * Info(info) {
+ *   const title = info.title();
+ *   const version = info.version();
+ *   if (!info.description()) {
+ *     ctx.reportAt(info, "description", { message: "Missing description", severity: "warning" });
+ *   }
+ * }
+ * ```
+ */
+export interface InfoRef {
+	/** URI of the document containing this info section */
+	uri: string;
+	/** JSON pointer to the info section (always "#/info") */
+	pointer: JsonPointer;
+	/** The info object node */
+	node: unknown;
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Required field accessors
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	/** Get the API title (required) */
+	title(): string;
+	/** Get the API version (required) */
+	version(): string;
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Optional field accessors
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	/** Get the API description */
+	description(): string | undefined;
+	/** Get the terms of service URL */
+	termsOfService(): string | undefined;
+	/** Get the contact information object */
+	contact(): ContactNode | undefined;
+	/** Get the license information object */
+	license(): LicenseNode | undefined;
+	/** Get the summary (OpenAPI 3.1+) */
+	summary(): string | undefined;
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Convenience checks
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	/** Check if contact information is provided */
+	hasContact(): boolean;
+	/** Check if license information is provided */
+	hasLicense(): boolean;
+	/** Check if a description is provided */
+	hasDescription(): boolean;
+}
+
+/**
+ * OpenAPI Contact object type.
+ */
+export interface ContactNode {
+	name?: string;
+	url?: string;
+	email?: string;
+}
+
+/**
+ * OpenAPI License object type.
+ */
+export interface LicenseNode {
+	name: string;
+	url?: string;
+	/** License identifier (OpenAPI 3.1+, SPDX expression) */
+	identifier?: string;
+}
+
+/**
  * OpenAPI Components object type.
  */
 export interface ComponentsNode {
@@ -2024,4 +2104,26 @@ export interface RootResolver {
 	 * @returns True if the document is a root document
 	 */
 	isRootDocument(uri: string): boolean;
+
+	/**
+	 * Get the OpenAPI version for a partial document by tracing back to its root.
+	 *
+	 * For partial documents (schemas, operations, etc.) that don't have an explicit
+	 * `openapi` field, this method traces backward through $ref relationships to find
+	 * the root document and returns its OpenAPI version.
+	 *
+	 * @param uri - The URI of the partial document
+	 * @returns The OpenAPI version from the root document (e.g., "3.0", "3.1", "3.2"),
+	 *          or undefined if no root document is found or the root has no version.
+	 *
+	 * @example
+	 * ```typescript
+	 * const { rootResolver } = buildRefGraph({ docs });
+	 *
+	 * // Get version for a schema fragment
+	 * const version = rootResolver.getVersionForPartial("file:///schemas/User.yaml");
+	 * // Returns "3.1" if referenced by a root with openapi: "3.1.0"
+	 * ```
+	 */
+	getVersionForPartial(uri: string): string | undefined;
 }

@@ -98,6 +98,7 @@ import type { ApertureVolarContext } from "../workspace/context.js";
 import {
 	getOpenAPIVirtualCode,
 	getDataVirtualCode,
+	resolveOpenAPIDocument,
 } from "./shared/virtual-code-utils.js";
 
 /**

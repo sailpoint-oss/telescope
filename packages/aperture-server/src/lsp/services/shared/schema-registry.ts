@@ -8,9 +8,12 @@
  * preventing stack overflow during validation of large OpenAPI documents.
  *
  * Architecture:
- * - Schemas are stored as static exports (openapiJsonSchemas, configJsonSchema)
- * - Language services use getSchemaByKey() from ApertureVolarContext for dynamic resolution
+ * - Raw TypeBox schemas exported here for yaml-language-server's addSchema()
+ * - Pre-computed, transformed schemas are in schema-cache.ts for language service providers
+ * - ApertureVolarContext.getSchemaByKey() uses the cache for properly formatted schemas
  * - The resolveDocumentContext utility helps extract VirtualCode and schemaKey
+ *
+ * @see schema-cache.ts for pre-computed schemas with $id and title
  */
 
 import type { LanguageServiceContext } from "@volar/language-service";
@@ -53,12 +56,16 @@ export const configJsonSchema = TelescopeConfigSchema;
 export const configTypeBoxSchema = TelescopeConfigSchema;
 
 /**
- * Map of OpenAPI document types to their JSON Schemas.
+ * Map of OpenAPI document types to their raw TypeBox JSON Schemas.
  * All schemas come from the consolidated TypeBox module with proper $defs.
  *
+ * NOTE: These are raw TypeBox schemas without $id/title transformation.
+ * For language service providers (hover, completion), use getCachedSchema()
+ * from schema-cache.ts instead.
+ *
  * Used by:
- * - ApertureVolarContext.getSchemaByKey() for dynamic schema lookup
- * - Language services via schemaRequestService for content resolution
+ * - yaml-language-server's addSchema() for schema registration
+ * - TypeBox Value module for runtime validation
  */
 export const openapiJsonSchemas: Partial<Record<DocumentType, unknown>> = {
 	root: OpenAPISchema,

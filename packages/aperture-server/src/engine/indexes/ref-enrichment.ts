@@ -81,11 +81,14 @@ import type {
 	CallbackRef,
 	ComponentRef,
 	ComponentsNode,
+	ContactNode,
 	ExampleRef,
 	ExternalDocsNode,
 	HeaderRef,
 	InfoNode,
+	InfoRef,
 	ItemRef,
+	LicenseNode,
 	LinkRef,
 	MediaTypeRef,
 	OAuthFlowNode,
@@ -1861,6 +1864,94 @@ export function enrichMediaTypeRef(ref: MediaTypeRef): MediaTypeRef {
 		hasItemEncoding: () => $(
 			"hasItemEncoding",
 			() => hasField(node, "itemEncoding"),
+		),
+	};
+}
+
+// ============================================================================
+// InfoRef Enrichment
+// ============================================================================
+
+/**
+ * Enrich an InfoRef with typed accessor methods.
+ *
+ * Provides cached, typed access to Info object properties including
+ * title, version, description, contact, and license information.
+ *
+ * @param uri - Document URI
+ * @param pointer - JSON pointer (always "#/info")
+ * @param node - The info object node
+ * @returns Enriched reference with accessor methods
+ *
+ * @example
+ * ```typescript
+ * Info(info) {
+ *   const title = info.title();
+ *   const version = info.version();
+ *   if (!info.hasDescription()) {
+ *     ctx.reportAt(info, "description", { message: "Missing API description" });
+ *   }
+ * }
+ * ```
+ *
+ * @see {@link InfoRef} - Type definition
+ */
+export function enrichInfoRef(
+	uri: string,
+	pointer: string,
+	node: unknown,
+): InfoRef {
+	const $ = createCache();
+
+	return {
+		uri,
+		pointer,
+		node,
+
+		// Required field accessors
+		title: () => $(
+			"title",
+			() => getString(node, "title") ?? "",
+		),
+		version: () => $(
+			"version",
+			() => getString(node, "version") ?? "",
+		),
+
+		// Optional field accessors
+		description: () => $(
+			"description",
+			() => getString(node, "description"),
+		),
+		termsOfService: () => $(
+			"termsOfService",
+			() => getString(node, "termsOfService"),
+		),
+		contact: () => $(
+			"contact",
+			() => getObject(node, "contact") as ContactNode | undefined,
+		),
+		license: () => $(
+			"license",
+			() => getObject(node, "license") as LicenseNode | undefined,
+		),
+		summary: () => $(
+			"summary",
+			() => getString(node, "summary"),
+		),
+
+		// Convenience checks
+		hasContact: () => $(
+			"hasContact",
+			() => hasField(node, "contact"),
+		),
+		hasLicense: () => $(
+			"hasLicense",
+			() => hasField(node, "license"),
+		),
+		hasDescription: () => $(
+			"hasDescription",
+			() => hasField(node, "description") && !!getString(node, "description"),
 		),
 	};
 }

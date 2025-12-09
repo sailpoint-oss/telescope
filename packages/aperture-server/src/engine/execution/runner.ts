@@ -39,6 +39,7 @@ import type { SchemaLocation, SchemaRef } from "../indexes/types.js";
 import {
 	enrichCallbackRef,
 	enrichComponentRef,
+	enrichInfoRef,
 	enrichRootRef,
 	enrichExampleRef,
 	enrichHeaderRef,
@@ -50,6 +51,7 @@ import {
 	enrichRequestBodyRef,
 	enrichResponseRef,
 	enrichSchemaRef,
+	enrichTagRef,
 } from "../indexes/ref-enrichment.js";
 import { findNodeByPointer } from "../ir/context.js";
 import type { Loc } from "../ir/types.js";
@@ -345,6 +347,12 @@ function generateFieldVisitors(
 			case "Root":
 				visitors.Root = validateFields;
 				break;
+			case "Info":
+				visitors.Info = validateFields;
+				break;
+			case "Tag":
+				visitors.Tag = validateFields;
+				break;
 			case "PathItem":
 				visitors.PathItem = validateFields;
 				break;
@@ -551,6 +559,40 @@ export function runEngine(
 				},
 				fileIndex.pathsByString,
 			);
+			
+			// Dispatch Info visitor for the info section
+			const infoNode = (docAst as Record<string, unknown>).info;
+			if (infoNode && typeof infoNode === "object") {
+				dispatch(
+					visitors,
+					"Info",
+					{
+						uri: fileUri,
+						pointer: "#/info",
+						node: infoNode,
+					},
+				);
+			}
+			
+			// Dispatch Tag visitor for each tag definition
+			const tagsArray = (docAst as Record<string, unknown>).tags;
+			if (Array.isArray(tagsArray)) {
+				for (let i = 0; i < tagsArray.length; i++) {
+					const tagNode = tagsArray[i];
+					if (tagNode && typeof tagNode === "object") {
+						dispatch(
+							visitors,
+							"Tag",
+							{
+								uri: fileUri,
+								pointer: `#/tags/${i}`,
+								node: tagNode,
+								index: i,
+							},
+						);
+					}
+				}
+			}
 		}
 
 		for (const [pathString, pathItemRefs] of fileIndex.pathsByString.entries()) {
@@ -1169,6 +1211,20 @@ function dispatch(
 				payload as Parameters<typeof enrichRootRef>[0],
 				pathItemsByPath,
 			);
+			break;
+		case "Info":
+			// Info visitor receives enriched InfoRef
+			{
+				const p = payload as { uri: string; pointer: string; node: unknown };
+				enrichedPayload = enrichInfoRef(p.uri, p.pointer, p.node);
+			}
+			break;
+		case "Tag":
+			// Tag visitor receives enriched TagRef
+			{
+				const p = payload as { uri: string; pointer: string; node: unknown; index: number };
+				enrichedPayload = enrichTagRef(p.uri, p.pointer, p.node, p.index);
+			}
 			break;
 		case "PathItem":
 			enrichedPayload = enrichPathItemRef(

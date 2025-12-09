@@ -506,3 +506,19 @@ export {
 	joinPointer,
 	splitPointer,
 } from "./utils/pointer-utils.js";
+// Version detection and resolution
+export {
+	detectVersionFromContent,
+	type DetectedVersion,
+	isVersion,
+	meetsConfidence,
+	type VersionConfidence,
+	type VersionHint,
+} from "./utils/version-detection.js";
+export {
+	getVersionConfidence,
+	isResolvedVersion,
+	resolveDocumentVersion,
+	type ResolvedVersion,
+	type VersionSource,
+} from "./utils/version-resolution.js";

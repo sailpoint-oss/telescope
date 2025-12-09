@@ -35,6 +35,7 @@ import type {
 	ComponentRef,
 	ExampleRef,
 	HeaderRef,
+	InfoRef,
 	LinkRef,
 	MediaTypeRef,
 	OperationRef,
@@ -49,6 +50,7 @@ import type {
 	SchemaRef,
 	ScopeContext,
 	SecurityRequirementRef,
+	TagRef,
 } from "../indexes/types.js";
 import type { ParsedDocument } from "../types.js";
 
@@ -562,6 +564,10 @@ export type Visitors = {
 	Document?(node: { uri: string; pointer: string; node: unknown }): void;
 	/** Called only for root-level OpenAPI documents (containing openapi/swagger keys) */
 	Root?(node: RootRef): void;
+	/** Called for the info section of root OpenAPI documents */
+	Info?(node: InfoRef): void;
+	/** Called for each tag definition at root level */
+	Tag?(node: TagRef): void;
 	/** Called for each path item (e.g., /users, /users/{id}) */
 	PathItem?(node: PathItemRef): void;
 	/** Called for each HTTP operation (GET, POST, etc.) */
@@ -664,6 +670,8 @@ export interface RuleMeta {
 export type VisitorName =
 	| "Document"
 	| "Root"
+	| "Info"
+	| "Tag"
 	| "PathItem"
 	| "Operation"
 	| "Component"

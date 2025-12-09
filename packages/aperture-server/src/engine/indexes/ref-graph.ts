@@ -557,6 +557,7 @@ class RootResolverImpl implements RootResolver {
 	private readonly rootDocuments = new Set<string>();
 	private readonly rootCache = new Map<string, string[]>();
 	private readonly primaryRootCache = new Map<string, string | null>();
+	private readonly versionCache = new Map<string, string | undefined>();
 
 	constructor(
 		private readonly docs: Map<string, ParsedDocument>,
@@ -667,5 +668,70 @@ class RootResolverImpl implements RootResolver {
 	 */
 	isRootDocument(uri: string): boolean {
 		return this.rootDocuments.has(uri);
+	}
+
+	/**
+	 * Get the OpenAPI version for a partial document by tracing back to its root.
+	 *
+	 * For partial documents that don't have an explicit `openapi` field,
+	 * this traces backward through $ref relationships to find the root document
+	 * and returns its OpenAPI version.
+	 */
+	getVersionForPartial(uri: string): string | undefined {
+		// Check cache first
+		const cached = this.versionCache.get(uri);
+		if (cached !== undefined) {
+			return cached;
+		}
+
+		// If this is a root document, get its version directly
+		if (this.rootDocuments.has(uri)) {
+			const doc = this.docs.get(uri);
+			const version = this.extractVersion(doc?.ast);
+			this.versionCache.set(uri, version);
+			return version;
+		}
+
+		// Find the primary root for this document
+		const primaryRoot = this.getPrimaryRoot(uri, "#");
+		if (!primaryRoot) {
+			// No root found, cache undefined
+			this.versionCache.set(uri, undefined);
+			return undefined;
+		}
+
+		// Get the version from the root document
+		const rootDoc = this.docs.get(primaryRoot);
+		const version = this.extractVersion(rootDoc?.ast);
+		this.versionCache.set(uri, version);
+		return version;
+	}
+
+	/**
+	 * Extract the OpenAPI version from a document AST.
+	 * Returns the major.minor version (e.g., "3.0", "3.1", "3.2").
+	 */
+	private extractVersion(ast: unknown): string | undefined {
+		if (!ast || typeof ast !== "object") {
+			return undefined;
+		}
+
+		const data = ast as Record<string, unknown>;
+		const openapi = data.openapi;
+		const swagger = data.swagger;
+
+		if (typeof swagger === "string" && swagger.startsWith("2.0")) {
+			return "2.0";
+		}
+
+		if (typeof openapi === "string") {
+			// Extract major.minor version
+			const match = openapi.match(/^(\d+\.\d+)/);
+			if (match) {
+				return match[1];
+			}
+		}
+
+		return undefined;
 	}
 }

@@ -1,36 +1,288 @@
 /**
  * Central export point for all OpenAPI 3.x schema definitions.
  *
- * These schemas are built using TypeBox in a single consolidated module
+ * These schemas are built using TypeBox in version-specific modules
  * to ensure proper $defs generation and $ref usage (instead of inlining).
  *
- * Supports OpenAPI 3.0, 3.1, and 3.2 specifications.
+ * Supports OpenAPI 3.0, 3.1, and 3.2 specifications with version-specific schemas.
  */
 
-// Re-export everything from the consolidated OpenAPI module
+// =============================================================================
+// Base Schemas (shared primitives - Contact, License, etc.)
+// =============================================================================
 export {
-	// The module itself (for direct access to all schemas)
-	OpenAPIModule,
-	// Base schemas
 	ContactSchema,
 	LicenseSchema,
-	InfoSchema,
-	ServerVariableSchema,
-	ServerSchema,
 	ExternalDocumentationSchema,
-	TagSchema,
-	// Reference schemas
 	InternalRefSchema,
 	UrlRefSchema,
 	FileRefSchema,
 	ReferenceSchema,
-	// Simple schemas
 	SecurityRequirementSchema,
 	XMLSchema,
-	DiscriminatorSchema,
 	OAuthFlowSchema,
+	type Contact,
+	type License,
+	type ExternalDocumentation,
+	type InternalRef,
+	type UrlRef,
+	type FileRef,
+	type Reference,
+	type SecurityRequirement,
+	type XML,
+	type OAuthFlow,
+} from "./openapi-base.js";
+
+// =============================================================================
+// OpenAPI 3.0 Schemas
+// =============================================================================
+export {
+	OpenAPI30Module,
+	// Individual schemas
+	Contact30Schema,
+	License30Schema,
+	Info30Schema,
+	ServerVariable30Schema,
+	Server30Schema,
+	ExternalDocumentation30Schema,
+	Tag30Schema,
+	InternalRef30Schema,
+	UrlRef30Schema,
+	FileRef30Schema,
+	Reference30Schema,
+	SecurityRequirement30Schema,
+	XML30Schema,
+	Discriminator30Schema,
+	OAuthFlow30Schema,
+	OAuthFlows30Schema,
+	StringSchema30,
+	NumberSchema30,
+	IntegerSchema30,
+	BooleanSchema30,
+	ArraySchema30,
+	ObjectSchema30,
+	SchemaObject30Schema,
+	Example30Schema,
+	Link30Schema,
+	SecurityScheme30Schema,
+	Header30Schema,
+	Encoding30Schema,
+	MediaType30Schema,
+	Parameter30Schema,
+	RequestBody30Schema,
+	Response30Schema,
+	Responses30Schema,
+	Callback30Schema,
+	Operation30Schema,
+	PathItem30Schema,
+	Paths30Schema,
+	Components30Schema,
+	OpenAPI30Schema,
+	// Types
+	type Contact30,
+	type License30,
+	type Info30,
+	type ServerVariable30,
+	type Server30,
+	type ExternalDocumentation30,
+	type Tag30,
+	type Reference30,
+	type SecurityRequirement30,
+	type XML30,
+	type Discriminator30,
+	type OAuthFlow30,
+	type OAuthFlows30,
+	type SchemaObject30,
+	type Example30,
+	type Link30,
+	type SecurityScheme30,
+	type Header30,
+	type Encoding30,
+	type MediaType30,
+	type Parameter30,
+	type RequestBody30,
+	type Response30,
+	type Responses30,
+	type Callback30,
+	type Operation30,
+	type PathItem30,
+	type Paths30,
+	type Components30,
+	type OpenAPI30,
+} from "./openapi-3.0-module.js";
+
+// =============================================================================
+// OpenAPI 3.1 Schemas
+// =============================================================================
+export {
+	OpenAPI31Module,
+	// Individual schemas
+	Contact31Schema,
+	License31Schema,
+	Info31Schema,
+	ServerVariable31Schema,
+	Server31Schema,
+	ExternalDocumentation31Schema,
+	Tag31Schema,
+	InternalRef31Schema,
+	UrlRef31Schema,
+	FileRef31Schema,
+	Reference31Schema,
+	SecurityRequirement31Schema,
+	XML31Schema,
+	Discriminator31Schema,
+	OAuthFlow31Schema,
+	OAuthFlows31Schema,
+	StringSchema31,
+	NumberSchema31,
+	IntegerSchema31,
+	BooleanSchema31,
+	NullSchema31,
+	ArraySchema31,
+	ObjectSchema31,
+	SchemaObject31Schema,
+	Example31Schema,
+	Link31Schema,
+	SecurityScheme31Schema,
+	Header31Schema,
+	Encoding31Schema,
+	MediaType31Schema,
+	Parameter31Schema,
+	RequestBody31Schema,
+	Response31Schema,
+	Responses31Schema,
+	Callback31Schema,
+	Operation31Schema,
+	PathItem31Schema,
+	Paths31Schema,
+	Components31Schema,
+	OpenAPI31Schema,
+	// Types
+	type Contact31,
+	type License31,
+	type Info31,
+	type ServerVariable31,
+	type Server31,
+	type ExternalDocumentation31,
+	type Tag31,
+	type Reference31,
+	type SecurityRequirement31,
+	type XML31,
+	type Discriminator31,
+	type OAuthFlow31,
+	type OAuthFlows31,
+	type SchemaObject31,
+	type Example31,
+	type Link31,
+	type SecurityScheme31,
+	type Header31,
+	type Encoding31,
+	type MediaType31,
+	type Parameter31,
+	type RequestBody31,
+	type Response31,
+	type Responses31,
+	type Callback31,
+	type Operation31,
+	type PathItem31,
+	type Paths31,
+	type Components31,
+	type OpenAPI31,
+} from "./openapi-3.1-module.js";
+
+// =============================================================================
+// OpenAPI 3.2 Schemas
+// =============================================================================
+export {
+	OpenAPI32Module,
+	// Individual schemas
+	Contact32Schema,
+	License32Schema,
+	Info32Schema,
+	ServerVariable32Schema,
+	Server32Schema,
+	ExternalDocumentation32Schema,
+	Tag32Schema,
+	InternalRef32Schema,
+	UrlRef32Schema,
+	FileRef32Schema,
+	Reference32Schema,
+	SecurityRequirement32Schema,
+	XML32Schema,
+	Discriminator32Schema,
+	OAuthFlow32Schema,
+	OAuthFlows32Schema,
+	StringSchema32,
+	NumberSchema32,
+	IntegerSchema32,
+	BooleanSchema32,
+	NullSchema32,
+	ArraySchema32,
+	ObjectSchema32,
+	SchemaObject32Schema,
+	Example32Schema,
+	Link32Schema,
+	SecurityScheme32Schema,
+	Header32Schema,
+	Encoding32Schema,
+	MediaType32Schema,
+	Parameter32Schema,
+	RequestBody32Schema,
+	Response32Schema,
+	Responses32Schema,
+	Callback32Schema,
+	Operation32Schema,
+	PathItem32Schema,
+	Paths32Schema,
+	Components32Schema,
+	OpenAPI32Schema,
+	// Types
+	type Contact32,
+	type License32,
+	type Info32,
+	type ServerVariable32,
+	type Server32,
+	type ExternalDocumentation32,
+	type Tag32,
+	type Reference32,
+	type SecurityRequirement32,
+	type XML32,
+	type Discriminator32,
+	type OAuthFlow32,
+	type OAuthFlows32,
+	type SchemaObject32,
+	type Example32,
+	type Link32,
+	type SecurityScheme32,
+	type Header32,
+	type Encoding32,
+	type MediaType32,
+	type Parameter32,
+	type RequestBody32,
+	type Response32,
+	type Responses32,
+	type Callback32,
+	type Operation32,
+	type PathItem32,
+	type Paths32,
+	type Components32,
+	type OpenAPI32,
+} from "./openapi-3.2-module.js";
+
+// =============================================================================
+// Legacy Combined Module (for backwards compatibility)
+// Note: Most base schemas already exported above from openapi-base.js
+// =============================================================================
+export {
+	// The module itself
+	OpenAPIModule,
+	// Schemas not in base (unique to combined module for backwards compat)
+	InfoSchema,
+	ServerVariableSchema,
+	ServerSchema,
+	TagSchema,
+	DiscriminatorSchema,
 	OAuthFlowsSchema,
-	// Schema object types
 	StringSchema,
 	NumberSchema,
 	IntegerSchema,
@@ -39,7 +291,6 @@ export {
 	ArraySchema,
 	ObjectSchema,
 	SchemaObjectSchema,
-	// Complex schemas
 	ExampleSchema,
 	LinkSchema,
 	SecuritySchemeSchema,
@@ -57,21 +308,11 @@ export {
 	ComponentsSchema,
 	OpenAPISchema,
 	// TypeScript types
-	type Contact,
-	type License,
 	type Info,
 	type ServerVariable,
 	type Server,
-	type ExternalDocumentation,
 	type Tag,
-	type InternalRef,
-	type UrlRef,
-	type FileRef,
-	type Reference,
-	type SecurityRequirement,
-	type XML,
 	type Discriminator,
-	type OAuthFlow,
 	type OAuthFlows,
 	type SchemaObject,
 	type Example,
@@ -90,9 +331,11 @@ export {
 	type Paths,
 	type Components,
 	type OpenAPI,
-} from "./openapi-module";
+} from "./openapi-module.js";
 
-// Telescope extension configuration schema (separate from OpenAPI schemas)
+// =============================================================================
+// Telescope Configuration Schema
+// =============================================================================
 export {
 	type AdditionalValidationGroup,
 	AdditionalValidationGroupSchema,
@@ -102,7 +345,9 @@ export {
 	SeveritySchema,
 	type TelescopeConfig,
 	TelescopeConfigSchema,
-} from "./config-schema";
+} from "./config-schema.js";
 
-// Extensions schema
-export { type Extensions, ExtensionsSchema } from "./extensions";
+// =============================================================================
+// Extensions Schema
+// =============================================================================
+export { type Extensions, ExtensionsSchema } from "./extensions.js";

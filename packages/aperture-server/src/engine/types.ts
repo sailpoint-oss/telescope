@@ -11,6 +11,7 @@
  */
 
 import type { IRDocument } from "./ir/types.js";
+import type { VersionSource } from "./utils/version-resolution.js";
 
 /**
  * Supported document formats for parsing.
@@ -133,6 +134,19 @@ export interface ParsedDocument {
 	format: DocumentFormat;
 	/** Detected OpenAPI version (e.g., "3.0", "3.1", "3.2", or "unknown") */
 	version: string;
+	/**
+	 * How the version was determined.
+	 * - `explicit`: From the document's `openapi` field
+	 * - `reference`: Inherited from a root document via $ref tracing
+	 * - `heuristic`: Detected from content analysis
+	 * - `default`: Fallback when no other method succeeds
+	 */
+	versionSource?: VersionSource;
+	/**
+	 * Warning message when version detection methods disagree.
+	 * Set when heuristic and reference-based versions conflict.
+	 */
+	versionWarning?: string;
 	/** Plain JSON/YAML AST (object representation) */
 	ast: Record<string, unknown> | unknown;
 	/** Intermediate Representation with precise location info */

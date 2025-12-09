@@ -30,10 +30,16 @@ import {
 	extractAtoms,
 	identifyDocumentType,
 } from "../../../engine/index.js";
+import type { RootResolver } from "../../../engine/indexes/types.js";
 import { findNodeByPointer } from "../../../engine/ir/context.js";
 import type { ParsedDocument, SourceMap } from "../../../engine/types.js";
 import { computeDocumentHash } from "../../../engine/utils/hash-utils.js";
 import { getLineCol } from "../../../engine/utils/line-offset-utils.js";
+import {
+	resolveDocumentVersion,
+	type ResolvedVersion,
+	type VersionSource,
+} from "../../../engine/utils/version-resolution.js";
 import { DataVirtualCode } from "./data-virtual-code.js";
 import { MarkdownVirtualCode } from "./markdown-virtual-code.js";
 
@@ -52,12 +58,39 @@ export function isOpenAPILanguageId(id: string): id is OpenAPILanguageId {
 }
 
 /**
- * Convert a DocumentType to a schema key for schema registry lookup.
+ * Convert a DocumentType and version to a schema key for schema registry lookup.
  * @param docType - The OpenAPI document type
- * @returns Schema key string (e.g., "openapi-root", "openapi-schema")
+ * @param version - The OpenAPI version (e.g., "3.0", "3.1", "3.2")
+ * @returns Schema key string (e.g., "openapi-3.1-root", "openapi-3.0-schema")
  */
-export function documentTypeToSchemaKey(docType: DocumentType): string {
-	return `openapi-${docType}`;
+export function documentTypeToSchemaKey(
+	docType: DocumentType,
+	version: string,
+): string {
+	// Normalize version to supported major.minor format
+	const normalizedVersion = normalizeVersion(version);
+	return `openapi-${normalizedVersion}-${docType}`;
+}
+
+/**
+ * Normalize an OpenAPI version string to major.minor format.
+ * Falls back to "3.1" for unknown versions.
+ *
+ * @param version - Full version string (e.g., "3.1.0", "3.2", "unknown")
+ * @returns Normalized version (e.g., "3.0", "3.1", "3.2")
+ */
+function normalizeVersion(version: string): string {
+	// Match major.minor from version string
+	const match = version.match(/^(\d+\.\d+)/);
+	if (match) {
+		const majorMinor = match[1];
+		// Ensure we support this version
+		if (majorMinor === "3.0" || majorMinor === "3.1" || majorMinor === "3.2") {
+			return majorMinor;
+		}
+	}
+	// Default to 3.1 for unknown versions (most common, good middle ground)
+	return "3.1";
 }
 
 /**
@@ -140,9 +173,25 @@ export class OpenAPIVirtualCode implements VirtualCode {
 	readonly openApiDocumentType: DocumentType;
 
 	/**
-	 * OpenAPI specification version (3.0, 3.1, 3.2, or unknown)
+	 * OpenAPI specification version (3.0, 3.1, 3.2, or unknown).
+	 * This may be updated when reference tracing becomes available.
 	 */
-	readonly openapiVersion: string;
+	openapiVersion: string;
+
+	/**
+	 * How the version was determined.
+	 * - `explicit`: From the document's `openapi` field
+	 * - `reference`: Inherited from a root document via $ref tracing
+	 * - `heuristic`: Detected from content analysis
+	 * - `default`: Fallback when no other method succeeds
+	 */
+	versionSource: VersionSource;
+
+	/**
+	 * Warning message when version detection methods disagree.
+	 * Set when heuristic and reference-based versions conflict.
+	 */
+	versionWarning?: string;
 
 	/**
 	 * The document format (yaml or json)
@@ -190,12 +239,25 @@ export class OpenAPIVirtualCode implements VirtualCode {
 			id: "format",
 		});
 
-		// Detect document type from parsed content
+		// Detect document type and version from parsed content
 		this.openApiDocumentType = identifyDocumentType(this.dataCode.parsedObject);
-		this.openapiVersion = this.detectVersion();
 
-		// Set the schema key based on detected document type (using proper setter)
-		this.dataCode.schemaKey = documentTypeToSchemaKey(this.openApiDocumentType);
+		// Resolve version using explicit or heuristic detection
+		// (rootResolver isn't available at construction time)
+		const versionResult = resolveDocumentVersion(
+			this.dataCode.parsedObject,
+			"", // URI not known yet
+			undefined, // No rootResolver at construction time
+		);
+		this.openapiVersion = versionResult.version;
+		this.versionSource = versionResult.source;
+		this.versionWarning = versionResult.warning;
+
+		// Set the schema key based on detected document type and version
+		this.dataCode.schemaKey = documentTypeToSchemaKey(
+			this.openApiDocumentType,
+			this.openapiVersion,
+		);
 
 		// Add the format virtual code as an embedded code
 		this.embeddedCodes.push(this.dataCode);
@@ -467,6 +529,8 @@ export class OpenAPIVirtualCode implements VirtualCode {
 			uri,
 			format: this.format,
 			version: this.openapiVersion,
+			versionSource: this.versionSource,
+			versionWarning: this.versionWarning,
 			ast: this.parsedObject as Record<string, unknown>,
 			ir,
 			sourceMap,
@@ -507,24 +571,60 @@ export class OpenAPIVirtualCode implements VirtualCode {
 	}
 
 	/**
-	 * Detect OpenAPI version from parsed object.
+	 * Update the version resolution using reference tracing.
+	 *
+	 * This method should be called when a rootResolver becomes available
+	 * (e.g., after the project context is built). It re-resolves the version
+	 * using both heuristic and reference-based methods, and warns if they disagree.
+	 *
+	 * @param uri - The document URI (used for reference tracing)
+	 * @param rootResolver - The RootResolver for tracing $ref relationships
+	 * @returns The resolved version result
+	 *
+	 * @example
+	 * ```typescript
+	 * // After building project context
+	 * const { rootResolver } = buildRefGraph({ docs });
+	 * const result = virtualCode.updateVersionWithRootResolver(uri, rootResolver);
+	 * if (result.warning) {
+	 *   console.warn(`Version warning for ${uri}: ${result.warning}`);
+	 * }
+	 * ```
 	 */
-	private detectVersion(): string {
-		const parsedObject = this.dataCode.parsedObject;
-		if (!parsedObject || typeof parsedObject !== "object") {
-			return "unknown";
-		}
-		const data = parsedObject as Record<string, unknown>;
-		const openapi = data.openapi;
-		const swagger = data.swagger;
-		if (typeof swagger === "string" && swagger.startsWith("2.0")) {
-			return "2.0";
-		}
-		if (typeof openapi === "string") {
-			if (openapi.startsWith("3.2")) return "3.2";
-			if (openapi.startsWith("3.1")) return "3.1";
-			if (openapi.startsWith("3.0")) return "3.0";
-		}
-		return "unknown";
+	updateVersionWithRootResolver(
+		uri: string,
+		rootResolver: RootResolver,
+	): ResolvedVersion {
+		const versionResult = resolveDocumentVersion(
+			this.dataCode.parsedObject,
+			uri,
+			rootResolver,
+		);
+
+		// Update internal state
+		this.openapiVersion = versionResult.version;
+		this.versionSource = versionResult.source;
+		this.versionWarning = versionResult.warning;
+
+		// Update schema key if version changed
+		this.dataCode.schemaKey = documentTypeToSchemaKey(
+			this.openApiDocumentType,
+			this.openapiVersion,
+		);
+
+		return versionResult;
+	}
+
+	/**
+	 * Get the current version resolution result.
+	 *
+	 * @returns The current version, source, and any warning
+	 */
+	getVersionResult(): ResolvedVersion {
+		return {
+			version: this.openapiVersion,
+			source: this.versionSource,
+			warning: this.versionWarning,
+		};
 	}
 }

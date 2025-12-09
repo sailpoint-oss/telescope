@@ -43,19 +43,20 @@ export default defineRule({
   },
   check(ctx) {
     return {
-      // Visitor for Info object
+      // Visitor for Info section - receives typed InfoRef
       Info(info) {
-        if (!info.contact) {
-          const range = ctx.locate(info.uri, info.pointer);
-          if (range) {
-            ctx.report({
-              message: "Info section must include contact details",
-              severity: "error",
-              uri: info.uri,
-              range,
-            });
-          }
+        // Use typed accessor methods
+        if (!info.hasContact()) {
+          ctx.reportAt(info, "contact", {
+            message: "Info section must include contact details",
+            severity: "error",
+          });
         }
+        
+        // Access other typed properties
+        const title = info.title();      // string
+        const version = info.version();  // string
+        const desc = info.description(); // string | undefined
       },
     };
   },
@@ -64,16 +65,27 @@ export default defineRule({
 
 ### Available Visitors
 
-| Visitor | Description | Object Properties |
-|---------|-------------|-------------------|
-| `Document` | Root OpenAPI document | `openapi`, `info`, `paths`, etc. |
-| `Info` | API metadata | `title`, `version`, `contact`, etc. |
-| `Operation` | HTTP operations | `operationId`, `summary`, `parameters`, etc. |
-| `PathItem` | Path definitions | `get`, `post`, `parameters`, etc. |
-| `Parameter` | Parameters | `name`, `in`, `required`, `schema`, etc. |
-| `Schema` | Schema definitions | `type`, `properties`, `items`, etc. |
-| `Response` | Response definitions | `description`, `content`, etc. |
-| `Tag` | Tag definitions | `name`, `description`, etc. |
+| Visitor | Description | Ref Type | Key Accessors |
+|---------|-------------|----------|---------------|
+| `Document` | Every OpenAPI file (general checks) | `{ uri, pointer, node }` | `node` (raw AST) |
+| `Root` | Root-level OpenAPI documents only | `RootRef` | `openapi()`, `info()`, `paths()`, `servers()`, `tags()` |
+| `Info` | API metadata section | `InfoRef` | `title()`, `version()`, `description()`, `contact()`, `license()`, `hasContact()` |
+| `Tag` | Each tag definition at root level | `TagRef` | `name()`, `description()`, `externalDocs()`, `summary()`, `parent()`, `kind()` |
+| `PathItem` | Path definitions | `PathItemRef` | `path()`, `operations()`, `hasOperation()`, `parameters()` |
+| `Operation` | HTTP operations | `OperationRef` | `method`, `operationId()`, `summary()`, `tags()`, `eachParameter()`, `eachResponse()` |
+| `Component` | Component definitions | `ComponentRef` | `componentType()`, `componentName()`, `isSchema()`, `isParameter()` |
+| `Schema` | Schema definitions (recursive) | `SchemaRef` | `type()`, `properties()`, `items()`, `eachProperty()`, `isArray()`, `isObject()` |
+| `Parameter` | Parameter definitions | `ParameterRef` | `getName()`, `getIn()`, `required()`, `schema()`, `isPath()`, `isQuery()` |
+| `Response` | Response definitions | `ResponseRef` | `description()`, `content()`, `isSuccess()`, `eachMediaType()`, `eachHeader()` |
+| `RequestBody` | Request body definitions | `RequestBodyRef` | `description()`, `required()`, `content()`, `eachMediaType()` |
+| `Header` | Header definitions | `HeaderRef` | `getName()`, `description()`, `schema()`, `required()` |
+| `MediaType` | Media type definitions | `MediaTypeRef` | `schema()`, `example()`, `examples()`, `encoding()` |
+| `SecurityRequirement` | Security requirements | `SecurityRequirementRef` | `node`, `level` ("root" or "operation") |
+| `Example` | Example definitions | `ExampleRef` | `summary()`, `description()`, `value()`, `externalValue()`, `isExternal()` |
+| `Link` | Link definitions | `LinkRef` | `operationId()`, `operationRef()`, `parameters()`, `description()` |
+| `Callback` | Callback definitions | `CallbackRef` | `expressions()`, `eachPathItem()`, `isRef()` |
+| `Reference` | All `$ref` nodes | `ReferenceRef` | `ref` (the $ref string), `refPointer`, `node` |
+| `Project` | After all files processed | `{ index: ProjectIndex }` | Aggregate/cross-file checks |
 
 ### Context API
 

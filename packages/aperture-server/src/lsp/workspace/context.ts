@@ -21,13 +21,13 @@ import {
 } from "../../engine/index.js";
 import type { SchemaConfiguration, ValidationRule } from "../../types.js";
 import { WorkspaceIndex } from "../core/workspace-index.js";
+import { getCachedSchema } from "../services/shared/schema-cache.js";
 import { loadSchema } from "../services/shared/schema-loader.js";
 import {
 	configJsonSchema,
 	configTypeBoxSchema,
 	getSchemaForDocumentType,
 	getTypeBoxSchemaForDocumentType,
-	openapiJsonSchemas,
 	toJsonSchema,
 } from "../services/shared/schema-registry.js";
 import { isConfigFile } from "../utils.js";
@@ -670,21 +670,13 @@ export class ApertureVolarContext {
 	 * @returns The JSON schema object, or undefined if not found
 	 */
 	getSchemaByKey(schemaKey: string): Record<string, unknown> | undefined {
-		// Handle Telescope config schema
-		if (schemaKey === "telescope-config") {
-			return toJsonSchema(configJsonSchema);
+		// Use pre-computed cache for built-in schemas (OpenAPI + config)
+		const cached = getCachedSchema(schemaKey);
+		if (cached) {
+			return cached;
 		}
 
-		// Handle OpenAPI schemas (pattern: "openapi-{documentType}")
-		if (schemaKey.startsWith("openapi-")) {
-			const documentType = schemaKey.replace("openapi-", "") as DocumentType;
-			const jsonSchema = openapiJsonSchemas[documentType];
-			if (jsonSchema) {
-				return jsonSchema as Record<string, unknown>;
-			}
-		}
-
-		// Handle user-defined schemas
+		// Handle user-defined schemas (these are dynamic, not cached)
 		if (schemaKey.startsWith("user-")) {
 			const userId = schemaKey.replace("user-", "");
 			const userRule = this.validationRules.find((r) => r.id === userId);

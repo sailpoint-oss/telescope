@@ -1,7 +1,7 @@
 {
-	"name": "aperture",
-	"publisher": "aperture",
-	"displayName": "Aperture OpenAPI Language Server",
+	"name": "telescope",
+	"publisher": "sailpoint",
+	"displayName": "Telescope - OpenAPI Language Server",
 	"description": "Language server for OpenAPI specifications with formatting and validation.",
 	"version": "0.0.1",
 	"repository": {
