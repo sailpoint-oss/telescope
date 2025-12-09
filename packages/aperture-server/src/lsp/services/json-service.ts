@@ -14,8 +14,9 @@ import { URI, Utils } from "vscode-uri";
 import { DataVirtualCode } from "../languages/virtualCodes/data-virtual-code.js";
 import type { ApertureVolarContext } from "../workspace/context";
 import {
-	openapiJsonSchemas,
+	createSchemaRequestService,
 	resolveDocumentContext,
+	TELESCOPE_SCHEMA_PREFIX,
 } from "./shared/schema-registry.js";
 import { matchDocument } from "./shared/virtual-code-utils.js";
 
@@ -203,9 +204,6 @@ export function create({
 		},
 
 		create(context): LanguageServicePluginInstance<Provide> {
-			// Schema URI prefix for our schemas
-			const SCHEMA_PREFIX = "telescope://";
-
 			// JSON document cache
 			const jsonDocuments = new WeakMap<
 				TextDocument,
@@ -215,19 +213,13 @@ export function create({
 			// Cache for document -> schema URI associations
 			const documentSchemaAssociations = new Map<string, string>();
 
-			// Create the JSON language service
+			// Create the JSON language service with shared schema request service
+			const baseSchemaRequestService = createSchemaRequestService(shared, logger);
 			const jsonLs = json.getLanguageService({
 				schemaRequestService: async (uri) => {
-					// Handle telescope:// schema URIs
-					if (uri.startsWith(SCHEMA_PREFIX)) {
-						const schemaKey = uri.slice(SCHEMA_PREFIX.length);
-						const schema = shared.getSchemaByKey(schemaKey);
-						if (schema) {
-							logger.log(`[Schema] Serving schema for key: ${schemaKey}`);
-							return JSON.stringify(schema);
-						}
-						logger.log(`[Schema] No schema found for key: ${schemaKey}`);
-						return "{}";
+					// Handle telescope:// schema URIs using shared service
+					if (uri.startsWith(TELESCOPE_SCHEMA_PREFIX)) {
+						return baseSchemaRequestService(uri);
 					}
 
 					// Fall back to file system for external schemas
@@ -414,7 +406,7 @@ export function create({
 				documentUri: string,
 				schemaKey: string,
 			): void {
-				const schemaUri = `${SCHEMA_PREFIX}${schemaKey}`;
+				const schemaUri = `${TELESCOPE_SCHEMA_PREFIX}${schemaKey}`;
 
 				// Check if already associated with the same schema
 				if (documentSchemaAssociations.get(documentUri) === schemaUri) {

@@ -58,32 +58,14 @@ import type {
 } from "vscode-languageserver-protocol";
 import { URI } from "vscode-uri";
 import * as yaml from "yaml";
-import {
-	provideCodeActions,
-	provideReferences,
-	provideWorkspaceSymbols,
-	provideOpenAPICompletions,
-	prepareRename,
-	provideRenameEdits,
-	provideCodeLenses,
-	provideInlayHints,
-	provideDefinition as provideEnhancedDefinition,
-	prepareCallHierarchy,
-	provideCallHierarchyIncomingCalls,
-	provideCallHierarchyOutgoingCalls,
-	provideSemanticTokens,
-	SEMANTIC_TOKEN_TYPES,
-	SEMANTIC_TOKEN_MODIFIERS,
-	type CodeActionContext,
-} from "./openapi-features.js";
 import { runEngine } from "../../engine/execution/runner.js";
 import { buildIndex } from "../../engine/indexes/project-index.js";
 import { buildRefGraph, findRefUris } from "../../engine/indexes/ref-graph.js";
-import type { IRNode } from "../../engine/ir/types.js";
 import { findNodeByPointer } from "../../engine/ir/context.js";
+import type { IRNode } from "../../engine/ir/types.js";
 import { loadDocument } from "../../engine/load-document.js";
-import type { ProjectContext } from "../../engine/rules/types.js";
 import { categorizeRulesByScope } from "../../engine/rules/index.js";
+import type { ProjectContext } from "../../engine/rules/types.js";
 import type { ParsedDocument } from "../../engine/types.js";
 import { normalizeBaseUri } from "../../engine/utils/document-utils.js";
 import { globFiles } from "../../engine/utils/file-system-utils.js";
@@ -93,11 +75,29 @@ import {
 } from "../../engine/utils/line-offset-utils.js";
 import { parseJsonPointer } from "../../engine/utils/pointer-utils.js";
 import { normalizeUri, resolveRef } from "../../engine/utils/ref-utils.js";
-import { OpenAPIVirtualCode } from "../languages/virtualCodes/openapi-virtual-code.js";
+import type { OpenAPIVirtualCode } from "../languages/virtualCodes/openapi-virtual-code.js";
 import type { ApertureVolarContext } from "../workspace/context.js";
 import {
-	getOpenAPIVirtualCode,
+	type CodeActionContext,
+	prepareCallHierarchy,
+	prepareRename,
+	provideCallHierarchyIncomingCalls,
+	provideCallHierarchyOutgoingCalls,
+	provideCodeActions,
+	provideCodeLenses,
+	provideDefinition as provideEnhancedDefinition,
+	provideInlayHints,
+	provideOpenAPICompletions,
+	provideReferences,
+	provideRenameEdits,
+	provideSemanticTokens,
+	provideWorkspaceSymbols,
+	SEMANTIC_TOKEN_MODIFIERS,
+	SEMANTIC_TOKEN_TYPES,
+} from "./openapi-features.js";
+import {
 	getDataVirtualCode,
+	getOpenAPIVirtualCode,
 	resolveOpenAPIDocument,
 } from "./shared/virtual-code-utils.js";
 
@@ -263,36 +263,52 @@ async function findPositionAtPointer(
 	const targetUriString = targetUri.toString();
 	const isYaml = /\.ya?ml$/i.test(targetUri.path);
 
-	logger.log(`findPositionAtPointer: looking for "${pointer}" in ${targetUriString}`);
+	logger.log(
+		`findPositionAtPointer: looking for "${pointer}" in ${targetUriString}`,
+	);
 
 	// First try OpenAPIVirtualCode with IR (most reliable for OpenAPI files)
 	const openApiVc = getOpenAPIVirtualCode(context, targetUri);
 	if (openApiVc) {
-		logger.log(`findPositionAtPointer: found OpenAPIVirtualCode for ${targetUriString}`);
+		logger.log(
+			`findPositionAtPointer: found OpenAPIVirtualCode for ${targetUriString}`,
+		);
 		const ir = openApiVc.getIR(targetUriString);
 		const node = findNodeByPointer(ir.root, pointer);
 		if (node?.loc) {
 			const range = openApiVc.locToRange(node.loc);
 			if (range) {
-				logger.log(`findPositionAtPointer: found node at IR pointer, position: ${range.start.line}:${range.start.character}`);
+				logger.log(
+					`findPositionAtPointer: found node at IR pointer, position: ${range.start.line}:${range.start.character}`,
+				);
 				return range.start;
 			}
-			logger.log("findPositionAtPointer: node found but locToRange returned null");
+			logger.log(
+				"findPositionAtPointer: node found but locToRange returned null",
+			);
 		} else {
-			logger.log(`findPositionAtPointer: node not found in IR for pointer "${pointer}"`);
+			logger.log(
+				`findPositionAtPointer: node not found in IR for pointer "${pointer}"`,
+			);
 		}
 	} else {
-		logger.log(`findPositionAtPointer: no OpenAPIVirtualCode found for ${targetUriString}`);
+		logger.log(
+			`findPositionAtPointer: no OpenAPIVirtualCode found for ${targetUriString}`,
+		);
 	}
 
 	// Fall back to DataVirtualCode with AST
 	const path = parseJsonPointer(pointer);
 	const dataVc = getDataVirtualCode(context, targetUri);
 	if (dataVc) {
-		logger.log(`findPositionAtPointer: falling back to DataVirtualCode AST lookup`);
+		logger.log(
+			`findPositionAtPointer: falling back to DataVirtualCode AST lookup`,
+		);
 		const position = findPositionInVirtualCode(dataVc, path, isYaml);
 		if (position) {
-			logger.log(`findPositionAtPointer: found via AST, position: ${position.line}:${position.character}`);
+			logger.log(
+				`findPositionAtPointer: found via AST, position: ${position.line}:${position.character}`,
+			);
 		} else {
 			logger.log("findPositionAtPointer: AST lookup failed");
 		}
@@ -319,7 +335,9 @@ async function findPositionAtPointer(
 		if (isYaml) {
 			const position = findPositionInYaml(content, path, lineOffsets);
 			if (position) {
-				logger.log(`findPositionAtPointer: found in YAML, position: ${position.line}:${position.character}`);
+				logger.log(
+					`findPositionAtPointer: found in YAML, position: ${position.line}:${position.character}`,
+				);
 			} else {
 				logger.log("findPositionAtPointer: YAML path lookup failed");
 			}
@@ -327,13 +345,17 @@ async function findPositionAtPointer(
 		}
 		const position = findPositionInJson(content, path, lineOffsets);
 		if (position) {
-			logger.log(`findPositionAtPointer: found in JSON, position: ${position.line}:${position.character}`);
+			logger.log(
+				`findPositionAtPointer: found in JSON, position: ${position.line}:${position.character}`,
+			);
 		} else {
 			logger.log("findPositionAtPointer: JSON path lookup failed");
 		}
 		return position;
 	} catch (error) {
-		logger.error(`findPositionAtPointer: error reading file: ${error instanceof Error ? error.message : String(error)}`);
+		logger.error(
+			`findPositionAtPointer: error reading file: ${error instanceof Error ? error.message : String(error)}`,
+		);
 		return null;
 	}
 }
@@ -726,32 +748,15 @@ export function createOpenAPIServicePlugin({
 					// Ensure OpenAPI rules are loaded before diagnostics
 					await shared.rulesLoadPromise;
 
-					// Only process yaml/json/openapi-yaml/openapi-json documents
-					if (
-						document.languageId !== "openapi-yaml" &&
-						document.languageId !== "openapi-json"
-					) {
-						return [];
-					}
-
 					try {
-						// Get source document URI
-						const documentUri = URI.parse(document.uri);
-						const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-						if (!decoded) {
+						// Use consolidated helper for VirtualCode access
+						const resolved = resolveOpenAPIDocument(context, document);
+						if (!resolved) {
 							return [];
 						}
 
-						const [sourceUri, embeddedCodeId] = decoded;
-						const sourceUriString = sourceUri.toString();
+						const { sourceUriString, virtualCode } = resolved;
 						const baseUri = normalizeBaseUri(sourceUriString);
-
-						// Get VirtualCode - must be OpenAPIVirtualCode
-						// Pass URI object directly for correct Map lookup
-						const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-						if (!virtualCode) {
-							return [];
-						}
 
 						// Get workspace-specific rules
 						const rules = shared.getRuleImplementationsForUri(baseUri);
@@ -769,7 +774,8 @@ export function createOpenAPIServicePlugin({
 
 						// Categorize rules by scope - per-document diagnostics only run single-file rules
 						// Cross-file rules run in workspace diagnostics for better performance
-						const { singleFile: singleFileRules } = categorizeRulesByScope(openApiRules);
+						const { singleFile: singleFileRules } =
+							categorizeRulesByScope(openApiRules);
 						if (singleFileRules.length === 0) return [];
 
 						// Build ProjectContext from VirtualCode (loads missing refs from file system)
@@ -834,27 +840,13 @@ export function createOpenAPIServicePlugin({
 				 * points to without navigating away from the current document.
 				 */
 				async provideHover(document, position): Promise<Hover | null> {
-					// Only process OpenAPI documents
-					if (
-						document.languageId !== "openapi-yaml" &&
-						document.languageId !== "openapi-json"
-					) {
+					// Use consolidated helper for VirtualCode access
+					const resolved = resolveOpenAPIDocument(context, document);
+					if (!resolved) {
 						return null;
 					}
 
-					// Get source URI
-					const documentUri = URI.parse(document.uri);
-					const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-					if (!decoded) {
-						return null;
-					}
-
-					const [sourceUri] = decoded;
-					const sourceUriString = sourceUri.toString();
-
-					// Get VirtualCode
-					const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-					if (!virtualCode) return null;
+					const { sourceUri, sourceUriString, virtualCode } = resolved;
 
 					// Get IR directly from VirtualCode
 					const ir = virtualCode.getIR(sourceUriString);
@@ -912,27 +904,13 @@ export function createOpenAPIServicePlugin({
 				 * by `resolveDocumentLink` to provide precise navigation.
 				 */
 				provideDocumentLinks(document) {
-					// Only process yaml/json/openapi-yaml/openapi-json documents
-					if (
-						document.languageId !== "openapi-yaml" &&
-						document.languageId !== "openapi-json"
-					) {
+					// Use consolidated helper for VirtualCode access
+					const resolved = resolveOpenAPIDocument(context, document);
+					if (!resolved) {
 						return [];
 					}
 
-					// Get source URI
-					const documentUri = URI.parse(document.uri);
-					const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-					if (!decoded) {
-						return [];
-					}
-
-					const [sourceUri] = decoded;
-					const sourceUriString = sourceUri.toString();
-
-					// Get VirtualCode - pass URI object directly for correct Map lookup
-					const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-					if (!virtualCode) return [];
+					const { sourceUri, sourceUriString, virtualCode } = resolved;
 
 					// Get IR directly from VirtualCode
 					const ir = virtualCode.getIR(sourceUriString);
@@ -1221,11 +1199,10 @@ export function createOpenAPIServicePlugin({
 						return [];
 					}
 
-					return provideCodeLenses(
-						shared,
-						context,
-						{ uri: document.uri, languageId: document.languageId },
-					);
+					return provideCodeLenses(shared, context, {
+						uri: document.uri,
+						languageId: document.languageId,
+					});
 				},
 
 				// ================================================================
@@ -1366,7 +1343,7 @@ export function createOpenAPIServicePlugin({
  * Provide workspace-wide diagnostics for all OpenAPI documents.
  *
  * This function implements the TypeScript-like project model for OpenAPI:
- * 
+ *
  * 1. Uses the "project model" - known OpenAPI files from client scan or server discovery
  * 2. Processes each root document's dependency tree (via GraphIndex)
  * 3. Runs cross-file rules that need project context (unresolved refs, duplicate operationIds)
@@ -1403,54 +1380,58 @@ async function provideWorkspaceDiagnostics(
 		// =====================================================================
 		// Phase 1: Determine files to process using project model
 		// =====================================================================
-		
+
 		// First priority: use files sent from client via aperture/setOpenAPIFiles
 		// This is the "TypeScript way" - client tells server what files are in the project
 		let knownFiles = shared.getKnownOpenAPIFiles();
-		
+
 		// Fallback: if client hasn't sent files yet, perform discovery (legacy path)
 		if (knownFiles.length === 0 && !shared.hasInitialScanBeenPerformed()) {
 			logger.log("No files from client, performing fallback discovery...");
 			knownFiles = await discoverOpenAPIFiles(shared, token, logger);
 			shared.markInitialScanPerformed();
 		}
-		
+
 		// Get affected URIs - files that changed since last diagnostics run
 		const affectedUris = new Set(workspaceIndex.getAffectedUris());
-		
+
 		// Get root documents (files with openapi: x.x.x)
 		const rootDocumentUris = shared.getRootDocumentUris();
-		
+
 		// Find all roots affected by the changed files
 		const rootsToProcess = new Set<string>();
-		
+
 		for (const uri of affectedUris) {
 			// If the affected file IS a root, process it
 			if (rootDocumentUris.includes(uri)) {
 				rootsToProcess.add(uri);
 			}
-			
+
 			// Find any roots that depend on this file (it might be a fragment)
 			const affectedRoots = workspaceIndex.getRootsAffectedByFile(uri);
 			for (const rootUri of affectedRoots) {
 				rootsToProcess.add(rootUri);
 			}
 		}
-		
+
 		// If no affected URIs but we have roots, process all roots on first run
-		if (rootsToProcess.size === 0 && rootDocumentUris.length > 0 && !previousResultIds?.size) {
+		if (
+			rootsToProcess.size === 0 &&
+			rootDocumentUris.length > 0 &&
+			!previousResultIds?.size
+		) {
 			for (const uri of rootDocumentUris) {
 				rootsToProcess.add(uri);
 			}
 		}
-		
+
 		// Log project summary
 		const projectSummary = workspaceIndex.getProjectSummary();
 		logger.log(
 			`Project model: ${projectSummary.rootCount} roots, ${projectSummary.totalFilesInTrees} total files in trees`,
 		);
 		logger.log(`Processing ${rootsToProcess.size} root document(s)`);
-		
+
 		if (rootsToProcess.size === 0) {
 			// Return unchanged reports for previous results
 			if (previousResultIds && previousResultIds.size > 0) {
@@ -1469,7 +1450,7 @@ async function provideWorkspaceDiagnostics(
 		// =====================================================================
 		// Phase 2: Run cross-file rules on each root's dependency tree
 		// =====================================================================
-		
+
 		const reports: WorkspaceDocumentDiagnosticReport[] = [];
 
 		for (const rootUri of rootsToProcess) {
@@ -1494,11 +1475,12 @@ async function provideWorkspaceDiagnostics(
 				const openApiRules = rules.filter(
 					(rule) => !rule.meta.ruleType || rule.meta.ruleType === "openapi",
 				);
-				
+
 				// Only run cross-file rules in workspace diagnostics
 				// Single-file rules already ran in provideDiagnostics
-				const { crossFile: crossFileRules } = categorizeRulesByScope(openApiRules);
-				
+				const { crossFile: crossFileRules } =
+					categorizeRulesByScope(openApiRules);
+
 				if (crossFileRules.length === 0) {
 					logger.log(`No cross-file rules for ${rootUri}, skipping`);
 					continue;
@@ -1515,7 +1497,7 @@ async function provideWorkspaceDiagnostics(
 					logger.log(`Failed to build ProjectContext for ${rootUri}`);
 					continue;
 				}
-				
+
 				// Get all URIs in this root's dependency tree
 				const dependencyTree = workspaceIndex.getRootDependencyTree(rootUri);
 				const treeUris = Array.from(dependencyTree);
@@ -1535,7 +1517,7 @@ async function provideWorkspaceDiagnostics(
 					existing.push(diagnostic);
 					diagnosticsByUri.set(diagnostic.uri, existing);
 				}
-				
+
 				// Generate reports for files with diagnostics
 				for (const [uri, diagnostics] of diagnosticsByUri) {
 					const version = shared.documents.get(uri)?.version ?? null;
@@ -1583,18 +1565,22 @@ async function provideWorkspaceDiagnostics(
 
 /**
  * Discover OpenAPI files using glob patterns (fallback when client hasn't sent files).
- * 
+ *
  * This is the legacy path - ideally the client sends files via aperture/setOpenAPIFiles.
- * 
+ *
  * @internal
  */
 async function discoverOpenAPIFiles(
 	shared: ApertureVolarContext,
 	token: CancellationToken,
-	logger: { log: (...args: unknown[]) => void; warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void },
+	logger: {
+		log: (...args: unknown[]) => void;
+		warn: (...args: unknown[]) => void;
+		error: (...args: unknown[]) => void;
+	},
 ): Promise<string[]> {
 	const discoveredUris: string[] = [];
-	
+
 	try {
 		const config = shared.getConfig();
 		const patterns = config.openapi?.patterns ?? [];
@@ -1625,7 +1611,7 @@ async function discoverOpenAPIFiles(
 					);
 				}
 			}
-			
+
 			logger.log(`Discovered ${discoveredUris.length} OpenAPI files`);
 		}
 	} catch (error) {
@@ -1635,7 +1621,7 @@ async function discoverOpenAPIFiles(
 			}`,
 		);
 	}
-	
+
 	return discoveredUris;
 }
 

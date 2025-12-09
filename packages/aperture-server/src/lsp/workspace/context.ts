@@ -341,8 +341,13 @@ export class ApertureVolarContext {
 			`[Context] Configuration reloaded - new signature ${nextSignature}`,
 		);
 
-		// Reload rules asynchronously
-		this.rulesLoadPromise = this.loadRules();
+		// Chain new rule loading onto the previous promise to prevent race conditions.
+		// This ensures consumers awaiting the previous promise get the latest rules.
+		this.rulesLoadPromise = this.rulesLoadPromise
+			.catch(() => {
+				// Ignore errors from previous load - we're replacing with a new load
+			})
+			.then(() => this.loadRules());
 		return true;
 	}
 

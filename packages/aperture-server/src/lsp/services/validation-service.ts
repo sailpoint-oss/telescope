@@ -25,7 +25,6 @@
  * ```
  */
 
-import { createHash } from "node:crypto";
 import type { Diagnostic } from "@volar/language-server";
 import type {
 	LanguageServiceContext,
@@ -41,11 +40,17 @@ import { normalizeBaseUri } from "../../engine/utils/document-utils.js";
 import { DataVirtualCode } from "../languages/virtualCodes/data-virtual-code.js";
 import { isConfigFile } from "../utils.js";
 import type { ApertureVolarContext } from "../workspace/context.js";
+import {
+	DiagnosticsCache,
+	type DiagnosticsCacheEntry,
+	computeContentHash,
+} from "./shared/diagnostics-cache.js";
 
 /**
  * Cache entry for validation diagnostics.
  * Stores the result ID and diagnostics for a single file.
  * @public Exported for testing
+ * @deprecated Use DiagnosticsCacheEntry from shared/diagnostics-cache.ts instead
  */
 export interface ValidationCacheEntry {
 	/** Unique identifier for this diagnostic state */
@@ -63,45 +68,51 @@ export interface ValidationCacheEntry {
  * Enables incremental updates by tracking which files have changed
  * and returning cached results for unchanged files.
  * @public Exported for testing
+ * @deprecated Use DiagnosticsCache from shared/diagnostics-cache.ts instead
  */
 export class ValidationDiagnosticsCache {
-	private cache = new Map<string, ValidationCacheEntry>();
-	private changedFiles = new Set<string>();
+	private cache = new DiagnosticsCache();
 
 	/**
 	 * Get cached entry for a URI.
 	 */
 	get(uri: string): ValidationCacheEntry | undefined {
-		return this.cache.get(uri);
+		const entry = this.cache.get(uri);
+		if (!entry) return undefined;
+		return {
+			resultId: entry.resultId,
+			diagnostics: entry.diagnostics,
+			contentHash: entry.contentHash,
+			computedAt: entry.timestamp,
+		};
 	}
 
 	/**
 	 * Store a diagnostic result in the cache.
 	 */
 	set(uri: string, entry: ValidationCacheEntry): void {
-		this.cache.set(uri, entry);
-		this.changedFiles.delete(uri);
+		this.cache.set(uri, entry.diagnostics, entry.contentHash);
 	}
 
 	/**
 	 * Mark a file as changed (requires revalidation).
 	 */
 	markChanged(uri: string): void {
-		this.changedFiles.add(uri);
+		this.cache.markChanged(uri);
 	}
 
 	/**
 	 * Check if a file needs revalidation.
 	 */
 	hasChanged(uri: string): boolean {
-		return this.changedFiles.has(uri) || !this.cache.has(uri);
+		return this.cache.needsRevalidation(uri);
 	}
 
 	/**
 	 * Get the result ID for a cached file.
 	 */
 	getResultId(uri: string): string | undefined {
-		return this.cache.get(uri)?.resultId;
+		return this.cache.getResultId(uri);
 	}
 
 	/**
@@ -109,15 +120,13 @@ export class ValidationDiagnosticsCache {
 	 */
 	clear(): void {
 		this.cache.clear();
-		this.changedFiles.clear();
 	}
 
 	/**
 	 * Invalidate a specific URI from the cache.
 	 */
 	invalidate(uri: string): void {
-		this.cache.delete(uri);
-		this.changedFiles.add(uri);
+		this.cache.invalidate(uri);
 	}
 }
 
@@ -130,46 +139,12 @@ export class ValidationDiagnosticsCache {
  * @param contentHash - Hash of the file content
  * @returns Unique result ID string
  * @public Exported for testing
+ * @deprecated Use computeDiagnosticsResultId from shared/diagnostics-cache.ts instead
  */
-export function computeValidationResultId(
-	uri: string,
-	diagnostics: Diagnostic[],
-	contentHash: string,
-): string {
-	const hash = createHash("sha1");
-	hash.update(uri);
-	hash.update(contentHash);
+export { computeDiagnosticsResultId as computeValidationResultId } from "./shared/diagnostics-cache.js";
 
-	// Sort diagnostics for deterministic hashing
-	const sorted = diagnostics.slice().sort((a, b) => {
-		const lineDiff = a.range.start.line - b.range.start.line;
-		if (lineDiff !== 0) return lineDiff;
-		const charDiff = a.range.start.character - b.range.start.character;
-		if (charDiff !== 0) return charDiff;
-		return a.message.localeCompare(b.message);
-	});
-
-	for (const d of sorted) {
-		hash.update(`${d.range.start.line}:${d.range.start.character}`);
-		hash.update(`${d.range.end.line}:${d.range.end.character}`);
-		hash.update(d.message);
-		hash.update(String(d.severity ?? 0));
-		hash.update(String(d.code ?? ""));
-	}
-
-	return hash.digest("hex").substring(0, 16);
-}
-
-/**
- * Compute a hash of file content for change detection.
- *
- * @param content - File content string
- * @returns SHA1 hash string (first 16 chars)
- * @public Exported for testing
- */
-export function computeContentHash(content: string): string {
-	return createHash("sha1").update(content).digest("hex").substring(0, 16);
-}
+// Re-export computeContentHash for backwards compatibility
+export { computeContentHash } from "./shared/diagnostics-cache.js";
 
 /**
  * Convert an engine Diagnostic to a Volar/LSP Diagnostic.

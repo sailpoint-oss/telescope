@@ -537,6 +537,8 @@ export class OpenAPIVirtualCode implements VirtualCode {
 			rawText: this.getRawText(),
 			hash: this._hash ?? "",
 			mtimeMs: this._mtimeMs ?? 0,
+			// Include cached line offsets to avoid recomputation in runner
+			_lineOffsets: this.getLineOffsets(),
 		};
 	}
 

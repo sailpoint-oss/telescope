@@ -46,16 +46,15 @@ import type { GraphNode } from "../../engine/indexes/graph-types.js";
 import type { OperationAtom, ComponentAtom, SchemaAtom } from "../../engine/indexes/atoms.js";
 import type { IRNode } from "../../engine/ir/types.js";
 import { normalizeUri, resolveRef } from "../../engine/utils/ref-utils.js";
-import {
-	buildLineOffsets,
-	getLineCol,
-} from "../../engine/utils/line-offset-utils.js";
+import { getLineCol } from "../../engine/utils/line-offset-utils.js";
 import { parseJsonPointer, joinPointer } from "../../engine/utils/pointer-utils.js";
 import { OpenAPIVirtualCode } from "../languages/virtualCodes/openapi-virtual-code.js";
 import type { ApertureVolarContext } from "../workspace/context.js";
 import {
 	getOpenAPIVirtualCode,
 	getDataVirtualCode,
+	resolveOpenAPIDocument,
+	resolveOpenAPIDocumentWithIR,
 } from "./shared/virtual-code-utils.js";
 
 // ============================================================================
@@ -63,7 +62,7 @@ import {
 // ============================================================================
 
 // Re-export shared utilities for backwards compatibility
-export { getOpenAPIVirtualCode, getDataVirtualCode } from "./shared/virtual-code-utils.js";
+export { getOpenAPIVirtualCode, getDataVirtualCode, resolveOpenAPIDocument, resolveOpenAPIDocumentWithIR } from "./shared/virtual-code-utils.js";
 
 /**
  * Convert JSON pointer path segments to string representation.
@@ -151,115 +150,114 @@ export function provideCodeActions(
 	range: Range,
 	actionContext: CodeActionContext,
 ): CodeAction[] {
-	const actions: CodeAction[] = [];
+	try {
+		const actions: CodeAction[] = [];
 
-	// Decode URI to get source file
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return actions;
+		// Use consolidated helper for VirtualCode access
+		const resolved = resolveOpenAPIDocument(context, document);
+		if (!resolved) return actions;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { sourceUriString, virtualCode } = resolved;
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return actions;
+		const text = document.getText();
+		const isYaml = document.languageId === "openapi-yaml" || document.languageId === "yaml";
 
-	const text = document.getText();
-	const isYaml = document.languageId === "openapi-yaml" || document.languageId === "yaml";
+		// Process each diagnostic to generate fixes
+		for (const diagnostic of actionContext.diagnostics) {
+			const code = String(diagnostic.code ?? "");
 
-	// Process each diagnostic to generate fixes
-	for (const diagnostic of actionContext.diagnostics) {
-		const code = String(diagnostic.code ?? "");
-
-		// Add missing description
-		if (code.includes("description") || diagnostic.message.toLowerCase().includes("description")) {
-			actions.push({
-				title: "Add description",
-				kind: "quickfix" as CodeActionKind,
-				diagnostics: [diagnostic as any],
-				edit: {
-					changes: {
-						[document.uri]: [
-							createAddFieldEdit(text, range.start, "description", "TODO: Add description", isYaml),
-						],
-					},
-				},
-			});
-		}
-
-		// Add missing summary
-		if (code.includes("summary") || diagnostic.message.toLowerCase().includes("summary")) {
-			actions.push({
-				title: "Add summary",
-				kind: "quickfix" as CodeActionKind,
-				diagnostics: [diagnostic as any],
-				edit: {
-					changes: {
-						[document.uri]: [
-							createAddFieldEdit(text, range.start, "summary", "TODO: Add summary", isYaml),
-						],
-					},
-				},
-			});
-		}
-
-		// Add missing operationId
-		if (code.includes("operationId") || diagnostic.message.toLowerCase().includes("operationid")) {
-			const suggestedId = generateOperationId(virtualCode, range);
-			actions.push({
-				title: `Add operationId: "${suggestedId}"`,
-				kind: "quickfix" as CodeActionKind,
-				diagnostics: [diagnostic as any],
-				edit: {
-					changes: {
-						[document.uri]: [
-							createAddFieldEdit(text, range.start, "operationId", suggestedId, isYaml),
-						],
-					},
-				},
-			});
-		}
-
-		// Fix path casing (kebab-case)
-		if (code.includes("kebab") || diagnostic.message.toLowerCase().includes("kebab")) {
-			const lineText = getLineText(text, range.start.line);
-			const fixed = toKebabCase(lineText);
-			if (fixed !== lineText) {
+			// Add missing description
+			if (code.includes("description") || diagnostic.message.toLowerCase().includes("description")) {
 				actions.push({
-					title: "Convert to kebab-case",
+					title: "Add description",
 					kind: "quickfix" as CodeActionKind,
 					diagnostics: [diagnostic as any],
 					edit: {
 						changes: {
 							[document.uri]: [
-								{
-									range: {
-										start: { line: range.start.line, character: 0 },
-										end: { line: range.start.line, character: lineText.length },
-									},
-									newText: fixed,
-								},
+								createAddFieldEdit(text, range.start, "description", "TODO: Add description", isYaml),
 							],
 						},
 					},
 				});
 			}
+
+			// Add missing summary
+			if (code.includes("summary") || diagnostic.message.toLowerCase().includes("summary")) {
+				actions.push({
+					title: "Add summary",
+					kind: "quickfix" as CodeActionKind,
+					diagnostics: [diagnostic as any],
+					edit: {
+						changes: {
+							[document.uri]: [
+								createAddFieldEdit(text, range.start, "summary", "TODO: Add summary", isYaml),
+							],
+						},
+					},
+				});
+			}
+
+			// Add missing operationId
+			if (code.includes("operationId") || diagnostic.message.toLowerCase().includes("operationid")) {
+				const suggestedId = generateOperationId(virtualCode, range);
+				actions.push({
+					title: `Add operationId: "${suggestedId}"`,
+					kind: "quickfix" as CodeActionKind,
+					diagnostics: [diagnostic as any],
+					edit: {
+						changes: {
+							[document.uri]: [
+								createAddFieldEdit(text, range.start, "operationId", suggestedId, isYaml),
+							],
+						},
+					},
+				});
+			}
+
+			// Fix path casing (kebab-case)
+			if (code.includes("kebab") || diagnostic.message.toLowerCase().includes("kebab")) {
+				const lineText = getLineText(text, range.start.line);
+				const fixed = toKebabCase(lineText);
+				if (fixed !== lineText) {
+					actions.push({
+						title: "Convert to kebab-case",
+						kind: "quickfix" as CodeActionKind,
+						diagnostics: [diagnostic as any],
+						edit: {
+							changes: {
+								[document.uri]: [
+									{
+										range: {
+											start: { line: range.start.line, character: 0 },
+											end: { line: range.start.line, character: lineText.length },
+										},
+										newText: fixed,
+									},
+								],
+							},
+						},
+					});
+				}
+			}
 		}
+
+		// Source actions (always available)
+		actions.push({
+			title: "Sort tags alphabetically",
+			kind: "source.organizeImports" as CodeActionKind,
+			command: {
+				title: "Sort Tags",
+				command: "telescope.sortTags",
+				arguments: [sourceUriString],
+			},
+		});
+
+		return actions;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideCodeActions failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	// Source actions (always available)
-	actions.push({
-		title: "Sort tags alphabetically",
-		kind: "source.organizeImports" as CodeActionKind,
-		command: {
-			title: "Sort Tags",
-			command: "telescope.sortTags",
-			arguments: [sourceUriString],
-		},
-	});
-
-	return actions;
 }
 
 /**
@@ -366,98 +364,96 @@ export function provideReferences(
 	position: Position,
 	includeDeclaration: boolean,
 ): Location[] {
-	const locations: Location[] = [];
+	try {
+		const locations: Location[] = [];
 
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return locations;
+		// Use consolidated helper for VirtualCode access with IR
+		const resolved = resolveOpenAPIDocumentWithIR(context, document);
+		if (!resolved) return locations;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { sourceUriString, virtualCode } = resolved;
+		const ir = resolved.getIR();
+		const text = resolved.getRawText();
+		const lineOffsets = resolved.getLineOffsets();
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return locations;
+		// Find the node at the cursor position
+		const offset = positionToOffset(text, position);
+		const nodeAtCursor = findNodeAtOffset(ir.root, offset);
 
-	const ir = virtualCode.getIR(sourceUriString);
-	const text = virtualCode.getRawText();
-	const lineOffsets = buildLineOffsets(text);
+		if (!nodeAtCursor) return locations;
 
-	// Find the node at the cursor position
-	const offset = positionToOffset(text, position);
-	const nodeAtCursor = findNodeAtOffset(ir.root, offset);
+		// Determine what we're looking for
+		const workspaceIndex = shared.workspaceIndex;
+		const graphIndex = workspaceIndex.getGraphIndex();
+		const opIdIndex = workspaceIndex.getOpIdIndex();
 
-	if (!nodeAtCursor) return locations;
+		// Check if cursor is on an operationId
+		if (nodeAtCursor.key === "operationId" && typeof nodeAtCursor.value === "string") {
+			const operationId = nodeAtCursor.value;
+			const occurrences = opIdIndex.getOccurrences(operationId);
 
-	// Determine what we're looking for
-	const workspaceIndex = shared.workspaceIndex;
-	const graphIndex = workspaceIndex.getGraphIndex();
-	const opIdIndex = workspaceIndex.getOpIdIndex();
-
-	// Check if cursor is on an operationId
-	if (nodeAtCursor.key === "operationId" && typeof nodeAtCursor.value === "string") {
-		const operationId = nodeAtCursor.value;
-		const occurrences = opIdIndex.getOccurrences(operationId);
-
-		for (const occ of occurrences) {
-			const range = offsetToRange(text, occ.loc.start ?? 0, occ.loc.end ?? occ.loc.start ?? 0, lineOffsets);
-			if (range) {
-				locations.push({ uri: occ.uri, range });
-			}
-		}
-
-		return locations;
-	}
-
-	// Check if cursor is on a $ref target (component definition)
-	const componentPointer = nodeAtCursor.ptr;
-	if (componentPointer?.startsWith("#/components/")) {
-		// This is a component - find all $refs pointing to it
-		const targetNode: GraphNode = { uri: sourceUriString, pointer: componentPointer };
-		const dependents = graphIndex.dependentsOf(targetNode);
-
-		// Include declaration if requested
-		if (includeDeclaration && nodeAtCursor.loc) {
-			const range = virtualCode.locToRange(nodeAtCursor.loc);
-			if (range) {
-				locations.push({ uri: sourceUriString, range });
-			}
-		}
-
-		// Add all references
-		for (const dep of dependents) {
-			const depVc = getOpenAPIVirtualCode(context, URI.parse(dep.uri));
-			if (depVc) {
-				const depIr = depVc.getIR(dep.uri);
-				const refNode = findNodeAtPointer(depIr.root, dep.pointer);
-				if (refNode?.loc) {
-					const range = depVc.locToRange(refNode.loc);
-					if (range) {
-						locations.push({ uri: dep.uri, range });
-					}
+			for (const occ of occurrences) {
+				const range = offsetToRange(text, occ.loc.start ?? 0, occ.loc.end ?? occ.loc.start ?? 0, lineOffsets);
+				if (range) {
+					locations.push({ uri: occ.uri, range });
 				}
 			}
+
+			return locations;
 		}
-	}
 
-	// Check if cursor is on a $ref value
-	if (nodeAtCursor.key === "$ref" && typeof nodeAtCursor.value === "string") {
-		const refValue = nodeAtCursor.value;
+		// Check if cursor is on a $ref target (component definition)
+		const componentPointer = nodeAtCursor.ptr;
+		if (componentPointer?.startsWith("#/components/")) {
+			// This is a component - find all $refs pointing to it
+			const targetNode: GraphNode = { uri: sourceUriString, pointer: componentPointer };
+			const dependents = graphIndex.dependentsOf(targetNode);
 
-		// Find all nodes that reference the same target
-		const refs = findAllRefNodes(ir.root);
-		for (const { node: refNode } of refs) {
-			if (refNode.value === refValue && refNode.loc) {
-				const range = virtualCode.locToRange(refNode.loc);
+			// Include declaration if requested
+			if (includeDeclaration && nodeAtCursor.loc) {
+				const range = virtualCode.locToRange(nodeAtCursor.loc);
 				if (range) {
 					locations.push({ uri: sourceUriString, range });
 				}
 			}
-		}
-	}
 
-	return locations;
+			// Add all references
+			for (const dep of dependents) {
+				const depVc = getOpenAPIVirtualCode(context, URI.parse(dep.uri));
+				if (depVc) {
+					const depIr = depVc.getIR(dep.uri);
+					const refNode = findNodeAtPointer(depIr.root, dep.pointer);
+					if (refNode?.loc) {
+						const range = depVc.locToRange(refNode.loc);
+						if (range) {
+							locations.push({ uri: dep.uri, range });
+						}
+					}
+				}
+			}
+		}
+
+		// Check if cursor is on a $ref value
+		if (nodeAtCursor.key === "$ref" && typeof nodeAtCursor.value === "string") {
+			const refValue = nodeAtCursor.value;
+
+			// Find all nodes that reference the same target
+			const refs = findAllRefNodes(ir.root);
+			for (const { node: refNode } of refs) {
+				if (refNode.value === refValue && refNode.loc) {
+					const range = virtualCode.locToRange(refNode.loc);
+					if (range) {
+						locations.push({ uri: sourceUriString, range });
+					}
+				}
+			}
+		}
+
+		return locations;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideReferences failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
+	}
 }
 
 /**
@@ -539,68 +535,73 @@ export function provideWorkspaceSymbols(
 	context: LanguageServiceContext,
 	query: string,
 ): WorkspaceSymbol[] {
-	const symbols: WorkspaceSymbol[] = [];
-	const lowerQuery = query.toLowerCase();
+	try {
+		const symbols: WorkspaceSymbol[] = [];
+		const lowerQuery = query.toLowerCase();
 
-	// Get root documents from shared context
-	const rootUris = shared.getRootDocumentUris();
+		// Get root documents from shared context
+		const rootUris = shared.getRootDocumentUris();
 
-	for (const uriString of rootUris) {
-		const uri = URI.parse(uriString);
-		const sourceScript = context.language.scripts.get(uri);
-		const virtualCode = sourceScript?.generated?.root;
-		if (!(virtualCode instanceof OpenAPIVirtualCode)) continue;
+		for (const uriString of rootUris) {
+			const uri = URI.parse(uriString);
+			const sourceScript = context.language.scripts.get(uri);
+			const virtualCode = sourceScript?.generated?.root;
+			if (!(virtualCode instanceof OpenAPIVirtualCode)) continue;
 
-		const atoms = virtualCode.getAtoms(uriString);
+			const atoms = virtualCode.getAtoms(uriString);
 
-		// Add operations
-		for (const op of atoms.operations) {
-			const name = op.operationId ?? `${op.method} ${op.path}`;
-			if (name.toLowerCase().includes(lowerQuery)) {
-				const range = virtualCode.locToRange(op.loc);
-				if (range) {
-					symbols.push({
-						name,
-						kind: 6 as SymbolKind, // Method
-						location: { uri: op.uri, range },
-						containerName: op.path,
-					});
+			// Add operations
+			for (const op of atoms.operations) {
+				const name = op.operationId ?? `${op.method} ${op.path}`;
+				if (name.toLowerCase().includes(lowerQuery)) {
+					const range = virtualCode.locToRange(op.loc);
+					if (range) {
+						symbols.push({
+							name,
+							kind: 6 as SymbolKind, // Method
+							location: { uri: op.uri, range },
+							containerName: op.path,
+						});
+					}
+				}
+			}
+
+			// Add components
+			for (const comp of atoms.components) {
+				if (comp.name.toLowerCase().includes(lowerQuery)) {
+					const range = virtualCode.locToRange(comp.loc);
+					if (range) {
+						symbols.push({
+							name: comp.name,
+							kind: getSymbolKindForComponent(comp.type),
+							location: { uri: comp.uri, range },
+							containerName: `components/${comp.type}`,
+						});
+					}
+				}
+			}
+
+			// Add schemas
+			for (const schema of atoms.schemas) {
+				if (schema.name && schema.name.toLowerCase().includes(lowerQuery)) {
+					const range = virtualCode.locToRange(schema.loc);
+					if (range) {
+						symbols.push({
+							name: schema.name,
+							kind: 23 as SymbolKind, // Struct
+							location: { uri: schema.uri, range },
+							containerName: "components/schemas",
+						});
+					}
 				}
 			}
 		}
 
-		// Add components
-		for (const comp of atoms.components) {
-			if (comp.name.toLowerCase().includes(lowerQuery)) {
-				const range = virtualCode.locToRange(comp.loc);
-				if (range) {
-					symbols.push({
-						name: comp.name,
-						kind: getSymbolKindForComponent(comp.type),
-						location: { uri: comp.uri, range },
-						containerName: `components/${comp.type}`,
-					});
-				}
-			}
-		}
-
-		// Add schemas
-		for (const schema of atoms.schemas) {
-			if (schema.name && schema.name.toLowerCase().includes(lowerQuery)) {
-				const range = virtualCode.locToRange(schema.loc);
-				if (range) {
-					symbols.push({
-						name: schema.name,
-						kind: 23 as SymbolKind, // Struct
-						location: { uri: schema.uri, range },
-						containerName: "components/schemas",
-					});
-				}
-			}
-		}
+		return symbols;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideWorkspaceSymbols failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	return symbols;
 }
 
 /**
@@ -644,51 +645,50 @@ export function provideOpenAPICompletions(
 	document: { uri: string; languageId: string; getText(): string },
 	position: Position,
 ): CompletionItem[] {
-	const items: CompletionItem[] = [];
+	try {
+		const items: CompletionItem[] = [];
 
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return items;
+		// Use consolidated helper for VirtualCode access
+		const resolved = resolveOpenAPIDocument(context, document);
+		if (!resolved) return items;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { sourceUri, sourceUriString, virtualCode } = resolved;
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return items;
+		const text = document.getText();
+		const lines = text.split("\n");
+		const currentLine = lines[position.line] ?? "";
+		const beforeCursor = currentLine.substring(0, position.character);
 
-	const text = document.getText();
-	const lines = text.split("\n");
-	const currentLine = lines[position.line] ?? "";
-	const beforeCursor = currentLine.substring(0, position.character);
+		// Check if we're completing a $ref value
+		if (beforeCursor.includes("$ref") && (beforeCursor.includes(':"') || beforeCursor.includes(": '"))) {
+			items.push(...getRefCompletions(shared, context, sourceUri, virtualCode));
+		}
 
-	// Check if we're completing a $ref value
-	if (beforeCursor.includes("$ref") && (beforeCursor.includes(':"') || beforeCursor.includes(": '"))) {
-		items.push(...getRefCompletions(shared, context, sourceUri, virtualCode));
+		// Check if we're completing a security scheme reference
+		if (beforeCursor.includes("security:") || /^\s+-\s+\w*$/.test(beforeCursor)) {
+			items.push(...getSecuritySchemeCompletions(virtualCode, sourceUriString));
+		}
+
+		// Check if we're completing tags
+		if (beforeCursor.includes("tags:") || /^\s+-\s+['"]\w*$/.test(beforeCursor)) {
+			items.push(...getTagCompletions(virtualCode, sourceUriString));
+		}
+
+		// Check if we're completing a response status code
+		if (/responses:\s*$/.test(beforeCursor) || /^\s+['"]?\d*['"]?:?\s*$/.test(beforeCursor)) {
+			items.push(...getResponseCodeCompletions());
+		}
+
+		// Check if we're completing media types
+		if (beforeCursor.includes("content:") || /^\s+['"]\w*$/.test(beforeCursor)) {
+			items.push(...getMediaTypeCompletions());
+		}
+
+		return items;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideOpenAPICompletions failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	// Check if we're completing a security scheme reference
-	if (beforeCursor.includes("security:") || /^\s+-\s+\w*$/.test(beforeCursor)) {
-		items.push(...getSecuritySchemeCompletions(virtualCode, sourceUriString));
-	}
-
-	// Check if we're completing tags
-	if (beforeCursor.includes("tags:") || /^\s+-\s+['"]\w*$/.test(beforeCursor)) {
-		items.push(...getTagCompletions(virtualCode, sourceUriString));
-	}
-
-	// Check if we're completing a response status code
-	if (/responses:\s*$/.test(beforeCursor) || /^\s+['"]?\d*['"]?:?\s*$/.test(beforeCursor)) {
-		items.push(...getResponseCodeCompletions());
-	}
-
-	// Check if we're completing media types
-	if (beforeCursor.includes("content:") || /^\s+['"]\w*$/.test(beforeCursor)) {
-		items.push(...getMediaTypeCompletions());
-	}
-
-	return items;
 }
 
 /**
@@ -824,42 +824,40 @@ export function prepareRename(
 	document: { uri: string; languageId: string },
 	position: Position,
 ): { range: Range; placeholder: string } | null {
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return null;
+	try {
+		// Use consolidated helper for VirtualCode access with IR
+		const resolved = resolveOpenAPIDocumentWithIR(context, document);
+		if (!resolved) return null;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { virtualCode } = resolved;
+		const ir = resolved.getIR();
+		const text = resolved.getRawText();
+		const offset = positionToOffset(text, position);
+		const node = findNodeAtOffset(ir.root, offset);
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return null;
+		if (!node) return null;
 
-	const ir = virtualCode.getIR(sourceUriString);
-	const text = virtualCode.getRawText();
-	const offset = positionToOffset(text, position);
-	const node = findNodeAtOffset(ir.root, offset);
-
-	if (!node) return null;
-
-	// Check if this is a renameable symbol
-	if (node.key === "operationId" && typeof node.value === "string" && node.loc) {
-		const range = virtualCode.locToRange(node.loc);
-		if (range) {
-			return { range, placeholder: node.value };
+		// Check if this is a renameable symbol
+		if (node.key === "operationId" && typeof node.value === "string" && node.loc) {
+			const range = virtualCode.locToRange(node.loc);
+			if (range) {
+				return { range, placeholder: node.value };
+			}
 		}
-	}
 
-	// Check if this is a component name
-	if (node.ptr?.startsWith("#/components/") && node.key && node.loc) {
-		const range = virtualCode.locToRange(node.loc);
-		if (range) {
-			return { range, placeholder: node.key };
+		// Check if this is a component name
+		if (node.ptr?.startsWith("#/components/") && node.key && node.loc) {
+			const range = virtualCode.locToRange(node.loc);
+			if (range) {
+				return { range, placeholder: node.key };
+			}
 		}
-	}
 
-	return null;
+		return null;
+	} catch (error) {
+		console.error(`[OpenAPI Features] prepareRename failed: ${error instanceof Error ? error.message : String(error)}`);
+		return null;
+	}
 }
 
 /**
@@ -872,116 +870,114 @@ export function provideRenameEdits(
 	position: Position,
 	newName: string,
 ): WorkspaceEdit | null {
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return null;
+	try {
+		// Use consolidated helper for VirtualCode access with IR
+		const resolved = resolveOpenAPIDocumentWithIR(context, document);
+		if (!resolved) return null;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { sourceUriString, virtualCode } = resolved;
+		const ir = resolved.getIR();
+		const text = resolved.getRawText();
+		const offset = positionToOffset(text, position);
+		const node = findNodeAtOffset(ir.root, offset);
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return null;
+		if (!node) return null;
 
-	const ir = virtualCode.getIR(sourceUriString);
-	const text = virtualCode.getRawText();
-	const offset = positionToOffset(text, position);
-	const node = findNodeAtOffset(ir.root, offset);
+		const changes: Record<string, TextEdit[]> = {};
 
-	if (!node) return null;
+		// Handle operationId rename
+		if (node.key === "operationId" && typeof node.value === "string") {
+			const oldName = node.value;
+			const opIdIndex = shared.workspaceIndex.getOpIdIndex();
+			const occurrences = opIdIndex.getOccurrences(oldName);
 
-	const changes: Record<string, TextEdit[]> = {};
-
-	// Handle operationId rename
-	if (node.key === "operationId" && typeof node.value === "string") {
-		const oldName = node.value;
-		const opIdIndex = shared.workspaceIndex.getOpIdIndex();
-		const occurrences = opIdIndex.getOccurrences(oldName);
-
-		for (const occ of occurrences) {
-			const occVc = getOpenAPIVirtualCode(context, URI.parse(occ.uri));
-			if (occVc) {
-				const occIr = occVc.getIR(occ.uri);
-				// Find the operationId node
-				const opNode = findNodeAtPointer(occIr.root, `${occ.ptr}/operationId`);
-				if (opNode?.loc) {
-					const range = occVc.locToRange(opNode.loc);
-					if (range) {
-						const edits = changes[occ.uri] ?? [];
-						edits.push({ range, newText: newName });
-						changes[occ.uri] = edits;
-					}
-				}
-			}
-		}
-
-		// Also find operationId references in links/callbacks
-		const rootUris = shared.getRootDocumentUris();
-		for (const uriStr of rootUris) {
-			const uri = URI.parse(uriStr);
-			const sourceScript = context.language.scripts.get(uri);
-			const vc = sourceScript?.generated?.root;
-			if (!(vc instanceof OpenAPIVirtualCode)) continue;
-
-			const vcIr = vc.getIR(uriStr);
-			findOperationIdReferences(vcIr.root, oldName, (refNode) => {
-				if (refNode.loc) {
-					const range = vc.locToRange(refNode.loc);
-					if (range) {
-						const edits = changes[uriStr] ?? [];
-						edits.push({ range, newText: newName });
-						changes[uriStr] = edits;
-					}
-				}
-			});
-		}
-
-		return { changes };
-	}
-
-	// Handle component rename
-	if (node.ptr?.startsWith("#/components/") && node.key) {
-		const oldName = node.key;
-		const oldRef = node.ptr;
-		const graphIndex = shared.workspaceIndex.getGraphIndex();
-		const targetNode: GraphNode = { uri: sourceUriString, pointer: oldRef };
-
-		// Rename the definition
-		if (node.loc) {
-			const range = virtualCode.locToRange({ ...node.loc, end: node.loc.start ?? 0 + oldName.length });
-			if (range) {
-				if (!changes[sourceUriString]) changes[sourceUriString] = [];
-				changes[sourceUriString].push({ range, newText: newName });
-			}
-		}
-
-		// Find all $refs pointing to this component
-		const dependents = graphIndex.dependentsOf(targetNode);
-		for (const dep of dependents) {
-			const depVc = getOpenAPIVirtualCode(context, URI.parse(dep.uri));
-			if (depVc) {
-				const depIr = depVc.getIR(dep.uri);
-				const refNode = findNodeAtPointer(depIr.root, dep.pointer);
-				if (refNode?.kind === "string" && refNode.key === "$ref" && typeof refNode.value === "string") {
-					// Update the $ref value
-					const newRef = refNode.value.replace(oldName, newName);
-					if (refNode.loc) {
-						const range = depVc.locToRange(refNode.loc);
+			for (const occ of occurrences) {
+				const occVc = getOpenAPIVirtualCode(context, URI.parse(occ.uri));
+				if (occVc) {
+					const occIr = occVc.getIR(occ.uri);
+					// Find the operationId node
+					const opNode = findNodeAtPointer(occIr.root, `${occ.ptr}/operationId`);
+					if (opNode?.loc) {
+						const range = occVc.locToRange(opNode.loc);
 						if (range) {
-							const edits = changes[dep.uri] ?? [];
-							edits.push({ range, newText: newRef });
-							changes[dep.uri] = edits;
+							const edits = changes[occ.uri] ?? [];
+							edits.push({ range, newText: newName });
+							changes[occ.uri] = edits;
 						}
 					}
 				}
 			}
+
+			// Also find operationId references in links/callbacks
+			const rootUris = shared.getRootDocumentUris();
+			for (const uriStr of rootUris) {
+				const uri = URI.parse(uriStr);
+				const sourceScript = context.language.scripts.get(uri);
+				const vc = sourceScript?.generated?.root;
+				if (!(vc instanceof OpenAPIVirtualCode)) continue;
+
+				const vcIr = vc.getIR(uriStr);
+				findOperationIdReferences(vcIr.root, oldName, (refNode) => {
+					if (refNode.loc) {
+						const range = vc.locToRange(refNode.loc);
+						if (range) {
+							const edits = changes[uriStr] ?? [];
+							edits.push({ range, newText: newName });
+							changes[uriStr] = edits;
+						}
+					}
+				});
+			}
+
+			return { changes };
 		}
 
-		return { changes };
-	}
+		// Handle component rename
+		if (node.ptr?.startsWith("#/components/") && node.key) {
+			const oldName = node.key;
+			const oldRef = node.ptr;
+			const graphIndex = shared.workspaceIndex.getGraphIndex();
+			const targetNode: GraphNode = { uri: sourceUriString, pointer: oldRef };
 
-	return null;
+			// Rename the definition
+			if (node.loc) {
+				const range = virtualCode.locToRange({ ...node.loc, end: node.loc.start ?? 0 + oldName.length });
+				if (range) {
+					if (!changes[sourceUriString]) changes[sourceUriString] = [];
+					changes[sourceUriString].push({ range, newText: newName });
+				}
+			}
+
+			// Find all $refs pointing to this component
+			const dependents = graphIndex.dependentsOf(targetNode);
+			for (const dep of dependents) {
+				const depVc = getOpenAPIVirtualCode(context, URI.parse(dep.uri));
+				if (depVc) {
+					const depIr = depVc.getIR(dep.uri);
+					const refNode = findNodeAtPointer(depIr.root, dep.pointer);
+					if (refNode?.kind === "string" && refNode.key === "$ref" && typeof refNode.value === "string") {
+						// Update the $ref value
+						const newRef = refNode.value.replace(oldName, newName);
+						if (refNode.loc) {
+							const range = depVc.locToRange(refNode.loc);
+							if (range) {
+								const edits = changes[dep.uri] ?? [];
+								edits.push({ range, newText: newRef });
+								changes[dep.uri] = edits;
+							}
+						}
+					}
+				}
+			}
+
+			return { changes };
+		}
+
+		return null;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideRenameEdits failed: ${error instanceof Error ? error.message : String(error)}`);
+		return null;
+	}
 }
 
 /**
@@ -1016,101 +1012,99 @@ export function provideCodeLenses(
 	context: LanguageServiceContext,
 	document: { uri: string; languageId: string },
 ): CodeLens[] {
-	const lenses: CodeLens[] = [];
+	try {
+		const lenses: CodeLens[] = [];
 
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return lenses;
+		// Use consolidated helper for VirtualCode access with IR
+		const resolved = resolveOpenAPIDocumentWithIR(context, document);
+		if (!resolved) return lenses;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { sourceUriString, virtualCode } = resolved;
+		const atoms = resolved.getAtoms();
+		const graphIndex = shared.workspaceIndex.getGraphIndex();
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return lenses;
+		// Add reference count lenses for schemas
+		for (const schema of atoms.schemas) {
+			if (!schema.name) continue;
 
-	const atoms = virtualCode.getAtoms(sourceUriString);
-	const graphIndex = shared.workspaceIndex.getGraphIndex();
+			const range = virtualCode.locToRange(schema.loc);
+			if (!range) continue;
 
-	// Add reference count lenses for schemas
-	for (const schema of atoms.schemas) {
-		if (!schema.name) continue;
+			const targetNode: GraphNode = { uri: schema.uri, pointer: schema.ptr };
+			const dependents = graphIndex.dependentsOf(targetNode);
+			const refCount = dependents.length;
 
-		const range = virtualCode.locToRange(schema.loc);
-		if (!range) continue;
-
-		const targetNode: GraphNode = { uri: schema.uri, pointer: schema.ptr };
-		const dependents = graphIndex.dependentsOf(targetNode);
-		const refCount = dependents.length;
-
-		lenses.push({
-			range,
-			command: {
-				title: `${refCount} reference${refCount !== 1 ? "s" : ""}`,
-				command: "telescope.showReferences",
-				arguments: [sourceUriString, range.start, dependents],
-			},
-		});
-	}
-
-	// Add response summary lenses for operations
-	for (const op of atoms.operations) {
-		const range = virtualCode.locToRange(op.loc);
-		if (!range) continue;
-
-		// Get operation responses
-		const ir = virtualCode.getIR(sourceUriString);
-		const opNode = findNodeAtPointer(ir.root, op.ptr);
-		const responsesNode = opNode?.children?.find((c) => c.key === "responses");
-		const responseCodes: string[] = [];
-
-		if (responsesNode?.children) {
-			for (const child of responsesNode.children) {
-				if (child.key) {
-					responseCodes.push(child.key);
-				}
-			}
-		}
-
-		if (responseCodes.length > 0) {
 			lenses.push({
 				range,
 				command: {
-					title: `Responses: ${responseCodes.join(", ")}`,
-					command: "",
-					arguments: [],
+					title: `${refCount} reference${refCount !== 1 ? "s" : ""}`,
+					command: "telescope.showReferences",
+					arguments: [sourceUriString, range.start, dependents],
 				},
 			});
 		}
 
-		// Add security info
-		const securityNode = opNode?.children?.find((c) => c.key === "security");
-		if (securityNode?.children && securityNode.children.length > 0) {
-			const schemes: string[] = [];
-			for (const reqNode of securityNode.children) {
-				if (reqNode.children) {
-					for (const schemeNode of reqNode.children) {
-						if (schemeNode.key) {
-							schemes.push(schemeNode.key);
-						}
+		// Add response summary lenses for operations
+		for (const op of atoms.operations) {
+			const range = virtualCode.locToRange(op.loc);
+			if (!range) continue;
+
+			// Get operation responses
+			const ir = virtualCode.getIR(sourceUriString);
+			const opNode = findNodeAtPointer(ir.root, op.ptr);
+			const responsesNode = opNode?.children?.find((c) => c.key === "responses");
+			const responseCodes: string[] = [];
+
+			if (responsesNode?.children) {
+				for (const child of responsesNode.children) {
+					if (child.key) {
+						responseCodes.push(child.key);
 					}
 				}
 			}
-			if (schemes.length > 0) {
+
+			if (responseCodes.length > 0) {
 				lenses.push({
 					range,
 					command: {
-						title: `🔒 ${schemes.join(", ")}`,
+						title: `Responses: ${responseCodes.join(", ")}`,
 						command: "",
 						arguments: [],
 					},
 				});
 			}
-		}
-	}
 
-	return lenses;
+			// Add security info
+			const securityNode = opNode?.children?.find((c) => c.key === "security");
+			if (securityNode?.children && securityNode.children.length > 0) {
+				const schemes: string[] = [];
+				for (const reqNode of securityNode.children) {
+					if (reqNode.children) {
+						for (const schemeNode of reqNode.children) {
+							if (schemeNode.key) {
+								schemes.push(schemeNode.key);
+							}
+						}
+					}
+				}
+				if (schemes.length > 0) {
+					lenses.push({
+						range,
+						command: {
+							title: `🔒 ${schemes.join(", ")}`,
+							command: "",
+							arguments: [],
+						},
+					});
+				}
+			}
+		}
+
+		return lenses;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideCodeLenses failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
+	}
 }
 
 // ============================================================================
@@ -1126,70 +1120,68 @@ export function provideInlayHints(
 	document: { uri: string; languageId: string },
 	range: Range,
 ): InlayHint[] {
-	const hints: InlayHint[] = [];
+	try {
+		const hints: InlayHint[] = [];
 
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return hints;
+		// Use consolidated helper for VirtualCode access with IR
+		const resolved = resolveOpenAPIDocumentWithIR(context, document);
+		if (!resolved) return hints;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { virtualCode } = resolved;
+		const ir = resolved.getIR();
+		const refs = findAllRefNodes(ir.root);
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return hints;
+		for (const { node: refNode, ref } of refs) {
+			if (!refNode.loc) continue;
 
-	const ir = virtualCode.getIR(sourceUriString);
-	const refs = findAllRefNodes(ir.root);
+			const refRange = virtualCode.locToRange(refNode.loc);
+			if (!refRange) continue;
 
-	for (const { node: refNode, ref } of refs) {
-		if (!refNode.loc) continue;
+			// Check if ref is in the requested range
+			if (refRange.end.line < range.start.line || refRange.start.line > range.end.line) {
+				continue;
+			}
 
-		const refRange = virtualCode.locToRange(refNode.loc);
-		if (!refRange) continue;
+			// Try to resolve the ref and get the target type
+			let targetType: string | undefined;
 
-		// Check if ref is in the requested range
-		if (refRange.end.line < range.start.line || refRange.start.line > range.end.line) {
-			continue;
-		}
-
-		// Try to resolve the ref and get the target type
-		let targetType: string | undefined;
-
-		if (ref.startsWith("#/")) {
-			const targetNode = findNodeAtPointer(ir.root, ref);
-			if (targetNode) {
-				const typeNode = targetNode.children?.find((c) => c.key === "type");
-				if (typeNode?.kind === "string" && typeof typeNode.value === "string") {
-					targetType = typeNode.value;
-				} else if (targetNode.children?.find((c) => c.key === "allOf")) {
-					targetType = "allOf composition";
-				} else if (targetNode.children?.find((c) => c.key === "oneOf")) {
-					targetType = "oneOf composition";
-				} else if (targetNode.children?.find((c) => c.key === "anyOf")) {
-					targetType = "anyOf composition";
-				} else {
-					targetType = "object";
+			if (ref.startsWith("#/")) {
+				const targetNode = findNodeAtPointer(ir.root, ref);
+				if (targetNode) {
+					const typeNode = targetNode.children?.find((c) => c.key === "type");
+					if (typeNode?.kind === "string" && typeof typeNode.value === "string") {
+						targetType = typeNode.value;
+					} else if (targetNode.children?.find((c) => c.key === "allOf")) {
+						targetType = "allOf composition";
+					} else if (targetNode.children?.find((c) => c.key === "oneOf")) {
+						targetType = "oneOf composition";
+					} else if (targetNode.children?.find((c) => c.key === "anyOf")) {
+						targetType = "anyOf composition";
+					} else {
+						targetType = "object";
+					}
 				}
+			}
+
+			if (targetType) {
+				hints.push({
+					position: refRange.end,
+					label: ` → ${targetType}`,
+					kind: 1 as InlayHintKind, // Type
+					paddingLeft: true,
+				});
 			}
 		}
 
-		if (targetType) {
-			hints.push({
-				position: refRange.end,
-				label: ` → ${targetType}`,
-				kind: 1 as InlayHintKind, // Type
-				paddingLeft: true,
-			});
-		}
+		// Add "required" hints for properties
+		const parsedObject = virtualCode.parsedObject as Record<string, unknown>;
+		addRequiredHints(ir.root, parsedObject, virtualCode, range, hints);
+
+		return hints;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideInlayHints failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	// Add "required" hints for properties
-	const parsedObject = virtualCode.parsedObject as Record<string, unknown>;
-	addRequiredHints(ir.root, parsedObject, virtualCode, range, hints);
-
-	return hints;
 }
 
 /**
@@ -1249,43 +1241,57 @@ export function provideDefinition(
 	document: { uri: string; languageId: string },
 	position: Position,
 ): LocationLink[] {
-	const locations: LocationLink[] = [];
+	try {
+		const locations: LocationLink[] = [];
 
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return locations;
+		// Use consolidated helper for VirtualCode access with IR
+		const resolved = resolveOpenAPIDocumentWithIR(context, document);
+		if (!resolved) return locations;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { sourceUriString, virtualCode } = resolved;
+		const ir = resolved.getIR();
+		const text = resolved.getRawText();
+		const offset = positionToOffset(text, position);
+		const node = findNodeAtOffset(ir.root, offset);
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return locations;
+		if (!node) return locations;
 
-	const ir = virtualCode.getIR(sourceUriString);
-	const text = virtualCode.getRawText();
-	const offset = positionToOffset(text, position);
-	const node = findNodeAtOffset(ir.root, offset);
+		// Get origin range for the link
+		const originRange = node.loc ? virtualCode.locToRange(node.loc) : null;
 
-	if (!node) return locations;
+		// Handle operationId references in links
+		if (node.key === "operationId" && typeof node.value === "string") {
+			const operationId = node.value;
+			const opIdIndex = shared.workspaceIndex.getOpIdIndex();
+			const occurrences = opIdIndex.getOccurrences(operationId);
 
-	// Get origin range for the link
-	const originRange = node.loc ? virtualCode.locToRange(node.loc) : null;
+			// Find the definition (not the current usage)
+			for (const occ of occurrences) {
+				if (occ.uri !== sourceUriString || occ.ptr !== node.ptr) {
+					const targetRange = virtualCode.locToRange(occ.loc);
+					if (targetRange) {
+						locations.push({
+							targetUri: occ.uri,
+							targetRange,
+							targetSelectionRange: targetRange,
+							originSelectionRange: originRange ?? undefined,
+						});
+					}
+				}
+			}
+		}
 
-	// Handle operationId references in links
-	if (node.key === "operationId" && typeof node.value === "string") {
-		const operationId = node.value;
-		const opIdIndex = shared.workspaceIndex.getOpIdIndex();
-		const occurrences = opIdIndex.getOccurrences(operationId);
-
-		// Find the definition (not the current usage)
-		for (const occ of occurrences) {
-			if (occ.uri !== sourceUriString || occ.ptr !== node.ptr) {
-				const targetRange = virtualCode.locToRange(occ.loc);
+		// Handle security scheme references - check if pointer suggests a security context
+		if (node.ptr?.includes("/security/") && node.kind === "object" && node.key) {
+			// This might be a security requirement
+			const schemeName = node.key;
+			const securitySchemePointer = `#/components/securitySchemes/${schemeName}`;
+			const schemeNode = findNodeAtPointer(ir.root, securitySchemePointer);
+			if (schemeNode?.loc) {
+				const targetRange = virtualCode.locToRange(schemeNode.loc);
 				if (targetRange) {
 					locations.push({
-						targetUri: occ.uri,
+						targetUri: sourceUriString,
 						targetRange,
 						targetSelectionRange: targetRange,
 						originSelectionRange: originRange ?? undefined,
@@ -1293,36 +1299,36 @@ export function provideDefinition(
 				}
 			}
 		}
-	}
 
-	// Handle security scheme references - check if pointer suggests a security context
-	if (node.ptr?.includes("/security/") && node.kind === "object" && node.key) {
-		// This might be a security requirement
-		const schemeName = node.key;
-		const securitySchemePointer = `#/components/securitySchemes/${schemeName}`;
-		const schemeNode = findNodeAtPointer(ir.root, securitySchemePointer);
-		if (schemeNode?.loc) {
-			const targetRange = virtualCode.locToRange(schemeNode.loc);
-			if (targetRange) {
-				locations.push({
-					targetUri: sourceUriString,
-					targetRange,
-					targetSelectionRange: targetRange,
-					originSelectionRange: originRange ?? undefined,
-				});
+		// Handle tag references - check if pointer suggests a tags context
+		if (node.kind === "string" && node.ptr?.includes("/tags/")) {
+			const tagName = node.value as string;
+			const tagsNode = findNodeAtPointer(ir.root, "#/tags");
+			if (tagsNode?.children) {
+				for (const tagNode of tagsNode.children) {
+					const nameNode = tagNode.children?.find((c) => c.key === "name");
+					if (nameNode?.value === tagName && tagNode.loc) {
+						const targetRange = virtualCode.locToRange(tagNode.loc);
+						if (targetRange) {
+							locations.push({
+								targetUri: sourceUriString,
+								targetRange,
+								targetSelectionRange: targetRange,
+								originSelectionRange: originRange ?? undefined,
+							});
+						}
+					}
+				}
 			}
 		}
-	}
 
-	// Handle tag references - check if pointer suggests a tags context
-	if (node.kind === "string" && node.ptr?.includes("/tags/")) {
-		const tagName = node.value as string;
-		const tagsNode = findNodeAtPointer(ir.root, "#/tags");
-		if (tagsNode?.children) {
-			for (const tagNode of tagsNode.children) {
-				const nameNode = tagNode.children?.find((c) => c.key === "name");
-				if (nameNode?.value === tagName && tagNode.loc) {
-					const targetRange = virtualCode.locToRange(tagNode.loc);
+		// Handle discriminator mapping values - check if pointer suggests mapping context
+		if (node.ptr?.includes("/mapping/") && typeof node.value === "string") {
+			const refValue = node.value as string;
+			if (refValue.startsWith("#/")) {
+				const targetNode = findNodeAtPointer(ir.root, refValue);
+				if (targetNode?.loc) {
+					const targetRange = virtualCode.locToRange(targetNode.loc);
 					if (targetRange) {
 						locations.push({
 							targetUri: sourceUriString,
@@ -1334,28 +1340,12 @@ export function provideDefinition(
 				}
 			}
 		}
-	}
 
-	// Handle discriminator mapping values - check if pointer suggests mapping context
-	if (node.ptr?.includes("/mapping/") && typeof node.value === "string") {
-		const refValue = node.value as string;
-		if (refValue.startsWith("#/")) {
-			const targetNode = findNodeAtPointer(ir.root, refValue);
-			if (targetNode?.loc) {
-				const targetRange = virtualCode.locToRange(targetNode.loc);
-				if (targetRange) {
-					locations.push({
-						targetUri: sourceUriString,
-						targetRange,
-						targetSelectionRange: targetRange,
-						originSelectionRange: originRange ?? undefined,
-					});
-				}
-			}
-		}
+		return locations;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideDefinition failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	return locations;
 }
 
 // ============================================================================
@@ -1371,56 +1361,54 @@ export function prepareCallHierarchy(
 	document: { uri: string; languageId: string },
 	position: Position,
 ): CallHierarchyItem[] {
-	const items: CallHierarchyItem[] = [];
+	try {
+		const items: CallHierarchyItem[] = [];
 
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return items;
+		// Use consolidated helper for VirtualCode access with IR
+		const resolved = resolveOpenAPIDocumentWithIR(context, document);
+		if (!resolved) return items;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { sourceUriString, virtualCode } = resolved;
+		const ir = resolved.getIR();
+		const text = resolved.getRawText();
+		const offset = positionToOffset(text, position);
+		const node = findNodeAtOffset(ir.root, offset);
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return items;
+		if (!node || !node.loc) return items;
 
-	const ir = virtualCode.getIR(sourceUriString);
-	const text = virtualCode.getRawText();
-	const offset = positionToOffset(text, position);
-	const node = findNodeAtOffset(ir.root, offset);
+		const range = virtualCode.locToRange(node.loc);
+		if (!range) return items;
 
-	if (!node || !node.loc) return items;
+		// Get name based on node type
+		let name = node.key ?? "unknown";
+		let kind = 5 as SymbolKind; // Class
 
-	const range = virtualCode.locToRange(node.loc);
-	if (!range) return items;
+		// Check if it's a component
+		if (node.ptr?.startsWith("#/components/schemas/")) {
+			name = getPointerKey(node.ptr) ?? name;
+			kind = 23 as SymbolKind; // Struct
+		} else if (node.ptr?.startsWith("#/components/")) {
+			name = getPointerKey(node.ptr) ?? name;
+			kind = 5 as SymbolKind; // Class
+		} else if (node.ptr?.includes("/get") || node.ptr?.includes("/post") || node.ptr?.includes("/put") || node.ptr?.includes("/delete")) {
+			// Operation
+			kind = 6 as SymbolKind; // Method
+		}
 
-	// Get name based on node type
-	let name = node.key ?? "unknown";
-	let kind = 5 as SymbolKind; // Class
+		items.push({
+			name,
+			kind,
+			uri: sourceUriString,
+			range,
+			selectionRange: range,
+			data: { pointer: node.ptr },
+		});
 
-	// Check if it's a component
-	if (node.ptr?.startsWith("#/components/schemas/")) {
-		name = getPointerKey(node.ptr) ?? name;
-		kind = 23 as SymbolKind; // Struct
-	} else if (node.ptr?.startsWith("#/components/")) {
-		name = getPointerKey(node.ptr) ?? name;
-		kind = 5 as SymbolKind; // Class
-	} else if (node.ptr?.includes("/get") || node.ptr?.includes("/post") || node.ptr?.includes("/put") || node.ptr?.includes("/delete")) {
-		// Operation
-		kind = 6 as SymbolKind; // Method
+		return items;
+	} catch (error) {
+		console.error(`[OpenAPI Features] prepareCallHierarchy failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	items.push({
-		name,
-		kind,
-		uri: sourceUriString,
-		range,
-		selectionRange: range,
-		data: { pointer: node.ptr },
-	});
-
-	return items;
 }
 
 /**
@@ -1431,41 +1419,46 @@ export function provideCallHierarchyIncomingCalls(
 	context: LanguageServiceContext,
 	item: CallHierarchyItem,
 ): CallHierarchyIncomingCall[] {
-	const calls: CallHierarchyIncomingCall[] = [];
+	try {
+		const calls: CallHierarchyIncomingCall[] = [];
 
-	const graphIndex = shared.workspaceIndex.getGraphIndex();
-	const pointer = (item.data as { pointer?: string })?.pointer;
+		const graphIndex = shared.workspaceIndex.getGraphIndex();
+		const pointer = (item.data as { pointer?: string })?.pointer;
 
-	if (!pointer) return calls;
+		if (!pointer) return calls;
 
-	const targetNode: GraphNode = { uri: item.uri, pointer };
-	const dependents = graphIndex.dependentsOf(targetNode);
+		const targetNode: GraphNode = { uri: item.uri, pointer };
+		const dependents = graphIndex.dependentsOf(targetNode);
 
-	for (const dep of dependents) {
-		const depVc = getOpenAPIVirtualCode(context, URI.parse(dep.uri));
-		if (!depVc) continue;
+		for (const dep of dependents) {
+			const depVc = getOpenAPIVirtualCode(context, URI.parse(dep.uri));
+			if (!depVc) continue;
 
-		const depIr = depVc.getIR(dep.uri);
-		const refNode = findNodeAtPointer(depIr.root, dep.pointer);
-		if (!refNode?.loc) continue;
+			const depIr = depVc.getIR(dep.uri);
+			const refNode = findNodeAtPointer(depIr.root, dep.pointer);
+			if (!refNode?.loc) continue;
 
-		const range = depVc.locToRange(refNode.loc);
-		if (!range) continue;
+			const range = depVc.locToRange(refNode.loc);
+			if (!range) continue;
 
-		calls.push({
-			from: {
-				name: getPointerKey(dep.pointer) ?? "reference",
-				kind: 6 as SymbolKind,
-				uri: dep.uri,
-				range,
-				selectionRange: range,
-				data: { pointer: dep.pointer },
-			},
-			fromRanges: [range],
-		});
+			calls.push({
+				from: {
+					name: getPointerKey(dep.pointer) ?? "reference",
+					kind: 6 as SymbolKind,
+					uri: dep.uri,
+					range,
+					selectionRange: range,
+					data: { pointer: dep.pointer },
+				},
+				fromRanges: [range],
+			});
+		}
+
+		return calls;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideCallHierarchyIncomingCalls failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	return calls;
 }
 
 /**
@@ -1476,41 +1469,46 @@ export function provideCallHierarchyOutgoingCalls(
 	context: LanguageServiceContext,
 	item: CallHierarchyItem,
 ): CallHierarchyOutgoingCall[] {
-	const calls: CallHierarchyOutgoingCall[] = [];
+	try {
+		const calls: CallHierarchyOutgoingCall[] = [];
 
-	const graphIndex = shared.workspaceIndex.getGraphIndex();
-	const pointer = (item.data as { pointer?: string })?.pointer;
+		const graphIndex = shared.workspaceIndex.getGraphIndex();
+		const pointer = (item.data as { pointer?: string })?.pointer;
 
-	if (!pointer) return calls;
+		if (!pointer) return calls;
 
-	const sourceNode: GraphNode = { uri: item.uri, pointer };
-	const references = graphIndex.referencesFrom(sourceNode);
+		const sourceNode: GraphNode = { uri: item.uri, pointer };
+		const references = graphIndex.referencesFrom(sourceNode);
 
-	for (const ref of references) {
-		const refVc = getOpenAPIVirtualCode(context, URI.parse(ref.uri));
-		if (!refVc) continue;
+		for (const ref of references) {
+			const refVc = getOpenAPIVirtualCode(context, URI.parse(ref.uri));
+			if (!refVc) continue;
 
-		const refIr = refVc.getIR(ref.uri);
-		const targetNode = findNodeAtPointer(refIr.root, ref.pointer);
-		if (!targetNode?.loc) continue;
+			const refIr = refVc.getIR(ref.uri);
+			const targetNode = findNodeAtPointer(refIr.root, ref.pointer);
+			if (!targetNode?.loc) continue;
 
-		const range = refVc.locToRange(targetNode.loc);
-		if (!range) continue;
+			const range = refVc.locToRange(targetNode.loc);
+			if (!range) continue;
 
-		calls.push({
-			to: {
-				name: getPointerKey(ref.pointer) ?? "target",
-				kind: 23 as SymbolKind, // Struct
-				uri: ref.uri,
-				range,
-				selectionRange: range,
-				data: { pointer: ref.pointer },
-			},
-			fromRanges: [range],
-		});
+			calls.push({
+				to: {
+					name: getPointerKey(ref.pointer) ?? "target",
+					kind: 23 as SymbolKind, // Struct
+					uri: ref.uri,
+					range,
+					selectionRange: range,
+					data: { pointer: ref.pointer },
+				},
+				fromRanges: [range],
+			});
+		}
+
+		return calls;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideCallHierarchyOutgoingCalls failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	return calls;
 }
 
 // ============================================================================
@@ -1573,42 +1571,40 @@ export function provideSemanticTokens(
 	document: { uri: string; languageId: string; getText(): string },
 	range: Range,
 ): SemanticToken[] {
-	const tokens: SemanticToken[] = [];
+	try {
+		const tokens: SemanticToken[] = [];
 
-	// Decode URI
-	const documentUri = URI.parse(document.uri);
-	const decoded = context.decodeEmbeddedDocumentUri(documentUri);
-	if (!decoded) return tokens;
+		// Use consolidated helper for VirtualCode access with IR
+		const resolved = resolveOpenAPIDocumentWithIR(context, document);
+		if (!resolved) return tokens;
 
-	const [sourceUri] = decoded;
-	const sourceUriString = sourceUri.toString();
+		const { virtualCode } = resolved;
+		const ir = resolved.getIR();
+		const rawTokens: Array<{ line: number; char: number; length: number; type: number; modifiers: number }> = [];
 
-	// Get virtual code
-	const virtualCode = getOpenAPIVirtualCode(context, sourceUri);
-	if (!virtualCode) return tokens;
+		// Traverse IR and collect semantic tokens
+		collectSemanticTokens(ir.root, virtualCode, rawTokens);
 
-	const ir = virtualCode.getIR(sourceUriString);
-	const rawTokens: Array<{ line: number; char: number; length: number; type: number; modifiers: number }> = [];
+		// Filter tokens within range and sort by position
+		const filteredTokens = rawTokens.filter(
+			(t) => t.line >= range.start.line && t.line <= range.end.line,
+		);
 
-	// Traverse IR and collect semantic tokens
-	collectSemanticTokens(ir.root, virtualCode, rawTokens);
+		filteredTokens.sort((a, b) => {
+			if (a.line !== b.line) return a.line - b.line;
+			return a.char - b.char;
+		});
 
-	// Filter tokens within range and sort by position
-	const filteredTokens = rawTokens.filter(
-		(t) => t.line >= range.start.line && t.line <= range.end.line,
-	);
+		// Convert to tuple format
+		for (const token of filteredTokens) {
+			tokens.push([token.line, token.char, token.length, token.type, token.modifiers]);
+		}
 
-	filteredTokens.sort((a, b) => {
-		if (a.line !== b.line) return a.line - b.line;
-		return a.char - b.char;
-	});
-
-	// Convert to tuple format
-	for (const token of filteredTokens) {
-		tokens.push([token.line, token.char, token.length, token.type, token.modifiers]);
+		return tokens;
+	} catch (error) {
+		console.error(`[OpenAPI Features] provideSemanticTokens failed: ${error instanceof Error ? error.message : String(error)}`);
+		return [];
 	}
-
-	return tokens;
 }
 
 /**

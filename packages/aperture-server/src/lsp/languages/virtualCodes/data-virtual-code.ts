@@ -321,6 +321,16 @@ export class DataVirtualCode implements VirtualCode {
 	}
 
 	/**
+	 * Get the cached line offsets array for position calculations.
+	 * This avoids redundant calls to buildLineOffsets() in consuming code.
+	 *
+	 * @returns Array of byte offsets for each line start
+	 */
+	getLineOffsets(): number[] {
+		return this._lineOffsets;
+	}
+
+	/**
 	 * Get byte offsets for a specific JSON Pointer path.
 	 * Used internally by getRange().
 	 */

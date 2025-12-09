@@ -38,6 +38,7 @@ import {
 } from "../../../engine/schemas/index.js";
 import type { DocumentType } from "../../../engine/utils/document-type-utils.js";
 import type { DataVirtualCode } from "../../languages/virtualCodes/data-virtual-code.js";
+import type { ApertureVolarContext } from "../../workspace/context.js";
 
 // ============================================================================
 // Schema Constants
@@ -172,6 +173,86 @@ export interface ResolvedDocumentContext {
 	/** The resolved virtual code */
 	virtualCode: DataVirtualCode;
 }
+
+// ============================================================================
+// Shared Schema Registration
+// ============================================================================
+
+/**
+ * Common schema URI prefix for telescope schemas.
+ * Used by both JSON and YAML language services.
+ */
+export const TELESCOPE_SCHEMA_PREFIX = "telescope://";
+
+/**
+ * Get the list of built-in OpenAPI schema entries for registration.
+ * Returns an array of { id, schema } entries that can be registered with
+ * either yaml-language-server or vscode-json-languageservice.
+ *
+ * @returns Array of schema entries with id and schema
+ *
+ * @example
+ * ```typescript
+ * for (const { id, schema } of getBuiltInSchemaEntries()) {
+ *   yamlLanguageService.addSchema(id, schema);
+ * }
+ * ```
+ */
+export function getBuiltInSchemaEntries(): Array<{
+	id: string;
+	schema: unknown;
+}> {
+	const entries: Array<{ id: string; schema: unknown }> = [];
+	for (const [docType, schema] of Object.entries(openapiJsonSchemas)) {
+		if (schema) {
+			entries.push({
+				id: `openapi-${docType}`,
+				schema,
+			});
+		}
+	}
+	return entries;
+}
+
+/**
+ * Build a schema request service function for resolving telescope:// URIs.
+ * Used by vscode-json-languageservice to fetch schemas on demand.
+ *
+ * @param shared - The ApertureVolarContext for schema lookup
+ * @param logger - Optional logger for debugging
+ * @returns A function that resolves schema URIs to schema content
+ */
+export function createSchemaRequestService(
+	shared: ApertureVolarContext,
+	logger?: { log: (msg: string) => void },
+): (uri: string) => Promise<string> {
+	return async (uri: string): Promise<string> => {
+		// Handle telescope:// schema URIs
+		if (uri.startsWith(TELESCOPE_SCHEMA_PREFIX)) {
+			const schemaKey = uri.slice(TELESCOPE_SCHEMA_PREFIX.length);
+			const schema = shared.getSchemaByKey(schemaKey);
+			if (schema) {
+				logger?.log(`[Schema Request] Resolved ${schemaKey}`);
+				return JSON.stringify(schema);
+			}
+			logger?.log(`[Schema Request] Not found: ${schemaKey}`);
+			return "{}";
+		}
+
+		// Fetch remote schemas
+		try {
+			const response = await fetch(uri);
+			return await response.text();
+		} catch {
+			logger?.log(`[Schema Request] Failed to fetch: ${uri}`);
+			return "{}";
+		}
+	};
+}
+
+// ============================================================================
+// Document Context Resolution
+// ============================================================================
 
 /**
  * Resolve the virtual code and URI context for a document.

@@ -13,7 +13,7 @@ import * as yaml from "yaml-language-server";
 import { DataVirtualCode } from "../languages/virtualCodes/data-virtual-code.js";
 import type { ApertureVolarContext } from "../workspace/context";
 import {
-	openapiJsonSchemas,
+	getBuiltInSchemaEntries,
 	resolveDocumentContext,
 } from "./shared/schema-registry.js";
 import { matchDocument } from "./shared/virtual-code-utils.js";
@@ -276,17 +276,14 @@ export function create({
 			/**
 			 * Register all built-in OpenAPI schemas.
 			 * Called once at initialization.
+			 * Uses shared getBuiltInSchemaEntries() for consistency with JSON service.
 			 */
 			function registerBuiltInSchemas(): void {
-				let count = 0;
-				for (const [docType, schema] of Object.entries(openapiJsonSchemas)) {
-					if (schema) {
-						const schemaId = `openapi-${docType}`;
-						ls.addSchema(schemaId, schema);
-						count++;
-					}
+				const entries = getBuiltInSchemaEntries();
+				for (const { id, schema } of entries) {
+					ls.addSchema(id, schema);
 				}
-				logger.log(`[Schema] Registered ${count} built-in OpenAPI schemas`);
+				logger.log(`[Schema] Registered ${entries.length} built-in OpenAPI schemas`);
 			}
 
 			/**
