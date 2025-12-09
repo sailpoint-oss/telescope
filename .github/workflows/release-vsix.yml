@@ -1,0 +1,73 @@
+name: Release VSIX
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build server
+        run: pnpm --filter aperture-server run build
+
+      - name: Build extension
+        run: pnpm --filter aperture run build
+
+      - name: Package VSIX
+        run: pnpm --filter aperture run package
+        
+      - name: Get VSIX filename
+        id: vsix
+        run: |
+          VSIX_FILE=$(ls packages/aperture-client/*.vsix | head -1)
+          echo "file=$VSIX_FILE" >> $GITHUB_OUTPUT
+          echo "name=$(basename $VSIX_FILE)" >> $GITHUB_OUTPUT
+
+      - name: Upload VSIX as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aperture-vsix
+          path: ${{ steps.vsix.outputs.file }}
+          retention-days: 90
+
+      - name: Update Latest Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: |
+            Latest build of the Aperture VS Code extension.
+            
+            This release is automatically updated with each push to main.
+            
+            **Commit:** ${{ github.sha }}
+          files: ${{ steps.vsix.outputs.file }}
+          prerelease: true
+          make_latest: true
+

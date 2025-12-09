@@ -1,78 +1,29 @@
-import { execSync } from "node:child_process";
+/**
+ * Aperture VS Code Extension
+ *
+ * This extension provides language support for OpenAPI specifications.
+ * It uses a per-workspace-folder LSP architecture where each workspace
+ * folder gets its own language server instance for true isolation.
+ */
+
 import * as path from "node:path";
-import { createLabsInfo, Trace } from "@volar/vscode";
-import { type ExtensionContext, window, workspace } from "vscode";
+import { createLabsInfo } from "@volar/vscode";
+import * as vscode from "vscode";
+import { commands, type ExtensionContext, window, workspace } from "vscode";
+import { parse as yamlParse, stringify as yamlStringify } from "yaml";
+import { SessionManager } from "./session-manager";
 import {
-	type BaseLanguageClient,
-	LanguageClient,
-	type LanguageClientOptions,
-	type ServerOptions,
-	TransportKind,
-} from "vscode-languageclient/node";
+	classifyDocument,
+	findNodePath,
+	formatSetupLog,
+	getNodeVersion,
+} from "./utils";
 
-let client: BaseLanguageClient;
-
-// biome-ignore lint/suspicious/noExplicitAny: These should ACTUALLY be any
-function formatSetupLog(message: any, ...args: any[]) {
-	return `[Setup] ${message} ${args.map((arg) => JSON.stringify(arg)).join(" ")}`;
-}
-
-/**
- * Check if Bun is installed and return its path, or null if not found.
- */
-function findBunPath(): string | null {
-	try {
-		// Try to find bun in PATH
-		const bunPath = execSync("which bun", {
-			encoding: "utf-8",
-			stdio: "pipe",
-		}).trim();
-		if (bunPath) {
-			// Verify it's actually bun by checking version
-			try {
-				execSync(`${bunPath} --version`, { encoding: "utf-8", stdio: "pipe" });
-				return bunPath;
-			} catch {
-				return null;
-			}
-		}
-		return null;
-	} catch {
-		// Bun not found in PATH
-		return null;
-	}
-}
-
-/**
- * Show an error message to the user when Bun is not installed.
- * The message text can be customized by the user.
- */
-function showBunRequiredMessage(outputChannel: {
-	appendLine: (message: string) => void;
-}): void {
-	// TODO: Customize this message as needed
-	const message =
-		"Bun is required for this extension. Please install Bun to continue.";
-
-	window.showErrorMessage(message);
-	outputChannel.appendLine(formatSetupLog("❌ ERROR: Bun runtime not found"));
-	outputChannel.appendLine(
-		formatSetupLog("   Install Bun: https://bun.sh/docs/installation"),
-	);
-}
+/** Global session manager instance */
+let sessionManager: SessionManager | null = null;
 
 export async function activate(context: ExtensionContext) {
 	try {
-		// Resolve server path: use workspace package if available, otherwise fallback to node_modules
-		const serverModule = context.asAbsolutePath(
-			path.join("node_modules", "aperture-lsp", "out", "server.js"),
-		);
-		console.log(
-			formatSetupLog(
-				`Launching Aperture language server from: ${serverModule}`,
-			),
-		);
-
 		// Create output channel
 		const outputChannel = window.createOutputChannel(
 			"Aperture Language Server",
@@ -83,101 +34,385 @@ export async function activate(context: ExtensionContext) {
 		outputChannel.appendLine(
 			formatSetupLog(`Aperture Language Server starting...`),
 		);
-		outputChannel.show(true); // Show the channel in the Output panel
+		outputChannel.show(true);
 
-		// Check for Bun installation - Bun is required
-		const bunPath = findBunPath();
-		if (!bunPath) {
-			showBunRequiredMessage(outputChannel);
-			throw new Error(
-				"Bun runtime is required but not found. Please install Bun: https://bun.sh/",
-			);
-		}
-
+		// Get Node.js runtime path
+		const nodePath = findNodePath();
 		outputChannel.appendLine(
-			formatSetupLog(`✅ Using Bun runtime: ${bunPath}`),
+			formatSetupLog(`✅ Using Node.js runtime: ${nodePath}`),
 		);
-		try {
-			const bunVersion = execSync(`${bunPath} --version`, {
-				encoding: "utf-8",
-				stdio: "pipe",
-			}).trim();
-			outputChannel.appendLine(formatSetupLog(`Bun version: ${bunVersion}`));
-		} catch {
-			// Ignore version check errors
-		}
-
-		// Configure server options - Bun is required
-		// Note: When using 'command' (executable), we must use stdio transport, not IPC
-		const serverOptions: ServerOptions = {
-			run: {
-				command: bunPath,
-				args: [serverModule],
-				transport: TransportKind.stdio,
-			},
-			debug: {
-				command: bunPath,
-				args: ["--inspect", serverModule],
-				transport: TransportKind.stdio,
-			},
-		};
-
-		// Options to control the language client
-		const clientOptions: LanguageClientOptions = {
-			// Register the server for YAML and JSON documents
-			// Use both language IDs and file patterns to ensure proper matching
-			documentSelector: [
-				{ language: "yaml" },
-				{ language: "json" },
-				{ pattern: "**/*.yaml" },
-				{ pattern: "**/*.yml" },
-				{ pattern: "**/*.json" },
-			],
-			synchronize: {
-				// Notify the server about file changes to '.clientrc files contained in the workspace
-				fileEvents: workspace.createFileSystemWatcher(".telescope/config.yaml"),
-			},
-			outputChannel: outputChannel,
-			initializationOptions: {},
-			markdown: {
-				isTrusted: true,
-				supportHtml: true,
-			},
-		};
-
-		// Create the language client and start the client.
-		client = new LanguageClient(
-			"aperture",
-			"Aperture OpenAPI Language Server",
-			serverOptions,
-			clientOptions,
+		outputChannel.appendLine(
+			formatSetupLog(`Node.js version: ${getNodeVersion()}`),
 		);
 
-		// Enable trace logging for debugging (set to Trace.Verbose for maximum detail)
-		client.setTrace(Trace.Verbose);
+		// Resolve server path (bundled with the extension)
+		const serverModule = context.asAbsolutePath(path.join("dist", "server.js"));
+		outputChannel.appendLine(formatSetupLog(`Server module: ${serverModule}`));
 
-		try {
-			// Start the client. This will also launch the server
-			await client.start();
-		} catch (error: unknown) {
-			const errorMsg = `Failed to start language client: ${
-				error instanceof Error ? error.message : String(error)
-			}`;
-			outputChannel.appendLine(formatSetupLog(`❌ ERROR: ${errorMsg}`));
-			if (error instanceof Error && error.stack) {
-				outputChannel.appendLine(formatSetupLog(error.stack));
-			}
-			console.error(
-				formatSetupLog(`❌ Aperture extension failed to start:`, error),
-			);
-			window.showErrorMessage(formatSetupLog(`Aperture: ${errorMsg}`));
-		}
+		// Create status bar item for scanner progress
+		const statusBarItem = window.createStatusBarItem(
+			vscode.StatusBarAlignment.Right,
+			100,
+		);
+		statusBarItem.command = "aperture.showOpenAPIFiles";
+		context.subscriptions.push(statusBarItem);
+
+		// Create the session manager
+		sessionManager = new SessionManager({
+			serverModule,
+			nodePath,
+			outputChannel,
+			statusBarItem,
+		});
+
+		context.subscriptions.push(sessionManager);
+
+		// Initialize sessions asynchronously in the background to avoid blocking activation.
+		// This allows the extension to activate immediately while sessions start up.
+		// Commands and features gracefully handle cases where sessions aren't ready yet.
+		sessionManager.initialize().then(
+			() => {
+				outputChannel.appendLine(formatSetupLog("✅ All sessions initialized"));
+			},
+			(error) => {
+				outputChannel.appendLine(
+					formatSetupLog(`⚠️ Session initialization had errors: ${error}`),
+				);
+			},
+		);
 
 		outputChannel.appendLine(formatSetupLog("✅ Aperture extension activated"));
-		// Needed code to add support for Volar Labs
-		// https://volarjs.dev/core-concepts/volar-labs/
+
+		// ====================================================================
+		// Commands
+		// ====================================================================
+
+		// Register command to manually trigger classification
+		context.subscriptions.push(
+			commands.registerCommand("openapi-grammar.classifyDocument", async () => {
+				const editor = window.activeTextEditor;
+				if (editor) {
+					await sessionManager?.handleDocument(editor.document);
+					const languageId = classifyDocument(editor.document);
+					if (languageId) {
+						window.showInformationMessage("Document classified as: OpenAPI");
+					} else {
+						const currentLang = editor.document.languageId;
+						if (
+							currentLang !== "yaml" &&
+							currentLang !== "json" &&
+							currentLang !== "jsonc"
+						) {
+							window.showInformationMessage(
+								"Only YAML and JSON files can be classified as OpenAPI",
+							);
+						} else {
+							window.showInformationMessage(
+								"Document is not an OpenAPI document",
+							);
+						}
+					}
+				}
+			}),
+		);
+
+		// Register command to clear user override and re-classify
+		context.subscriptions.push(
+			commands.registerCommand("aperture.reclassifyDocument", async () => {
+				const editor = window.activeTextEditor;
+				if (editor) {
+					const isOpenAPI = await sessionManager?.reclassifyDocument(
+						editor.document,
+					);
+					if (isOpenAPI) {
+						window.showInformationMessage("Document reclassified as: OpenAPI");
+					} else {
+						window.showInformationMessage(
+							"Document is not recognized as an OpenAPI document",
+						);
+					}
+				}
+			}),
+		);
+
+		// Register command to show list of OpenAPI files
+		context.subscriptions.push(
+			commands.registerCommand("aperture.showOpenAPIFiles", async () => {
+				const files = sessionManager?.getAllOpenAPIFiles() || [];
+				if (files.length === 0) {
+					window.showInformationMessage("No OpenAPI files found in workspace");
+					return;
+				}
+
+				// Show quick pick with OpenAPI files
+				const items = files.map((uri) => {
+					const parsedUri = vscode.Uri.parse(uri);
+					return {
+						label: path.basename(parsedUri.fsPath),
+						description: workspace.asRelativePath(parsedUri),
+						uri: parsedUri,
+					};
+				});
+
+				const selected = await window.showQuickPick(items, {
+					placeHolder: `${files.length} OpenAPI files found`,
+					matchOnDescription: true,
+				});
+
+				if (selected) {
+					const doc = await workspace.openTextDocument(selected.uri);
+					await window.showTextDocument(doc);
+				}
+			}),
+		);
+
+		// Register command to rescan workspace
+		context.subscriptions.push(
+			commands.registerCommand("aperture.rescanWorkspace", async () => {
+				const totalFiles = await sessionManager?.rescanAll();
+				window.showInformationMessage(
+					`Scan complete: ${totalFiles || 0} OpenAPI files found`,
+				);
+			}),
+		);
+
+		// Register command to restart all sessions
+		context.subscriptions.push(
+			commands.registerCommand("aperture.restartServer", async () => {
+				await sessionManager?.restartAllSessions();
+				window.showInformationMessage("Aperture language servers restarted");
+			}),
+		);
+
+		// ====================================================================
+		// Format Conversion Commands
+		// ====================================================================
+
+		/**
+		 * Helper to get a document from URI or active editor
+		 */
+		async function getDocument(
+			uri?: vscode.Uri,
+		): Promise<vscode.TextDocument | undefined> {
+			if (uri) {
+				return workspace.openTextDocument(uri);
+			}
+			const editor = window.activeTextEditor;
+			if (!editor) {
+				window.showErrorMessage("No active editor");
+				return undefined;
+			}
+			return editor.document;
+		}
+
+		/**
+		 * Check if a file exists at the given URI
+		 */
+		async function fileExists(uri: vscode.Uri): Promise<boolean> {
+			try {
+				await workspace.fs.stat(uri);
+				return true;
+			} catch {
+				return false;
+			}
+		}
+
+		/**
+		 * Generate a non-colliding filename following VS Code's copy naming convention.
+		 */
+		async function getNonCollidingPath(
+			basePath: string,
+			ext: string,
+		): Promise<string> {
+			let candidatePath = `${basePath} copy${ext}`;
+			if (!(await fileExists(vscode.Uri.file(candidatePath)))) {
+				return candidatePath;
+			}
+
+			let counter = 2;
+			while (counter < 1000) {
+				candidatePath = `${basePath} copy ${counter}${ext}`;
+				if (!(await fileExists(vscode.Uri.file(candidatePath)))) {
+					return candidatePath;
+				}
+				counter++;
+			}
+
+			return `${basePath} copy ${Date.now()}${ext}`;
+		}
+
+		/**
+		 * Convert JSON to YAML
+		 */
+		async function convertJsonToYaml(
+			uri: vscode.Uri | undefined,
+			deleteOriginal: boolean,
+		): Promise<void> {
+			try {
+				const document = await getDocument(uri);
+				if (!document) return;
+
+				const filePath = document.uri.fsPath;
+				if (!filePath.endsWith(".json")) {
+					window.showErrorMessage("This command only works with .json files");
+					return;
+				}
+
+				const basePath = filePath.replace(/\.json$/, "");
+				let yamlPath = `${basePath}.yaml`;
+				let yamlUri = vscode.Uri.file(yamlPath);
+
+				if (await fileExists(yamlUri)) {
+					if (deleteOriginal) {
+						window.showErrorMessage(
+							`Cannot convert: ${path.basename(yamlPath)} already exists`,
+						);
+						return;
+					}
+					yamlPath = await getNonCollidingPath(basePath, ".yaml");
+					yamlUri = vscode.Uri.file(yamlPath);
+				}
+
+				let content: unknown;
+				try {
+					content = JSON.parse(document.getText());
+				} catch (parseError) {
+					window.showErrorMessage(
+						`Failed to parse JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+					);
+					return;
+				}
+
+				const yamlContent = yamlStringify(content, {
+					lineWidth: 0,
+					indent: 2,
+				});
+
+				await workspace.fs.writeFile(
+					yamlUri,
+					Buffer.from(yamlContent, "utf-8"),
+				);
+
+				if (deleteOriginal) {
+					await workspace.fs.delete(document.uri);
+				}
+
+				const yamlDoc = await workspace.openTextDocument(yamlUri);
+				await window.showTextDocument(yamlDoc);
+
+				const action = deleteOriginal ? "Converted" : "Copied";
+				window.showInformationMessage(
+					`${action} ${path.basename(filePath)} to ${path.basename(yamlPath)}`,
+				);
+			} catch (error) {
+				window.showErrorMessage(
+					`Conversion failed: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
+
+		/**
+		 * Convert YAML to JSON
+		 */
+		async function convertYamlToJson(
+			uri: vscode.Uri | undefined,
+			deleteOriginal: boolean,
+		): Promise<void> {
+			try {
+				const document = await getDocument(uri);
+				if (!document) return;
+
+				const filePath = document.uri.fsPath;
+				if (!filePath.endsWith(".yaml") && !filePath.endsWith(".yml")) {
+					window.showErrorMessage(
+						"This command only works with .yaml or .yml files",
+					);
+					return;
+				}
+
+				const basePath = filePath.replace(/\.ya?ml$/, "");
+				let jsonPath = `${basePath}.json`;
+				let jsonUri = vscode.Uri.file(jsonPath);
+
+				if (await fileExists(jsonUri)) {
+					if (deleteOriginal) {
+						window.showErrorMessage(
+							`Cannot convert: ${path.basename(jsonPath)} already exists`,
+						);
+						return;
+					}
+					jsonPath = await getNonCollidingPath(basePath, ".json");
+					jsonUri = vscode.Uri.file(jsonPath);
+				}
+
+				let content: unknown;
+				try {
+					content = yamlParse(document.getText());
+				} catch (parseError) {
+					window.showErrorMessage(
+						`Failed to parse YAML: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+					);
+					return;
+				}
+
+				const jsonContent = JSON.stringify(content, null, 2);
+
+				await workspace.fs.writeFile(
+					jsonUri,
+					Buffer.from(jsonContent, "utf-8"),
+				);
+
+				if (deleteOriginal) {
+					await workspace.fs.delete(document.uri);
+				}
+
+				const jsonDoc = await workspace.openTextDocument(jsonUri);
+				await window.showTextDocument(jsonDoc);
+
+				const action = deleteOriginal ? "Converted" : "Copied";
+				window.showInformationMessage(
+					`${action} ${path.basename(filePath)} to ${path.basename(jsonPath)}`,
+				);
+			} catch (error) {
+				window.showErrorMessage(
+					`Conversion failed: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
+
+		// Register all conversion commands
+		context.subscriptions.push(
+			commands.registerCommand(
+				"aperture.convertJsonToYaml",
+				(uri?: vscode.Uri) => convertJsonToYaml(uri, true),
+			),
+			commands.registerCommand(
+				"aperture.convertJsonToYamlCopy",
+				(uri?: vscode.Uri) => convertJsonToYaml(uri, false),
+			),
+			commands.registerCommand(
+				"aperture.convertYamlToJson",
+				(uri?: vscode.Uri) => convertYamlToJson(uri, true),
+			),
+			commands.registerCommand(
+				"aperture.convertYamlToJsonCopy",
+				(uri?: vscode.Uri) => convertYamlToJson(uri, false),
+			),
+		);
+
+		// ====================================================================
+		// Volar Labs Support
+		// ====================================================================
+
+		// Add all running clients to Volar Labs
 		const labsInfo = createLabsInfo();
-		labsInfo.addLanguageClient(client);
+		for (const session of sessionManager.getAllSessions()) {
+			const client = session.getClient();
+			if (client) {
+				labsInfo.addLanguageClient(client);
+			}
+		}
+
 		return labsInfo.extensionExports;
 	} catch (error: unknown) {
 		console.error("❌ Failed to activate Aperture extension:", error);
@@ -189,7 +424,9 @@ export async function activate(context: ExtensionContext) {
 	}
 }
 
-// ... and this function is called when the extension is deactivated!
-export function deactivate(): Thenable<unknown> | undefined {
-	return client?.stop();
+export async function deactivate(): Promise<void> {
+	if (sessionManager) {
+		sessionManager.dispose();
+		sessionManager = null;
+	}
 }

@@ -1,0 +1,286 @@
+openapi: "3.0.0"
+info:
+  title: Edge Cases API
+  version: "1.0.0"
+  description: |
+    # Edge Cases
+
+    Testing various edge cases in the grammar.
+
+    ## Empty Sections
+
+    Text before empty code block:
+
+    ```
+    ```
+
+    Text after empty code block.
+
+    ## Nested Markers
+
+    Text with **bold containing `code`** inside.
+
+    Text with *italic containing `code`* inside.
+
+    ## Special Characters
+
+    Use `$ref` for references. The `$$` operator. Escape \`backticks\`.
+
+    ## Adjacent Formatting
+
+    **Bold***Italic* mixed.
+
+    ## Long Horizontal Rules
+
+    ----------
+
+    **********
+
+    __________
+
+    ## Unicode Content
+
+    日本語テキスト with **太字** and *斜体*.
+
+    Emoji: 🚀 **rocket** and 📝 *note*
+
+    ## Multiple Code Blocks Without Blank Lines
+
+    ```js
+    const a = 1;
+    ```
+    ```js
+    const b = 2;
+    ```
+
+    ## Code Block With Empty Lines Inside
+
+    ```typescript
+    const a = 1;
+
+    const b = 2;
+
+    const c = a + b;
+    ```
+
+    ## Deeply Nested List
+
+    - Level 1
+      - Level 2
+        - Level 3
+
+    ## Mixed List Types
+
+    1. First ordered
+    2. Second ordered
+       - Nested unordered
+       - Another nested
+    3. Third ordered
+
+    ## Table Without Surrounding Blank Lines
+    | A | B |
+    |---|---|
+    | 1 | 2 |
+    Continued text.
+
+    ## Links With Special URLs
+
+    - [Query params](https://example.com/api?foo=bar&baz=qux)
+    - [Fragment](https://example.com/docs#section)
+    - [Port](https://localhost:3000/api)
+
+    ## Images
+
+    ![Logo](https://example.com/logo.png)
+    ![](empty-alt.png)
+
+    ## HTML-like Content (should not be parsed)
+
+    <div>Not HTML</div>
+    <script>alert('hi')</script>
+
+    ## Blockquote Edge Cases
+
+    > Single line quote
+
+    > Multi line quote
+    > continues here
+    > and here
+
+    > Quote with **bold** and `code`
+
+paths:
+  /edge:
+    get:
+      summary: "Summary with \"quotes\" inside"
+      description: 'Single quoted description with ''escaped'' quotes'
+      responses:
+        "200":
+          description: Success
+    post:
+      summary: >
+        Folded scalar summary
+        continues on next line
+      description: >-
+        Folded scalar with strip indicator.
+        No trailing newline.
+      requestBody:
+        description: |+
+          Block scalar with keep indicator.
+          Trailing newlines preserved.
+
+
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Created
+
+  /special-chars:
+    get:
+      summary: Handle $pecial characters
+      description: |
+        ## Special Characters in Keys
+
+        The `$ref` key is used for references:
+
+        ```yaml
+        $ref: "#/components/schemas/User"
+        ```
+
+        The `$$` is not special.
+      responses:
+        "200":
+          description: OK
+
+  /no-description:
+    get:
+      summary: No description endpoint
+      responses:
+        "200":
+          description: Success response
+
+components:
+  schemas:
+    EdgeCase:
+      type: object
+      description: |
+        Schema with all scalar types.
+
+        ## Block vs Folded
+
+        This uses `|` block scalar.
+      properties:
+        name:
+          type: string
+          description: "Inline double-quoted description"
+        value:
+          type: number
+          description: 'Inline single-quoted description'
+        flag:
+          type: boolean
+          description: Unquoted inline description
+        data:
+          type: object
+          description: >
+            Folded scalar description
+            continues here.
+
+    CompositionSchema:
+      allOf:
+        - $ref: "#/components/schemas/EdgeCase"
+        - type: object
+          properties:
+            extra:
+              type: string
+      oneOf:
+        - type: string
+        - type: number
+      anyOf:
+        - type: boolean
+        - type: "null"
+      not:
+        type: array
+
+    ValidationSchema:
+      type: object
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          maximum: 100
+          exclusiveMinimum: false
+          exclusiveMaximum: true
+          multipleOf: 5
+        text:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          pattern: "^[a-z]+$"
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+        metadata:
+          type: object
+          minProperties: 1
+          maxProperties: 10
+          additionalProperties: true
+
+  parameters:
+    PathId:
+      name: id
+      in: path
+      required: true
+      allowEmptyValue: false
+      schema:
+        type: string
+        format: uuid
+      style: simple
+      explode: false
+
+  responses:
+    NotFound:
+      description: |
+        ## Not Found
+
+        The requested resource was not found.
+
+        ### Possible Causes
+
+        - Invalid ID format
+        - Resource deleted
+        - Insufficient permissions
+      headers:
+        X-Request-Id:
+          schema:
+            type: string
+          description: Request tracking ID
+
+  examples:
+    UserExample:
+      summary: Example user
+      description: |
+        An example user object with all fields populated.
+      value:
+        id: "123e4567-e89b-12d3-a456-426614174000"
+        name: "Example User"
+        email: "user@example.com"
+
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      name: X-API-Key
+      in: header
+      description: |
+        API key authentication.
+
+        Include the key in the `X-API-Key` header.
+
+        ```bash
+        curl -H "X-API-Key: your-key" https://api.example.com
+        ```
+

@@ -2,22 +2,25 @@
  * Example generic rule for non-OpenAPI YAML/JSON files.
  * This rule checks that all objects have a "version" field.
  *
- * To use this rule, add it to your telescope.config.yaml:
- * jsonYamlValidation:
- *   customRules:
- *     - ./example-generic-rule.ts
+ * To use this rule, add it to your .telescope/config.yaml:
+ * additionalValidation:
+ *   my-group:
+ *     patterns:
+ *       - "**\/*.yaml"
+ *     rules:
+ *       - rule: example-generic-rule.ts
  */
 
-import { defineGenericRule } from "lens";
+import { defineGenericRule } from "aperture-server";
 
 export default defineGenericRule({
 	meta: {
 		id: "custom-version-required",
+		type: "problem",
 		docs: {
 			description: "All objects must have a version field",
 			recommended: false,
 		},
-		type: "problem",
 		fileFormats: ["yaml", "json"],
 	},
 	create(ctx) {

@@ -1,0 +1,208 @@
+openapi: "3.0.0"
+info:
+  title: Code Block Examples API
+  version: "1.0.0"
+  description: |
+    # Code Block Examples
+
+    This document demonstrates various code block languages.
+
+    ## TypeScript Example
+
+    ```typescript
+    import { Client } from "@example/sdk";
+
+    const client = new Client({
+      apiKey: process.env.API_KEY,
+    });
+
+    async function getUsers() {
+      const users = await client.users.list();
+      return users;
+    }
+    ```
+
+    ## JavaScript Example
+
+    ```javascript
+    const fetch = require('node-fetch');
+
+    fetch('https://api.example.com/users', {
+      headers: {
+        'Authorization': 'Bearer token'
+      }
+    })
+      .then(res => res.json())
+      .then(data => console.log(data));
+    ```
+
+    ## Python Example
+
+    ```python
+    import requests
+
+    response = requests.get(
+        "https://api.example.com/users",
+        headers={"Authorization": "Bearer token"}
+    )
+    users = response.json()
+    ```
+
+    ## Go Example
+
+    ```go
+    package main
+
+    import (
+        "encoding/json"
+        "net/http"
+    )
+
+    func main() {
+        req, _ := http.NewRequest("GET", "https://api.example.com/users", nil)
+        req.Header.Set("Authorization", "Bearer token")
+
+        client := &http.Client{}
+        resp, _ := client.Do(req)
+        defer resp.Body.Close()
+    }
+    ```
+
+    ## Java Example
+
+    ```java
+    import java.net.http.HttpClient;
+    import java.net.http.HttpRequest;
+    import java.net.http.HttpResponse;
+    import java.net.URI;
+
+    public class Example {
+        public static void main(String[] args) throws Exception {
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.example.com/users"))
+                .header("Authorization", "Bearer token")
+                .build();
+
+            HttpResponse<String> response = client.send(
+                request,
+                HttpResponse.BodyHandlers.ofString()
+            );
+        }
+    }
+    ```
+
+    ## C# Example
+
+    ```csharp
+    using System.Net.Http;
+    using System.Threading.Tasks;
+
+    public class Example
+    {
+        public static async Task Main()
+        {
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Add("Authorization", "Bearer token");
+
+            var response = await client.GetAsync("https://api.example.com/users");
+            var content = await response.Content.ReadAsStringAsync();
+        }
+    }
+    ```
+
+    ## Ruby Example
+
+    ```ruby
+    require 'net/http'
+    require 'json'
+
+    uri = URI('https://api.example.com/users')
+    request = Net::HTTP::Get.new(uri)
+    request['Authorization'] = 'Bearer token'
+
+    response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) do |http|
+      http.request(request)
+    end
+
+    users = JSON.parse(response.body)
+    ```
+
+    ## PHP Example
+
+    ```php
+    <?php
+
+    $ch = curl_init('https://api.example.com/users');
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer token'
+    ]);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+
+    $response = curl_exec($ch);
+    $users = json_decode($response, true);
+
+    curl_close($ch);
+    ```
+
+    ## Shell/Bash Example
+
+    ```bash
+    curl -X GET "https://api.example.com/users" \
+      -H "Authorization: Bearer token" \
+      -H "Content-Type: application/json"
+    ```
+
+    ## JSON Response Example
+
+    ```json
+    {
+      "users": [
+        {
+          "id": "uuid-1",
+          "name": "John Doe",
+          "email": "john@example.com"
+        },
+        {
+          "id": "uuid-2",
+          "name": "Jane Smith",
+          "email": "jane@example.com"
+        }
+      ],
+      "total": 2,
+      "page": 1
+    }
+    ```
+
+    ## SQL Example
+
+    ```sql
+    SELECT u.id, u.name, u.email
+    FROM users u
+    WHERE u.created_at >= NOW() - INTERVAL '7 days'
+    ORDER BY u.created_at DESC
+    LIMIT 10;
+    ```
+
+paths:
+  /examples:
+    get:
+      summary: Get examples
+      description: |
+        Fetches example data.
+
+        ## Request
+
+        ```shell
+        curl https://api.example.com/examples
+        ```
+
+        ## Response
+
+        ```json
+        {"success": true}
+        ```
+      responses:
+        "200":
+          description: Success
+

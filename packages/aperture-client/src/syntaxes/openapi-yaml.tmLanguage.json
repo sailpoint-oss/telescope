@@ -1,0 +1,555 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "OpenAPI YAML",
+	"scopeName": "source.openapi.yaml",
+	"patterns": [
+		{ "include": "#openapi-version-key" },
+		{ "include": "#openapi-top-level-keys" },
+		{ "include": "#openapi-operation-keys" },
+		{ "include": "#openapi-component-section-keys" },
+		{ "include": "#openapi-type-values" },
+		{ "include": "#openapi-status-code-keys" },
+		{ "include": "#openapi-schema-keys" },
+		{ "include": "#openapi-parameter-location-values" },
+		{ "include": "#openapi-parameter-keys" },
+		{ "include": "#openapi-media-type-keys" },
+		{ "include": "#openapi-reference-key" },
+		{ "include": "#openapi-extension-keys" },
+		{ "include": "#markdown-block-scalars" },
+		{ "include": "#markdown-quoted-scalars" },
+		{ "include": "#markdown-inline-scalars" },
+		{ "include": "source.yaml" }
+	],
+	"repository": {
+		"openapi-version-key": {
+			"patterns": [
+				{
+					"match": "^(\\s*)(openapi|swagger)\\s*:",
+					"captures": {
+						"2": {
+							"name": "support.type.property-name.openapi.version-key.yaml"
+						}
+					}
+				}
+			]
+		},
+		"openapi-top-level-keys": {
+			"patterns": [
+				{
+					"match": "^(\\s*)(info|paths|components|servers|tags|security|webhooks|externalDocs)\\s*:",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.top-level.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-operation-keys": {
+			"patterns": [
+				{
+					"match": "^(\\s*)(get|put|post|delete|options|head|patch|trace)\\s*:",
+					"captures": {
+						"2": {
+							"name": "support.type.property-name.openapi.http-method.yaml"
+						}
+					}
+				},
+				{
+					"match": "^(\\s*)(operationId|requestBody|responses|parameters|callbacks|deprecated|security|servers|tags)\\s*:",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.operation.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-component-section-keys": {
+			"patterns": [
+				{
+					"match": "^(\\s*)(schemas|parameters|responses|requestBodies|headers|examples|links|callbacks|securitySchemes|pathItems)\\s*:",
+					"captures": {
+						"2": {
+							"name": "support.type.property-name.openapi.component-section.yaml"
+						}
+					}
+				}
+			]
+		},
+		"openapi-schema-keys": {
+			"patterns": [
+				{
+					"match": "^(\\s*)(type|format|items|properties|additionalProperties|required|enum|default|nullable|readOnly|writeOnly|xml|externalDocs|example|deprecated)\\s*:",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.schema.yaml" }
+					}
+				},
+				{
+					"match": "^(\\s*)(allOf|oneOf|anyOf|not|discriminator)\\s*:",
+					"captures": {
+						"2": {
+							"name": "support.type.property-name.openapi.schema-composition.yaml"
+						}
+					}
+				},
+				{
+					"match": "^(\\s*)(minimum|maximum|exclusiveMinimum|exclusiveMaximum|minLength|maxLength|pattern|minItems|maxItems|uniqueItems|minProperties|maxProperties|multipleOf)\\s*:",
+					"captures": {
+						"2": {
+							"name": "support.type.property-name.openapi.schema-validation.yaml"
+						}
+					}
+				}
+			]
+		},
+		"openapi-parameter-keys": {
+			"patterns": [
+				{
+					"match": "^(\\s*)(name|in|required|schema|style|explode|allowReserved|allowEmptyValue)\\s*:",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.parameter.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-media-type-keys": {
+			"patterns": [
+				{
+					"match": "^(\\s*)(content|encoding|schema|example|examples)\\s*:",
+					"captures": {
+						"2": {
+							"name": "support.type.property-name.openapi.media-type.yaml"
+						}
+					}
+				},
+				{
+					"match": "^(\\s*)(application/json|application/xml|application/x-www-form-urlencoded|multipart/form-data|text/plain|text/html|\\*/\\*)\\s*:",
+					"captures": {
+						"2": { "name": "string.other.openapi.content-type.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-reference-key": {
+			"patterns": [
+				{
+					"comment": "Array entry: - $ref with double-quoted value",
+					"match": "^(\\s*)(-)(\\s*)(\\$ref)(\\s*:\\s*)(\")([^\"]*)(\")",
+					"captures": {
+						"2": { "name": "punctuation.definition.block.sequence.item.yaml" },
+						"4": { "name": "keyword.other.openapi.reference.yaml" },
+						"5": { "name": "punctuation.separator.key-value.yaml" },
+						"6": { "name": "punctuation.definition.string.begin.yaml" },
+						"7": { "name": "string.other.openapi.reference-value.yaml" },
+						"8": { "name": "punctuation.definition.string.end.yaml" }
+					}
+				},
+				{
+					"comment": "Array entry: - $ref with single-quoted value",
+					"match": "^(\\s*)(-)(\\s*)(\\$ref)(\\s*:\\s*)(')([^']*?)(')",
+					"captures": {
+						"2": { "name": "punctuation.definition.block.sequence.item.yaml" },
+						"4": { "name": "keyword.other.openapi.reference.yaml" },
+						"5": { "name": "punctuation.separator.key-value.yaml" },
+						"6": { "name": "punctuation.definition.string.begin.yaml" },
+						"7": { "name": "string.other.openapi.reference-value.yaml" },
+						"8": { "name": "punctuation.definition.string.end.yaml" }
+					}
+				},
+				{
+					"comment": "Array entry: - $ref with unquoted value",
+					"match": "^(\\s*)(-)(\\s*)(\\$ref)(\\s*:\\s*)(\\S.*)$",
+					"captures": {
+						"2": { "name": "punctuation.definition.block.sequence.item.yaml" },
+						"4": { "name": "keyword.other.openapi.reference.yaml" },
+						"5": { "name": "punctuation.separator.key-value.yaml" },
+						"6": { "name": "string.other.openapi.reference-value.yaml" }
+					}
+				},
+				{
+					"comment": "Object property: $ref with double-quoted value",
+					"match": "^(\\s*)(\\$ref)(\\s*:\\s*)(\")([^\"]*)(\")",
+					"captures": {
+						"2": { "name": "keyword.other.openapi.reference.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "punctuation.definition.string.begin.yaml" },
+						"5": { "name": "string.other.openapi.reference-value.yaml" },
+						"6": { "name": "punctuation.definition.string.end.yaml" }
+					}
+				},
+				{
+					"comment": "Object property: $ref with single-quoted value",
+					"match": "^(\\s*)(\\$ref)(\\s*:\\s*)(')([^']*?)(')",
+					"captures": {
+						"2": { "name": "keyword.other.openapi.reference.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "punctuation.definition.string.begin.yaml" },
+						"5": { "name": "string.other.openapi.reference-value.yaml" },
+						"6": { "name": "punctuation.definition.string.end.yaml" }
+					}
+				},
+				{
+					"comment": "Object property: $ref with unquoted value",
+					"match": "^(\\s*)(\\$ref)(\\s*:\\s*)(\\S.*)$",
+					"captures": {
+						"2": { "name": "keyword.other.openapi.reference.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "string.other.openapi.reference-value.yaml" }
+					}
+				},
+				{
+					"comment": "Fallback: $ref key only (no value on same line)",
+					"match": "^(\\s*)(\\$ref)\\s*:",
+					"captures": {
+						"2": { "name": "keyword.other.openapi.reference.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-type-values": {
+			"comment": "Schema type values: type: string, integer, boolean, etc.",
+			"patterns": [
+				{
+					"match": "^(\\s*)(type)(\\s*:\\s*)(string|integer|number|boolean|array|object|null)\\s*$",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.schema.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "constant.language.openapi.type.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-parameter-location-values": {
+			"comment": "Parameter location values: in: query, header, path, cookie",
+			"patterns": [
+				{
+					"match": "^(\\s*)(in)(\\s*:\\s*)(query|header|path|cookie)\\s*$",
+					"captures": {
+						"2": {
+							"name": "support.type.property-name.openapi.parameter.yaml"
+						},
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "constant.language.openapi.parameter-location.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-status-code-keys": {
+			"comment": "HTTP status codes as keys: '200', '201', '400', '404', '500', etc. Note: 'default' is handled by schema-keys since it's ambiguous",
+			"patterns": [
+				{
+					"match": "^(\\s*)(['\"]?)([1-5][0-9]{2}|[1-5]XX)\\2\\s*:",
+					"captures": {
+						"2": { "name": "punctuation.definition.string.yaml" },
+						"3": { "name": "constant.numeric.openapi.status-code.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-extension-keys": {
+			"comment": "OpenAPI extension keys: x-* custom properties",
+			"patterns": [
+				{
+					"match": "^(\\s*)(x-[a-zA-Z0-9_-]+)\\s*:",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.extension.yaml" }
+					}
+				}
+			]
+		},
+		"markdown-block-scalars": {
+			"comment": "Block scalar syntax: description: | or description: >",
+			"patterns": [
+				{
+					"begin": "^(\\s*)(description|summary|title)(\\s*:\\s*)([|>])[-+]?\\s*$",
+					"beginCaptures": {
+						"2": {
+							"name": "support.type.property-name.openapi.markdown-field.yaml"
+						},
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "keyword.control.flow.block-scalar.yaml" }
+					},
+					"end": "^(?!\\1\\s+|\\s*$)",
+					"contentName": "meta.embedded.block.markdown",
+					"patterns": [{ "include": "#markdown-content" }]
+				}
+			]
+		},
+		"markdown-quoted-scalars": {
+			"comment": "Quoted string values for description/summary/title",
+			"patterns": [
+				{
+					"begin": "^(\\s*)(description|summary|title)(\\s*:\\s*)(\")",
+					"beginCaptures": {
+						"2": {
+							"name": "support.type.property-name.openapi.markdown-field.yaml"
+						},
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "punctuation.definition.string.begin.yaml" }
+					},
+					"end": "\"",
+					"endCaptures": {
+						"0": { "name": "punctuation.definition.string.end.yaml" }
+					},
+					"contentName": "meta.embedded.block.markdown",
+					"patterns": [
+						{ "match": "\\\\.", "name": "constant.character.escape.yaml" },
+						{ "include": "#markdown-inline" }
+					]
+				},
+				{
+					"begin": "^(\\s*)(description|summary|title)(\\s*:\\s*)(')",
+					"beginCaptures": {
+						"2": {
+							"name": "support.type.property-name.openapi.markdown-field.yaml"
+						},
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "punctuation.definition.string.begin.yaml" }
+					},
+					"end": "'(?!')",
+					"endCaptures": {
+						"0": { "name": "punctuation.definition.string.end.yaml" }
+					},
+					"contentName": "meta.embedded.block.markdown",
+					"patterns": [
+						{ "match": "''", "name": "constant.character.escape.yaml" },
+						{ "include": "#markdown-inline" }
+					]
+				}
+			]
+		},
+		"markdown-inline-scalars": {
+			"comment": "Unquoted inline values for description/summary/title (single line)",
+			"patterns": [
+				{
+					"match": "^(\\s*)(description|summary|title)\\s*:\\s*(?![|>'\"])(\\S.*)$",
+					"captures": {
+						"2": {
+							"name": "support.type.property-name.openapi.markdown-field.yaml"
+						},
+						"3": { "name": "meta.embedded.inline.markdown" }
+					}
+				}
+			]
+		},
+		"markdown-content": {
+			"patterns": [
+				{ "include": "#markdown-fenced-code" },
+				{ "include": "#markdown-heading" },
+				{ "include": "#markdown-horizontal-rule" },
+				{ "include": "#markdown-blockquote" },
+				{ "include": "#markdown-list" },
+				{ "include": "#markdown-table" },
+				{ "include": "#markdown-inline" }
+			]
+		},
+		"markdown-fenced-code": {
+			"comment": "Generic fallback for fenced code blocks - injection grammars handle language-specific highlighting",
+			"begin": "^(\\s*)(```)([a-zA-Z0-9_+-]*)\\s*$",
+			"beginCaptures": {
+				"2": { "name": "punctuation.definition.markdown" },
+				"3": { "name": "fenced_code.block.language.markdown" }
+			},
+			"end": "^(\\s*)(```)\\s*$",
+			"endCaptures": {
+				"2": { "name": "punctuation.definition.markdown" }
+			},
+			"name": "markup.fenced_code.block.markdown",
+			"contentName": "markup.raw.block.fenced.markdown"
+		},
+		"markdown-heading": {
+			"patterns": [
+				{
+					"match": "^(\\s*)(#)(\\s+)(.*)$",
+					"name": "markup.heading.1.markdown heading.1.markdown",
+					"captures": {
+						"2": { "name": "punctuation.definition.heading.markdown" },
+						"4": { "name": "entity.name.section.markdown" }
+					}
+				},
+				{
+					"match": "^(\\s*)(##)(\\s+)(.*)$",
+					"name": "markup.heading.2.markdown heading.2.markdown",
+					"captures": {
+						"2": { "name": "punctuation.definition.heading.markdown" },
+						"4": { "name": "entity.name.section.markdown" }
+					}
+				},
+				{
+					"match": "^(\\s*)(###)(\\s+)(.*)$",
+					"name": "markup.heading.3.markdown heading.3.markdown",
+					"captures": {
+						"2": { "name": "punctuation.definition.heading.markdown" },
+						"4": { "name": "entity.name.section.markdown" }
+					}
+				},
+				{
+					"match": "^(\\s*)(####)(\\s+)(.*)$",
+					"name": "markup.heading.4.markdown heading.4.markdown",
+					"captures": {
+						"2": { "name": "punctuation.definition.heading.markdown" },
+						"4": { "name": "entity.name.section.markdown" }
+					}
+				},
+				{
+					"match": "^(\\s*)(#####)(\\s+)(.*)$",
+					"name": "markup.heading.5.markdown heading.5.markdown",
+					"captures": {
+						"2": { "name": "punctuation.definition.heading.markdown" },
+						"4": { "name": "entity.name.section.markdown" }
+					}
+				},
+				{
+					"match": "^(\\s*)(######)(\\s+)(.*)$",
+					"name": "markup.heading.6.markdown heading.6.markdown",
+					"captures": {
+						"2": { "name": "punctuation.definition.heading.markdown" },
+						"4": { "name": "entity.name.section.markdown" }
+					}
+				}
+			]
+		},
+		"markdown-horizontal-rule": {
+			"patterns": [
+				{
+					"match": "^(\\s*)([-*_]){3,}\\s*$",
+					"name": "meta.separator.markdown"
+				}
+			]
+		},
+		"markdown-blockquote": {
+			"begin": "^(\\s*)(>)\\s*",
+			"beginCaptures": {
+				"2": { "name": "punctuation.definition.quote.begin.markdown" }
+			},
+			"end": "$",
+			"name": "markup.quote.markdown",
+			"patterns": [{ "include": "#markdown-inline" }]
+		},
+		"markdown-list": {
+			"patterns": [
+				{
+					"begin": "^(\\s*)([-*+])\\s+",
+					"beginCaptures": {
+						"2": { "name": "punctuation.definition.list.begin.markdown" }
+					},
+					"end": "$",
+					"name": "markup.list.unnumbered.markdown",
+					"patterns": [{ "include": "#markdown-inline" }]
+				},
+				{
+					"begin": "^(\\s*)(\\d+[.)])\\s+",
+					"beginCaptures": {
+						"2": { "name": "punctuation.definition.list.begin.markdown" }
+					},
+					"end": "$",
+					"name": "markup.list.numbered.markdown",
+					"patterns": [{ "include": "#markdown-inline" }]
+				}
+			]
+		},
+		"markdown-table": {
+			"patterns": [
+				{
+					"comment": "Table separator row",
+					"match": "^(\\s*)(\\|?)(\\s*:?-+:?\\s*\\|)+\\s*:?-+:?\\s*(\\|?)\\s*$",
+					"name": "markup.table.markdown"
+				},
+				{
+					"comment": "Table pipe separators",
+					"match": "\\|",
+					"name": "punctuation.separator.table.markdown"
+				}
+			]
+		},
+		"markdown-inline": {
+			"patterns": [
+				{
+					"comment": "Inline code with backticks",
+					"match": "(`+)([^`]+?)(\\1)",
+					"captures": {
+						"1": { "name": "punctuation.definition.raw.markdown" },
+						"2": { "name": "markup.inline.raw.string.markdown" },
+						"3": { "name": "punctuation.definition.raw.markdown" }
+					}
+				},
+				{
+					"comment": "Bold with double asterisks",
+					"name": "markup.bold.markdown",
+					"match": "(\\*\\*)([^*]+?)(\\*\\*)",
+					"captures": {
+						"1": {
+							"name": "punctuation.definition.bold.markdown markup.bold.markdown"
+						},
+						"2": { "name": "markup.bold.markdown" },
+						"3": {
+							"name": "punctuation.definition.bold.markdown markup.bold.markdown"
+						}
+					}
+				},
+				{
+					"comment": "Bold with double underscores",
+					"name": "markup.bold.markdown",
+					"match": "(__)([^_]+?)(__)",
+					"captures": {
+						"1": {
+							"name": "punctuation.definition.bold.markdown markup.bold.markdown"
+						},
+						"2": { "name": "markup.bold.markdown" },
+						"3": {
+							"name": "punctuation.definition.bold.markdown markup.bold.markdown"
+						}
+					}
+				},
+				{
+					"comment": "Italic with single asterisk",
+					"name": "markup.italic.markdown",
+					"match": "(?<!\\*)(\\*)(?!\\*)([^*]+?)(\\*)(?!\\*)",
+					"captures": {
+						"1": {
+							"name": "punctuation.definition.italic.markdown markup.italic.markdown"
+						},
+						"2": { "name": "markup.italic.markdown" },
+						"3": {
+							"name": "punctuation.definition.italic.markdown markup.italic.markdown"
+						}
+					}
+				},
+				{
+					"comment": "Italic with single underscore",
+					"name": "markup.italic.markdown",
+					"match": "(?<!_)(_)(?!_)([^_]+?)(_)(?!_)",
+					"captures": {
+						"1": {
+							"name": "punctuation.definition.italic.markdown markup.italic.markdown"
+						},
+						"2": { "name": "markup.italic.markdown" },
+						"3": {
+							"name": "punctuation.definition.italic.markdown markup.italic.markdown"
+						}
+					}
+				},
+				{
+					"comment": "Strikethrough",
+					"name": "markup.strikethrough.markdown",
+					"match": "(~~)([^~]+?)(~~)",
+					"captures": {
+						"1": { "name": "punctuation.definition.strikethrough.markdown" },
+						"2": { "name": "markup.strikethrough.markdown" },
+						"3": { "name": "punctuation.definition.strikethrough.markdown" }
+					}
+				},
+				{
+					"comment": "Image ![alt](url)",
+					"match": "(!)?(\\[)([^\\]]*)(\\])(\\()([^)]*)(\\))",
+					"captures": {
+						"1": { "name": "punctuation.definition.image.markdown" },
+						"2": { "name": "punctuation.definition.link.markdown" },
+						"3": { "name": "string.other.link.title.markdown" },
+						"4": { "name": "punctuation.definition.link.markdown" },
+						"5": { "name": "punctuation.definition.metadata.markdown" },
+						"6": { "name": "markup.underline.link.markdown" },
+						"7": { "name": "punctuation.definition.metadata.markdown" }
+					}
+				}
+			]
+		}
+	}
+}

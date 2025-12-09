@@ -1,177 +1,443 @@
-# Telescope Architecture Flow
+# Telescope Architecture
 
-This document outlines the exact flow of how all packages work together in Telescope.
+This document provides a detailed overview of Telescope's internal architecture for contributors and advanced users.
 
-## Package Interaction Flow
+## Overview
+
+Telescope is an OpenAPI linting tool built on the [Volar](https://volarjs.dev/) language server framework. It provides real-time diagnostics in VS Code through a unified pipeline that processes OpenAPI documents.
+
+## Package Structure
+
+```
+telescope/
+├── packages/
+│   ├── aperture-client/        # VS Code extension client
+│   │   └── src/
+│   │       └── extension.ts    # Extension entry point
+│   │
+│   ├── aperture-server/        # Language server + linting engine
+│   │   └── src/
+│   │       ├── server.ts       # Main entry point
+│   │       ├── lsp/            # Volar integration layer
+│   │       │   ├── core/       # IR cache coordinator
+│   │       │   ├── languages/  # Language plugins
+│   │       │   ├── services/   # OpenAPI + validation services
+│   │       │   └── workspace/  # Context + documents
+│   │       └── engine/         # Core linting engine
+│   │           ├── config/     # Configuration resolution
+│   │           ├── context/    # Linting context management
+│   │           ├── execution/  # Rule runners
+│   │           ├── indexes/    # Graph building, project indexing
+│   │           ├── ir/         # Intermediate representation
+│   │           ├── rules/      # Rule API and built-in rules
+│   │           ├── schemas/    # OpenAPI Zod schemas
+│   │           └── utils/      # Utility functions
+│   │
+│   └── test-files/             # Test fixtures and examples
+│       ├── openapi/            # OpenAPI test documents
+│       ├── custom/             # Custom validation test files
+│       └── .telescope/         # Example custom rules
+```
+
+## Data Flow
 
 ```mermaid
 flowchart TB
-    subgraph EntryPoints["Entry Points"]
-        Aperture["Aperture LSP<br/>(packages/aperture-lsp)"]
+    subgraph Client["VS Code (aperture-client)"]
+        Extension[Extension Client]
     end
 
-    subgraph LensLayer["Lens - Orchestration & Configuration"]
-        Config["Config Resolution<br/>(lens/config.ts)"]
-        ContextResolver["Context Resolver<br/>(lens/context/)"]
-        DocumentCache["Document Type Cache<br/>(lens/context/)"]
+    subgraph Server["Language Server (aperture-server)"]
+        subgraph LSP["LSP Layer (src/lsp/)"]
+            VolarServer["Volar Server"]
+            Services["Service Plugins"]
+            Languages["Language Plugins"]
+        end
+
+        subgraph Engine["Engine Layer (src/engine/)"]
+            Config["Config Resolution"]
+            Context["Context Resolver"]
+            Loader["Document Loader"]
+            IR["IR Builder"]
+            Indexes["Graph + Indexes"]
+            Execution["Rule Execution"]
+            Rules["Built-in Rules"]
+            Schemas["Zod Schemas"]
+        end
     end
 
-    subgraph LoaderLayer["Loader - Document Parsing"]
-        Loader["loadDocument()<br/>(lens/src/load-document.ts)"]
-        DocDetection["Document Detection<br/>(engine)"]
-        SourceMaps["Source Maps<br/>(engine IR)"]
+    subgraph Output["Results"]
+        Diagnostics["Diagnostics"]
+        Fixes["Quick Fixes"]
     end
 
-    subgraph IndexerLayer["Indexer - Graph & Indexing"]
-        RefGraph["buildRefGraph()<br/>(indexer/ref-graph.ts)"]
-        ProjectIndex["buildIndex()<br/>(indexer/project-index.ts)"]
-        GraphTypes["Graph Types<br/>(indexer/graph-types.ts)"]
-    end
+    Extension <--> VolarServer
+    VolarServer --> Services
+    VolarServer --> Languages
+    
+    Services --> Config
+    Services --> Context
+    Context --> Loader
+    Loader --> IR
+    IR --> Indexes
+    Indexes --> Execution
+    Rules --> Execution
+    Schemas --> Rules
+    
+    Execution --> Diagnostics
+    Execution --> Fixes
+    Diagnostics --> VolarServer
+    Fixes --> VolarServer
 
-    subgraph EngineLayer["Engine - Rule Execution"]
-        RuleFilter["filterRulesByContext()<br/>(engine/rule-filter.ts)"]
-        RuleRunner["runEngine()<br/>(engine/runner.ts)"]
-        RuleAPI["Rule API<br/>(engine/types.ts)"]
-    end
+    classDef client fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef lsp fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    classDef engine fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef output fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 
-    subgraph BlueprintLayer["Blueprint - Schemas & Rules"]
-        Schemas["Zod Schemas<br/>(blueprint/schemas/)"]
-        Rules["Rule Implementations<br/>(blueprint/rules/)"]
-        Presets["Presets<br/>(blueprint/rules/presets.ts)"]
-    end
-
-    subgraph Output["Output"]
-        Diagnostics["Diagnostics<br/>(engine/Diagnostic)"]
-        Fixes["Code Fixes<br/>(engine/FilePatch)"]
-    end
-
-    %% Entry point flows
-    Aperture -->|"1. Resolve workspace"| ContextResolver
-
-    %% Configuration flow
-    Config -->|"2a. resolveConfig()"| Presets
-    Config -->|"2b. materializeRules()"| Rules
-    Rules -->|"Uses"| Schemas
-    Presets -->|"Contains"| Rules
-
-    %% Context resolution flow
-    ContextResolver -->|"3a. Check cache"| DocumentCache
-    ContextResolver -->|"3b. Load documents"| Loader
-    ContextResolver -->|"3c. Discover roots"| Loader
-    DocumentCache -->|"Cache lookup"| DocDetection
-
-    %% Document loading flow
-    Loader -->|"Parse YAML/JSON"| SourceMaps
-    Loader -->|"Detect type"| DocDetection
-    Loader -->|"Returns ParsedDocument"| RefGraph
-
-    %% Graph building flow
-    RefGraph -->|"4a. Traverse $ref"| GraphTypes
-    RefGraph -->|"4b. Build edges"| GraphTypes
-    RefGraph -->|"4c. Create resolver"| ProjectIndex
-    ProjectIndex -->|"5. Build indexes"| GraphTypes
-
-    %% Engine execution flow
-    ProjectIndex -->|"6. ProjectContext"| RuleFilter
-    Rules -->|"6. Rule[]"| RuleFilter
-    RuleFilter -->|"Filtered rules"| RuleRunner
-    RuleRunner -->|"7. Execute visitors"| RuleAPI
-    RuleAPI -->|"Uses"| Schemas
-    RuleRunner -->|"8. Generate"| Diagnostics
-    RuleRunner -->|"8. Generate"| Fixes
-
-    %% Output flow
-    Diagnostics -->|"LSP output"| Aperture
-    Fixes -->|"LSP code actions"| Aperture
-
-    %% Styling
-    classDef entryPoint fill:#e1f5ff,stroke:#01579b,stroke-width:2px
-    classDef lens fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    classDef loader fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
-    classDef indexer fill:#fff9c4,stroke:#f57f17,stroke-width:2px
-    classDef engine fill:#fce4ec,stroke:#880e4f,stroke-width:2px
-    classDef blueprint fill:#e0f2f1,stroke:#004d40,stroke-width:2px
-    classDef output fill:#f1f8e9,stroke:#33691e,stroke-width:2px
-
-    class Aperture entryPoint
-    class Config,ContextResolver,DocumentCache lens
-    class Loader,DocDetection,SourceMaps loader
-    class RefGraph,ProjectIndex,GraphTypes indexer
-    class RuleFilter,RuleRunner,RuleAPI engine
-    class Schemas,Rules,Presets blueprint
+    class Extension client
+    class VolarServer,Services,Languages lsp
+    class Config,Context,Loader,IR,Indexes,Execution,Rules,Schemas engine
     class Diagnostics,Fixes output
 ```
 
-## Detailed Flow Description
+## Processing Pipeline
 
-### Phase 1: Entry & Setup
+### Phase 1: Server Initialization
 
-1. **Aperture LSP** receives document URIs from VS Code
-2. Uses Volar's FileSystem interface for file access
+1. **Volar Server** starts with configured language and service plugins
+2. **Language Plugins** register support for YAML and JSON documents
+3. **Configuration** is loaded from `.telescope/config.yaml`
 
-### Phase 2: Configuration & Context Resolution
+### Phase 2: Document Processing
 
-3. **Lens** orchestrates the process:
-   - **Config Resolution**: Reads configuration, resolves presets from `blueprint`, materializes rules
-   - **Context Resolution**: Determines linting mode (project-aware, fragment, multi-root)
-   - Uses **Document Type Cache** to avoid redundant type detection
+4. **Document Loader** reads files through Volar's FileSystem API:
+   - Parses YAML/JSON content
+   - Builds IR (Intermediate Representation) with location tracking
+   - Detects document type (root OpenAPI spec vs fragment)
 
-### Phase 3: Document Loading
+5. **IR Builder** creates structured representation:
+   - Preserves source locations for precise diagnostics
+   - Handles both YAML and JSON formats
+   - Supports incremental updates
 
-4. **Loader** reads files through Volar's **FileSystem**:
-   - Parses YAML/JSON into AST
-   - Builds IR (Intermediate Representation) with source maps for position tracking
-   - Detects document type (root, fragment, unknown)
-   - Returns `ParsedDocument` objects
+### Phase 3: Indexing
 
-### Phase 4: Graph & Index Building
+6. **Indexes** process documents to build:
+   - **GraphIndex**: Tracks `$ref` relationships between documents
+   - **OperationIdIndex**: Monitors operation ID uniqueness
+   - **AtomIndex**: Extracts operations, components, schemas
+   - **ProjectIndex**: Provides reverse lookups
 
-5. **Indexer** processes documents:
-   - **buildRefGraph()**: Traverses AST, finds all `$ref` references, builds dependency graph
-   - Creates **Resolver** for dereferencing `$ref` values
-   - **buildIndex()**: Builds reverse lookups (paths → operations, components → references, etc.)
-   - Returns `ProjectContext` with docs, graph, index, and resolver
+### Phase 4: Rule Execution
 
-### Phase 5: Rule Execution
+7. **Execution Layer** runs rules against indexed content:
+   - **IR Runner**: Processes rules against IR documents
+   - **Visitor Pattern**: Rules receive typed callbacks (Operation, Schema, etc.)
+   - **Zod Schemas**: Provide type safety for rule authors
 
-6. **Engine** executes rules:
-   - **filterRulesByContext()**: Filters rules based on available context (project/fragment/multi-root)
-   - **runEngine()**: Traverses project context, dispatches visitors from rules
-   - Rules use **Blueprint schemas** for type safety
-   - Rules access **Indexer** data structures for efficient traversal
+### Phase 5: Results
 
-### Phase 6: Output Generation
+8. **Output Generation**:
+   - **Diagnostics**: Violations with precise source locations
+   - **Quick Fixes**: Optional code patches for auto-fixable issues
+   - Results sent to VS Code via LSP protocol
 
-7. **Output** is generated:
-   - **Diagnostics**: Rule violations with positions, messages, severity
-   - **Fixes**: Optional code patches for auto-fixable issues
-   - Diagnostics are sent back to VS Code via LSP protocol
+## Key Components
 
-## Key Package Responsibilities
+### LSP Layer (`src/lsp/`)
 
-- **lens**: Orchestration, configuration resolution, context management, document loading
-- **indexer**: `$ref` graph building, reverse lookups, project indexing
-- **engine**: Rule API, visitor pattern, rule filtering, execution, IR building
-- **blueprint**: Zod schemas for OpenAPI types, rule implementations, presets
-- **aperture-client**: VS Code extension client
-- **aperture-lsp**: Volar-based language server (LSP server)
+| Component | File | Purpose |
+|-----------|------|---------|
+| Volar Server | `server.ts` | Main entry point, server initialization |
+| Core | `core/core.ts` | IR cache coordinator, document lifecycle |
+| OpenAPI Service | `services/openapi-service.ts` | OpenAPI validation and rule execution |
+| Validation Service | `services/additional-validation-service.ts` | Config files, custom schemas, generic rules |
+| Language Plugin | `languages/universal-plugin.ts` | YAML/JSON parsing |
 
-## Data Flow Summary
+### Engine Layer (`src/engine/`)
+
+| Component | Directory | Purpose |
+|-----------|-----------|---------|
+| Configuration | `config/` | `.telescope/config.yaml` resolution |
+| Context | `context/` | Multi-root workspace handling, document caching |
+| Execution | `execution/` | Rule runners (AST-based and IR-based) |
+| Indexes | `indexes/` | Graph building, atom extraction, project indexing |
+| IR | `ir/` | Intermediate representation with location tracking |
+| Rules | `rules/` | Rule API, built-in rules (generic + SailPoint) |
+| Schemas | `schemas/` | Zod schemas for OpenAPI 3.0/3.1/3.2 |
+| Utils | `utils/` | Pointer math, logging, file system utilities |
+
+## Document Types
+
+Telescope classifies documents into three types:
+
+| Type | Description | Example |
+|------|-------------|---------|
+| **Root** | Complete OpenAPI specification with `openapi` field | Main API spec |
+| **Fragment** | Partial document referenced via `$ref` | Component files |
+| **Unknown** | Non-OpenAPI YAML/JSON files | Config files |
+
+## Multi-File Support
+
+Telescope supports complex API projects split across multiple files:
+
+```yaml
+# api.yaml (root)
+openapi: 3.0.0
+paths:
+  /users:
+    $ref: './paths/users.yaml'
+components:
+  schemas:
+    User:
+      $ref: './schemas/User.yaml'
+```
+
+The **GraphIndex** tracks all `$ref` relationships and enables:
+- Cross-file validation
+- Cycle detection
+- Reference resolution
+
+## Configuration Resolution
+
+Configuration is loaded from `.telescope/config.yaml` with these precedence rules:
+
+1. Explicit file patterns override defaults
+2. Rule overrides merge with built-in defaults
+3. Custom rules are loaded via Bun's TypeScript loader
+
+## Service Architecture
+
+Telescope implements a multi-service architecture where each service provides specific LSP capabilities:
+
+```mermaid
+flowchart TB
+    subgraph Services["Language Service Plugins"]
+        OpenAPI["OpenAPI Service"]
+        YAML["YAML Service"]
+        JSON["JSON Service"]
+        Markdown["Markdown Service"]
+        Validation["Validation Service"]
+    end
+
+    subgraph Features["LSP Features"]
+        Diag["Diagnostics"]
+        Nav["Navigation"]
+        Intel["Code Intelligence"]
+        Refactor["Refactoring"]
+        UI["UI Features"]
+    end
+
+    OpenAPI --> Diag
+    OpenAPI --> Nav
+    OpenAPI --> Intel
+    OpenAPI --> Refactor
+    OpenAPI --> UI
+
+    YAML --> Diag
+    YAML --> Nav
+    YAML --> Intel
+
+    JSON --> Diag
+    JSON --> Nav
+    JSON --> Intel
+
+    Markdown --> Diag
+    Markdown --> Nav
+    Markdown --> Refactor
+
+    Validation --> Diag
+```
+
+### OpenAPI Service (`openapi-service.ts`)
+
+The primary service for OpenAPI documents, providing 15 LSP features:
+
+| Feature | Implementation |
+|---------|---------------|
+| **Diagnostics** | Runs rule engine against documents |
+| **Workspace Diagnostics** | Validates all OpenAPI files with caching |
+| **Document Links** | Clickable `$ref` with position resolution |
+| **Hover** | Preview referenced content inline |
+| **Code Actions** | Quick fixes for common issues |
+| **References** | Find all usages of components/operationIds |
+| **Workspace Symbols** | Search across all OpenAPI files |
+| **Completions** | `$ref`, status codes, media types, tags |
+| **Rename** | Rename operationIds and components |
+| **Code Lens** | Reference counts, response summaries |
+| **Inlay Hints** | Type hints, required markers |
+| **Definition** | Enhanced navigation for OpenAPI refs |
+| **Call Hierarchy** | Component reference relationships |
+| **Semantic Tokens** | Enhanced syntax highlighting |
+
+The service uses `OpenAPIVirtualCode` instances which provide:
+- Parsed IR (Intermediate Representation)
+- Atoms (operations, components, schemas)
+- Location mapping for precise positioning
+
+### YAML Service (`yaml-service.ts`)
+
+Wraps `yaml-language-server` for generic YAML support:
+
+- Code actions, code lens with resolution
+- Completions with schema awareness
+- Definition navigation
+- Diagnostics (Zod + JSON Schema)
+- Document symbols, hover, document links
+- Folding ranges, selection ranges
+- On-type formatting
+
+Schema validation uses a priority system:
+1. **Zod schemas** (if available) - Better error messages
+2. **JSON Schema** - Standard validation fallback
+
+### JSON Service (`json-service.ts`)
+
+Wraps `vscode-json-languageservice` for generic JSON support:
+
+- Completions with resolve support
+- Definition navigation
+- Diagnostics (Zod + JSON Schema)
+- Hover, document links
+- Document symbols, colors
+- Folding ranges, selection ranges
+- Document formatting
+
+### Markdown Service (`markdown-service.ts`)
+
+Provides full markdown support for `description` and `summary` fields:
+
+- Code actions with resolve (organize link definitions)
+- Completions for links and paths
+- Definition, references, rename
+- Diagnostics (link validation)
+- Document highlights, document links
+- Document symbols, folding ranges
+- Hover, selection ranges
+- Workspace symbols, file references
+- File rename edits
+
+Handles JSON string encoding for markdown embedded in JSON files.
+
+### Validation Service (`validation-service.ts`)
+
+Handles custom file validation using generic rules:
+
+- Runs rules from `additionalValidation` config
+- Caches diagnostics with content hashing
+- Supports workspace-wide validation
+
+## LSP Feature Implementation Details
+
+### Virtual Codes
+
+Telescope uses Volar's Virtual Code system to provide embedded language support:
 
 ```
-URIs → Volar FileSystem → Loader → ParsedDocuments
-                                    ↓
-                            Indexer (Graph + Index)
-                                    ↓
-                            ProjectContext
-                                    ↓
-                    Lens (Config + Context Resolution)
-                                    ↓
-                            Filtered Rules (Blueprint)
-                                    ↓
-                            Engine Execution
-                                    ↓
-                            Diagnostics + Fixes
-                                    ↓
-                            LSP Diagnostics
+OpenAPI Document (openapi-yaml/openapi-json)
+├── DataVirtualCode (yaml/json) - Format-specific features
+├── MarkdownVirtualCode (markdown) - Description fields
+└── OpenAPIVirtualCode - OpenAPI-specific features
 ```
+
+Each Virtual Code type:
+- `DataVirtualCode`: Parses YAML/JSON, provides AST, schema key
+- `MarkdownVirtualCode`: Extracts markdown from descriptions with JSON string mapping
+- `OpenAPIVirtualCode`: Extends DataVirtualCode with IR, atoms, location mapping
+
+### Semantic Tokens
+
+The OpenAPI service provides semantic highlighting for:
+
+| Token Type | Elements |
+|------------|----------|
+| `namespace` | Path strings (`/users/{id}`) |
+| `type` | Schema definitions |
+| `enum` | HTTP status codes |
+| `variable` | `$ref` values |
+| `function` | operationId values |
+| `method` | HTTP methods |
+| `macro` | Security scheme names |
+| `keyword` | Schema types |
+| `modifier` | Deprecated flags |
+| `typeParameter` | Path parameters |
+| `string` | Media types |
+
+### Code Actions
+
+Quick fixes are generated based on diagnostic codes:
+
+```typescript
+// Diagnostic code contains "description"
+→ Add description: "TODO: Add description"
+
+// Diagnostic code contains "operationId"
+→ Add operationId: "getUsers" (auto-generated)
+
+// Diagnostic code contains "kebab"
+→ Convert to kebab-case
+```
+
+### Call Hierarchy
+
+Uses the `GraphIndex` to traverse component relationships:
+
+- **Incoming calls**: `graphIndex.dependentsOf(node)` - what references this
+- **Outgoing calls**: `graphIndex.referencesFrom(node)` - what this references
+
+### Workspace Index
+
+The `WorkspaceIndex` coordinates cross-document features:
+
+- Tracks `$ref` relationships via `GraphIndex`
+- Monitors operationId uniqueness via `OpIdIndex`
+- Manages affected files for incremental updates
+- Provides result ID caching for workspace diagnostics
+
+## Extension Points
+
+### Custom Rules
+
+Rules are defined using `defineRule()` or `defineGenericRule()`:
+
+```typescript
+import { defineRule } from "aperture-server";
+
+export default defineRule({
+  meta: { id: "my-rule", ... },
+  check(ctx) {
+    return {
+      Operation(op) { /* validate operation */ },
+      Schema(schema) { /* validate schema */ },
+    };
+  },
+});
+```
+
+### Custom Schemas
+
+Zod schemas for file validation:
+
+```typescript
+import { defineSchema } from "aperture-server";
+
+export default defineSchema((z) => z.object({
+  name: z.string(),
+  version: z.string(),
+}));
+```
+
+## Performance Considerations
+
+- **Incremental Updates**: Only changed documents are reprocessed
+- **IR Caching**: Parsed documents are cached between edits
+- **Index Reuse**: Indexes are updated incrementally when possible
+- **Lazy Loading**: Custom rules are loaded on-demand
+
+## Related Documentation
+
+- [README](README.md) - Project overview and quick start
+- [LSP Features](docs/LSP-FEATURES.md) - Complete LSP feature reference
+- [Configuration](docs/CONFIGURATION.md) - Full configuration reference
+- [Custom Rules](docs/CUSTOM-RULES.md) - Rule authoring guide
+- [Built-in Rules](packages/aperture-server/src/engine/rules/RULES.md) - Rule reference

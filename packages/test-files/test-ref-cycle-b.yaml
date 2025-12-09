@@ -1,8 +1,0 @@
-info: 
-  title: Test Ref Cycle B
-  version: 1.0.0
-components:
-  schemas:
-    B:
-      $ref: "./test-ref-cycle-main.yaml#/components/schemas/A"
-

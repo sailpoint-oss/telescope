@@ -1,0 +1,13 @@
+# Path item fragment with path parameter declared via $ref
+get:
+  summary: Get item by ID
+  operationId: getItemById
+  description: Get a specific item
+  tags:
+    - items
+  parameters:
+    - $ref: ../parameters/path-id.yaml
+  responses:
+    "200":
+      description: Success
+

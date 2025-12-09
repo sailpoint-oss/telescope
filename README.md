@@ -1,247 +1,202 @@
-# Telescope OpenAPI Lint
+# Telescope
 
-Telescope is a greenfield OpenAPI linting tool powered by the Aperture VS Code language server. Every package in this monorepo plugs into one stage of the pipeline, so the same semantics power in-editor feedback.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=sailpoint.telescope)
 
-## Highlights
+**Telescope** is a powerful OpenAPI linting tool with real-time VS Code integration. It provides comprehensive validation, custom rule support, and multi-file project awareness.
 
-- Shared loader → graph → indexer → engine pipeline for consistent diagnostics across tools
-- Project-aware linting with fragment and multi-root modes for large API workspaces
-- Strongly typed rule authoring powered by Zod schemas for OpenAPI 3.0/3.1/3.2
-- Bun-first workflow for installs, scripts, tests, and packaging
-- Rich fixture catalog under `packages/test-files` for regression coverage
+## Features
 
-## Monorepo layout
+### Validation & Diagnostics
 
-- `packages/aperture-client` – VS Code extension client that launches the language server
-- `packages/aperture-lsp` – Volar-based language server implementing the LSP protocol
-- `packages/blueprint` – strongly-typed OpenAPI schemas (Zod) + rule catalog and presets
-- `packages/engine` – rule API, runner, visitor wiring, and fixes
-- `packages/indexer` – reverse lookups, typed references, and `$ref` dependency graph
-- `packages/lens` – document lint orchestration, workspace discovery, and configuration resolution
-- `packages/test-files` – shared OpenAPI fixtures for tests and demos
+- **Real-time Diagnostics** - See linting issues as you type in VS Code
+- **38 Built-in Rules** - Covering OpenAPI best practices and SailPoint standards
+- **Multi-file Support** - Full `$ref` resolution across your API project
+- **Custom Rules** - Extend with your own TypeScript rules and Zod schemas
+- **Pattern Matching** - Glob-based file inclusion/exclusion
 
-## How the pipeline fits together
+### Code Intelligence
 
-```mermaid
-flowchart TB
-    subgraph Entry["Entry Points"]
-        ApertureClient[Aperture Client]
-        ApertureLSP[Aperture LSP]
-    end
+- **Go to Definition** - Navigate to `$ref` targets, operationId definitions, security schemes
+- **Find All References** - Find all usages of schemas, components, and operationIds
+- **Hover Information** - Preview referenced content inline
+- **Completions** - Smart suggestions for `$ref` values, status codes, media types, tags
+- **Rename Symbol** - Safely rename operationIds and components across your workspace
+- **Call Hierarchy** - Visualize component reference relationships
 
-    subgraph Lens["Lens Layer"]
-        Config[Config Resolution]
-        Context[Context Resolution]
-    end
+### Editor Features
 
-    subgraph Core["Core Pipeline"]
-        Loader[Loader<br/>Parse YAML/JSON]
-        Indexer[Indexer<br/>Build $ref graph + indexes]
-        Engine[Engine<br/>Execute rules]
-    end
+- **Code Lens** - Reference counts, response summaries, security indicators
+- **Inlay Hints** - Type hints for `$ref` targets, required property markers
+- **Semantic Highlighting** - Enhanced syntax highlighting for OpenAPI elements
+- **Quick Fixes** - Auto-add descriptions, summaries, operationIds; convert to kebab-case
+- **Document Links** - Clickable `$ref` links with precise navigation
+- **Workspace Symbols** - Search operations and components across all files
 
-    subgraph Blueprint["Blueprint"]
-        Rules[Rules + Presets]
-        Schemas[Zod Schemas]
-    end
+### Embedded Language Support
 
-    subgraph Output["Output"]
-        Diagnostics[Diagnostics]
-        Fixes[Fixes]
-    end
+- **Markdown in Descriptions** - Full language support with link validation
+- **Code Block Highlighting** - Syntax highlighting for 21+ languages in fenced blocks
+- **Format Conversion** - Convert between JSON and YAML with a single command
 
-    ApertureClient --> ApertureLSP
-    ApertureLSP --> Context
-    Config --> Rules
-    Context --> Loader
-    Loader --> Indexer
-    Indexer --> Engine
-    Rules --> Engine
-    Schemas --> Rules
-    Engine --> Diagnostics
-    Engine --> Fixes
-    Diagnostics --> ApertureLSP
-    ApertureLSP --> ApertureClient
-```
+See [docs/LSP-FEATURES.md](docs/LSP-FEATURES.md) for the complete feature reference.
 
-For a detailed architecture diagram showing exact package interactions and data flow, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+## Quick Start
 
-## Quickstart
+### Install the VS Code Extension
+
+Search for "Telescope" in the VS Code marketplace, or install from the command line:
 
 ```bash
-# install dependencies
-bun install
-
-# run the full test suite (unit + integration fixtures)
-bun test
+code --install-extension sailpoint.telescope
 ```
 
-Prefer Bun commands wherever possible—scripts, testing, and dev tooling are all wired for Bun.
+### Requirements
 
-## Workspace scripts
+**Bun** is required for the language server runtime:
 
-- `bun install` – install all workspace dependencies
-- `bun run --filter ./packages/** build` – run package build scripts where defined (e.g. `bun run --filter aperture-client build` to build the VS Code extension)
-- `bun run --filter ./packages/** test` – execute package-level tests
-- `bun run --filter <package> <script>` – target a specific workspace package
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
 
-## Aperture language server
+### Configuration
 
-The Aperture VS Code extension consists of two packages:
+Create `.telescope/config.yaml` in your project root:
 
-- **`packages/aperture-client`** – VS Code extension that launches and communicates with the language server
-- **`packages/aperture-lsp`** – Volar-based language server that implements the LSP protocol
+```yaml
+openapi:
+  patterns:
+    - "**/*.yaml"
+    - "**/*.yml"
+    - "**/*.json"
+    - "!**/node_modules/**"
+  
+  # Enable SailPoint-specific rules
+  sailpoint: true
+  
+  # Override rule severities
+  rulesOverrides:
+    operation-summary: warn
+    parameter-description: error
+```
 
-When the extension activates, the language server:
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration reference.
 
-1. Auto-discovers workspace root documents via `packages/lens`
-2. Streams documents through the shared host/loader/graph/indexer stack
-3. Filters rules based on the current linting mode (project, fragment, multi-root)
-4. Returns diagnostics and quick-fix metadata back to the editor
+## Architecture
 
-Use VS Code's "Run Extension" launch target to develop Aperture locally. Build both packages with `bun run --filter aperture-client build` and `bun run --filter aperture-lsp build` (see individual READMEs for details).
+Telescope uses a unified pipeline for consistent diagnostics:
 
-## Building and Publishing the VS Code Extension
+```
+Document → Loader → Indexer → Engine → Diagnostics
+```
 
-### Prerequisites
+```mermaid
+flowchart LR
+    subgraph Entry["Entry"]
+        Client[VS Code Extension]
+    end
+    
+    subgraph Server["Language Server"]
+        LSP[Volar LSP]
+        Engine[Linting Engine]
+    end
+    
+    subgraph Output["Output"]
+        Diag[Diagnostics]
+        Fixes[Quick Fixes]
+    end
+    
+    Client --> LSP --> Engine --> Diag --> Client
+    Engine --> Fixes --> Client
+```
 
-1. **Install dependencies:**
-   ```bash
-   bun install
-   ```
+For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-2. **Install VS Code Extension Manager (`vsce`):**
-   ```bash
-   bun add -g @vscode/vsce
-   ```
-   Or use npm if preferred:
-   ```bash
-   npm install -g @vscode/vsce
-   ```
+## Monorepo Structure
 
-### Building the Extension
+| Package | Description |
+|---------|-------------|
+| [`aperture-client`](packages/aperture-client) | VS Code extension client |
+| [`aperture-server`](packages/aperture-server) | Volar language server + linting engine |
+| [`test-files`](packages/test-files) | Test fixtures and custom rule examples |
 
-The Aperture extension consists of two packages that must be built before packaging:
+## Built-in Rules
 
-1. **Build the language server:**
-   ```bash
-   bun run --filter aperture-lsp build
-   ```
-   This creates `packages/aperture-lsp/out/server.js` using Rollup.
+Telescope includes 27 OpenAPI best practice rules and 11 SailPoint-specific rules:
 
-2. **Build the VS Code client:**
-   ```bash
-   bun run --filter aperture-client build
-   ```
-   This compiles TypeScript to `packages/aperture-client/out/extension.js`.
+| Category | Rules |
+|----------|-------|
+| Core | `$ref` cycle detection, unresolved reference checking |
+| Operations | operationId, summary, tags, descriptions, responses |
+| Parameters | required fields, examples, descriptions, formats |
+| Schemas | structure validation, allOf, required arrays, defaults |
+| Components | naming conventions |
 
-3. **Verify both builds succeeded:**
-   ```bash
-   test -f packages/aperture-lsp/out/server.js && test -f packages/aperture-client/out/extension.js && echo "✅ Build complete"
-   ```
+See [RULES.md](packages/aperture-server/src/engine/rules/RULES.md) for the complete rule reference.
 
-### Packaging the Extension
+## Custom Rules
 
-Before packaging, ensure the `package.json` in `packages/aperture-client` has:
-- Correct `version` field
-- `private: false` (or remove the `private` field) for publishing
-- All required metadata (`displayName`, `description`, `publisher`, etc.)
+Create custom rules in `.telescope/rules/`:
 
-1. **Navigate to the client package:**
-   ```bash
-   cd packages/aperture-client
-   ```
+```typescript
+// .telescope/rules/require-contact.ts
+import { defineRule } from "aperture-server";
 
-2. **Package the extension:**
-   ```bash
-   vsce package
-   ```
-   This creates a `.vsix` file (e.g., `aperture-0.0.1.vsix`) in the `packages/aperture-client` directory.
+export default defineRule({
+  meta: {
+    id: "require-contact",
+    number: 1000,
+    description: "API must include contact information",
+    type: "problem",
+    fileFormats: ["yaml", "yml", "json"],
+  },
+  check(ctx) {
+    return {
+      Info(info) {
+        if (!info.contact) {
+          ctx.report({
+            message: "Info section must include contact details",
+            severity: "error",
+            uri: info.uri,
+            range: ctx.locate(info.uri, info.pointer),
+          });
+        }
+      },
+    };
+  },
+});
+```
 
-   **Note:** The extension references the language server at `../aperture-lsp/out/server.js`. When packaging, ensure the server build output is accessible relative to the client package, or update the server path resolution in `src/extension.ts` to bundle the server within the extension.
+See [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for the full custom rules guide.
 
-3. **Test the packaged extension locally:**
-   ```bash
-   code --install-extension aperture-0.0.1.vsix
-   ```
+## Development
 
-### Publishing to VS Code Marketplace
+```bash
+# Install dependencies
+pnpm install
 
-1. **Get a Personal Access Token (PAT):**
-   - Go to https://dev.azure.com
-   - Sign in with your Microsoft account (or create one)
-   - Navigate to User Settings → Personal Access Tokens
-   - Create a new token with "Marketplace (Manage)" scope
-   - Save the token securely
+# Run tests
+bun test
 
-2. **Create a publisher (if you don't have one):**
-   - Go to https://marketplace.visualstudio.com/manage
-   - Sign in and create a new publisher
-   - Note your publisher ID
+# Build all packages
+pnpm build
 
-3. **Update `package.json` with publisher information:**
-   ```json
-   {
-     "publisher": "your-publisher-id",
-     "version": "0.0.1"
-   }
-   ```
+# Run the extension locally (VS Code)
+# Press F5 to launch Extension Development Host
+```
 
-4. **Publish the extension:**
-   ```bash
-   cd packages/aperture-client
-   vsce publish -p <your-personal-access-token>
-   ```
-   Or set the token as an environment variable:
-   ```bash
-   export VSCE_PAT=<your-personal-access-token>
-   vsce publish
-   ```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
-5. **Verify publication:**
-   - Check https://marketplace.visualstudio.com/manage
-   - Your extension should appear in your publisher dashboard
-   - It may take a few minutes to appear in search results
+## Documentation
 
-### Publishing to Eclipse Marketplace
+- [LSP Features Reference](docs/LSP-FEATURES.md)
+- [Configuration Reference](docs/CONFIGURATION.md)
+- [Custom Rules Guide](docs/CUSTOM-RULES.md)
+- [Publishing Guide](docs/PUBLISHING.md)
+- [Architecture](ARCHITECTURE.md)
+- [Built-in Rules](packages/aperture-server/src/engine/rules/RULES.md)
+- [Contributing](CONTRIBUTING.md)
 
-The Eclipse Marketplace accepts VS Code extensions, but requires additional steps:
+## License
 
-1. **Create an Eclipse account:**
-   - Sign up at https://accounts.eclipse.org/user/register
-
-2. **Prepare marketplace metadata:**
-   - Create a marketplace listing at https://marketplace.eclipse.org/content/add
-   - Fill in extension details, screenshots, and documentation
-
-3. **Upload the `.vsix` file:**
-   - Use the Eclipse Marketplace web interface to upload your packaged `.vsix` file
-   - The marketplace will validate and process the extension
-
-4. **Alternative: Use Eclipse's VS Code extension support:**
-   - Eclipse Theia and other Eclipse-based editors can install VS Code extensions directly
-   - Users can install from the VS Code Marketplace URL
-   - Some Eclipse distributions may require repackaging
-
-### Troubleshooting
-
-- **Build errors:** Ensure all workspace dependencies are installed with `bun install` from the repo root
-- **Packaging errors:** Verify both `aperture-client` and `aperture-lsp` builds completed successfully
-- **Server path issues:** The extension expects the server at `../aperture-lsp/out/server.js`. If packaging fails, you may need to copy the server build into the client package or adjust the path resolution
-- **Publishing errors:** Ensure your PAT has the correct scopes and hasn't expired
-- **Version conflicts:** Increment the `version` in `package.json` before republishing
-
-## Rules and presets
-
-`packages/blueprint` contains both the OpenAPI schemas and the rule implementations, publishing presets such as `recommended31`. Configuration resolution lives in `packages/lens`, which materializes presets plus overrides into runnable rule objects for the engine.
-
-To enable or disable rules, extend the default config and re-run the LSP—it consumes the configuration logic.
-
-## Contributing
-
-- Keep edits ASCII-only unless a file already relies on Unicode
-- Prefer Bun equivalents over Node/npm/pnpm/vite when running scripts
-- Add or update fixtures in `packages/test-files` when introducing new validation behavior
-- Place new rules under `packages/blueprint/rules` and re-export them through the preset metadata in `packages/blueprint/rules/presets.ts`
-
-Happy linting!
+[MIT](LICENSE) - Copyright (c) 2024 SailPoint Technologies

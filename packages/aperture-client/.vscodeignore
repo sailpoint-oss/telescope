@@ -1,0 +1,24 @@
+# Source files (bundled into dist/)
+src/**/*.ts
+scripts/**
+*.ts
+test/**
+
+# Keep static assets needed by VS Code
+!src/syntaxes/**
+!src/configurations/**
+
+# Old build output (replaced by dist/)
+out/**
+
+# Development files
+node_modules/**
+tsconfig.json
+.vscode/**
+
+# Build artifacts
+*.vsix
+
+# Git
+.git/**
+.gitignore

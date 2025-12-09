@@ -6,7 +6,8 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}/packages/aperture-client"
+				"--extensionDevelopmentPath=${workspaceFolder}/packages/aperture-client",
+				"${workspaceFolder}/packages/test-files"
 			],
 			"outFiles": ["${workspaceFolder}/packages/aperture-client/out/**/*.js"],
 			"preLaunchTask": "build:all",
@@ -14,19 +15,6 @@
 				"hidden": false,
 				"group": "",
 				"order": 1
-			}
-		}
-	],
-	"compounds": [
-		{
-			"name": "Launch Extension",
-			"configurations": ["Launch Extension"],
-			"preLaunchTask": "build:all",
-			"stopAll": true,
-			"presentation": {
-				"hidden": false,
-				"group": "",
-				"order": 0
 			}
 		}
 	]

@@ -1,7 +1,6 @@
-import { defineSchema } from "lens";
-import { z } from "zod";
+import { defineSchema } from "aperture-server";
 
-export default defineSchema(
+export default defineSchema((z) =>
 	z.object({
 		name: z.string().describe("The name of the configuration"),
 		version: z

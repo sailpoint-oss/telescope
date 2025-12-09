@@ -1,0 +1,8 @@
+# Path parameter definition for {id}
+name: id
+in: path
+required: true
+description: The unique identifier
+schema:
+  type: string
+

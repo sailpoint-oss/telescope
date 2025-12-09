@@ -2,25 +2,23 @@
  * Example custom OpenAPI rule.
  * This rule checks that all operations have a summary field.
  *
- * To use this rule, add it to your telescope.config.yaml:
- * customOpenApiRules:
- *   - ./example-custom-openapi-rule.ts
+ * To use this rule, add it to your .telescope/config.yaml:
+ * openapi:
+ *   rules:
+ *     - rule: example-custom-openapi-rule.ts
  */
 
-import { defineRule } from "lens";
+import { defineRule } from "aperture-server";
 
 export default defineRule({
 	meta: {
 		id: "custom-operation-summary",
 		number: 999, // Use a high number for custom rules
-		docs: {
-			description: "All operations must have a summary field",
-			recommended: false,
-		},
+		description: "All operations must have a summary field",
 		type: "problem",
 		fileFormats: ["yaml", "yml", "json"],
 	},
-	create(ctx) {
+	check(ctx) {
 		return {
 			Operation(op) {
 				const operation = op.node;

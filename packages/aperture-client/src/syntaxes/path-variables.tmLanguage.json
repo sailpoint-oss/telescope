@@ -1,0 +1,17 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "OpenAPI Path Variables",
+	"scopeName": "openapi.path-variables",
+	"injectionSelector": "L:source.openapi.yaml, L:source.openapi.json",
+	"patterns": [
+		{
+			"comment": "Path template variables like {userId} in paths and server URLs",
+			"match": "(\\{)([a-zA-Z_][a-zA-Z0-9_]*)(\\})",
+			"captures": {
+				"1": { "name": "punctuation.section.interpolation.begin.openapi" },
+				"2": { "name": "variable.parameter.path-template.openapi" },
+				"3": { "name": "punctuation.section.interpolation.end.openapi" }
+			}
+		}
+	]
+}

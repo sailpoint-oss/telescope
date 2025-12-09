@@ -1,0 +1,22 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"outDir": "./out",
+		"rootDir": "../",
+		"module": "Preserve",
+		"moduleResolution": "bundler",
+		"lib": ["ES2022"],
+		"target": "ES2020",
+		"types": ["bun"],
+		"noEmit": true,
+		"skipLibCheck": true,
+		"allowImportingTsExtensions": false,
+		"verbatimModuleSyntax": false,
+		"esModuleInterop": true,
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"isolatedModules": true
+	},
+	"include": ["src/**/*.ts", "tests/lsp/zod-ranges.test.ts"],
+	"exclude": ["node_modules", "out"]
+}

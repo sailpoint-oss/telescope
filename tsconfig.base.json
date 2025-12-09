@@ -19,12 +19,12 @@
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false,
-		"types": ["bun"],
 		"baseUrl": ".",
 		"paths": {
 			"lens": ["./packages/lens/src/index.ts"],
-			"blueprint": ["./packages/blueprint/src/index.ts"],
-			"shared/*": ["./packages/shared/src/*"]
+			"lens/utils/*": ["./packages/lens/src/utils/*.ts"],
+			"lens/schemas/*": ["./packages/lens/src/schemas/*.ts"],
+			"lens/rules/*": ["./packages/lens/src/rules/*.ts"]
 		}
 	}
 }

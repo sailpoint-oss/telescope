@@ -1,23 +1,27 @@
 {
-	"name": "telescope",
-	"private": true,
-	"type": "module",
-	"packageManager": "bun@1.1.13",
-	"workspaces": [
-		"packages/*"
-	],
-	"scripts": {
-		"build": "bun run --filter ./packages/** build",
-		"test": "bun test packages/aperture-lsp packages/blueprint packages/lens",
-		"test:no-coverage": "bun test --no-coverage packages/aperture-lsp packages/blueprint packages/lens",
-		"lint": "bun run --filter ./packages/** lint"
-	},
-	"dependencies": {
-		"@types/bun": "^1.3.2",
-		"jiti": "^2.6.1",
-		"zod-to-json-schema": "^3.25.0"
-	},
-	"devDependencies": {
-		"vscode-languageserver-types": "^3.17.5"
-	}
+  "name": "telescope",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run --filter ./packages/** build",
+    "test": "bun test",
+    "test:no-coverage": "bun test --no-coverage packages/aperture-lsp packages/lens",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write ."
+  },
+  "dependencies": {
+    "jiti": "^2.6.1",
+    "markdown-it": "^14.1.0",
+    "volar-service-json": "^0.0.67",
+    "volar-service-markdown": "^0.0.67"
+  },
+  "devDependencies": {
+    "vscode-languageserver-types": "^3.17.5",
+    "@types/bun": "^1.3.2",
+    "@types/markdown-it": "^14.1.2"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }

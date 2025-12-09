@@ -1,0 +1,25 @@
+openapi: 3.0.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      summary: Get all pets
+      operationId: getPets
+      description: |
+        Get all pets from the store
+
+        ---
+        test
+        ---
+      responses:
+        "200":
+          description: Success
+    post:
+      summary: Create a pet
+      operationId: createPet
+      responses:
+        "201":
+          description: Created
+

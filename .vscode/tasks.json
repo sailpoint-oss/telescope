@@ -2,29 +2,15 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "build:lsp",
+			"label": "build:server",
 			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/aperture-lsp", "build"],
+			"args": ["run", "--cwd", "packages/aperture-server", "build"],
 			"group": {
 				"kind": "build",
 				"isDefault": false
 			},
-			"problemMatcher": [
-				"$tsc",
-				{
-					"owner": "rollup",
-					"fileLocation": ["relative", "${workspaceFolder}"],
-					"pattern": {
-						"regexp": "^(.+):(\\d+):(\\d+):\\s+(error|warning|info)\\s+(.+)$",
-						"file": 1,
-						"line": 2,
-						"column": 3,
-						"severity": 4,
-						"message": 5
-					}
-				}
-			],
+			"problemMatcher": [],
 			"presentation": {
 				"reveal": "always",
 				"panel": "dedicated",
@@ -51,25 +37,13 @@
 		},
 		{
 			"label": "build:all",
-			"dependsOn": ["build:lsp", "build:extension"],
-			"dependsOrder": "parallel",
+			"dependsOn": ["build:server", "build:extension"],
+			"dependsOrder": "sequence",
 			"group": {
 				"kind": "build",
 				"isDefault": true
 			},
 			"problemMatcher": "$tsc",
-			"presentation": {
-				"reveal": "always",
-				"panel": "dedicated"
-			}
-		},
-		{
-			"label": "watch:lsp",
-			"type": "shell",
-			"command": "bun",
-			"args": ["run", "--filter", "aperture-lsp", "watch"],
-			"isBackground": true,
-			"problemMatcher": "$tsc-watch",
 			"presentation": {
 				"reveal": "always",
 				"panel": "dedicated"
