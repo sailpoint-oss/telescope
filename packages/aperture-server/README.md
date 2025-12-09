@@ -36,13 +36,13 @@ The server has two main layers:
 
 ## Running
 
-The server runs directly via Bun without bundling:
+For development, the server can run directly via Bun:
 
 ```bash
 bun packages/aperture-server/src/server.ts
 ```
 
-In production, the server is launched by `aperture-client` as a Bun process over stdio.
+In production, the server is bundled as JavaScript and launched by `aperture-client` using Node.js.
 
 ## Source Layout
 

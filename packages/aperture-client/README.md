@@ -2,17 +2,6 @@
 
 The VS Code extension client for Telescope. This package connects to the Aperture language server to provide real-time OpenAPI linting and diagnostics in VS Code.
 
-## Requirements
-
-**Bun Runtime** is required. The extension uses Bun for faster startup times and native TypeScript support.
-
-Install Bun:
-```bash
-curl -fsSL https://bun.sh/install | bash
-```
-
-See [bun.sh/docs/installation](https://bun.sh/docs/installation) for more options.
-
 ## Features
 
 - Real-time diagnostics for OpenAPI documents
@@ -26,8 +15,8 @@ See [bun.sh/docs/installation](https://bun.sh/docs/installation) for more option
 The client is a thin wrapper around VS Code's Language Client API:
 
 1. **Activation** - Registers for `yaml`, `yml`, and `json` language activation events
-2. **Bun Check** - Verifies Bun is installed; shows error if not found
-3. **Server Launch** - Starts the language server at `../aperture-server/src/server.ts` via Bun
+2. **Runtime Detection** - Locates Node.js runtime (bundled with VS Code)
+3. **Server Launch** - Starts the bundled language server (`dist/server.js`) via Node.js
 4. **LSP Protocol** - Handles communication using `vscode-languageclient`
 5. **Volar Integration** - Registers with Volar Labs for enhanced features
 
@@ -37,8 +26,9 @@ The client is a thin wrapper around VS Code's Language Client API:
 src/
 └── extension.ts    # VS Code activation and client initialization
 
-out/
-└── extension.js    # Compiled entry point
+dist/
+├── client.js       # Bundled client entry point
+└── server.js       # Bundled language server
 ```
 
 ## Development
@@ -83,9 +73,9 @@ The client watches for `.telescope/config.yaml` changes and automatically reload
 
 ### Extension Not Activating
 
-1. Ensure Bun is installed and in your PATH
-2. Check the **Aperture Language Server** output channel for errors
-3. Verify the file is recognized as YAML/JSON
+1. Check the **Aperture Language Server** output channel for errors
+2. Verify the file is recognized as YAML/JSON
+3. Try restarting VS Code
 
 ### No Diagnostics Appearing
 

@@ -51,14 +51,6 @@ Search for "Telescope" in the VS Code marketplace, or install from the command l
 code --install-extension sailpoint.telescope
 ```
 
-### Requirements
-
-**Bun** is required for the language server runtime:
-
-```bash
-curl -fsSL https://bun.sh/install | bash
-```
-
 ### Configuration
 
 Create `.telescope/config.yaml` in your project root:

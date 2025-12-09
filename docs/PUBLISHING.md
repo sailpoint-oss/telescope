@@ -300,11 +300,10 @@ Ensure these fields exist in `package.json`:
 
 **Issue**: Server path not found
 
-The extension expects the server at `../aperture-server/src/server.ts`. Ensure:
+The extension expects the bundled server at `dist/server.js`. Ensure:
 
-1. Both packages are built
-2. Bun is installed and in PATH
-3. Relative path structure is preserved in package
+1. Both packages are built (`pnpm build`)
+2. The `dist/` directory contains both `client.js` and `server.js`
 
 ### Publishing Errors
 
@@ -333,7 +332,7 @@ vsce publish
 **Issue**: Extension doesn't activate
 
 1. Check **Aperture Language Server** output channel
-2. Verify Bun is installed: `bun --version`
+2. Verify Node.js is available (VS Code includes Node.js)
 3. Check file associations in VS Code settings
 
 **Issue**: Server crashes
