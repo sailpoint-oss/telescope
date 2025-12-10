@@ -12,7 +12,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 1: Intermediate Representation (IR) System
 
-**Files:** [`packages/aperture-server/src/engine/ir/`](packages/aperture-server/src/engine/ir/)
+**Files:** [`packages/telescope-server/src/engine/ir/`](packages/telescope-server/src/engine/ir/)
 
 **Purpose:** Provides a unified, format-agnostic representation of YAML/JSON documents with precise byte-offset location tracking.
 
@@ -25,7 +25,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 **Weaknesses:**
 
-- **Incomplete anchor resolution:** `findAnchorPointer()` in [`builder-yaml.ts:201-208`](packages/aperture-server/src/engine/ir/builder-yaml.ts) has a TODO and returns `undefined`
+- **Incomplete anchor resolution:** `findAnchorPointer()` in [`builder-yaml.ts:201-208`](packages/telescope-server/src/engine/ir/builder-yaml.ts) has a TODO and returns `undefined`
 - **No incremental IR updates:** Entire IR is rebuilt on every change (see `OpenAPIVirtualCode.update()` which sets `_ir = undefined`)
 - **Missing format normalization:** IR doesn't normalize differences like YAML's multiple string formats (block scalar, quoted, etc.)
 
@@ -39,7 +39,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 2: Reference Graph and Dependency Tracking
 
-**Files:** [`packages/aperture-server/src/engine/indexes/graph.ts`](packages/aperture-server/src/engine/indexes/graph.ts), [`ref-graph.ts`](packages/aperture-server/src/engine/indexes/ref-graph.ts)
+**Files:** [`packages/telescope-server/src/engine/indexes/graph.ts`](packages/telescope-server/src/engine/indexes/graph.ts), [`ref-graph.ts`](packages/telescope-server/src/engine/indexes/ref-graph.ts)
 
 **Purpose:** Tracks `$ref` relationships between documents for cross-file validation and navigation.
 
@@ -66,7 +66,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 3: Project Indexing and Atom Extraction
 
-**Files:** [`packages/aperture-server/src/engine/indexes/project-index.ts`](packages/aperture-server/src/engine/indexes/project-index.ts), [`atoms.ts`](packages/aperture-server/src/engine/indexes/atoms.ts)
+**Files:** [`packages/telescope-server/src/engine/indexes/project-index.ts`](packages/telescope-server/src/engine/indexes/project-index.ts), [`atoms.ts`](packages/telescope-server/src/engine/indexes/atoms.ts)
 
 **Purpose:** Extracts all OpenAPI elements (operations, schemas, parameters, etc.) into queryable indexes.
 
@@ -95,7 +95,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 4: Rule API and Type System
 
-**Files:** [`packages/aperture-server/src/engine/rules/api.ts`](packages/aperture-server/src/engine/rules/api.ts), [`types.ts`](packages/aperture-server/src/engine/rules/types.ts)
+**Files:** [`packages/telescope-server/src/engine/rules/api.ts`](packages/telescope-server/src/engine/rules/api.ts), [`types.ts`](packages/telescope-server/src/engine/rules/types.ts)
 
 **Purpose:** Defines the rule authoring API and type system for validation rules.
 
@@ -125,7 +125,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 5: Rule Execution Engine
 
-**Files:** [`packages/aperture-server/src/engine/execution/runner.ts`](packages/aperture-server/src/engine/execution/runner.ts)
+**Files:** [`packages/telescope-server/src/engine/execution/runner.ts`](packages/telescope-server/src/engine/execution/runner.ts)
 
 **Purpose:** Orchestrates rule execution by dispatching visitors for each OpenAPI element.
 
@@ -155,7 +155,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 6: Context Resolution and Document Loading
 
-**Files:** [`packages/aperture-server/src/engine/context/`](packages/aperture-server/src/engine/context/)
+**Files:** [`packages/telescope-server/src/engine/context/`](packages/telescope-server/src/engine/context/)
 
 **Purpose:** Resolves which documents to lint together based on `$ref` relationships.
 
@@ -184,7 +184,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 7: Configuration System
 
-**Files:** [`packages/aperture-server/src/engine/config/resolver.ts`](packages/aperture-server/src/engine/config/resolver.ts)
+**Files:** [`packages/telescope-server/src/engine/config/resolver.ts`](packages/telescope-server/src/engine/config/resolver.ts)
 
 **Purpose:** Loads and validates `.telescope/config.yaml` with rule materialization.
 
@@ -213,7 +213,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 8: Virtual Codes and LSP Language Plugins
 
-**Files:** [`packages/aperture-server/src/lsp/languages/virtualCodes/`](packages/aperture-server/src/lsp/languages/virtualCodes/)
+**Files:** [`packages/telescope-server/src/lsp/languages/virtualCodes/`](packages/telescope-server/src/lsp/languages/virtualCodes/)
 
 **Purpose:** Volar virtual code system for embedded language support (YAML, JSON, Markdown).
 
@@ -242,7 +242,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 9: OpenAPI Service and LSP Features
 
-**Files:** [`packages/aperture-server/src/lsp/services/openapi-service.ts`](packages/aperture-server/src/lsp/services/openapi-service.ts)
+**Files:** [`packages/telescope-server/src/lsp/services/openapi-service.ts`](packages/telescope-server/src/lsp/services/openapi-service.ts)
 
 **Purpose:** Main LSP service providing diagnostics, navigation, and code intelligence.
 
@@ -271,7 +271,7 @@ This review breaks down the extension into 10 architectural components with spec
 
 ## Part 10: Client Extension Architecture
 
-**Files:** [`packages/aperture-client/src/extension.ts`](packages/aperture-client/src/extension.ts)
+**Files:** [`packages/telescope-client/src/extension.ts`](packages/telescope-client/src/extension.ts)
 
 **Purpose:** VS Code extension that manages language server sessions and document classification.
 

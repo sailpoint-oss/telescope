@@ -18,13 +18,13 @@ Telescope provides comprehensive Language Server Protocol (LSP) features for Ope
 
 Telescope implements LSP features through multiple specialized services:
 
-| Service | Scope | Features |
-|---------|-------|----------|
-| **OpenAPI Service** | OpenAPI documents | 15 features including semantic tokens, call hierarchy |
-| **YAML Service** | Generic YAML files | 11 features via yaml-language-server |
-| **JSON Service** | Generic JSON files | 10 features via vscode-json-languageservice |
-| **Markdown Service** | Embedded descriptions | 15 features via vscode-markdown-languageservice |
-| **Validation Service** | Custom file validation | Diagnostics for custom rules/schemas |
+| Service                | Scope                  | Features                                              |
+| ---------------------- | ---------------------- | ----------------------------------------------------- |
+| **OpenAPI Service**    | OpenAPI documents      | 15 features including semantic tokens, call hierarchy |
+| **YAML Service**       | Generic YAML files     | 11 features via yaml-language-server                  |
+| **JSON Service**       | Generic JSON files     | 10 features via vscode-json-languageservice           |
+| **Markdown Service**   | Embedded descriptions  | 15 features via vscode-markdown-languageservice       |
+| **Validation Service** | Custom file validation | Diagnostics for custom rules/schemas                  |
 
 ## Core Navigation
 
@@ -88,13 +88,13 @@ $ref: "#/components/schemas/User"
 
 OpenAPI-specific completions for:
 
-| Context | Completions |
-|---------|-------------|
-| `$ref` values | All available component references (`#/components/schemas/...`) |
-| Security requirements | Defined security scheme names |
-| Operation tags | Global tag names with descriptions |
-| Response status codes | Common HTTP codes (200, 201, 400, 401, 404, 500, etc.) |
-| Media types | `application/json`, `application/xml`, `multipart/form-data`, etc. |
+| Context               | Completions                                                        |
+| --------------------- | ------------------------------------------------------------------ |
+| `$ref` values         | All available component references (`#/components/schemas/...`)    |
+| Security requirements | Defined security scheme names                                      |
+| Operation tags        | Global tag names with descriptions                                 |
+| Response status codes | Common HTTP codes (200, 201, 400, 401, 404, 500, etc.)             |
+| Media types           | `application/json`, `application/xml`, `multipart/form-data`, etc. |
 
 ```yaml
 responses:
@@ -116,7 +116,7 @@ Visual hints displayed inline:
 
 ```yaml
 schema:
-  $ref: "#/components/schemas/User"  # → object (inlay hint)
+  $ref: "#/components/schemas/User" # → object (inlay hint)
 ```
 
 ### Semantic Tokens
@@ -125,19 +125,19 @@ schema:
 
 Semantic highlighting for OpenAPI elements:
 
-| Element | Token Type | Example |
-|---------|------------|---------|
-| HTTP methods | `method` | `get`, `post`, `put`, `delete` |
-| Paths | `namespace` | `/users/{id}` |
-| Status codes | `enum` | `200`, `404`, `default` |
-| `$ref` values | `variable` | `#/components/schemas/User` |
-| Schema types | `keyword` | `string`, `integer`, `array` |
-| operationId | `function` | `getUserById` |
-| Security schemes | `macro` | `bearerAuth` |
-| Media types | `string` | `application/json` |
-| Deprecated flags | `modifier` | `deprecated: true` |
-| Schema names | `type` | Component schema definitions |
-| Path parameters | `typeParameter` | `{userId}` |
+| Element          | Token Type      | Example                        |
+| ---------------- | --------------- | ------------------------------ |
+| HTTP methods     | `method`        | `get`, `post`, `put`, `delete` |
+| Paths            | `namespace`     | `/users/{id}`                  |
+| Status codes     | `enum`          | `200`, `404`, `default`        |
+| `$ref` values    | `variable`      | `#/components/schemas/User`    |
+| Schema types     | `keyword`       | `string`, `integer`, `array`   |
+| operationId      | `function`      | `getUserById`                  |
+| Security schemes | `macro`         | `bearerAuth`                   |
+| Media types      | `string`        | `application/json`             |
+| Deprecated flags | `modifier`      | `deprecated: true`             |
+| Schema names     | `type`          | Component schema definitions   |
+| Path parameters  | `typeParameter` | `{userId}`                     |
 
 ## Refactoring
 
@@ -158,12 +158,12 @@ The rename operation shows a preview before applying changes.
 
 Available quick fixes:
 
-| Diagnostic | Quick Fix |
-|------------|-----------|
-| Missing description | Add `description: "TODO: Add description"` |
-| Missing summary | Add `summary: "TODO: Add summary"` |
+| Diagnostic          | Quick Fix                                           |
+| ------------------- | --------------------------------------------------- |
+| Missing description | Add `description: "TODO: Add description"`          |
+| Missing summary     | Add `summary: "TODO: Add summary"`                  |
 | Missing operationId | Add auto-generated operationId based on path/method |
-| Non-kebab-case path | Convert path to kebab-case |
+| Non-kebab-case path | Convert path to kebab-case                          |
 
 Source actions:
 
@@ -184,11 +184,11 @@ get:
 
 Inline information displayed above elements:
 
-| Location | Code Lens |
-|----------|-----------|
-| Schema definitions | `N references` - click to show all references |
-| Operations | `Responses: 200, 400, 404` - summary of response codes |
-| Operations with security | `🔒 bearerAuth, apiKey` - required security schemes |
+| Location                 | Code Lens                                              |
+| ------------------------ | ------------------------------------------------------ |
+| Schema definitions       | `N references` - click to show all references          |
+| Operations               | `Responses: 200, 400, 404` - summary of response codes |
+| Operations with security | `🔒 bearerAuth, apiKey` - required security schemes    |
 
 ```yaml
 # [3 references]  ← Code lens showing reference count
@@ -278,6 +278,7 @@ Validation sources:
 4. **Reference Validation**: `$ref` resolution and cycle detection
 
 Diagnostic severities:
+
 - 🔴 **Error**: Must be fixed
 - 🟡 **Warning**: Should be addressed
 - 🔵 **Information**: Suggestions
@@ -299,34 +300,35 @@ Validates all OpenAPI files in your workspace:
 
 Full markdown language support in `description` and `summary` fields:
 
-| Feature | Support |
-|---------|---------|
-| Completions | Link completions, path suggestions |
-| Hover | Markdown preview |
+| Feature        | Support                            |
+| -------------- | ---------------------------------- |
+| Completions    | Link completions, path suggestions |
+| Hover          | Markdown preview                   |
 | Document links | Clickable URLs and file references |
-| Diagnostics | Link validation |
-| Folding | Markdown section folding |
-| Symbols | Heading symbols |
-| References | Find markdown references |
-| Rename | Rename links and references |
+| Diagnostics    | Link validation                    |
+| Folding        | Markdown section folding           |
+| Symbols        | Heading symbols                    |
+| References     | Find markdown references           |
+| Rename         | Rename links and references        |
 
 ### Code Block Syntax Highlighting
 
 Fenced code blocks in descriptions get proper syntax highlighting for 21+ languages:
 
-```yaml
+````yaml
 description: |
   ## Example Request
-  
+
   ```typescript
   const response = await fetch('/api/users');
   const users = await response.json();
-  ```
-  
-  ```python
-  response = requests.get('/api/users')
-  users = response.json()
-  ```
+````
+
+```python
+response = requests.get('/api/users')
+users = response.json()
+```
+
 ```
 
 Supported languages:
@@ -345,13 +347,13 @@ Available via Command Palette (`Ctrl+Shift+P`):
 | Command | Description |
 |---------|-------------|
 | `OpenAPI: Classify Current Document` | Manually classify document as OpenAPI |
-| `Aperture: Convert JSON to YAML (Replace)` | Convert JSON file to YAML, delete original |
-| `Aperture: Convert JSON to YAML (Copy)` | Convert JSON file to YAML, keep original |
-| `Aperture: Convert YAML to JSON (Replace)` | Convert YAML file to JSON, delete original |
-| `Aperture: Convert YAML to JSON (Copy)` | Convert YAML file to JSON, keep original |
-| `Aperture: Show OpenAPI Files` | List all detected OpenAPI files |
-| `Aperture: Rescan Workspace` | Re-scan workspace for OpenAPI files |
-| `Aperture: Restart Server` | Restart the language server |
+| `telescope: Convert JSON to YAML (Replace)` | Convert JSON file to YAML, delete original |
+| `telescope: Convert JSON to YAML (Copy)` | Convert JSON file to YAML, keep original |
+| `telescope: Convert YAML to JSON (Replace)` | Convert YAML file to JSON, delete original |
+| `telescope: Convert YAML to JSON (Copy)` | Convert YAML file to JSON, keep original |
+| `telescope: Show OpenAPI Files` | List all detected OpenAPI files |
+| `telescope: Rescan Workspace` | Re-scan workspace for OpenAPI files |
+| `telescope: Restart Server` | Restart the language server |
 
 Context menu commands are also available when right-clicking on files in Explorer or Editor.
 
@@ -360,5 +362,6 @@ Context menu commands are also available when right-clicking on files in Explore
 - [Configuration Reference](CONFIGURATION.md) - Configure patterns and rules
 - [Custom Rules Guide](CUSTOM-RULES.md) - Create custom validation rules
 - [Architecture](../ARCHITECTURE.md) - Technical implementation details
-- [Built-in Rules](../packages/aperture-server/src/engine/rules/RULES.md) - Rule reference
+- [Built-in Rules](../packages/telescope-server/src/engine/rules/RULES.md) - Rule reference
 
+```

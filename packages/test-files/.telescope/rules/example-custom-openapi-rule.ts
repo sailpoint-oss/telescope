@@ -8,7 +8,7 @@
  *     - rule: example-custom-openapi-rule.ts
  */
 
-import { defineRule } from "aperture-server";
+import { defineRule } from "telescope-server";
 
 export default defineRule({
 	meta: {

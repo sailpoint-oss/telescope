@@ -18,6 +18,7 @@ pnpm add -g @vscode/vsce
 ```
 
 Or with npm:
+
 ```bash
 npm install -g @vscode/vsce
 ```
@@ -26,28 +27,28 @@ npm install -g @vscode/vsce
 
 ### Build Both Packages
 
-The Aperture extension uses direct TypeScript execution via Bun:
+The telescope extension uses direct TypeScript execution via Bun:
 
 ```bash
 # Build the VS Code client
-pnpm --filter aperture-client build
+pnpm --filter telescope-client build
 
 # Build the language server
-pnpm --filter aperture-server build
+pnpm --filter telescope-server build
 ```
 
 ### Verify Build
 
 ```bash
-test -f packages/aperture-client/out/extension.js && echo "Client build complete"
-test -f packages/aperture-server/out/server.js && echo "Server build complete"
+test -f packages/telescope-client/out/extension.js && echo "Client build complete"
+test -f packages/telescope-server/out/server.js && echo "Server build complete"
 ```
 
 ## Packaging
 
 ### Prepare package.json
 
-Before packaging, ensure `packages/aperture-client/package.json` has:
+Before packaging, ensure `packages/telescope-client/package.json` has:
 
 - Correct `version` field
 - `private: false` (or remove the `private` field)
@@ -61,13 +62,13 @@ Before packaging, ensure `packages/aperture-client/package.json` has:
 ### Create VSIX Package
 
 ```bash
-cd packages/aperture-client
+cd packages/telescope-client
 
 # Package the extension
 vsce package
 ```
 
-This creates a `.vsix` file (e.g., `telescope-0.1.0.vsix`) in the `packages/aperture-client` directory.
+This creates a `.vsix` file (e.g., `telescope-0.1.0.vsix`) in the `packages/telescope-client` directory.
 
 ### Test Locally
 
@@ -108,7 +109,7 @@ code --install-extension telescope-0.1.0.vsix
 ### Publish
 
 ```bash
-cd packages/aperture-client
+cd packages/telescope-client
 
 # Publish with token
 vsce publish -p <your-personal-access-token>
@@ -175,7 +176,7 @@ For open-source VS Code extension registries.
 pnpm add -g ovsx
 
 # Publish
-cd packages/aperture-client
+cd packages/telescope-client
 ovsx publish -p <your-open-vsx-token>
 ```
 
@@ -192,7 +193,7 @@ Follow [semver](https://semver.org/):
 ### Update Version
 
 ```bash
-cd packages/aperture-client
+cd packages/telescope-client
 
 # Update version in package.json
 npm version patch  # or minor, or major
@@ -227,27 +228,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: oven-sh/setup-bun@v1
-      
+
       - uses: pnpm/action-setup@v2
         with:
           version: 8
-      
+
       - name: Install dependencies
         run: pnpm install
-      
+
       - name: Build
         run: pnpm build
-      
+
       - name: Publish to VS Code Marketplace
         run: |
-          cd packages/aperture-client
+          cd packages/telescope-client
           npx vsce publish -p ${{ secrets.VSCE_PAT }}
-      
+
       - name: Publish to Open VSX
         run: |
-          cd packages/aperture-client
+          cd packages/telescope-client
           npx ovsx publish -p ${{ secrets.OVSX_PAT }}
 ```
 
@@ -266,8 +267,8 @@ Add these secrets to your GitHub repository:
 
 ```bash
 # Clean and rebuild
-pnpm --filter aperture-client clean
-pnpm --filter aperture-client build
+pnpm --filter telescope-client clean
+pnpm --filter telescope-client build
 ```
 
 **Issue**: Missing dependencies
@@ -331,7 +332,7 @@ vsce publish
 
 **Issue**: Extension doesn't activate
 
-1. Check **Aperture Language Server** output channel
+1. Check **telescope Language Server** output channel
 2. Verify Node.js is available (VS Code includes Node.js)
 3. Check file associations in VS Code settings
 
@@ -346,4 +347,3 @@ vsce publish
 - [VS Code Publishing Docs](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
 - [Open VSX Docs](https://github.com/eclipse/openvsx/wiki)
 - [vsce CLI Reference](https://github.com/microsoft/vscode-vsce)
-

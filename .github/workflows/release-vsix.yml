@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -22,37 +22,42 @@ jobs:
           version: 9
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+          node-version: "20"
+          cache: "pnpm"
 
       - name: Install dependencies
         run: pnpm install
 
       - name: Build server
-        run: pnpm --filter aperture-server run build
+        run: pnpm --filter telescope-server run build
 
       - name: Build extension
-        run: pnpm --filter aperture run build
+        run: pnpm --filter telescope run build
+
+      - name: Set nightly version
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          cd packages/telescope-client
+          CURRENT_VERSION=$(jq -r '.version' package.json)
+          jq --arg v "${CURRENT_VERSION}-nightly+${SHORT_SHA}" '.version = $v' package.json > tmp.json
+          mv tmp.json package.json
 
       - name: Package VSIX
-        run: pnpm --filter aperture run package
-        
+        run: pnpm --filter telescope run package
+
       - name: Get VSIX filename
         id: vsix
         run: |
-          VSIX_FILE=$(ls packages/aperture-client/*.vsix | head -1)
+          VSIX_FILE=$(ls packages/telescope-client/*.vsix | head -1)
           echo "file=$VSIX_FILE" >> $GITHUB_OUTPUT
           echo "name=$(basename $VSIX_FILE)" >> $GITHUB_OUTPUT
 
       - name: Upload VSIX as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
-          name: aperture-vsix
+          name: telescope-vsix
           path: ${{ steps.vsix.outputs.file }}
           retention-days: 90
 
@@ -62,12 +67,17 @@ jobs:
           tag_name: latest
           name: Latest Build
           body: |
-            Latest build of the Aperture VS Code extension.
-            
+            Latest build of the telescope VS Code extension.
+
             This release is automatically updated with each push to main.
-            
+
             **Commit:** ${{ github.sha }}
           files: ${{ steps.vsix.outputs.file }}
           prerelease: true
           make_latest: true
 
+      # - name: Publish to VS Code Marketplace
+      #   run: pnpm --filter telescope exec vsce publish --pre-release --no-git-tag-version -p ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to OpenVSX
+        run: pnpm --filter telescope exec ovsx publish --pre-release -p ${{ secrets.OPEN_VSX_TOKEN }}

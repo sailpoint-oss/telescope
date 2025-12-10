@@ -1,0 +1,402 @@
+{
+	"name": "telescope",
+	"publisher": "sailpoint",
+	"displayName": "Telescope - OpenAPI Language Server",
+	"description": "Language server for OpenAPI specifications with formatting and validation.",
+	"version": "0.0.1",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/sailpoint-oss/telescope.git"
+	},
+	"license": "MIT",
+	"categories": [
+		"Formatters",
+		"Linters",
+		"Programming Languages"
+	],
+	"keywords": [
+		"openapi",
+		"validation",
+		"formatter",
+		"linter"
+	],
+	"main": "./dist/client.js",
+	"engines": {
+		"vscode": "^1.99.3"
+	},
+	"activationEvents": [
+		"onLanguage:yaml",
+		"onLanguage:json",
+		"onLanguage:jsonc"
+	],
+	"contributes": {
+		"languages": [
+			{
+				"id": "openapi-yaml",
+				"aliases": [
+					"OpenAPI YAML",
+					"OpenAPI",
+					"Swagger YAML"
+				],
+				"configuration": "./src/configurations/openapi-yaml.language-configuration.json",
+				"icon": {
+					"dark": "./icons/openapi-dark.svg",
+					"light": "./icons/openapi-light.svg"
+				}
+			},
+			{
+				"id": "openapi-json",
+				"aliases": [
+					"OpenAPI JSON",
+					"Swagger JSON"
+				],
+				"configuration": "./src/configurations/openapi-json.language-configuration.json",
+				"icon": {
+					"dark": "./icons/openapi-dark.svg",
+					"light": "./icons/openapi-light.svg"
+				}
+			}
+		],
+		"grammars": [
+			{
+				"language": "openapi-yaml",
+				"scopeName": "source.openapi.yaml",
+				"path": "./src/syntaxes/openapi-yaml.tmLanguage.json",
+				"embeddedLanguages": {
+					"meta.embedded.block.markdown": "markdown",
+					"meta.embedded.inline.markdown": "markdown"
+				}
+			},
+			{
+				"language": "openapi-json",
+				"scopeName": "source.openapi.json",
+				"path": "./src/syntaxes/openapi-json.tmLanguage.json"
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.typescript",
+				"path": "./src/syntaxes/codeblock-typescript.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.typescript": "typescript"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.javascript",
+				"path": "./src/syntaxes/codeblock-javascript.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.javascript": "javascript"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.json",
+				"path": "./src/syntaxes/codeblock-json.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.json": "json"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.python",
+				"path": "./src/syntaxes/codeblock-python.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.python": "python"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.shell",
+				"path": "./src/syntaxes/codeblock-shell.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.shellscript": "shellscript"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.go",
+				"path": "./src/syntaxes/codeblock-go.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.go": "go"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.java",
+				"path": "./src/syntaxes/codeblock-java.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.java": "java"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.csharp",
+				"path": "./src/syntaxes/codeblock-csharp.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.csharp": "csharp"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.ruby",
+				"path": "./src/syntaxes/codeblock-ruby.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.ruby": "ruby"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.php",
+				"path": "./src/syntaxes/codeblock-php.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.php": "php"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.xml",
+				"path": "./src/syntaxes/codeblock-xml.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.xml": "xml"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.html",
+				"path": "./src/syntaxes/codeblock-html.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.html": "html"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.css",
+				"path": "./src/syntaxes/codeblock-css.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.css": "css"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.sql",
+				"path": "./src/syntaxes/codeblock-sql.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.sql": "sql"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.yaml",
+				"path": "./src/syntaxes/codeblock-yaml.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.yaml": "yaml"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.rust",
+				"path": "./src/syntaxes/codeblock-rust.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.rust": "rust"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.kotlin",
+				"path": "./src/syntaxes/codeblock-kotlin.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.kotlin": "kotlin"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.swift",
+				"path": "./src/syntaxes/codeblock-swift.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.swift": "swift"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.c",
+				"path": "./src/syntaxes/codeblock-c.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.c": "c"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.cpp",
+				"path": "./src/syntaxes/codeblock-cpp.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.cpp": "cpp"
+				}
+			},
+			{
+				"scopeName": "markdown.openapi.codeblock.graphql",
+				"path": "./src/syntaxes/codeblock-graphql.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml"
+				],
+				"embeddedLanguages": {
+					"meta.embedded.block.graphql": "graphql"
+				}
+			},
+			{
+				"scopeName": "openapi.path-variables",
+				"path": "./src/syntaxes/path-variables.tmLanguage.json",
+				"injectTo": [
+					"source.openapi.yaml",
+					"source.openapi.json"
+				]
+			}
+		],
+		"commands": [
+			{
+				"command": "openapi-grammar.classifyDocument",
+				"title": "OpenAPI: Classify Current Document"
+			},
+			{
+				"command": "telescope.convertJsonToYaml",
+				"title": "Telescope: Convert JSON to YAML (Replace)"
+			},
+			{
+				"command": "telescope.convertJsonToYamlCopy",
+				"title": "Telescope: Convert JSON to YAML (Copy)"
+			},
+			{
+				"command": "telescope.convertYamlToJson",
+				"title": "Telescope: Convert YAML to JSON (Replace)"
+			},
+			{
+				"command": "telescope.convertYamlToJsonCopy",
+				"title": "Telescope: Convert YAML to JSON (Copy)"
+			}
+		],
+		"menus": {
+			"explorer/context": [
+				{
+					"command": "telescope.convertJsonToYaml",
+					"when": "resourceExtname == .json",
+					"group": "7_modification@1"
+				},
+				{
+					"command": "telescope.convertJsonToYamlCopy",
+					"when": "resourceExtname == .json",
+					"group": "7_modification@2"
+				},
+				{
+					"command": "telescope.convertYamlToJson",
+					"when": "resourceExtname == .yaml || resourceExtname == .yml",
+					"group": "7_modification@1"
+				},
+				{
+					"command": "telescope.convertYamlToJsonCopy",
+					"when": "resourceExtname == .yaml || resourceExtname == .yml",
+					"group": "7_modification@2"
+				}
+			],
+			"editor/context": [
+				{
+					"command": "telescope.convertJsonToYaml",
+					"when": "resourceExtname == .json",
+					"group": "1_modification@1"
+				},
+				{
+					"command": "telescope.convertJsonToYamlCopy",
+					"when": "resourceExtname == .json",
+					"group": "1_modification@2"
+				},
+				{
+					"command": "telescope.convertYamlToJson",
+					"when": "resourceExtname == .yaml || resourceExtname == .yml",
+					"group": "1_modification@1"
+				},
+				{
+					"command": "telescope.convertYamlToJsonCopy",
+					"when": "resourceExtname == .yaml || resourceExtname == .yml",
+					"group": "1_modification@2"
+				}
+			]
+		},
+		"configuration": {
+			"title": "Telescope",
+			"properties": {
+				"telescope.autoConvertJsonToYaml": {
+					"type": "boolean",
+					"default": false,
+					"description": "Automatically convert JSON OpenAPI files to YAML when detected"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"clean": "rm -rf dist out",
+		"build": "bun scripts/build.ts",
+		"build:minify": "bun scripts/build.ts --minify",
+		"build:sourcemap": "bun scripts/build.ts --sourcemap",
+		"watch": "bun scripts/build.ts --watch",
+		"typecheck": "tsc --noEmit",
+		"package": "pnpm run build:minify && vsce package --no-dependencies"
+	},
+	"devDependencies": {
+		"@types/node": "^20.19.25",
+		"@types/vscode": "^1.99.3",
+		"@vscode/vsce": "^3.2.2",
+		"esbuild": "^0.24.2",
+		"ovsx": "^0.10.1",
+		"typescript": "^5.6.3",
+		"vscode-oniguruma": "^2.0.1"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	},
+	"dependencies": {
+		"@volar/vscode": "^2.4.23",
+		"telescope-server": "workspace:*",
+		"minimatch": "^10.1.1",
+		"vscode-languageclient": "^9.0.1",
+		"vscode-textmate": "^9.2.1",
+		"yaml": "^2.8.1"
+	}
+}

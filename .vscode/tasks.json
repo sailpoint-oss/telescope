@@ -5,7 +5,7 @@
 			"label": "build:server",
 			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/aperture-server", "build"],
+			"args": ["run", "--cwd", "packages/telescope-server", "build"],
 			"group": {
 				"kind": "build",
 				"isDefault": false
@@ -22,7 +22,7 @@
 			"label": "build:extension",
 			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/aperture-client", "build"],
+			"args": ["run", "--cwd", "packages/telescope-client", "build"],
 			"group": {
 				"kind": "build",
 				"isDefault": false
@@ -53,7 +53,7 @@
 			"label": "watch:extension",
 			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/aperture-client", "watch"],
+			"args": ["run", "--cwd", "packages/telescope-client", "watch"],
 			"isBackground": true,
 			"problemMatcher": "$tsc-watch",
 			"presentation": {

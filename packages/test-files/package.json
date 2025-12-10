@@ -4,6 +4,6 @@
 	"type": "module",
 	"description": "Shared OpenAPI fixture documents for testing and integration.",
 	"dependencies": {
-		"aperture-server": "workspace:*"
+		"telescope-server": "workspace:*"
 	}
 }

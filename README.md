@@ -62,10 +62,10 @@ openapi:
     - "**/*.yml"
     - "**/*.json"
     - "!**/node_modules/**"
-  
+
   # Enable SailPoint-specific rules
   sailpoint: true
-  
+
   # Override rule severities
   rulesOverrides:
     operation-summary: warn
@@ -87,17 +87,17 @@ flowchart LR
     subgraph Entry["Entry"]
         Client[VS Code Extension]
     end
-    
+
     subgraph Server["Language Server"]
         LSP[Volar LSP]
         Engine[Linting Engine]
     end
-    
+
     subgraph Output["Output"]
         Diag[Diagnostics]
         Fixes[Quick Fixes]
     end
-    
+
     Client --> LSP --> Engine --> Diag --> Client
     Engine --> Fixes --> Client
 ```
@@ -106,25 +106,25 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Monorepo Structure
 
-| Package | Description |
-|---------|-------------|
-| [`aperture-client`](packages/aperture-client) | VS Code extension client |
-| [`aperture-server`](packages/aperture-server) | Volar language server + linting engine |
-| [`test-files`](packages/test-files) | Test fixtures and custom rule examples |
+| Package                                         | Description                            |
+| ----------------------------------------------- | -------------------------------------- |
+| [`telescope-client`](packages/telescope-client) | VS Code extension client               |
+| [`telescope-server`](packages/telescope-server) | Volar language server + linting engine |
+| [`test-files`](packages/test-files)             | Test fixtures and custom rule examples |
 
 ## Built-in Rules
 
 Telescope includes 30 OpenAPI best practice rules and 22 SailPoint-specific rules:
 
-| Category | Rules |
-|----------|-------|
-| Core | `$ref` cycle detection, unresolved reference checking |
-| Operations | operationId, summary, tags, descriptions, responses |
-| Parameters | required fields, examples, descriptions, formats |
-| Schemas | structure validation, allOf, required arrays, defaults |
-| Components | naming conventions |
+| Category   | Rules                                                  |
+| ---------- | ------------------------------------------------------ |
+| Core       | `$ref` cycle detection, unresolved reference checking  |
+| Operations | operationId, summary, tags, descriptions, responses    |
+| Parameters | required fields, examples, descriptions, formats       |
+| Schemas    | structure validation, allOf, required arrays, defaults |
+| Components | naming conventions                                     |
 
-See [RULES.md](packages/aperture-server/src/engine/rules/RULES.md) for the complete rule reference.
+See [RULES.md](packages/telescope-server/src/engine/rules/RULES.md) for the complete rule reference.
 
 ## Custom Rules
 
@@ -132,7 +132,7 @@ Create custom rules in `.telescope/rules/`:
 
 ```typescript
 // .telescope/rules/require-contact.ts
-import { defineRule } from "aperture-server";
+import { defineRule } from "telescope-server";
 
 export default defineRule({
   meta: {
@@ -186,7 +186,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 - [Custom Rules Guide](docs/CUSTOM-RULES.md)
 - [Publishing Guide](docs/PUBLISHING.md)
 - [Architecture](ARCHITECTURE.md)
-- [Built-in Rules](packages/aperture-server/src/engine/rules/RULES.md)
+- [Built-in Rules](packages/telescope-server/src/engine/rules/RULES.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## License

@@ -8,9 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - Initial public release of Telescope OpenAPI linting tool
-- VS Code extension (`aperture-client`) with real-time diagnostics
-- Volar-based language server (`aperture-server`) with LSP support
+- VS Code extension (`telescope-client`) with real-time diagnostics
+- Volar-based language server (`telescope-server`) with LSP support
 - 30 built-in OpenAPI rules covering best practices:
   - Core: `$ref` cycle detection, unresolved reference checking
   - Operations: operationId uniqueness, summary, tags, descriptions
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workspace diagnostics for full project linting
 
 ### Infrastructure
+
 - Monorepo structure with pnpm workspaces
 - Bun runtime for TypeScript execution and testing
 - Biome for linting and formatting
@@ -38,4 +40,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is the initial release. Future versions will be documented above.
 
 [Unreleased]: https://github.com/sailpoint-oss/telescope/compare/v0.1.0...HEAD
-

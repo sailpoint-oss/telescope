@@ -15,7 +15,7 @@ import {
 	getValueAtPointer,
 	joinPointer,
 	splitPointer,
-} from "aperture-server";
+} from "telescope-server";
 
 export default defineRule({
 	meta: {

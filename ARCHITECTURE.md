@@ -11,11 +11,11 @@ Telescope is an OpenAPI linting tool built on the [Volar](https://volarjs.dev/) 
 ```
 telescope/
 ├── packages/
-│   ├── aperture-client/        # VS Code extension client
+│   ├── telescope-client/        # VS Code extension client
 │   │   └── src/
 │   │       └── extension.ts    # Extension entry point
 │   │
-│   ├── aperture-server/        # Language server + linting engine
+│   ├── telescope-server/        # Language server + linting engine
 │   │   └── src/
 │   │       ├── server.ts       # Main entry point
 │   │       ├── lsp/            # Volar integration layer
@@ -43,11 +43,11 @@ telescope/
 
 ```mermaid
 flowchart TB
-    subgraph Client["VS Code (aperture-client)"]
+    subgraph Client["VS Code (telescope-client)"]
         Extension[Extension Client]
     end
 
-    subgraph Server["Language Server (aperture-server)"]
+    subgraph Server["Language Server (telescope-server)"]
         subgraph LSP["LSP Layer (src/lsp/)"]
             VolarServer["Volar Server"]
             Services["Service Plugins"]
@@ -74,7 +74,7 @@ flowchart TB
     Extension <--> VolarServer
     VolarServer --> Services
     VolarServer --> Languages
-    
+
     Services --> Config
     Services --> Context
     Context --> Loader
@@ -83,7 +83,7 @@ flowchart TB
     Indexes --> Execution
     Rules --> Execution
     Schemas --> Rules
-    
+
     Execution --> Diagnostics
     Execution --> Fixes
     Diagnostics --> VolarServer
@@ -111,6 +111,7 @@ flowchart TB
 ### Phase 2: Document Processing
 
 4. **Document Loader** reads files through Volar's FileSystem API:
+
    - Parses YAML/JSON content
    - Builds IR (Intermediate Representation) with location tracking
    - Detects document type (root OpenAPI spec vs fragment)
@@ -146,36 +147,36 @@ flowchart TB
 
 ### LSP Layer (`src/lsp/`)
 
-| Component | File | Purpose |
-|-----------|------|---------|
-| Volar Server | `server.ts` | Main entry point, server initialization |
-| Core | `core/core.ts` | IR cache coordinator, document lifecycle |
-| OpenAPI Service | `services/openapi-service.ts` | OpenAPI validation and rule execution |
+| Component          | File                                        | Purpose                                     |
+| ------------------ | ------------------------------------------- | ------------------------------------------- |
+| Volar Server       | `server.ts`                                 | Main entry point, server initialization     |
+| Core               | `core/core.ts`                              | IR cache coordinator, document lifecycle    |
+| OpenAPI Service    | `services/openapi-service.ts`               | OpenAPI validation and rule execution       |
 | Validation Service | `services/additional-validation-service.ts` | Config files, custom schemas, generic rules |
-| Language Plugin | `languages/universal-plugin.ts` | YAML/JSON parsing |
+| Language Plugin    | `languages/universal-plugin.ts`             | YAML/JSON parsing                           |
 
 ### Engine Layer (`src/engine/`)
 
-| Component | Directory | Purpose |
-|-----------|-----------|---------|
-| Configuration | `config/` | `.telescope/config.yaml` resolution |
-| Context | `context/` | Multi-root workspace handling, document caching |
-| Execution | `execution/` | Rule runners (AST-based and IR-based) |
-| Indexes | `indexes/` | Graph building, atom extraction, project indexing |
-| IR | `ir/` | Intermediate representation with location tracking |
-| Rules | `rules/` | Rule API, built-in rules (generic + SailPoint) |
-| Schemas | `schemas/` | TypeBox schemas for OpenAPI 3.0/3.1/3.2 |
-| Utils | `utils/` | Pointer math, logging, file system utilities |
+| Component     | Directory    | Purpose                                            |
+| ------------- | ------------ | -------------------------------------------------- |
+| Configuration | `config/`    | `.telescope/config.yaml` resolution                |
+| Context       | `context/`   | Multi-root workspace handling, document caching    |
+| Execution     | `execution/` | Rule runners (AST-based and IR-based)              |
+| Indexes       | `indexes/`   | Graph building, atom extraction, project indexing  |
+| IR            | `ir/`        | Intermediate representation with location tracking |
+| Rules         | `rules/`     | Rule API, built-in rules (generic + SailPoint)     |
+| Schemas       | `schemas/`   | TypeBox schemas for OpenAPI 3.0/3.1/3.2            |
+| Utils         | `utils/`     | Pointer math, logging, file system utilities       |
 
 ## Document Types
 
 Telescope classifies documents into three types:
 
-| Type | Description | Example |
-|------|-------------|---------|
-| **Root** | Complete OpenAPI specification with `openapi` field | Main API spec |
-| **Fragment** | Partial document referenced via `$ref` | Component files |
-| **Unknown** | Non-OpenAPI YAML/JSON files | Config files |
+| Type         | Description                                         | Example         |
+| ------------ | --------------------------------------------------- | --------------- |
+| **Root**     | Complete OpenAPI specification with `openapi` field | Main API spec   |
+| **Fragment** | Partial document referenced via `$ref`              | Component files |
+| **Unknown**  | Non-OpenAPI YAML/JSON files                         | Config files    |
 
 ## Multi-File Support
 
@@ -186,14 +187,15 @@ Telescope supports complex API projects split across multiple files:
 openapi: 3.0.0
 paths:
   /users:
-    $ref: './paths/users.yaml'
+    $ref: "./paths/users.yaml"
 components:
   schemas:
     User:
-      $ref: './schemas/User.yaml'
+      $ref: "./schemas/User.yaml"
 ```
 
 The **GraphIndex** tracks all `$ref` relationships and enables:
+
 - Cross-file validation
 - Cycle detection
 - Reference resolution
@@ -253,24 +255,25 @@ flowchart TB
 
 The primary service for OpenAPI documents, providing 15 LSP features:
 
-| Feature | Implementation |
-|---------|---------------|
-| **Diagnostics** | Runs rule engine against documents |
-| **Workspace Diagnostics** | Validates all OpenAPI files with caching |
-| **Document Links** | Clickable `$ref` with position resolution |
-| **Hover** | Preview referenced content inline |
-| **Code Actions** | Quick fixes for common issues |
-| **References** | Find all usages of components/operationIds |
-| **Workspace Symbols** | Search across all OpenAPI files |
-| **Completions** | `$ref`, status codes, media types, tags |
-| **Rename** | Rename operationIds and components |
-| **Code Lens** | Reference counts, response summaries |
-| **Inlay Hints** | Type hints, required markers |
-| **Definition** | Enhanced navigation for OpenAPI refs |
-| **Call Hierarchy** | Component reference relationships |
-| **Semantic Tokens** | Enhanced syntax highlighting |
+| Feature                   | Implementation                             |
+| ------------------------- | ------------------------------------------ |
+| **Diagnostics**           | Runs rule engine against documents         |
+| **Workspace Diagnostics** | Validates all OpenAPI files with caching   |
+| **Document Links**        | Clickable `$ref` with position resolution  |
+| **Hover**                 | Preview referenced content inline          |
+| **Code Actions**          | Quick fixes for common issues              |
+| **References**            | Find all usages of components/operationIds |
+| **Workspace Symbols**     | Search across all OpenAPI files            |
+| **Completions**           | `$ref`, status codes, media types, tags    |
+| **Rename**                | Rename operationIds and components         |
+| **Code Lens**             | Reference counts, response summaries       |
+| **Inlay Hints**           | Type hints, required markers               |
+| **Definition**            | Enhanced navigation for OpenAPI refs       |
+| **Call Hierarchy**        | Component reference relationships          |
+| **Semantic Tokens**       | Enhanced syntax highlighting               |
 
 The service uses `OpenAPIVirtualCode` instances which provide:
+
 - Parsed IR (Intermediate Representation)
 - Atoms (operations, components, schemas)
 - Location mapping for precise positioning
@@ -288,6 +291,7 @@ Wraps `yaml-language-server` for generic YAML support:
 - On-type formatting
 
 Schema validation uses a priority system:
+
 1. **TypeBox schemas** (if available) - Better error messages
 2. **JSON Schema** - Standard validation fallback
 
@@ -341,6 +345,7 @@ OpenAPI Document (openapi-yaml/openapi-json)
 ```
 
 Each Virtual Code type:
+
 - `DataVirtualCode`: Parses YAML/JSON, provides AST, schema key
 - `MarkdownVirtualCode`: Extracts markdown from descriptions with JSON string mapping
 - `OpenAPIVirtualCode`: Extends DataVirtualCode with IR, atoms, location mapping
@@ -349,19 +354,19 @@ Each Virtual Code type:
 
 The OpenAPI service provides semantic highlighting for:
 
-| Token Type | Elements |
-|------------|----------|
-| `namespace` | Path strings (`/users/{id}`) |
-| `type` | Schema definitions |
-| `enum` | HTTP status codes |
-| `variable` | `$ref` values |
-| `function` | operationId values |
-| `method` | HTTP methods |
-| `macro` | Security scheme names |
-| `keyword` | Schema types |
-| `modifier` | Deprecated flags |
-| `typeParameter` | Path parameters |
-| `string` | Media types |
+| Token Type      | Elements                     |
+| --------------- | ---------------------------- |
+| `namespace`     | Path strings (`/users/{id}`) |
+| `type`          | Schema definitions           |
+| `enum`          | HTTP status codes            |
+| `variable`      | `$ref` values                |
+| `function`      | operationId values           |
+| `method`        | HTTP methods                 |
+| `macro`         | Security scheme names        |
+| `keyword`       | Schema types                 |
+| `modifier`      | Deprecated flags             |
+| `typeParameter` | Path parameters              |
+| `string`        | Media types                  |
 
 ### Code Actions
 
@@ -401,7 +406,7 @@ The `WorkspaceIndex` coordinates cross-document features:
 Rules are defined using `defineRule()` or `defineGenericRule()`:
 
 ```typescript
-import { defineRule } from "aperture-server";
+import { defineRule } from "telescope-server";
 
 export default defineRule({
   meta: { id: "my-rule", ... },
@@ -419,12 +424,14 @@ export default defineRule({
 TypeBox schemas for file validation:
 
 ```typescript
-import { defineSchema } from "aperture-server";
+import { defineSchema } from "telescope-server";
 
-export default defineSchema((Type) => Type.Object({
-  name: Type.String(),
-  version: Type.String(),
-}));
+export default defineSchema((Type) =>
+  Type.Object({
+    name: Type.String(),
+    version: Type.String(),
+  })
+);
 ```
 
 ## Performance Considerations
@@ -440,4 +447,4 @@ export default defineSchema((Type) => Type.Object({
 - [LSP Features](docs/LSP-FEATURES.md) - Complete LSP feature reference
 - [Configuration](docs/CONFIGURATION.md) - Full configuration reference
 - [Custom Rules](docs/CUSTOM-RULES.md) - Rule authoring guide
-- [Built-in Rules](packages/aperture-server/src/engine/rules/RULES.md) - Rule reference
+- [Built-in Rules](packages/telescope-server/src/engine/rules/RULES.md) - Rule reference

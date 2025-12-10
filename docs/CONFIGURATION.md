@@ -40,16 +40,16 @@ openapi:
     - "**/*.yml"
     - "**/*.json"
     - "!**/node_modules/**"
-  
+
   # Enable SailPoint-specific rules (default: false)
   sailpoint: true
-  
+
   # Override built-in rule severities
   rulesOverrides:
     operation-summary: warn
     parameter-description: error
     ascii-only: off
-  
+
   # Register custom OpenAPI rules
   rules:
     - rule: my-custom-rule.ts
@@ -63,13 +63,13 @@ additionalValidation:
   my-configs:
     patterns:
       - "configs/**/*.yaml"
-    
+
     # Custom TypeBox schemas for validation
     schemas:
       - schema: my-schema.ts
         patterns:
           - "configs/app-*.yaml"
-    
+
     # Custom generic rules
     rules:
       - rule: validate-config.ts
@@ -84,14 +84,15 @@ Glob patterns that determine which files are treated as OpenAPI documents.
 ```yaml
 openapi:
   patterns:
-    - "**/*.yaml"           # Include all YAML files
-    - "**/*.yml"            # Include all YML files
-    - "**/*.json"           # Include all JSON files
+    - "**/*.yaml" # Include all YAML files
+    - "**/*.yml" # Include all YML files
+    - "**/*.json" # Include all JSON files
     - "!**/node_modules/**" # Exclude node_modules
-    - "!**/dist/**"         # Exclude dist directory
+    - "!**/dist/**" # Exclude dist directory
 ```
 
 **Default patterns** (when not specified):
+
 ```yaml
 patterns:
   - "**/*.yaml"
@@ -106,13 +107,13 @@ Enable SailPoint-specific rules for enterprise API standards.
 
 ```yaml
 openapi:
-  sailpoint: true  # Adds 22 additional rules
+  sailpoint: true # Adds 22 additional rules
 ```
 
-| Value | Rules Loaded |
-|-------|--------------|
-| `false` (default) | 30 OpenAPI best practice rules |
-| `true` | 52 rules (30 OpenAPI + 22 SailPoint) |
+| Value             | Rules Loaded                         |
+| ----------------- | ------------------------------------ |
+| `false` (default) | 30 OpenAPI best practice rules       |
+| `true`            | 52 rules (30 OpenAPI + 22 SailPoint) |
 
 ### `openapi.rulesOverrides`
 
@@ -123,15 +124,16 @@ openapi:
   rulesOverrides:
     # Change to warning
     operation-summary: warn
-    
+
     # Change to error
     parameter-description: error
-    
+
     # Disable entirely
     ascii-only: off
 ```
 
 **Valid severity values:**
+
 - `error` - Must be fixed
 - `warn` / `warning` - Should be addressed
 - `info` - Informational
@@ -146,7 +148,7 @@ openapi:
   rules:
     # Simple rule registration
     - rule: require-contact.ts
-    
+
     # Rule with pattern override
     - rule: strict-descriptions.ts
       patterns:
@@ -187,7 +189,7 @@ additionalValidation:
       - schema: app-config-schema.ts
     rules:
       - rule: validate-env-vars.ts
-  
+
   # CI/CD file validation
   ci-files:
     patterns:
@@ -208,7 +210,7 @@ additionalValidation:
     schemas:
       # Schema with inherited patterns
       - schema: base-config.ts
-      
+
       # Schema with specific patterns
       - schema: app-config.ts
         patterns:
@@ -227,7 +229,7 @@ additionalValidation:
     rules:
       # Rule with inherited patterns
       - rule: check-version.ts
-      
+
       # Rule with specific patterns
       - rule: check-naming.ts
         patterns:
@@ -240,14 +242,14 @@ Telescope uses Prettier-style glob patterns.
 
 ### Syntax
 
-| Pattern | Description |
-|---------|-------------|
-| `*` | Matches any characters except `/` |
-| `**` | Matches any number of directories |
-| `?` | Matches a single character |
-| `[abc]` | Character class |
-| `{a,b}` | Brace expansion |
-| `!` prefix | Exclusion pattern |
+| Pattern    | Description                       |
+| ---------- | --------------------------------- |
+| `*`        | Matches any characters except `/` |
+| `**`       | Matches any number of directories |
+| `?`        | Matches a single character        |
+| `[abc]`    | Character class                   |
+| `{a,b}`    | Brace expansion                   |
+| `!` prefix | Exclusion pattern                 |
 
 ### Examples
 
@@ -255,15 +257,15 @@ Telescope uses Prettier-style glob patterns.
 patterns:
   # All YAML files in api directory
   - "api/**/*.yaml"
-  
+
   # YAML or JSON files
   - "**/*.{yaml,json}"
-  
+
   # Exclude test files
   - "**/*.yaml"
   - "!**/*.test.yaml"
   - "!**/test/**"
-  
+
   # Specific version directories
   - "api/v[1-3]/**/*.yaml"
 ```
@@ -277,10 +279,10 @@ patterns:
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `TELESCOPE_LOG_LEVEL` | Logging verbosity: `debug`, `info`, `warn`, `error` |
-| `TELESCOPE_CONFIG_PATH` | Override config file location |
+| Variable                | Description                                         |
+| ----------------------- | --------------------------------------------------- |
+| `TELESCOPE_LOG_LEVEL`   | Logging verbosity: `debug`, `info`, `warn`, `error` |
+| `TELESCOPE_CONFIG_PATH` | Override config file location                       |
 
 ```bash
 # Enable debug logging
@@ -327,14 +329,14 @@ openapi:
     - "schemas/**/*.json"
     - "!**/node_modules/**"
     - "!**/examples/**"
-  
+
   sailpoint: true
-  
+
   rulesOverrides:
     operation-summary: warn
     parameter-description: warn
     ascii-only: off
-  
+
   rules:
     - rule: require-contact-info.ts
     - rule: enforce-versioning.ts
@@ -349,7 +351,7 @@ additionalValidation:
       - schema: app-config-schema.ts
     rules:
       - rule: validate-secrets.ts
-  
+
   github-workflows:
     patterns:
       - ".github/workflows/**/*.yaml"
@@ -363,7 +365,7 @@ additionalValidation:
 
 1. Verify file location: `.telescope/config.yaml`
 2. Check YAML syntax: `bun -e "console.log(require('yaml').parse(require('fs').readFileSync('.telescope/config.yaml', 'utf8')))"`
-3. Check the **Aperture Language Server** output channel for errors
+3. Check the **telescope Language Server** output channel for errors
 
 ### Patterns Not Matching
 
@@ -383,6 +385,5 @@ additionalValidation:
 ## Related Documentation
 
 - [Custom Rules Guide](CUSTOM-RULES.md)
-- [Built-in Rules](../packages/aperture-server/src/engine/rules/RULES.md)
+- [Built-in Rules](../packages/telescope-server/src/engine/rules/RULES.md)
 - [Architecture](../ARCHITECTURE.md)
-

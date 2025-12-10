@@ -4,11 +4,11 @@ Telescope supports custom rules for extending validation beyond the built-in rul
 
 ## Overview
 
-| Rule Type | Use Case | API |
-|-----------|----------|-----|
-| OpenAPI Rules | Validate OpenAPI specs with semantic awareness | `defineRule()` |
-| Generic Rules | Validate any YAML/JSON files | `defineGenericRule()` |
-| TypeBox Schemas | Structural validation of any files | `defineSchema()` |
+| Rule Type       | Use Case                                       | API                   |
+| --------------- | ---------------------------------------------- | --------------------- |
+| OpenAPI Rules   | Validate OpenAPI specs with semantic awareness | `defineRule()`        |
+| Generic Rules   | Validate any YAML/JSON files                   | `defineGenericRule()` |
+| TypeBox Schemas | Structural validation of any files             | `defineSchema()`      |
 
 ## Directory Structure
 
@@ -31,14 +31,14 @@ OpenAPI rules use semantic visitors to validate specific parts of your API speci
 
 ```typescript
 // .telescope/rules/require-contact.ts
-import { defineRule } from "aperture-server";
+import { defineRule } from "telescope-server";
 
 export default defineRule({
   meta: {
     id: "require-contact",
-    number: 1000,           // Unique rule number
+    number: 1000, // Unique rule number
     description: "API must include contact information",
-    type: "problem",        // "problem" or "suggestion"
+    type: "problem", // "problem" or "suggestion"
     fileFormats: ["yaml", "yml", "json"],
   },
   check(ctx) {
@@ -52,10 +52,10 @@ export default defineRule({
             severity: "error",
           });
         }
-        
+
         // Access other typed properties
-        const title = info.title();      // string
-        const version = info.version();  // string
+        const title = info.title(); // string
+        const version = info.version(); // string
         const desc = info.description(); // string | undefined
       },
     };
@@ -65,27 +65,27 @@ export default defineRule({
 
 ### Available Visitors
 
-| Visitor | Description | Ref Type | Key Accessors |
-|---------|-------------|----------|---------------|
-| `Document` | Every OpenAPI file (general checks) | `{ uri, pointer, node }` | `node` (raw AST) |
-| `Root` | Root-level OpenAPI documents only | `RootRef` | `openapi()`, `info()`, `paths()`, `servers()`, `tags()` |
-| `Info` | API metadata section | `InfoRef` | `title()`, `version()`, `description()`, `contact()`, `license()`, `hasContact()` |
-| `Tag` | Each tag definition at root level | `TagRef` | `name()`, `description()`, `externalDocs()`, `summary()`, `parent()`, `kind()` |
-| `PathItem` | Path definitions | `PathItemRef` | `path()`, `operations()`, `hasOperation()`, `parameters()` |
-| `Operation` | HTTP operations | `OperationRef` | `method`, `operationId()`, `summary()`, `tags()`, `eachParameter()`, `eachResponse()` |
-| `Component` | Component definitions | `ComponentRef` | `componentType()`, `componentName()`, `isSchema()`, `isParameter()` |
-| `Schema` | Schema definitions (recursive) | `SchemaRef` | `type()`, `properties()`, `items()`, `eachProperty()`, `isArray()`, `isObject()` |
-| `Parameter` | Parameter definitions | `ParameterRef` | `getName()`, `getIn()`, `required()`, `schema()`, `isPath()`, `isQuery()` |
-| `Response` | Response definitions | `ResponseRef` | `description()`, `content()`, `isSuccess()`, `eachMediaType()`, `eachHeader()` |
-| `RequestBody` | Request body definitions | `RequestBodyRef` | `description()`, `required()`, `content()`, `eachMediaType()` |
-| `Header` | Header definitions | `HeaderRef` | `getName()`, `description()`, `schema()`, `required()` |
-| `MediaType` | Media type definitions | `MediaTypeRef` | `schema()`, `example()`, `examples()`, `encoding()` |
-| `SecurityRequirement` | Security requirements | `SecurityRequirementRef` | `node`, `level` ("root" or "operation") |
-| `Example` | Example definitions | `ExampleRef` | `summary()`, `description()`, `value()`, `externalValue()`, `isExternal()` |
-| `Link` | Link definitions | `LinkRef` | `operationId()`, `operationRef()`, `parameters()`, `description()` |
-| `Callback` | Callback definitions | `CallbackRef` | `expressions()`, `eachPathItem()`, `isRef()` |
-| `Reference` | All `$ref` nodes | `ReferenceRef` | `ref` (the $ref string), `refPointer`, `node` |
-| `Project` | After all files processed | `{ index: ProjectIndex }` | Aggregate/cross-file checks |
+| Visitor               | Description                         | Ref Type                  | Key Accessors                                                                         |
+| --------------------- | ----------------------------------- | ------------------------- | ------------------------------------------------------------------------------------- |
+| `Document`            | Every OpenAPI file (general checks) | `{ uri, pointer, node }`  | `node` (raw AST)                                                                      |
+| `Root`                | Root-level OpenAPI documents only   | `RootRef`                 | `openapi()`, `info()`, `paths()`, `servers()`, `tags()`                               |
+| `Info`                | API metadata section                | `InfoRef`                 | `title()`, `version()`, `description()`, `contact()`, `license()`, `hasContact()`     |
+| `Tag`                 | Each tag definition at root level   | `TagRef`                  | `name()`, `description()`, `externalDocs()`, `summary()`, `parent()`, `kind()`        |
+| `PathItem`            | Path definitions                    | `PathItemRef`             | `path()`, `operations()`, `hasOperation()`, `parameters()`                            |
+| `Operation`           | HTTP operations                     | `OperationRef`            | `method`, `operationId()`, `summary()`, `tags()`, `eachParameter()`, `eachResponse()` |
+| `Component`           | Component definitions               | `ComponentRef`            | `componentType()`, `componentName()`, `isSchema()`, `isParameter()`                   |
+| `Schema`              | Schema definitions (recursive)      | `SchemaRef`               | `type()`, `properties()`, `items()`, `eachProperty()`, `isArray()`, `isObject()`      |
+| `Parameter`           | Parameter definitions               | `ParameterRef`            | `getName()`, `getIn()`, `required()`, `schema()`, `isPath()`, `isQuery()`             |
+| `Response`            | Response definitions                | `ResponseRef`             | `description()`, `content()`, `isSuccess()`, `eachMediaType()`, `eachHeader()`        |
+| `RequestBody`         | Request body definitions            | `RequestBodyRef`          | `description()`, `required()`, `content()`, `eachMediaType()`                         |
+| `Header`              | Header definitions                  | `HeaderRef`               | `getName()`, `description()`, `schema()`, `required()`                                |
+| `MediaType`           | Media type definitions              | `MediaTypeRef`            | `schema()`, `example()`, `examples()`, `encoding()`                                   |
+| `SecurityRequirement` | Security requirements               | `SecurityRequirementRef`  | `node`, `level` ("root" or "operation")                                               |
+| `Example`             | Example definitions                 | `ExampleRef`              | `summary()`, `description()`, `value()`, `externalValue()`, `isExternal()`            |
+| `Link`                | Link definitions                    | `LinkRef`                 | `operationId()`, `operationRef()`, `parameters()`, `description()`                    |
+| `Callback`            | Callback definitions                | `CallbackRef`             | `expressions()`, `eachPathItem()`, `isRef()`                                          |
+| `Reference`           | All `$ref` nodes                    | `ReferenceRef`            | `ref` (the $ref string), `refPointer`, `node`                                         |
+| `Project`             | After all files processed           | `{ index: ProjectIndex }` | Aggregate/cross-file checks                                                           |
 
 ### Context API
 
@@ -97,10 +97,10 @@ check(ctx) {
     Operation(op) {
       // Access the project's documents
       const doc = ctx.project.docs.get(op.uri);
-      
+
       // Get source location for a JSON pointer
       const range = ctx.locate(op.uri, op.pointer);
-      
+
       // Report a diagnostic
       ctx.report({
         message: "Issue description",
@@ -127,14 +127,16 @@ check(ctx) {
 ```typescript
 import {
   defineRule,
-  getValueAtPointer,  // Get value at JSON pointer
-  joinPointer,        // Join pointer segments
-  splitPointer,       // Split pointer into segments
-  parentPointer,      // Get parent pointer
-} from "aperture-server";
+  getValueAtPointer, // Get value at JSON pointer
+  joinPointer, // Join pointer segments
+  splitPointer, // Split pointer into segments
+  parentPointer, // Get parent pointer
+} from "telescope-server";
 
 export default defineRule({
-  meta: { /* ... */ },
+  meta: {
+    /* ... */
+  },
   check(ctx) {
     return {
       Operation(op) {
@@ -146,15 +148,17 @@ export default defineRule({
           ...splitPointer(op.pointer),
           "summary",
         ]);
-        
+
         const summary = getValueAtPointer(doc.ast, summaryPointer);
-        
+
         if (typeof summary !== "string" || summary.length < 10) {
           ctx.report({
             message: "Summary must be at least 10 characters",
             severity: "warning",
             uri: op.uri,
-            range: ctx.locate(op.uri, summaryPointer) ?? ctx.locate(op.uri, op.pointer),
+            range:
+              ctx.locate(op.uri, summaryPointer) ??
+              ctx.locate(op.uri, op.pointer),
           });
         }
       },
@@ -167,7 +171,12 @@ export default defineRule({
 
 ```typescript
 // .telescope/rules/description-length.ts
-import { defineRule, getValueAtPointer, joinPointer, splitPointer } from "aperture-server";
+import {
+  defineRule,
+  getValueAtPointer,
+  joinPointer,
+  splitPointer,
+} from "telescope-server";
 
 export default defineRule({
   meta: {
@@ -184,7 +193,10 @@ export default defineRule({
       const doc = ctx.project.docs.get(uri);
       if (!doc) return;
 
-      const descPointer = joinPointer([...splitPointer(pointer), "description"]);
+      const descPointer = joinPointer([
+        ...splitPointer(pointer),
+        "description",
+      ]);
       const description = getValueAtPointer(doc.ast, descPointer);
 
       if (typeof description === "string" && description.length < MIN_LENGTH) {
@@ -223,7 +235,7 @@ Generic rules work on any YAML/JSON file, not just OpenAPI specs.
 
 ```typescript
 // .telescope/rules/require-version.ts
-import { defineGenericRule } from "aperture-server";
+import { defineGenericRule } from "telescope-server";
 
 export default defineGenericRule({
   meta: {
@@ -239,7 +251,7 @@ export default defineGenericRule({
     return {
       Document(ref) {
         const node = ref.node as Record<string, unknown>;
-        
+
         if (typeof node === "object" && node !== null) {
           if (!("version" in node)) {
             ctx.report({
@@ -268,18 +280,18 @@ create(ctx) {
       // ref.node - The parsed document content
       // ref.uri - Document URI
       // ref.pointer - JSON pointer (usually "" for root)
-      
+
       // Convert character offsets to line/column range
       const range = ctx.offsetToRange(startOffset, endOffset);
-      
+
       // Report a diagnostic
       ctx.report({
         message: "Issue description",
         severity: "error",
         uri: ref.uri,
-        range: range ?? { 
-          start: { line: 0, character: 0 }, 
-          end: { line: 0, character: 0 } 
+        range: range ?? {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 0 }
         },
       });
     },
@@ -291,7 +303,7 @@ create(ctx) {
 
 ```typescript
 // .telescope/rules/yaml-key-order.ts
-import { defineGenericRule } from "aperture-server";
+import { defineGenericRule } from "telescope-server";
 
 const PREFERRED_ORDER = ["name", "version", "description", "author", "license"];
 
@@ -309,22 +321,22 @@ export default defineGenericRule({
     return {
       Document(ref) {
         const node = ref.node as Record<string, unknown>;
-        
+
         if (typeof node !== "object" || node === null || Array.isArray(node)) {
           return;
         }
-        
+
         const keys = Object.keys(node);
         const orderedKeys = [...keys].sort((a, b) => {
           const aIndex = PREFERRED_ORDER.indexOf(a);
           const bIndex = PREFERRED_ORDER.indexOf(b);
-          
+
           if (aIndex === -1 && bIndex === -1) return 0;
           if (aIndex === -1) return 1;
           if (bIndex === -1) return -1;
           return aIndex - bIndex;
         });
-        
+
         if (JSON.stringify(keys) !== JSON.stringify(orderedKeys)) {
           ctx.report({
             message: `Keys should be ordered: ${orderedKeys.join(", ")}`,
@@ -350,24 +362,28 @@ Use TypeBox schemas for structural validation of files.
 
 ```typescript
 // .telescope/schemas/app-config.ts
-import { defineSchema } from "aperture-server";
+import { defineSchema } from "telescope-server";
 
 export default defineSchema((Type) =>
   Type.Object({
     name: Type.String({ minLength: 1 }),
     version: Type.String({ pattern: "^\\d+\\.\\d+\\.\\d+$" }),
-    
-    settings: Type.Optional(Type.Object({
-      debug: Type.Optional(Type.Boolean()),
-      timeout: Type.Optional(Type.Number({ minimum: 0 })),
-      logLevel: Type.Optional(Type.Union([
-        Type.Literal("debug"),
-        Type.Literal("info"),
-        Type.Literal("warn"),
-        Type.Literal("error"),
-      ])),
-    })),
-    
+
+    settings: Type.Optional(
+      Type.Object({
+        debug: Type.Optional(Type.Boolean()),
+        timeout: Type.Optional(Type.Number({ minimum: 0 })),
+        logLevel: Type.Optional(
+          Type.Union([
+            Type.Literal("debug"),
+            Type.Literal("info"),
+            Type.Literal("warn"),
+            Type.Literal("error"),
+          ])
+        ),
+      })
+    ),
+
     features: Type.Optional(Type.Array(Type.String())),
   })
 );
@@ -377,7 +393,7 @@ export default defineSchema((Type) =>
 
 ```typescript
 // .telescope/schemas/database-config.ts
-import { defineSchema } from "aperture-server";
+import { defineSchema } from "telescope-server";
 
 export default defineSchema((Type) => {
   const ConnectionSchema = Type.Object({
@@ -398,35 +414,37 @@ export default defineSchema((Type) => {
   return Type.Object({
     connection: ConnectionSchema,
     pool: Type.Optional(PoolSchema),
-    
+
     replicas: Type.Optional(Type.Array(ConnectionSchema)),
-    
-    migrations: Type.Optional(Type.Object({
-      directory: Type.String(),
-      tableName: Type.Optional(Type.String()),
-    })),
+
+    migrations: Type.Optional(
+      Type.Object({
+        directory: Type.String(),
+        tableName: Type.Optional(Type.String()),
+      })
+    ),
   });
 });
 ```
 
 ### TypeBox Schema Reference
 
-| TypeBox | Description |
-|---------|-------------|
-| `Type.String()` | String type |
-| `Type.Number()` | Number type |
-| `Type.Integer()` | Integer type |
-| `Type.Boolean()` | Boolean type |
-| `Type.Object({...})` | Object with properties |
-| `Type.Array(schema)` | Array of schema type |
-| `Type.Optional(schema)` | Optional field |
-| `Type.Union([...])` | Union of schemas |
-| `Type.Literal("value")` | Literal value |
-| `Type.Record(key, value)` | Record/dictionary |
-| `Type.String({ minLength: 1 })` | String with constraints |
-| `Type.Number({ minimum: 0 })` | Number with constraints |
-| `Type.String({ format: "email" })` | Format validation |
-| `Type.String({ format: "uri" })` | URL format validation |
+| TypeBox                            | Description             |
+| ---------------------------------- | ----------------------- |
+| `Type.String()`                    | String type             |
+| `Type.Number()`                    | Number type             |
+| `Type.Integer()`                   | Integer type            |
+| `Type.Boolean()`                   | Boolean type            |
+| `Type.Object({...})`               | Object with properties  |
+| `Type.Array(schema)`               | Array of schema type    |
+| `Type.Optional(schema)`            | Optional field          |
+| `Type.Union([...])`                | Union of schemas        |
+| `Type.Literal("value")`            | Literal value           |
+| `Type.Record(key, value)`          | Record/dictionary       |
+| `Type.String({ minLength: 1 })`    | String with constraints |
+| `Type.Number({ minimum: 0 })`      | Number with constraints |
+| `Type.String({ format: "email" })` | Format validation       |
+| `Type.String({ format: "uri" })`   | URL format validation   |
 
 ## Configuration
 
@@ -454,7 +472,7 @@ additionalValidation:
       - schema: app-config.ts
     rules:
       - rule: require-version.ts
-  
+
   package-files:
     patterns:
       - "**/package.yaml"
@@ -470,7 +488,7 @@ additionalValidation:
 // .telescope/rules/require-contact.test.ts
 import { describe, expect, it } from "bun:test";
 import requireContact from "./require-contact";
-import { createRuleTestContext } from "aperture-server/test-utils";
+import { createRuleTestContext } from "telescope-server/test-utils";
 
 describe("require-contact", () => {
   it("reports error when contact is missing", async () => {
@@ -481,7 +499,7 @@ info:
   version: 1.0.0
 paths: {}
     `);
-    
+
     const visitors = requireContact.check(ctx);
     // Simulate visiting the Info node
     // ... test logic
@@ -497,7 +515,7 @@ info:
     email: support@example.com
 paths: {}
     `);
-    
+
     // ... test logic
   });
 });
@@ -567,7 +585,6 @@ ctx.report({
 ## Related Documentation
 
 - [Configuration Reference](CONFIGURATION.md)
-- [Built-in Rules](../packages/aperture-server/src/engine/rules/RULES.md)
+- [Built-in Rules](../packages/telescope-server/src/engine/rules/RULES.md)
 - [Architecture](../ARCHITECTURE.md)
 - [Test Files Examples](../packages/test-files/README.md)
-

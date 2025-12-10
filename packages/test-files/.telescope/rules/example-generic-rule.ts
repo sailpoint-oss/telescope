@@ -11,7 +11,7 @@
  *       - rule: example-generic-rule.ts
  */
 
-import { defineGenericRule } from "aperture-server";
+import { defineGenericRule } from "telescope-server";
 
 export default defineGenericRule({
 	meta: {

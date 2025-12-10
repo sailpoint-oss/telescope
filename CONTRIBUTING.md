@@ -41,8 +41,8 @@ pnpm build
 ```
 telescope/
 ├── packages/
-│   ├── aperture-client/    # VS Code extension client
-│   ├── aperture-server/    # Language server + linting engine
+│   ├── telescope-client/    # VS Code extension client
+│   ├── telescope-server/    # Language server + linting engine
 │   └── test-files/         # Test fixtures and custom rule examples
 └── docs/                   # Documentation
 ```
@@ -50,18 +50,20 @@ telescope/
 ### Development Workflow
 
 1. **Run the extension locally:**
+
    - Open the repository in VS Code
    - Press F5 to launch the Extension Development Host
    - Open an OpenAPI file to see Telescope in action
 
 2. **Watch for changes:**
+
    ```bash
-   pnpm --filter aperture-client build --watch
+   pnpm --filter telescope-client build --watch
    ```
 
 3. **Run specific package tests:**
    ```bash
-   bun test packages/aperture-server
+   bun test packages/telescope-server
    ```
 
 ## Code Style
@@ -105,6 +107,7 @@ type(scope): description
 ```
 
 **Types:**
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation changes
@@ -113,6 +116,7 @@ type(scope): description
 - `chore`: Maintenance tasks
 
 **Examples:**
+
 ```
 feat(rules): add operation-summary-length rule
 fix(server): resolve $ref cycle detection issue
@@ -129,10 +133,10 @@ docs: update configuration guide
 
 ### Built-in OpenAPI Rules
 
-1. Create a new file in `packages/aperture-server/src/engine/rules/generic/<category>/`:
+1. Create a new file in `packages/telescope-server/src/engine/rules/generic/<category>/`:
 
 ```typescript
-// packages/aperture-server/src/engine/rules/generic/operations/my-rule.ts
+// packages/telescope-server/src/engine/rules/generic/operations/my-rule.ts
 import { defineRule } from "../../api";
 
 export const myRule = defineRule({
@@ -165,14 +169,16 @@ export const myRule = defineRule({
 ```
 
 2. Export from the category index:
+
 ```typescript
-// packages/aperture-server/src/engine/rules/generic/operations/index.ts
+// packages/telescope-server/src/engine/rules/generic/operations/index.ts
 export { myRule } from "./my-rule";
 ```
 
 3. Add a test file:
+
 ```typescript
-// packages/aperture-server/src/engine/rules/generic/operations/my-rule.test.ts
+// packages/telescope-server/src/engine/rules/generic/operations/my-rule.test.ts
 import { describe, expect, it } from "bun:test";
 import { myRule } from "./my-rule";
 import { createRuleTestContext } from "../../test-utils";
@@ -183,7 +189,7 @@ describe("my-rule", () => {
 openapi: 3.0.0
 # ... test fixture
     `);
-    
+
     const results = myRule.check(ctx);
     expect(results).toHaveLength(1);
   });
@@ -194,7 +200,7 @@ openapi: 3.0.0
 
 ### SailPoint-Specific Rules
 
-Follow the same pattern but place files in `packages/aperture-server/src/engine/rules/sailpoint/`.
+Follow the same pattern but place files in `packages/telescope-server/src/engine/rules/sailpoint/`.
 
 ## Testing
 
@@ -205,10 +211,10 @@ Follow the same pattern but place files in `packages/aperture-server/src/engine/
 bun test
 
 # Run tests for a specific package
-bun test packages/aperture-server
+bun test packages/telescope-server
 
 # Run a specific test file
-bun test packages/aperture-server/src/engine/rules/generic/operations/my-rule.test.ts
+bun test packages/telescope-server/src/engine/rules/generic/operations/my-rule.test.ts
 
 # Run tests with coverage
 bun test --coverage
@@ -234,11 +240,13 @@ Add test fixtures to `packages/test-files/openapi/` for integration testing:
 2. **Make your changes** following the guidelines above
 
 3. **Ensure all tests pass:**
+
    ```bash
    bun test
    ```
 
 4. **Run linting:**
+
    ```bash
    pnpm lint
    ```
@@ -246,6 +254,7 @@ Add test fixtures to `packages/test-files/openapi/` for integration testing:
 5. **Update documentation** if needed
 
 6. **Submit a pull request** with:
+
    - Clear description of changes
    - Link to any related issues
    - Screenshots for UI changes
@@ -265,4 +274,3 @@ Add test fixtures to `packages/test-files/openapi/` for integration testing:
 - Check existing [Issues](https://github.com/sailpoint-oss/telescope/issues) for known problems
 
 Thank you for contributing to Telescope!
-

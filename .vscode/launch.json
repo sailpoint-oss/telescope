@@ -6,10 +6,10 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}/packages/aperture-client",
+				"--extensionDevelopmentPath=${workspaceFolder}/packages/telescope-client",
 				"${workspaceFolder}/packages/test-files"
 			],
-			"outFiles": ["${workspaceFolder}/packages/aperture-client/out/**/*.js"],
+			"outFiles": ["${workspaceFolder}/packages/telescope-client/out/**/*.js"],
 			"preLaunchTask": "build:all",
 			"presentation": {
 				"hidden": false,
