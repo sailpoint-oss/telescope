@@ -83,4 +83,4 @@ jobs:
       #   run: pnpm --filter telescope exec vsce publish --pre-release --no-git-tag-version -p ${{ secrets.VSCE_PAT }}
 
       - name: Publish to OpenVSX
-        run: npx ovsx publish ${{ steps.vsix.outputs.file }} --pre-release -p ${{ secrets.OPEN_VSX_TOKEN }}
+        run: pnpm dlx ovsx publish ${{ steps.vsix.outputs.file }} --pre-release -p ${{ secrets.OPEN_VSX_TOKEN }}
