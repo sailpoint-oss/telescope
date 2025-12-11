@@ -242,12 +242,17 @@ export function create({
 			// Track if user schemas have been registered
 			let userSchemasRegistered = false;
 
+			// Debounce timer for schema reconfiguration
+			let reconfigureTimeout: ReturnType<typeof setTimeout> | undefined;
+			let pendingReconfigureResolvers: Array<() => void> = [];
+			const DEBOUNCE_DELAY_MS = 50; // 50ms debounce
+
 			const disposable = onDidChangeLanguageSettings(async () => {
 				// Re-register user schemas on config change
 				logger.log("[Schema] Config changed, re-registering user schemas");
 				await registerUserSchemas();
 				// Reconfigure with updated settings
-				await reconfigureLanguageService();
+				await debouncedReconfigureLanguageService();
 			}, context);
 
 			let initializing: Promise<void> | undefined;
@@ -255,6 +260,16 @@ export function create({
 			return {
 				dispose() {
 					disposable.dispose();
+					// Clear any pending debounced reconfiguration
+					if (reconfigureTimeout) {
+						clearTimeout(reconfigureTimeout);
+						reconfigureTimeout = undefined;
+						// Resolve any pending promises
+						for (const r of pendingReconfigureResolvers) {
+							r();
+						}
+						pendingReconfigureResolvers = [];
+					}
 				},
 
 				provide: {
@@ -284,6 +299,21 @@ export function create({
 
 				async provideDiagnostics(document): Promise<Diagnostic[] | undefined> {
 					return worker(document, async (jsonDocument) => {
+						// Skip JSON Schema validation for OpenAPI documents
+						// OpenAPI service handles schema validation with Zod for better error messages
+						const decoded = context.decodeEmbeddedDocumentUri(
+							URI.parse(document.uri),
+						);
+						if (decoded) {
+							const sourceScript = context.language.scripts.get(decoded[0]);
+							if (
+								sourceScript?.generated?.root?.languageId?.startsWith(
+									"openapi-",
+								)
+							) {
+								return []; // OpenAPI service handles schema validation
+							}
+						}
 						const settings = await getDocumentLanguageSettings(
 							document,
 							context,
@@ -379,8 +409,11 @@ export function create({
 			/**
 			 * Reconfigure the language service with current schemas.
 			 * Called at initialization and when config changes.
+			 *
+			 * This is the immediate reconfiguration - use debouncedReconfigureLanguageService
+			 * for frequent updates to batch multiple calls.
 			 */
-			async function reconfigureLanguageService(): Promise<void> {
+			async function reconfigureLanguageServiceImmediate(): Promise<void> {
 				const baseSettings = await getLanguageSettings(context);
 
 				// Build schema configurations from current associations
@@ -403,12 +436,44 @@ export function create({
 			}
 
 			/**
-			 * Resolve and associate a schema for a document.
+			 * Debounced version of reconfigureLanguageService.
+			 * Batches multiple calls within DEBOUNCE_DELAY_MS into a single reconfiguration.
+			 *
+			 * @returns Promise that resolves when the reconfiguration is complete
 			 */
-			function associateSchemaForDocument(
+			function debouncedReconfigureLanguageService(): Promise<void> {
+				return new Promise<void>((resolve) => {
+					pendingReconfigureResolvers.push(resolve);
+
+					if (reconfigureTimeout) {
+						clearTimeout(reconfigureTimeout);
+					}
+
+					reconfigureTimeout = setTimeout(async () => {
+						reconfigureTimeout = undefined;
+						const resolvers = pendingReconfigureResolvers;
+						pendingReconfigureResolvers = [];
+
+						try {
+							await reconfigureLanguageServiceImmediate();
+						} finally {
+							// Resolve all pending promises
+							for (const r of resolvers) {
+								r();
+							}
+						}
+					}, DEBOUNCE_DELAY_MS);
+				});
+			}
+
+			/**
+			 * Resolve and associate a schema for a document.
+			 * Returns a promise that resolves when the schema is fully configured.
+			 */
+			async function associateSchemaForDocument(
 				documentUri: string,
 				schemaKey: string,
-			): void {
+			): Promise<void> {
 				const schemaUri = `${TELESCOPE_SCHEMA_PREFIX}${schemaKey}`;
 
 				// Check if already associated with the same schema
@@ -421,15 +486,17 @@ export function create({
 					`[Schema] Associated document ${documentUri} with schema ${schemaKey}`,
 				);
 
-				// Reconfigure to apply the new association
-				// Note: This is async but we don't wait - the schema will be available for next operation
-				reconfigureLanguageService();
+				// Reconfigure to apply the new association - use debounced version for efficiency
+				await debouncedReconfigureLanguageService();
 			}
 
 			/**
 			 * Resolve the schema key for a document and associate it.
+			 * Returns a promise that resolves when the schema is fully configured.
 			 */
-			function resolveAndAssociateSchema(document: TextDocument): void {
+			async function resolveAndAssociateSchema(
+				document: TextDocument,
+			): Promise<void> {
 				const resolved = resolveDocumentContext(
 					document,
 					context,
@@ -444,7 +511,7 @@ export function create({
 				const schemaKey = virtualCode.schemaKey;
 
 				if (schemaKey) {
-					associateSchemaForDocument(document.uri, schemaKey);
+					await associateSchemaForDocument(document.uri, schemaKey);
 				}
 			}
 
@@ -464,12 +531,21 @@ export function create({
 					return undefined;
 				}
 
-				// Initialize once
-				initializing ??= initialize();
-				await initializing;
+				// Initialize once, with retry on failure
+				try {
+					initializing ??= initialize();
+					await initializing;
+				} catch (error) {
+					// Reset so next call can retry initialization
+					initializing = undefined;
+					throw error;
+				}
 
-				// Resolve and associate schema for this document
-				resolveAndAssociateSchema(document);
+				// Only resolve and associate schema if not already associated
+				// This avoids unnecessary resolveDocumentContext calls on every request
+				if (!documentSchemaAssociations.has(document.uri)) {
+					await resolveAndAssociateSchema(document);
+				}
 
 				return await callback(jsonDocument);
 			}
@@ -479,7 +555,8 @@ export function create({
 			 */
 			async function initialize(): Promise<void> {
 				await registerUserSchemas();
-				await reconfigureLanguageService();
+				// Use immediate reconfiguration at init - no need to debounce
+				await reconfigureLanguageServiceImmediate();
 				logger.log("[Schema] JSON language service initialized");
 			}
 

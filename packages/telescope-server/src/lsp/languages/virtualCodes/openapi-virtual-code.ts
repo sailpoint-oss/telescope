@@ -169,8 +169,9 @@ export class OpenAPIVirtualCode implements VirtualCode {
 
 	/**
 	 * Detected OpenAPI document type (root, path-item, schema, etc.)
+	 * This is re-detected on incremental updates when structure changes.
 	 */
-	readonly openApiDocumentType: DocumentType;
+	openApiDocumentType: DocumentType;
 
 	/**
 	 * OpenAPI specification version (3.0, 3.1, 3.2, or unknown).
@@ -326,6 +327,13 @@ export class OpenAPIVirtualCode implements VirtualCode {
 		return this.dataCode.getFirstKeyRange(path);
 	}
 
+	/**
+	 * Get the range of the key name only for a specific path.
+	 */
+	getKeyRange(path: (string | number)[]): Range | undefined {
+		return this.dataCode.getKeyRange(path);
+	}
+
 	// =========================================================================
 	// Incremental Update Support
 	// =========================================================================
@@ -357,6 +365,14 @@ export class OpenAPIVirtualCode implements VirtualCode {
 		this._atoms = undefined;
 		this._hash = undefined;
 
+		// Re-detect document type after AST update (structure may have changed)
+		// For example, a file could change from a root document to a schema fragment
+		const newDocumentType = identifyDocumentType(this.dataCode.parsedObject);
+		const documentTypeChanged = newDocumentType !== this.openApiDocumentType;
+		if (documentTypeChanged) {
+			this.openApiDocumentType = newDocumentType;
+		}
+
 		// Re-detect version after AST update (the openapi field may have changed)
 		// This uses heuristic detection since rootResolver isn't available here
 		const newVersionResult = resolveDocumentVersion(
@@ -365,12 +381,15 @@ export class OpenAPIVirtualCode implements VirtualCode {
 			undefined, // No rootResolver in update context
 		);
 
-		// If version changed, update schema key for language services
-		if (newVersionResult.version !== this.openapiVersion) {
+		// If version or document type changed, update schema key for language services
+		const versionChanged = newVersionResult.version !== this.openapiVersion;
+		if (versionChanged) {
 			this.openapiVersion = newVersionResult.version;
 			this.versionSource = newVersionResult.source;
 			this.versionWarning = newVersionResult.warning;
+		}
 
+		if (versionChanged || documentTypeChanged) {
 			// Update schema key so language services use the correct version-specific schema
 			this.dataCode.schemaKey = documentTypeToSchemaKey(
 				this.openApiDocumentType,

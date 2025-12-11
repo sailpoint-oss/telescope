@@ -18,15 +18,12 @@
  * @module lsp/core/workspace-index
  */
 
-import type { Range } from "vscode-languageserver-protocol";
-import type { AtomIndex, IRDocument, Loc } from "../../engine/index.js";
 import {
 	GraphIndex,
 	getValueAtPointerIR,
 	isRootDocument,
 	OperationIdIndex,
 } from "../../engine/index.js";
-import { getLineCol } from "../../engine/utils/line-offset-utils.js";
 import type { OpenAPIVirtualCode } from "../languages/virtualCodes/openapi-virtual-code.js";
 import type { telescopeVolarContext } from "../workspace/context.js";
 
@@ -58,6 +55,18 @@ export class WorkspaceIndex {
 	private readonly affectedUris = new Set<string>();
 	private readonly resultIdCache = new Map<string, string>();
 
+	/**
+	 * Reverse dependency map: fragment URI -> Set of root URIs that include it.
+	 * This enables O(1) lookup of affected roots when a file changes.
+	 */
+	private readonly reverseRootDependencies = new Map<string, Set<string>>();
+
+	/**
+	 * Flag indicating reverse dependencies may be stale and need rebuild.
+	 * Set when files are registered out of order or bulk operations complete.
+	 */
+	private reverseDependenciesStale = false;
+
 	constructor(private readonly context: telescopeVolarContext) {}
 
 	/**
@@ -80,9 +89,16 @@ export class WorkspaceIndex {
 			// Update operationId index
 			const changedOpIds = this.opIdIndex.updateForUri(uri, atoms.operations);
 
-			// Track root documents
-			if (isRootDocument(getValueAtPointerIR(ir, "#"))) {
+			// Track root documents and update reverse dependency map
+			const isRoot = isRootDocument(getValueAtPointerIR(ir, "#"));
+			if (isRoot) {
 				this.context.addRootDocument(uri);
+				// Rebuild reverse dependencies for this root
+				this.updateReverseDependenciesForRoot(uri);
+			} else {
+				// Non-root file registered - mark reverse deps as potentially stale
+				// since this file might now be a dependency of existing roots
+				this.reverseDependenciesStale = true;
 			}
 
 			// Compute affected URIs for incremental updates
@@ -113,6 +129,13 @@ export class WorkspaceIndex {
 		this.graphIndex.removeEdgesForUri(uri);
 		this.opIdIndex.updateForUri(uri, []);
 		this.resultIdCache.delete(uri);
+
+		// Clean up reverse dependencies
+		if (this.context.isRootDocument(uri)) {
+			this.removeReverseDependenciesForRoot(uri);
+		}
+		this.reverseRootDependencies.delete(uri);
+
 		this.context.removeRootDocument(uri);
 	}
 
@@ -199,6 +222,62 @@ export class WorkspaceIndex {
 		this.opIdIndex.clear();
 		this.affectedUris.clear();
 		this.resultIdCache.clear();
+		this.reverseRootDependencies.clear();
+		this.reverseDependenciesStale = false;
+	}
+
+	/**
+	 * Update the reverse dependency map for a root document.
+	 * This rebuilds the mapping from each fragment URI to the root that includes it.
+	 *
+	 * @param rootUri - URI of the root document
+	 */
+	private updateReverseDependenciesForRoot(rootUri: string): void {
+		// First, remove any existing mappings for this root
+		this.removeReverseDependenciesForRoot(rootUri);
+
+		// Get all dependencies of this root (including transitive)
+		const tree = this.getRootDependencyTree(rootUri);
+
+		// Add reverse mappings for each dependency
+		for (const depUri of tree) {
+			if (depUri === rootUri) continue; // Don't map root to itself
+
+			let roots = this.reverseRootDependencies.get(depUri);
+			if (!roots) {
+				roots = new Set<string>();
+				this.reverseRootDependencies.set(depUri, roots);
+			}
+			roots.add(rootUri);
+		}
+	}
+
+	/**
+	 * Remove all reverse dependency mappings for a root document.
+	 *
+	 * @param rootUri - URI of the root document
+	 */
+	private removeReverseDependenciesForRoot(rootUri: string): void {
+		// Remove this root from all reverse mappings
+		for (const [depUri, roots] of this.reverseRootDependencies) {
+			roots.delete(rootUri);
+			// Clean up empty sets
+			if (roots.size === 0) {
+				this.reverseRootDependencies.delete(depUri);
+			}
+		}
+	}
+
+	/**
+	 * Rebuild all reverse dependency mappings.
+	 * Call this after bulk changes to ensure consistency.
+	 */
+	rebuildReverseDependencies(): void {
+		this.reverseRootDependencies.clear();
+		const allRoots = this.context.getRootDocumentUris();
+		for (const rootUri of allRoots) {
+			this.updateReverseDependenciesForRoot(rootUri);
+		}
 	}
 
 	/**
@@ -260,21 +339,35 @@ export class WorkspaceIndex {
 	 * Get all root documents that are affected by a change to the given file.
 	 * A root is affected if it depends on the changed file (directly or transitively).
 	 *
+	 * Uses the reverse dependency map for O(1) lookup instead of traversing
+	 * all root dependency trees.
+	 *
 	 * @param uri - URI of the changed file
 	 * @returns Array of root document URIs that are affected
 	 */
 	getRootsAffectedByFile(uri: string): string[] {
-		const allRoots = this.context.getRootDocumentUris();
-		const affectedRoots: string[] = [];
+		// Rebuild reverse dependencies if they may be stale
+		// This handles cases where files were registered in arbitrary order
+		if (this.reverseDependenciesStale) {
+			this.rebuildReverseDependencies();
+			this.reverseDependenciesStale = false;
+		}
 
-		for (const rootUri of allRoots) {
-			const tree = this.getRootDependencyTree(rootUri);
-			if (tree.has(uri)) {
-				affectedRoots.push(rootUri);
+		// If the file itself is a root, it's affected
+		const affectedRoots = new Set<string>();
+		if (this.context.isRootDocument(uri)) {
+			affectedRoots.add(uri);
+		}
+
+		// O(1) lookup using reverse dependency map
+		const roots = this.reverseRootDependencies.get(uri);
+		if (roots) {
+			for (const rootUri of roots) {
+				affectedRoots.add(rootUri);
 			}
 		}
 
-		return affectedRoots;
+		return Array.from(affectedRoots);
 	}
 
 	/**

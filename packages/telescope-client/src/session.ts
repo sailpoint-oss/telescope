@@ -28,6 +28,9 @@ import {
 } from "./utils";
 import { WorkspaceScanner } from "./workspace-scanner";
 
+/** Path to the Telescope configuration file relative to workspace root */
+const CONFIG_PATH = ".telescope/config.yaml";
+
 /**
  * Session state enum for lifecycle management.
  */
@@ -240,8 +243,7 @@ export class Session implements vscode.Disposable {
 	private async loadConfig(): Promise<void> {
 		const configPath = vscode.Uri.joinPath(
 			this.workspaceFolder.uri,
-			".telescope",
-			"config.yaml",
+			CONFIG_PATH,
 		);
 
 		try {
@@ -284,12 +286,6 @@ export class Session implements vscode.Disposable {
 			},
 		};
 
-		// Create a RelativePattern scoped to this workspace folder
-		const folderPattern = new vscode.RelativePattern(
-			this.workspaceFolder,
-			"**/*",
-		);
-
 		// Options to control the language client
 		const clientOptions: LanguageClientOptions = {
 			// Scope document selector to this workspace folder
@@ -312,15 +308,6 @@ export class Session implements vscode.Disposable {
 				},
 			],
 			workspaceFolder: this.workspaceFolder,
-			synchronize: {
-				// Notify the server about file changes to config files in this workspace
-				fileEvents: vscode.workspace.createFileSystemWatcher(
-					new vscode.RelativePattern(
-						this.workspaceFolder,
-						".telescope/config.yaml",
-					),
-				),
-			},
 			outputChannel: this.outputChannel,
 			// Pass the workspace folder to the server
 			initializationOptions: {
@@ -356,11 +343,16 @@ export class Session implements vscode.Disposable {
 	 */
 	private initializeScanner(): void {
 		// Create scanner scoped to this workspace folder
-		this.scanner = new WorkspaceScanner(
-			this.statusBarItem ?? undefined,
-			this.workspaceFolder,
-		);
+		this.scanner = new WorkspaceScanner(this.workspaceFolder);
 		this.scanner.setFileFilter((uri) => this.matchesOpenAPIPatterns(uri));
+
+		// Wire up status callback to centralize status bar updates
+		this.scanner.setStatusCallback((status) => {
+			if (this.statusBarItem) {
+				this.statusBarItem.text = `$(file-code) ${status}`;
+				this.statusBarItem.show();
+			}
+		});
 
 		this.disposables.push({
 			dispose: () => this.scanner?.dispose(),
@@ -407,10 +399,7 @@ export class Session implements vscode.Disposable {
 
 		// Watch for config file changes in this workspace folder
 		const configWatcher = vscode.workspace.createFileSystemWatcher(
-			new vscode.RelativePattern(
-				this.workspaceFolder,
-				".telescope/config.yaml",
-			),
+			new vscode.RelativePattern(this.workspaceFolder, CONFIG_PATH),
 		);
 
 		const handleConfigChange = async () => {
@@ -443,6 +432,14 @@ export class Session implements vscode.Disposable {
 			}
 		});
 		this.disposables.push(openDisposable);
+
+		// Clean up when documents are closed to prevent memory leaks
+		const closeDisposable = vscode.workspace.onDidCloseTextDocument((doc) => {
+			if (this.ownsUri(doc.uri)) {
+				this.classifiedDocuments.delete(doc.uri.toString());
+			}
+		});
+		this.disposables.push(closeDisposable);
 
 		// Handle already-open documents that belong to this workspace
 		for (const doc of vscode.workspace.textDocuments) {

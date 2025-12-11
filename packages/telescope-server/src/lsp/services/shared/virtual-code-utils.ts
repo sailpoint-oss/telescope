@@ -1,9 +1,30 @@
 /**
  * Shared Virtual Code Utilities
  *
- * This module provides common utility functions for working with VirtualCode
- * instances across LSP services. These functions are used by multiple services
- * and are consolidated here to avoid duplication.
+ * This module provides the STANDARD utility functions for resolving documents
+ * and accessing VirtualCode instances across all LSP services. All services
+ * should use these utilities for consistent document resolution.
+ *
+ * ## Document Resolution Patterns (STANDARD)
+ *
+ * 1. **OpenAPI Documents**: Use `resolveOpenAPIDocument()` or `resolveOpenAPIDocumentWithIR()`
+ *    - For features that need IR/atoms, use the `WithIR` variant
+ *    - These handle language ID checking, URI decoding, and VirtualCode retrieval
+ *
+ * 2. **Generic Data Documents**: Use `resolveDataDocument()`
+ *    - For YAML/JSON documents that may or may not be OpenAPI
+ *
+ * 3. **Direct VirtualCode Access**: Use `getOpenAPIVirtualCode()` or `getDataVirtualCode()`
+ *    - When you already have the source URI (not embedded document URI)
+ *
+ * 4. **Document Selector Matching**: Use `matchDocument()`
+ *    - For checking if a document should be processed by a service
+ *
+ * ## Anti-Patterns (AVOID)
+ *
+ * - Don't manually call `URI.parse(document.uri)` followed by `decodeEmbeddedDocumentUri()`
+ * - Don't access `context.language.scripts.get()` directly without null checks
+ * - Don't assume VirtualCode type without checking with `instanceof`
  *
  * @module lsp/services/shared/virtual-code-utils
  */

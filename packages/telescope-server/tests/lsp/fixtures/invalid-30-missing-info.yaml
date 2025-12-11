@@ -1,0 +1,11 @@
+# OpenAPI 3.0 document missing required info object
+# Expected errors: Missing required field "info"
+openapi: "3.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        "200":
+          description: Success
+

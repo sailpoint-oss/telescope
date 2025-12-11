@@ -7,6 +7,7 @@
  * @module engine/schemas/openapi-base
  */
 import { z } from "zod";
+import { withExtensions } from "./schema-helpers.js";
 
 // ============================================================================
 // Contact Object
@@ -16,43 +17,41 @@ import { z } from "zod";
  * Contact Object - Contact information for the exposed API.
  * Identical across all OpenAPI 3.x versions.
  */
-export const ContactSchema = z
-	.object({
-		name: z
-			.string()
-			.meta({
-				title: "name",
-				examples: ["API Support", "Developer Team", "John Smith"],
-			})
-			.describe("The identifying name of the contact person/organization.")
-			.optional(),
-		url: z
-			.string()
-			.url()
-			.meta({
-				title: "url",
-				examples: [
-					"https://www.example.com/support",
-					"https://developer.example.com",
-				],
-			})
-			.describe(
-				"The URL pointing to the contact information. Must be a valid URL.",
-			)
-			.optional(),
-		email: z
-			.string()
-			.email()
-			.meta({
-				title: "email",
-				examples: ["support@example.com", "api@company.io", "dev-team@org.com"],
-			})
-			.describe(
-				"The email address of the contact person/organization. Must be a valid email format.",
-			)
-			.optional(),
-	})
-	.passthrough()
+export const ContactSchema = withExtensions({
+	name: z
+		.string()
+		.meta({
+			title: "name",
+			examples: ["API Support", "Developer Team", "John Smith"],
+		})
+		.describe("The identifying name of the contact person/organization.")
+		.optional(),
+	url: z
+		.string()
+		.url()
+		.meta({
+			title: "url",
+			examples: [
+				"https://www.example.com/support",
+				"https://developer.example.com",
+			],
+		})
+		.describe(
+			"The URL pointing to the contact information. Must be a valid URL.",
+		)
+		.optional(),
+	email: z
+		.string()
+		.email()
+		.meta({
+			title: "email",
+			examples: ["support@example.com", "api@company.io", "dev-team@org.com"],
+		})
+		.describe(
+			"The email address of the contact person/organization. Must be a valid email format.",
+		)
+		.optional(),
+})
 	.meta({ title: "Contact" })
 	.describe(
 		"Contact information for the exposed API. Provides ways for API consumers to reach the maintainers.",
@@ -68,43 +67,41 @@ export type Contact = z.infer<typeof ContactSchema>;
  * License Object - License information for the exposed API.
  * Identical across all OpenAPI 3.x versions.
  */
-export const LicenseSchema = z
-	.object({
-		name: z
-			.string()
-			.meta({
-				title: "name",
-				examples: ["Apache 2.0", "MIT", "BSD-3-Clause", "GPL-3.0"],
-			})
-			.describe(
-				"REQUIRED. The license name used for the API (e.g., 'Apache 2.0', 'MIT').",
-			),
-		identifier: z
-			.string()
-			.meta({
-				title: "identifier",
-				examples: ["Apache-2.0", "MIT", "BSD-3-Clause", "GPL-3.0-only"],
-			})
-			.describe(
-				"An SPDX license expression for the API. Mutually exclusive with 'url'. See https://spdx.org/licenses/",
-			)
-			.optional(),
-		url: z
-			.string()
-			.url()
-			.meta({
-				title: "url",
-				examples: [
-					"https://www.apache.org/licenses/LICENSE-2.0.html",
-					"https://opensource.org/licenses/MIT",
-				],
-			})
-			.describe(
-				"A URL to the license used for the API. Mutually exclusive with 'identifier'.",
-			)
-			.optional(),
-	})
-	.passthrough()
+export const LicenseSchema = withExtensions({
+	name: z
+		.string()
+		.meta({
+			title: "name",
+			examples: ["Apache 2.0", "MIT", "BSD-3-Clause", "GPL-3.0"],
+		})
+		.describe(
+			"REQUIRED. The license name used for the API (e.g., 'Apache 2.0', 'MIT').",
+		),
+	identifier: z
+		.string()
+		.meta({
+			title: "identifier",
+			examples: ["Apache-2.0", "MIT", "BSD-3-Clause", "GPL-3.0-only"],
+		})
+		.describe(
+			"An SPDX license expression for the API. Mutually exclusive with 'url'. See https://spdx.org/licenses/",
+		)
+		.optional(),
+	url: z
+		.string()
+		.url()
+		.meta({
+			title: "url",
+			examples: [
+				"https://www.apache.org/licenses/LICENSE-2.0.html",
+				"https://opensource.org/licenses/MIT",
+			],
+		})
+		.describe(
+			"A URL to the license used for the API. Mutually exclusive with 'identifier'.",
+		)
+		.optional(),
+})
 	.meta({ title: "License" })
 	.describe(
 		"License information for the exposed API. Use either 'identifier' (SPDX) or 'url', not both.",
@@ -120,36 +117,34 @@ export type License = z.infer<typeof LicenseSchema>;
  * External Documentation Object.
  * Identical across all OpenAPI 3.x versions.
  */
-export const ExternalDocumentationSchema = z
-	.object({
-		description: z
-			.string()
-			.meta({
-				title: "description",
-				examples: [
-					"Find more info here",
-					"Complete API documentation",
-					"Authentication guide",
-				],
-			})
-			.describe(
-				"A description of the target documentation. CommonMark syntax MAY be used for rich text.",
-			)
-			.optional(),
-		url: z
-			.string()
-			.url()
-			.meta({
-				title: "url",
-				examples: [
-					"https://docs.example.com",
-					"https://wiki.example.com/api-guide",
-					"https://github.com/org/repo/wiki",
-				],
-			})
-			.describe("REQUIRED. The URL for the target documentation."),
-	})
-	.passthrough()
+export const ExternalDocumentationSchema = withExtensions({
+	description: z
+		.string()
+		.meta({
+			title: "description",
+			examples: [
+				"Find more info here",
+				"Complete API documentation",
+				"Authentication guide",
+			],
+		})
+		.describe(
+			"A description of the target documentation. CommonMark syntax MAY be used for rich text.",
+		)
+		.optional(),
+	url: z
+		.string()
+		.url()
+		.meta({
+			title: "url",
+			examples: [
+				"https://docs.example.com",
+				"https://wiki.example.com/api-guide",
+				"https://github.com/org/repo/wiki",
+			],
+		})
+		.describe("REQUIRED. The URL for the target documentation."),
+})
 	.meta({ title: "ExternalDocumentation" })
 	.describe(
 		"Allows referencing an external resource for extended documentation.",
@@ -345,59 +340,57 @@ export type SecurityRequirement = z.infer<typeof SecurityRequirementSchema>;
  * XML Object.
  * Identical across all OpenAPI 3.x versions.
  */
-export const XMLSchema = z
-	.object({
-		name: z
-			.string()
-			.meta({
-				title: "name",
-				examples: ["animal", "item", "user-data"],
-			})
-			.describe(
-				"Replaces the name of the element/attribute used for the described schema property.",
-			)
-			.optional(),
-		namespace: z
-			.string()
-			.url()
-			.meta({
-				title: "namespace",
-				examples: ["http://example.com/schema/pet", "urn:example:animals"],
-			})
-			.describe("The URI of the namespace definition.")
-			.optional(),
-		prefix: z
-			.string()
-			.meta({
-				title: "prefix",
-				examples: ["smp", "ns1", "pet"],
-			})
-			.describe("The prefix to be used for the name.")
-			.optional(),
-		attribute: z
-			.boolean()
-			.default(false)
-			.meta({
-				title: "attribute",
-				examples: [true, false],
-			})
-			.describe(
-				"When true, the property is serialized as an XML attribute instead of an element. Default: false.",
-			)
-			.optional(),
-		wrapped: z
-			.boolean()
-			.default(false)
-			.meta({
-				title: "wrapped",
-				examples: [true, false],
-			})
-			.describe(
-				"Only for arrays. When true, wraps the array in an outer element. Default: false.",
-			)
-			.optional(),
-	})
-	.passthrough()
+export const XMLSchema = withExtensions({
+	name: z
+		.string()
+		.meta({
+			title: "name",
+			examples: ["animal", "item", "user-data"],
+		})
+		.describe(
+			"Replaces the name of the element/attribute used for the described schema property.",
+		)
+		.optional(),
+	namespace: z
+		.string()
+		.url()
+		.meta({
+			title: "namespace",
+			examples: ["http://example.com/schema/pet", "urn:example:animals"],
+		})
+		.describe("The URI of the namespace definition.")
+		.optional(),
+	prefix: z
+		.string()
+		.meta({
+			title: "prefix",
+			examples: ["smp", "ns1", "pet"],
+		})
+		.describe("The prefix to be used for the name.")
+		.optional(),
+	attribute: z
+		.boolean()
+		.default(false)
+		.meta({
+			title: "attribute",
+			examples: [true, false],
+		})
+		.describe(
+			"When true, the property is serialized as an XML attribute instead of an element. Default: false.",
+		)
+		.optional(),
+	wrapped: z
+		.boolean()
+		.default(false)
+		.meta({
+			title: "wrapped",
+			examples: [true, false],
+		})
+		.describe(
+			"Only for arrays. When true, wraps the array in an outer element. Default: false.",
+		)
+		.optional(),
+})
 	.meta({ title: "XML" })
 	.describe(
 		"Metadata for fine-tuned XML serialization. Controls element names, namespaces, prefixes, and array wrapping.",
@@ -413,65 +406,63 @@ export type XML = z.infer<typeof XMLSchema>;
  * OAuth Flow Object (Base).
  * Identical across all OpenAPI 3.x versions.
  */
-export const OAuthFlowSchema = z
-	.object({
-		authorizationUrl: z
-			.string()
-			.url()
-			.meta({
-				title: "authorizationUrl",
-				examples: [
-					"https://auth.example.com/oauth/authorize",
-					"https://login.example.com/oauth2/v2.0/authorize",
-				],
-			})
-			.describe(
-				"REQUIRED for implicit and authorizationCode flows. The authorization URL for this OAuth2 flow.",
-			)
-			.optional(),
-		tokenUrl: z
-			.string()
-			.url()
-			.meta({
-				title: "tokenUrl",
-				examples: [
-					"https://auth.example.com/oauth/token",
-					"https://login.example.com/oauth2/v2.0/token",
-				],
-			})
-			.describe(
-				"REQUIRED for password, clientCredentials, and authorizationCode flows. The token URL for this OAuth2 flow.",
-			)
-			.optional(),
-		refreshUrl: z
-			.string()
-			.url()
-			.meta({
-				title: "refreshUrl",
-				examples: ["https://auth.example.com/oauth/refresh"],
-			})
-			.describe("The URL to be used for obtaining refresh tokens.")
-			.optional(),
-		scopes: z
-			.record(z.string(), z.string())
-			.meta({
-				title: "scopes",
-				examples: [
-					{
-						"read:pets": "Read access to pets",
-						"write:pets": "Write access to pets",
-					},
-					{
-						"user:email": "Access user email",
-						"user:profile": "Access user profile",
-					},
-				],
-			})
-			.describe(
-				"REQUIRED. Map of scope names to descriptions. Keys are scope names, values are descriptions.",
-			),
-	})
-	.passthrough()
+export const OAuthFlowSchema = withExtensions({
+	authorizationUrl: z
+		.string()
+		.url()
+		.meta({
+			title: "authorizationUrl",
+			examples: [
+				"https://auth.example.com/oauth/authorize",
+				"https://login.example.com/oauth2/v2.0/authorize",
+			],
+		})
+		.describe(
+			"REQUIRED for implicit and authorizationCode flows. The authorization URL for this OAuth2 flow.",
+		)
+		.optional(),
+	tokenUrl: z
+		.string()
+		.url()
+		.meta({
+			title: "tokenUrl",
+			examples: [
+				"https://auth.example.com/oauth/token",
+				"https://login.example.com/oauth2/v2.0/token",
+			],
+		})
+		.describe(
+			"REQUIRED for password, clientCredentials, and authorizationCode flows. The token URL for this OAuth2 flow.",
+		)
+		.optional(),
+	refreshUrl: z
+		.string()
+		.url()
+		.meta({
+			title: "refreshUrl",
+			examples: ["https://auth.example.com/oauth/refresh"],
+		})
+		.describe("The URL to be used for obtaining refresh tokens.")
+		.optional(),
+	scopes: z
+		.record(z.string(), z.string())
+		.meta({
+			title: "scopes",
+			examples: [
+				{
+					"read:pets": "Read access to pets",
+					"write:pets": "Write access to pets",
+				},
+				{
+					"user:email": "Access user email",
+					"user:profile": "Access user profile",
+				},
+			],
+		})
+		.describe(
+			"REQUIRED. Map of scope names to descriptions. Keys are scope names, values are descriptions.",
+		),
+})
 	.meta({ title: "OAuthFlow" })
 	.describe(
 		"Configuration for an OAuth 2.0 flow. Required fields depend on the flow type (implicit, password, clientCredentials, authorizationCode).",

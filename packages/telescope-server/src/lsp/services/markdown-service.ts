@@ -275,6 +275,10 @@ export function create({
 					mdLs.dispose();
 					workspace.dispose();
 					fileWatcher?.dispose();
+					// Clear cached data to prevent memory leaks
+					firedDocumentChanges.clear();
+					fsSourceScripts.clear();
+					codeActionDocuments.clear();
 				},
 
 				provide: {

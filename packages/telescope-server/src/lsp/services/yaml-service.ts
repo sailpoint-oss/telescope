@@ -172,10 +172,17 @@ export function create({
 			// Track if we need to re-register user schemas
 			let userSchemasRegistered = false;
 
+			// Track pending schema registration to prevent race conditions
+			// Workers will wait for this promise before processing requests
+			let pendingSchemaRegistration: Promise<void> | undefined;
+
 			const disposable = onDidChangeLanguageSettings(async () => {
 				// Re-register user schemas on config change
 				logger.log("[Schema] Config changed, re-registering user schemas");
-				await registerUserSchemas();
+				// Track the registration so workers can wait for it
+				pendingSchemaRegistration = registerUserSchemas();
+				await pendingSchemaRegistration;
+				pendingSchemaRegistration = undefined;
 			}, context);
 
 			let initializing: Promise<void> | undefined;
@@ -222,6 +229,21 @@ export function create({
 
 				async provideDiagnostics(document): Promise<Diagnostic[] | undefined> {
 					return worker(document, async () => {
+						// Skip JSON Schema validation for OpenAPI documents
+						// OpenAPI service handles schema validation with Zod for better error messages
+						const decoded = context.decodeEmbeddedDocumentUri(
+							URI.parse(document.uri),
+						);
+						if (decoded) {
+							const sourceScript = context.language.scripts.get(decoded[0]);
+							if (
+								sourceScript?.generated?.root?.languageId?.startsWith(
+									"openapi-",
+								)
+							) {
+								return []; // OpenAPI service handles schema validation
+							}
+						}
 						return await ls.doValidation(document, false);
 					});
 				},
@@ -372,6 +394,7 @@ export function create({
 			/**
 			 * Worker that ensures initialization and document matching.
 			 * No longer configures schemas per-request - that's handled by the custom provider.
+			 * Also waits for any pending schema registration to complete.
 			 */
 			async function worker<T>(
 				document: TextDocument,
@@ -381,9 +404,20 @@ export function create({
 					return undefined;
 				}
 
-				// Initialize once
-				initializing ??= initialize();
-				await initializing;
+				// Initialize once, with retry on failure
+				try {
+					initializing ??= initialize();
+					await initializing;
+				} catch (error) {
+					// Reset so next call can retry initialization
+					initializing = undefined;
+					throw error;
+				}
+
+				// Wait for any pending schema registration from config changes
+				if (pendingSchemaRegistration) {
+					await pendingSchemaRegistration;
+				}
 
 				return await callback();
 			}

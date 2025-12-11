@@ -73,6 +73,7 @@ import {
 	buildLineOffsets,
 	getLineCol,
 } from "../../engine/utils/line-offset-utils.js";
+import { positionCache } from "./shared/position-cache.js";
 import { parseJsonPointer } from "../../engine/utils/pointer-utils.js";
 import { normalizeUri, resolveRef } from "../../engine/utils/ref-utils.js";
 import type { DataVirtualCode } from "../languages/virtualCodes/data-virtual-code.js";
@@ -101,6 +102,8 @@ import {
 	getOpenAPIVirtualCode,
 	resolveOpenAPIDocument,
 } from "./shared/virtual-code-utils.js";
+import { getZodSchema } from "./shared/schema-cache.js";
+import { zodErrorsToDiagnostics } from "./shared/zod-to-diag.js";
 
 /**
  * Build a ProjectContext from an OpenAPIVirtualCode instance.
@@ -112,6 +115,10 @@ import {
  * 3. Loads any missing referenced documents from the file system
  * 4. Builds the reference graph and resolver
  * 5. Builds the project index
+ *
+ * For workspace diagnostics, use the ProjectContextCache via shared.projectContextCache
+ * for incremental updates. This function is kept for single-file diagnostics where
+ * caching overhead may not be beneficial.
  *
  * @param shared - The shared telescope context
  * @param primaryUri - URI of the primary document to build context for
@@ -130,11 +137,12 @@ async function buildProjectContextFromVirtualCode(
 	const workspaceIndex = shared.workspaceIndex;
 	const logger = shared.getLogger("ProjectContext Builder");
 
-	// Get the primary document from VirtualCode
-	const primaryDoc = primaryVC.toParsedDocument(primaryUri);
-
 	// Normalize the primary URI
 	const normalizedPrimaryUri = normalizeUri(primaryUri);
+
+	// Get the primary document from VirtualCode using normalized URI
+	// This ensures doc.uri matches the map key
+	const primaryDoc = primaryVC.toParsedDocument(normalizedPrimaryUri);
 
 	// Build docs map with primary and all linked documents
 	const docs = new Map<string, ParsedDocument>();
@@ -151,7 +159,8 @@ async function buildProjectContextFromVirtualCode(
 			URI.parse(linkedUri),
 		);
 		if (linkedVC) {
-			docs.set(normalizedLinkedUri, linkedVC.toParsedDocument(linkedUri));
+			// Use normalizedLinkedUri for consistency - ensures doc.uri matches map key
+			docs.set(normalizedLinkedUri, linkedVC.toParsedDocument(normalizedLinkedUri));
 		}
 	}
 
@@ -166,13 +175,16 @@ async function buildProjectContextFromVirtualCode(
 		for (const doc of docs.values()) {
 			const refs = findRefUris(doc, doc.uri);
 			for (const refUri of refs) {
-				if (!loaded.has(refUri) && !toLoad.has(refUri)) {
-					toLoad.add(refUri);
+				// Normalize URI for consistent lookups
+				const normalizedRefUri = normalizeUri(refUri);
+				if (!loaded.has(normalizedRefUri) && !toLoad.has(normalizedRefUri)) {
+					toLoad.add(normalizedRefUri);
 				}
 			}
 		}
 
 		// Load missing documents
+		// Note: URIs in toLoad are already normalized from above
 		while (toLoad.size > 0) {
 			const uri = toLoad.values().next().value;
 			if (!uri) break;
@@ -183,13 +195,16 @@ async function buildProjectContextFromVirtualCode(
 
 			try {
 				const doc = await loadDocument({ fileSystem, uri });
-				docs.set(doc.uri, doc);
+				// Use normalized URI for map key consistency
+				const normalizedDocUri = normalizeUri(doc.uri);
+				docs.set(normalizedDocUri, doc);
 
 				// Find more refs in this document
 				const refs = findRefUris(doc, doc.uri);
 				for (const refUri of refs) {
-					if (!loaded.has(refUri) && !toLoad.has(refUri)) {
-						toLoad.add(refUri);
+					const normalizedRefUri = normalizeUri(refUri);
+					if (!loaded.has(normalizedRefUri) && !toLoad.has(normalizedRefUri)) {
+						toLoad.add(normalizedRefUri);
 					}
 				}
 			} catch (error) {
@@ -221,27 +236,6 @@ async function buildProjectContextFromVirtualCode(
 
 // getOpenAPIVirtualCode and getDataVirtualCode are imported from shared/virtual-code-utils.js
 
-/**
- * Normalize a JSON pointer to the canonical format with leading #.
- * Handles both "/path" and "#/path" formats.
- *
- * @param pointer - JSON pointer in any format
- * @returns Normalized pointer like "#/components/schemas/User"
- */
-function normalizePointer(pointer: string): string {
-	if (!pointer) return "#";
-	if (pointer.startsWith("#")) return pointer;
-	if (pointer.startsWith("/")) return `#${pointer}`;
-	return `#/${pointer}`;
-}
-
-/**
- * Find a node in the IR tree by its JSON pointer.
- *
- * @param node - The IR node to search
- * @param pointer - JSON pointer (with or without leading #)
- * @returns The matching node, or null if not found
- */
 /**
  * Find the position at a JSON pointer in a document.
  *
@@ -316,41 +310,29 @@ async function findPositionAtPointer(
 		return position;
 	}
 
-	// File not open - read and parse from disk (slow path)
+	// File not open - use position cache for efficient lookup
 	const fs = context.env.fs;
 	if (!fs) {
 		logger.log("findPositionAtPointer: no file system available");
 		return null;
 	}
 
-	logger.log("findPositionAtPointer: file not open, reading from disk");
+	logger.log("findPositionAtPointer: file not open, using position cache");
 	try {
-		const content = await fs.readFile(targetUri);
-		if (!content) {
-			logger.log("findPositionAtPointer: file content is empty");
-			return null;
-		}
+		// Use position cache for efficient repeated lookups
+		const position = await positionCache.findPosition(
+			targetUriString,
+			path,
+			async () => fs.readFile(targetUri),
+			isYaml,
+		);
 
-		const lineOffsets = buildLineOffsets(content);
-
-		if (isYaml) {
-			const position = findPositionInYaml(content, path, lineOffsets);
-			if (position) {
-				logger.log(
-					`findPositionAtPointer: found in YAML, position: ${position.line}:${position.character}`,
-				);
-			} else {
-				logger.log("findPositionAtPointer: YAML path lookup failed");
-			}
-			return position;
-		}
-		const position = findPositionInJson(content, path, lineOffsets);
 		if (position) {
 			logger.log(
-				`findPositionAtPointer: found in JSON, position: ${position.line}:${position.character}`,
+				`findPositionAtPointer: found via cache, position: ${position.line}:${position.character}`,
 			);
 		} else {
-			logger.log("findPositionAtPointer: JSON path lookup failed");
+			logger.log("findPositionAtPointer: path lookup failed in cached file");
 		}
 		return position;
 	} catch (error) {
@@ -395,56 +377,6 @@ function findPositionInVirtualCode(
 				return { line: pos.line - 1, character: pos.col - 1 };
 			}
 		}
-	}
-	return null;
-}
-
-/**
- * Find position in YAML content by parsing it.
- */
-function findPositionInYaml(
-	content: string,
-	path: (string | number)[],
-	lineOffsets: number[],
-): Position | null {
-	try {
-		const doc = yaml.parseDocument(content, { keepSourceTokens: true });
-		const node = doc.getIn(path, true);
-		if (
-			node &&
-			typeof node === "object" &&
-			"range" in node &&
-			Array.isArray(node.range)
-		) {
-			const offset = node.range[0];
-			const pos = getLineCol(offset, lineOffsets);
-			return { line: pos.line - 1, character: pos.col - 1 };
-		}
-	} catch (error) {
-		console.debug("findPositionInYaml: parse error", error);
-	}
-	return null;
-}
-
-/**
- * Find position in JSON content by parsing it.
- */
-function findPositionInJson(
-	content: string,
-	path: (string | number)[],
-	lineOffsets: number[],
-): Position | null {
-	try {
-		const tree = jsonc.parseTree(content);
-		if (tree) {
-			const node = jsonc.findNodeAtLocation(tree, path);
-			if (node) {
-				const pos = getLineCol(node.offset, lineOffsets);
-				return { line: pos.line - 1, character: pos.col - 1 };
-			}
-		}
-	} catch (error) {
-		console.debug("findPositionInJson: parse error", error);
 	}
 	return null;
 }
@@ -759,11 +691,31 @@ export function createOpenAPIServicePlugin({
 						const { sourceUriString, virtualCode } = resolved;
 						const baseUri = normalizeBaseUri(sourceUriString);
 
+						// Collect all diagnostics
+						const diagnostics: Diagnostic[] = [];
+
+						// === Zod Schema Validation ===
+						// Run Zod validation to get meaningful error messages
+						const schemaKey = virtualCode.formatVirtualCode.schemaKey;
+						if (schemaKey) {
+							const zodSchema = getZodSchema(schemaKey);
+							if (zodSchema) {
+								const schemaDiagnostics = zodErrorsToDiagnostics(
+									zodSchema,
+									virtualCode.formatVirtualCode.parsedObject,
+									virtualCode.formatVirtualCode,
+									"openapi-schema",
+								);
+								diagnostics.push(...schemaDiagnostics);
+							}
+						}
+
+						// === Rule-based Validation ===
 						// Get workspace-specific rules
 						const rules = shared.getRuleImplementationsForUri(baseUri);
 						if (rules.length === 0) {
 							logger.log(`No rules loaded for ${baseUri}`);
-							return [];
+							return diagnostics;
 						}
 
 						// Filter to OpenAPI rules only
@@ -771,13 +723,13 @@ export function createOpenAPIServicePlugin({
 							(rule) => !rule.meta.ruleType || rule.meta.ruleType === "openapi",
 						);
 
-						if (openApiRules.length === 0) return [];
+						if (openApiRules.length === 0) return diagnostics;
 
 						// Categorize rules by scope - per-document diagnostics only run single-file rules
 						// Cross-file rules run in workspace diagnostics for better performance
 						const { singleFile: singleFileRules } =
 							categorizeRulesByScope(openApiRules);
-						if (singleFileRules.length === 0) return [];
+						if (singleFileRules.length === 0) return diagnostics;
 
 						// Build ProjectContext from VirtualCode (loads missing refs from file system)
 						const projectContext = await buildProjectContextFromVirtualCode(
@@ -788,7 +740,7 @@ export function createOpenAPIServicePlugin({
 						);
 						if (!projectContext) {
 							logger.log(`Failed to build ProjectContext for ${baseUri}`);
-							return [];
+							return diagnostics;
 						}
 
 						// Run single-file rules only (cross-file rules run in workspace diagnostics)
@@ -799,7 +751,12 @@ export function createOpenAPIServicePlugin({
 							token,
 						);
 
-						return result?.diagnostics ?? [];
+						// Add rule diagnostics
+						if (result?.diagnostics) {
+							diagnostics.push(...result.diagnostics);
+						}
+
+						return diagnostics;
 					} catch (error) {
 						const message =
 							error instanceof Error
@@ -1332,8 +1289,24 @@ export function createOpenAPIServicePlugin({
 							shared.workspaceIndex.unregisterDocument(change.uri);
 							shared.removeRootDocument(change.uri);
 							shared.markAffected(change.uri);
+							// Invalidate position cache for deleted file
+							positionCache.invalidate(change.uri);
+							// Invalidate project context cache
+							shared.projectContextCache.invalidateUri(change.uri);
 						}
 					}
+				},
+
+				/**
+				 * Dispose of resources when the service is shut down.
+				 * Clears caches and releases any held resources.
+				 */
+				dispose() {
+					logger.log("Disposing OpenAPI service");
+					// Clear position cache
+					positionCache.clear();
+					// Clear project context cache
+					shared.projectContextCache.clear();
 				},
 			};
 		},
@@ -1487,12 +1460,13 @@ async function provideWorkspaceDiagnostics(
 					continue;
 				}
 
-				// Build ProjectContext from the root document's dependency tree
-				const projectContext = await buildProjectContextFromVirtualCode(
-					shared,
+				// Build ProjectContext using the cache for incremental updates
+				// This is significantly faster than rebuilding from scratch each time
+				const projectContext = await shared.projectContextCache.getOrBuild(
 					rootUri,
 					virtualCode,
 					languageServiceContext,
+					affectedUris,
 				);
 				if (!projectContext) {
 					logger.log(`Failed to build ProjectContext for ${rootUri}`);

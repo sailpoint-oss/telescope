@@ -2,7 +2,6 @@
  * Shared utilities for the Telescope VS Code extension.
  */
 
-import { execSync } from "node:child_process";
 import * as path from "node:path";
 import { minimatch } from "minimatch";
 import * as vscode from "vscode";

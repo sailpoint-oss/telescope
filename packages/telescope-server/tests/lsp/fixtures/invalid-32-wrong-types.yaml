@@ -1,0 +1,13 @@
+# OpenAPI 3.2 document with type mismatch errors
+# Expected errors: info.title should be string, info.version should be string
+openapi: "3.2.0"
+info:
+  title: 123  # Should be string
+  version: true  # Should be string
+paths:
+  /pets:
+    get:
+      responses:
+        "200":
+          description: 456  # This might also be caught as wrong type
+

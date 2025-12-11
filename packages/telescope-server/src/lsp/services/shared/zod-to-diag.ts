@@ -5,21 +5,63 @@ import type { Range } from "vscode-languageserver-protocol";
 import { DiagnosticSeverity } from "vscode-languageserver-protocol";
 import type { DataVirtualCode } from "../../languages/virtualCodes/data-virtual-code.js";
 
+// ============================================================================
+// Zod v4 Issue Type Definition
+// ============================================================================
+
 /**
- * A Zod error issue from safeParse result.
+ * Complete Zod v4 error issue structure.
+ * Based on actual Zod v4 error output.
  */
 interface ZodIssue {
+	/** The error code identifying the type of error */
 	code: string;
+	/** The error message */
 	message: string;
+	/** Path to the error location in the data */
 	path: (string | number)[];
+
+	// Type errors (invalid_type)
+	/** Expected type for type errors */
 	expected?: string;
-	received?: string;
+
+	// Size constraint errors (too_small, too_big)
+	/** Minimum value/length */
+	minimum?: number;
+	/** Maximum value/length */
+	maximum?: number;
+	/** Whether the constraint is inclusive */
+	inclusive?: boolean;
+	/** Origin type (e.g., "number", "string", "array") */
+	origin?: string;
+
+	// Value errors (invalid_value - used for enums and literals)
+	/** Expected values for enum/literal errors */
+	values?: unknown[];
+
+	// Format errors (invalid_format)
+	/** Format name (e.g., "email", "url", "uuid") */
+	format?: string;
+
+	// Unrecognized keys (unrecognized_keys)
+	/** List of unrecognized keys */
+	keys?: string[];
+
+	// Union errors (invalid_union)
+	/** Nested errors from each union variant (array of arrays) */
+	errors?: ZodIssue[][];
+	/** Discriminator field name for discriminated unions */
+	discriminator?: string;
+	/** Additional note (e.g., "No matching discriminator") */
+	note?: string;
 }
+
+// ============================================================================
+// Main Conversion Function
+// ============================================================================
 
 /**
  * Convert Zod validation errors into Volar diagnostics using DataVirtualCode.
- * This is the preferred method as it works with both YAML and JSON documents
- * and uses the unified getRange() abstraction.
  *
  * @param schema - The Zod schema that was used for validation
  * @param value - The value that was validated
@@ -33,83 +75,46 @@ export function zodErrorsToDiagnostics(
 	virtualCode: DataVirtualCode,
 	source: string = "zod-schema",
 ): Diagnostic[] {
-	const diagnostics: Diagnostic[] = [];
-
-	const defaultRange: Range = {
-		start: { line: 0, character: 0 },
-		end: { line: 0, character: 0 },
-	};
-
-	// Use safeParse to get errors without throwing
 	const result = schema.safeParse(value);
 	if (result.success) {
 		return [];
 	}
 
-	// Zod v4 errors are in result.error.issues
 	const issues = result.error.issues as ZodIssue[];
+	return processIssues(issues, virtualCode, source, schema);
+}
+
+/**
+ * Process a list of Zod issues into diagnostics.
+ */
+function processIssues(
+	issues: ZodIssue[],
+	virtualCode: DataVirtualCode,
+	source: string,
+	schema: z.ZodType,
+): Diagnostic[] {
+	const diagnostics: Diagnostic[] = [];
+	const defaultRange: Range = {
+		start: { line: 0, character: 0 },
+		end: { line: 0, character: 0 },
+	};
 
 	for (const issue of issues) {
-		const path = issue.path;
+		// For union errors, try to extract a more specific error
+		const effectiveIssue = issue.code === "invalid_union"
+			? extractBestUnionError(issue) ?? issue
+			: issue;
 
-		// Try to get the range for this path
-		let range = virtualCode.getRange(path);
-		let forceIncludePath = false;
+		const path = effectiveIssue.path;
+		const range = getErrorRange(effectiveIssue, virtualCode, defaultRange);
+		const message = formatErrorMessage(effectiveIssue, path, range === defaultRange, schema);
 
-		// Special handling for missing values
-		if (
-			(issue.code === "invalid_type" && issue.received === "undefined") ||
-			issue.message.includes("Required")
-		) {
-			// Try parent path - get the first key's label to avoid highlighting entire object
-			const parentPath = path.slice(0, -1);
-			range = virtualCode.getFirstKeyRange(parentPath);
-
-			// If no first key range, try the document root's first key
-			if (!range) {
-				range = virtualCode.getFirstKeyRange([]);
-			}
-
-			// Fall back to parent range, then root range, then default
-			if (!range) {
-				range =
-					virtualCode.getRange(parentPath) ??
-					virtualCode.getRange([]) ??
-					defaultRange;
-			}
-
-			// Always include path in message when range is imprecise
-			forceIncludePath = true;
-		}
-
-		// Special handling for unrecognized keys
-		if (issue.code === "unrecognized_keys") {
-			// Get valid keys for suggestions
-			const validKeys = getValidKeysFromSchema(schema, path.slice(0, -1));
-
-			const lastKey = path[path.length - 1];
-			if (typeof lastKey === "string" && validKeys.length > 0) {
-				const match = closest(lastKey, validKeys);
-				const suggestion = `. Did you mean "${match}"?`;
-
-				diagnostics.push({
-					range: range ?? defaultRange,
-					message: `Unrecognized key: "${lastKey}"${suggestion}`,
-					severity: DiagnosticSeverity.Error,
-					source,
-					code: "unrecognized_key",
-				});
-				continue;
-			}
-		}
-
-		// Use the range we found, or fall back to document start
 		diagnostics.push({
-			range: range ?? defaultRange,
-			message: formatZodErrorMessage(issue, path, forceIncludePath || !range),
+			range,
+			message,
 			severity: DiagnosticSeverity.Error,
 			source,
-			code: getErrorCode(issue),
+			code: getErrorCode(effectiveIssue),
 		});
 	}
 
@@ -119,123 +124,291 @@ export function zodErrorsToDiagnostics(
 // Keep the old name as an alias for backward compatibility
 export const typeboxErrorsToDiagnostics = zodErrorsToDiagnostics;
 
+// ============================================================================
+// Range Resolution
+// ============================================================================
+
 /**
- * Format a Zod error into a user-friendly diagnostic message.
+ * Get the appropriate range for an error based on its type.
+ * Different error types should highlight different parts of the document.
  */
-function formatZodErrorMessage(
+function getErrorRange(
 	issue: ZodIssue,
-	path: (string | number)[],
-	includePath: boolean,
-): string {
-	// Format path - show "root" for fields at the root level, otherwise show the full path
-	let pathStr = "";
-	if (includePath && path.length > 0) {
-		if (path.length === 1) {
-			// Single element path means it's at the root level
-			pathStr = ` "${path[0]}" at root`;
-		} else {
-			// Nested path
-			pathStr = ` at "${path.map((p) => String(p)).join(".")}"`;
+	virtualCode: DataVirtualCode,
+	defaultRange: Range,
+): Range {
+	const path = issue.path;
+
+	switch (issue.code) {
+		case "unrecognized_keys": {
+			// Highlight just the unrecognized key name, not its value
+			// Path already points to the key (e.g., ['yo'] for yo: yo)
+			const keyRange = virtualCode.getKeyRange(path);
+			if (keyRange) return keyRange;
+			// Fallback to full range
+			return virtualCode.getRange(path) ?? defaultRange;
+		}
+
+		case "invalid_type": {
+			// For missing required fields (received: undefined), highlight parent's first key
+			if (issue.expected && !issue.message.includes("received")) {
+				// This is a missing field - highlight where it should be
+				const parentPath = path.slice(0, -1);
+				return (
+					virtualCode.getFirstKeyRange(parentPath) ??
+					virtualCode.getFirstKeyRange([]) ??
+					virtualCode.getRange(parentPath) ??
+					defaultRange
+				);
+			}
+			// For type mismatches, highlight the value
+			return virtualCode.getRange(path) ?? defaultRange;
+		}
+
+		case "invalid_union": {
+			// For discriminated union errors, highlight the discriminator field
+			if (issue.discriminator && path.length > 0) {
+				const discriminatorPath = [...path.slice(0, -1), issue.discriminator];
+				return (
+					virtualCode.getRange(discriminatorPath) ??
+					virtualCode.getRange(path) ??
+					defaultRange
+				);
+			}
+			// For regular unions, highlight the whole value
+			return virtualCode.getRange(path) ?? defaultRange;
+		}
+
+		case "invalid_value": {
+			// Highlight the value that has the wrong enum/literal value
+			return virtualCode.getRange(path) ?? defaultRange;
+		}
+
+		case "invalid_format": {
+			// Highlight the malformed value
+			return virtualCode.getRange(path) ?? defaultRange;
+		}
+
+		case "too_small":
+		case "too_big": {
+			// Highlight the value that violates the constraint
+			return virtualCode.getRange(path) ?? defaultRange;
+		}
+
+		default: {
+			// Default: try the path, then fall back
+			return (
+				virtualCode.getRange(path) ??
+				(path.length > 0 ? virtualCode.getRange(path.slice(0, -1)) : null) ??
+				virtualCode.getRange([]) ??
+				defaultRange
+			);
 		}
 	}
+}
 
+// ============================================================================
+// Union Error Extraction
+// ============================================================================
+
+/**
+ * Extract the most actionable error from a union validation failure.
+ * Zod v4 union errors have an `errors` array (array of arrays, one per variant).
+ */
+function extractBestUnionError(issue: ZodIssue): ZodIssue | null {
+	// For discriminated unions with a clear message, use it directly
+	if (issue.discriminator && issue.note) {
+		return issue;
+	}
+
+	if (!issue.errors || issue.errors.length === 0) {
+		return null;
+	}
+
+	// Flatten all errors from all union variants
+	const allErrors = issue.errors.flat();
+	if (allErrors.length === 0) {
+		return null;
+	}
+
+	// Priority order for specificity:
+	// 1. unrecognized_keys - User added an unknown field
+	const unrecognized = allErrors.find((e) => e.code === "unrecognized_keys");
+	if (unrecognized) return unrecognized;
+
+	// 2. invalid_format - Clear format validation failure (email, url, etc.)
+	const formatError = allErrors.find((e) => e.code === "invalid_format");
+	if (formatError) return formatError;
+
+	// 3. invalid_value - Wrong enum/literal value (not undefined)
+	const valueError = allErrors.find(
+		(e) => e.code === "invalid_value" && e.values && e.values.length > 0,
+	);
+	if (valueError) return valueError;
+
+	// 4. invalid_type with actual type mismatch (not just missing)
+	const typeError = allErrors.find(
+		(e) =>
+			e.code === "invalid_type" &&
+			e.expected &&
+			!e.message.includes("undefined"),
+	);
+	if (typeError) return typeError;
+
+	// 5. custom errors (from superRefine) with meaningful messages
+	const customError = allErrors.find(
+		(e) =>
+			e.code === "custom" &&
+			e.message &&
+			!e.message.includes("Invalid input"),
+	);
+	if (customError) return customError;
+
+	// 6. Any error with a non-generic message
+	const specificError = allErrors.find(
+		(e) =>
+			e.message &&
+			!e.message.includes("Invalid input") &&
+			!e.message.includes("Invalid union"),
+	);
+	if (specificError) return specificError;
+
+	// Last resort: first error
+	return allErrors[0] ?? null;
+}
+
+// ============================================================================
+// Message Formatting
+// ============================================================================
+
+/**
+ * Format an error message, preferring Zod's native messages when they're good.
+ */
+function formatErrorMessage(
+	issue: ZodIssue,
+	path: (string | number)[],
+	includePathInMessage: boolean,
+	schema: z.ZodType,
+): string {
+	const pathSuffix = includePathInMessage ? formatPath(path) : "";
 	const message = issue.message;
-	const code = issue.code;
 
-	// Handle specific Zod error codes
-	switch (code) {
-		case "invalid_type":
-			if (issue.received === "undefined") {
-				return `Missing required field${pathStr}`;
+	switch (issue.code) {
+		case "unrecognized_keys": {
+			// For unrecognized keys, provide "did you mean" suggestions
+			if (issue.keys && issue.keys.length > 0) {
+				const key = issue.keys[0];
+				const validKeys = getValidKeysFromSchema(schema, path.slice(0, -1));
+				
+				if (validKeys.length > 0) {
+					const closest_match = closest(key, validKeys);
+					return `${message}. Did you mean "${closest_match}"?${pathSuffix}`;
+				}
+				// Use Zod's message directly - it's already good
+				return `${message}${pathSuffix}`;
 			}
-			return `Expected ${issue.expected}, received ${issue.received}${pathStr}`;
+			return `${message}${pathSuffix}`;
+		}
 
-		case "unrecognized_keys":
-			return `${message}${pathStr}`;
+		case "invalid_type": {
+			// Zod's message is already well-formatted:
+			// "Invalid input: expected string, received number"
+			// Only customize for missing required fields
+			if (issue.expected && message.includes("undefined")) {
+				return `Missing required field: ${issue.expected} expected${pathSuffix}`;
+			}
+			return `${message}${pathSuffix}`;
+		}
 
-		case "invalid_string":
-			if (message.toLowerCase().includes("email")) {
-				return `Invalid email format${pathStr}`;
-			}
-			if (message.toLowerCase().includes("url") || message.toLowerCase().includes("uri")) {
-				return `Invalid URL format${pathStr}`;
-			}
-			if (message.toLowerCase().includes("uuid")) {
-				return `Invalid UUID format${pathStr}`;
-			}
-			return `${message}${pathStr}`;
+		case "invalid_value": {
+			// Zod's message is good: "Invalid option: expected one of ..."
+			// or "Invalid input: expected \"value\""
+			return `${message}${pathSuffix}`;
+		}
+
+		case "invalid_format": {
+			// Zod's message includes the format: "Invalid email address"
+			return `${message}${pathSuffix}`;
+		}
 
 		case "too_small":
-			return `Value is too small${pathStr}. ${message}`;
+		case "too_big": {
+			// Zod's message is descriptive: "Too small: expected number to be >=0"
+			return `${message}${pathSuffix}`;
+		}
 
-		case "too_big":
-			return `Value is too large${pathStr}. ${message}`;
+		case "invalid_union": {
+			// For discriminated unions with clear info
+			if (issue.discriminator && issue.note) {
+				return `Invalid "${issue.discriminator}" value: no matching type found${pathSuffix}`;
+			}
+			// For generic unions, provide context
+			if (message === "Invalid input") {
+				return `Value does not match any expected type${pathSuffix}`;
+			}
+			return `${message}${pathSuffix}`;
+		}
 
-		case "invalid_union":
-			return `Invalid value${pathStr}. ${message}`;
+		case "custom": {
+			// Custom errors from superRefine - use message directly
+			return `${message}${pathSuffix}`;
+		}
 
-		case "invalid_enum_value":
-			return `${message}${pathStr}`;
-
-		case "invalid_literal":
-			return `${message}${pathStr}`;
-
-		default:
-			return message ? `${message}${pathStr}` : `Validation error${pathStr}`;
+		default: {
+			// For any other codes, use Zod's message
+			return message ? `${message}${pathSuffix}` : `Validation error${pathSuffix}`;
+		}
 	}
 }
 
 /**
- * Get an error code from a Zod issue for diagnostic purposes.
+ * Format a path array into a readable suffix for error messages.
+ */
+function formatPath(path: (string | number)[]): string {
+	if (path.length === 0) return "";
+	if (path.length === 1) return ` (at "${path[0]}")`;
+	return ` (at ${path.map((p) => String(p)).join(".")})`;
+}
+
+// ============================================================================
+// Error Code Mapping
+// ============================================================================
+
+/**
+ * Map Zod error codes to diagnostic codes for the LSP.
+ * Uses Zod's native error codes for consistency.
  */
 function getErrorCode(issue: ZodIssue): string {
+	// Use Zod's native code directly - they're already descriptive
+	// Only translate a few for backwards compatibility
 	switch (issue.code) {
-		case "invalid_type":
-			if (issue.received === "undefined") {
-				return "required";
-			}
-			return "invalid_type";
-
 		case "unrecognized_keys":
-			return "unrecognized_key";
-
-		case "invalid_string":
-			return "invalid_format";
-
-		case "too_small":
-			return "too_small";
-
-		case "too_big":
-			return "too_big";
-
-		case "invalid_union":
-			return "invalid_union";
-
-		case "invalid_enum_value":
-			return "invalid_enum";
+			return "unrecognized_key"; // Singular for consistency
 
 		default:
-			return "validation_error";
+			// Use Zod's code directly
+			return issue.code || "validation_error";
 	}
 }
+
+// ============================================================================
+// Schema Introspection
+// ============================================================================
 
 /**
  * Try to extract valid keys from a Zod schema at a given path.
- * This is used for "did you mean" suggestions.
+ * Used for "did you mean" suggestions.
  */
 function getValidKeysFromSchema(
 	schema: z.ZodType,
 	path: (string | number)[],
 ): string[] {
-	// Zod schemas don't expose their structure easily at runtime
-	// We can try to extract shape from object schemas
 	try {
 		let current: unknown = schema;
 
 		// Navigate to the path
 		for (const segment of path) {
 			if (typeof segment === "string") {
-				// Try to get shape from object schema
 				const shape = (current as { shape?: Record<string, unknown> }).shape;
 				if (shape && shape[segment]) {
 					current = shape[segment];
@@ -243,7 +416,6 @@ function getValidKeysFromSchema(
 					return [];
 				}
 			} else if (typeof segment === "number") {
-				// For arrays, try to get element schema
 				const element = (current as { element?: unknown }).element;
 				if (element) {
 					current = element;
@@ -264,3 +436,4 @@ function getValidKeysFromSchema(
 
 	return [];
 }
+

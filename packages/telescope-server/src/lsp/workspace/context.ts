@@ -19,6 +19,7 @@ import {
 	resolveConfig,
 } from "../../engine/index.js";
 import type { ValidationRule } from "../../types.js";
+import { ProjectContextCache } from "../core/project-context-cache.js";
 import { WorkspaceIndex } from "../core/workspace-index.js";
 import { getCachedSchema } from "../services/shared/schema-cache.js";
 import { loadSchema } from "../services/shared/schema-loader.js";
@@ -53,6 +54,7 @@ export class telescopeVolarContext {
 	readonly documents = new OpenAPIDocumentStore(this.documentCache);
 
 	private _workspaceIndex?: WorkspaceIndex;
+	private _projectContextCache?: ProjectContextCache;
 	private readonly server?: LanguageServer;
 
 	private logger: DiagnosticsLogger;
@@ -85,6 +87,9 @@ export class telescopeVolarContext {
 	private hasPerformedInitialScan = false;
 	public rulesLoadPromise: Promise<void> = Promise.resolve();
 
+	/** Error that occurred during the last rule loading attempt, if any */
+	private rulesLoadError: Error | undefined;
+
 	/**
 	 * Known OpenAPI files sent from the client after workspace scan.
 	 * This is the "project model" - all files that should be validated.
@@ -116,6 +121,19 @@ export class telescopeVolarContext {
 			this._workspaceIndex = new WorkspaceIndex(this);
 		}
 		return this._workspaceIndex;
+	}
+
+	/**
+	 * Get the ProjectContextCache for incremental workspace diagnostics.
+	 *
+	 * ProjectContextCache caches ProjectContext instances and supports
+	 * incremental updates when only some documents change.
+	 */
+	get projectContextCache(): ProjectContextCache {
+		if (!this._projectContextCache) {
+			this._projectContextCache = new ProjectContextCache(this);
+		}
+		return this._projectContextCache;
 	}
 
 	/**
@@ -339,7 +357,15 @@ export class telescopeVolarContext {
 			.catch(() => {
 				// Ignore errors from previous load - we're replacing with a new load
 			})
-			.then(() => this.loadRules());
+			.then(() => this.loadRules())
+			.catch((error) => {
+				// Capture any unexpected errors from loadRules that escape its try/catch
+				this.rulesLoadError =
+					error instanceof Error ? error : new Error(String(error));
+				this.logger.error(
+					`[Context] Unexpected error loading rules: ${this.rulesLoadError.message}`,
+				);
+			});
 		return true;
 	}
 
@@ -352,10 +378,14 @@ export class telescopeVolarContext {
 			this.resolvedRules = [];
 			this.genericRules = [];
 			this.validationRules = [];
+			this.rulesLoadError = undefined;
 			return;
 		}
 
 		try {
+			// Clear any previous error before attempting to load
+			this.rulesLoadError = undefined;
+
 			// Load OpenAPI rules
 			this.resolvedRules = await materializeRules(this.config, workspacePath);
 
@@ -418,12 +448,36 @@ export class telescopeVolarContext {
 				`[Context] Loaded ${this.resolvedRules.length} OpenAPI rules, ${this.genericRules.length} generic rules, ${this.validationRules.length} validation rules`,
 			);
 		} catch (error) {
+			// Store error for callers to check
+			this.rulesLoadError =
+				error instanceof Error ? error : new Error(String(error));
 			this.logger.error(
-				`[Context] Failed to load rules: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
+				`[Context] Failed to load rules: ${this.rulesLoadError.message}`,
 			);
+
+			// Reset rules to empty state on error
+			this.resolvedRules = [];
+			this.genericRules = [];
+			this.validationRules = [];
 		}
+	}
+
+	/**
+	 * Check if the last rule loading attempt encountered an error.
+	 *
+	 * @returns true if rule loading failed, false otherwise
+	 */
+	hasRulesLoadError(): boolean {
+		return this.rulesLoadError !== undefined;
+	}
+
+	/**
+	 * Get the error from the last rule loading attempt.
+	 *
+	 * @returns The error if rule loading failed, undefined otherwise
+	 */
+	getRulesLoadError(): Error | undefined {
+		return this.rulesLoadError;
 	}
 
 	/**

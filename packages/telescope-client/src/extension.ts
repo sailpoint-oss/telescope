@@ -67,12 +67,25 @@ export async function activate(context: ExtensionContext) {
 
 		context.subscriptions.push(sessionManager);
 
+		// Create Volar Labs info early so we can return its exports
+		// Clients will be registered after sessions initialize
+		const labsInfo = createLabsInfo();
+
 		// Initialize sessions asynchronously in the background to avoid blocking activation.
 		// This allows the extension to activate immediately while sessions start up.
 		// Commands and features gracefully handle cases where sessions aren't ready yet.
 		sessionManager.initialize().then(
 			() => {
 				outputChannel.appendLine(formatSetupLog("✅ All sessions initialized"));
+				
+				// Register clients with Volar Labs after initialization completes
+				// This ensures all sessions have their clients started
+				for (const session of sessionManager!.getAllSessions()) {
+					const client = session.getClient();
+					if (client) {
+						labsInfo.addLanguageClient(client);
+					}
+				}
 			},
 			(error) => {
 				outputChannel.appendLine(
@@ -401,19 +414,6 @@ export async function activate(context: ExtensionContext) {
 				(uri?: vscode.Uri) => convertYamlToJson(uri, false),
 			),
 		);
-
-		// ====================================================================
-		// Volar Labs Support
-		// ====================================================================
-
-		// Add all running clients to Volar Labs
-		const labsInfo = createLabsInfo();
-		for (const session of sessionManager.getAllSessions()) {
-			const client = session.getClient();
-			if (client) {
-				labsInfo.addLanguageClient(client);
-			}
-		}
 
 		return labsInfo.extensionExports;
 	} catch (error: unknown) {

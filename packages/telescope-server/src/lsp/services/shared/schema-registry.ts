@@ -16,11 +16,16 @@
 import type { LanguageServiceContext } from "@volar/language-service";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import { URI } from "vscode-uri";
-import { z } from "zod";
 import { TelescopeConfigSchema } from "../../../engine/schemas/index.js";
 import type { DataVirtualCode } from "../../languages/virtualCodes/data-virtual-code.js";
 import type { telescopeVolarContext } from "../../workspace/context.js";
 import { getAllSchemaEntries } from "./schema-cache.js";
+
+/**
+ * Type for a class constructor that produces DataVirtualCode instances.
+ * Used for instanceof checks in resolveDocumentContext.
+ */
+type DataVirtualCodeConstructor = new (...args: unknown[]) => DataVirtualCode;
 
 // ============================================================================
 // Schema Constants
@@ -128,6 +133,13 @@ export function createSchemaRequestService(
 		}
 
 		// Fetch remote schemas
+		// Note: global fetch requires Node.js 18+ (available in VS Code's Electron)
+		if (typeof fetch === "undefined") {
+			logger?.log(
+				`[Schema Request] fetch not available (requires Node.js 18+): ${uri}`,
+			);
+			return "{}";
+		}
 		try {
 			const response = await fetch(uri);
 			return await response.text();
@@ -167,8 +179,7 @@ export function createSchemaRequestService(
 export function resolveDocumentContext(
 	document: TextDocument,
 	context: LanguageServiceContext,
-	// biome-ignore lint/suspicious/noExplicitAny: Need to accept class constructor
-	DataVirtualCodeClass: any,
+	DataVirtualCodeClass: DataVirtualCodeConstructor,
 ): ResolvedDocumentContext | undefined {
 	// Decode embedded URI to get source file and embedded code ID
 	const parsedUri = URI.parse(document.uri);

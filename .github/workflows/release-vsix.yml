@@ -44,7 +44,7 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           cd packages/telescope-client
           CURRENT_VERSION=$(jq -r '.version' package.json)
-          jq --arg v "${CURRENT_VERSION}-nightly+${SHORT_SHA}" '.version = $v' package.json > tmp.json
+          jq --arg v "${CURRENT_VERSION}-nightly.${SHORT_SHA}" '.version = $v' package.json > tmp.json
           mv tmp.json package.json
 
       - name: Package VSIX

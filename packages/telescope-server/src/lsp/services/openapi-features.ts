@@ -630,7 +630,7 @@ export function provideWorkspaceSymbols(
 					if (range) {
 						symbols.push({
 							name,
-							kind: 6 as SymbolKind, // Method
+							kind: SYMBOL_KIND.Method,
 							location: { uri: op.uri, range },
 							containerName: op.path,
 						});
@@ -660,7 +660,7 @@ export function provideWorkspaceSymbols(
 					if (range) {
 						symbols.push({
 							name: schema.name,
-							kind: 23 as SymbolKind, // Struct
+							kind: SYMBOL_KIND.Struct,
 							location: { uri: schema.uri, range },
 							containerName: "components/schemas",
 						});
@@ -684,25 +684,25 @@ export function provideWorkspaceSymbols(
 function getSymbolKindForComponent(type: string): SymbolKind {
 	switch (type) {
 		case "schemas":
-			return 23 as SymbolKind; // Struct
+			return SYMBOL_KIND.Struct;
 		case "responses":
-			return 8 as SymbolKind; // Field
+			return SYMBOL_KIND.Field;
 		case "parameters":
-			return 13 as SymbolKind; // Variable
+			return SYMBOL_KIND.Variable;
 		case "requestBodies":
-			return 8 as SymbolKind; // Field
+			return SYMBOL_KIND.Field;
 		case "headers":
-			return 14 as SymbolKind; // Constant
+			return SYMBOL_KIND.Constant;
 		case "securitySchemes":
-			return 15 as SymbolKind; // Key
+			return SYMBOL_KIND.Key;
 		case "links":
-			return 18 as SymbolKind; // Interface
+			return SYMBOL_KIND.Interface;
 		case "callbacks":
-			return 24 as SymbolKind; // Event
+			return SYMBOL_KIND.Event;
 		case "examples":
-			return 7 as SymbolKind; // Property
+			return SYMBOL_KIND.Property;
 		default:
-			return 5 as SymbolKind; // Class
+			return SYMBOL_KIND.Class;
 	}
 }
 
@@ -734,10 +734,15 @@ export function provideOpenAPICompletions(
 		const beforeCursor = currentLine.substring(0, position.character);
 
 		// Check if we're completing a $ref value
-		if (
-			beforeCursor.includes("$ref") &&
-			(beforeCursor.includes(':"') || beforeCursor.includes(": '"))
-		) {
+		// Pattern matches:
+		// - YAML: "$ref": " or $ref: '
+		// - JSON: "$ref": "
+		// Ensures we're at the value position, not just anywhere on a line with $ref
+		const isAtRefValue =
+			/\$ref['"]?\s*:\s*['"]$/.test(beforeCursor) || // $ref: " or "$ref": "
+			/\$ref['"]?\s*:\s*['"][^'"]*$/.test(beforeCursor); // Already typing inside the value
+
+		if (isAtRefValue) {
 			items.push(...getRefCompletions(shared, context, sourceUri, virtualCode));
 		}
 
@@ -1084,7 +1089,7 @@ export function provideRenameEdits(
 			if (node.loc) {
 				const range = virtualCode.locToRange({
 					...node.loc,
-					end: node.loc.start ?? 0 + oldName.length,
+					end: (node.loc.start ?? 0) + oldName.length,
 				});
 				if (range) {
 					if (!changes[sourceUriString]) changes[sourceUriString] = [];
@@ -1559,15 +1564,15 @@ export function prepareCallHierarchy(
 
 		// Get name based on node type
 		let name = node.key ?? "unknown";
-		let kind = 5 as SymbolKind; // Class
+		let kind: SymbolKind = SYMBOL_KIND.Class;
 
 		// Check if it's a component
 		if (node.ptr?.startsWith("#/components/schemas/")) {
 			name = getPointerKey(node.ptr) ?? name;
-			kind = 23 as SymbolKind; // Struct
+			kind = SYMBOL_KIND.Struct;
 		} else if (node.ptr?.startsWith("#/components/")) {
 			name = getPointerKey(node.ptr) ?? name;
-			kind = 5 as SymbolKind; // Class
+			kind = SYMBOL_KIND.Class;
 		} else if (
 			node.ptr?.includes("/get") ||
 			node.ptr?.includes("/post") ||
@@ -1575,7 +1580,7 @@ export function prepareCallHierarchy(
 			node.ptr?.includes("/delete")
 		) {
 			// Operation
-			kind = 6 as SymbolKind; // Method
+			kind = SYMBOL_KIND.Method;
 		}
 
 		items.push({
@@ -1629,7 +1634,7 @@ export function provideCallHierarchyIncomingCalls(
 			calls.push({
 				from: {
 					name: getPointerKey(dep.pointer) ?? "reference",
-					kind: 6 as SymbolKind,
+					kind: SYMBOL_KIND.Method,
 					uri: dep.uri,
 					range,
 					selectionRange: range,
@@ -1681,7 +1686,7 @@ export function provideCallHierarchyOutgoingCalls(
 			calls.push({
 				to: {
 					name: getPointerKey(ref.pointer) ?? "target",
-					kind: 23 as SymbolKind, // Struct
+					kind: SYMBOL_KIND.Struct,
 					uri: ref.uri,
 					range,
 					selectionRange: range,
@@ -1739,6 +1744,67 @@ export const SEMANTIC_TOKEN_MODIFIERS = [
 	"documentation", // 5
 	"defaultLibrary", // 6
 ];
+
+/**
+ * Named constants for semantic token type indices.
+ * Use these instead of magic numbers in getTokenInfo().
+ */
+const TOKEN_TYPE = {
+	namespace: 0, // paths
+	type: 1, // schemas
+	class: 2, // components
+	enum: 3, // status codes
+	interface: 4, // parameters
+	struct: 5, // request/response bodies
+	typeParameter: 6, // path parameters
+	parameter: 7, // query/header parameters
+	variable: 8, // $ref values
+	property: 9, // properties
+	enumMember: 10, // enum values
+	event: 11, // callbacks
+	function: 12, // operations
+	method: 13, // HTTP methods
+	macro: 14, // security schemes
+	keyword: 15, // OpenAPI keywords
+	modifier: 16, // modifiers (deprecated, required)
+	comment: 17, // descriptions
+	string: 18, // media types
+	number: 19, // numbers
+	regexp: 20, // patterns
+	operator: 21, // discriminator
+} as const;
+
+/**
+ * Named constants for semantic token modifier flags.
+ * These are bit flags that can be OR'd together.
+ */
+const TOKEN_MODIFIER = {
+	declaration: 1 << 0, // 1
+	definition: 1 << 1, // 2
+	readonly: 1 << 2, // 4
+	deprecated: 1 << 3, // 8
+	modification: 1 << 4, // 16
+	documentation: 1 << 5, // 32
+	defaultLibrary: 1 << 6, // 64
+} as const;
+
+/**
+ * Named constants for SymbolKind values.
+ * Use these instead of magic numbers in symbol-related functions.
+ * Values match the LSP SymbolKind enum.
+ */
+const SYMBOL_KIND = {
+	Class: 5 as SymbolKind,
+	Method: 6 as SymbolKind,
+	Property: 7 as SymbolKind,
+	Field: 8 as SymbolKind,
+	Variable: 13 as SymbolKind,
+	Constant: 14 as SymbolKind,
+	Key: 15 as SymbolKind,
+	Interface: 18 as SymbolKind,
+	Struct: 23 as SymbolKind,
+	Event: 24 as SymbolKind,
+} as const;
 
 /**
  * Semantic token type (tuple format expected by Volar).
@@ -1874,6 +1940,7 @@ function getValuePosition(
 
 /**
  * Determine semantic token type for a node.
+ * Uses TOKEN_TYPE and TOKEN_MODIFIER constants for clarity.
  */
 function getTokenInfo(node: IRNode): TokenInfo | null {
 	// HTTP methods - highlight the KEY
@@ -1889,37 +1956,37 @@ function getTokenInfo(node: IRNode): TokenInfo | null {
 			"trace",
 		].includes(node.key ?? "")
 	) {
-		return { type: 13, modifiers: 0, target: "key" }; // method
+		return { type: TOKEN_TYPE.method, modifiers: 0, target: "key" };
 	}
 
 	// Paths - highlight the KEY (the path string like "/users/{id}")
 	if (node.key?.startsWith("/")) {
-		return { type: 0, modifiers: 0, target: "key" }; // namespace
+		return { type: TOKEN_TYPE.namespace, modifiers: 0, target: "key" };
 	}
 
 	// Status codes - highlight the KEY
 	if (/^[1-5]\d\d$/.test(node.key ?? "") || node.key === "default") {
-		return { type: 3, modifiers: 0, target: "key" }; // enum (status codes)
+		return { type: TOKEN_TYPE.enum, modifiers: 0, target: "key" };
 	}
 
 	// $ref values - highlight the VALUE (the actual reference string)
 	if (node.key === "$ref" && typeof node.value === "string") {
-		return { type: 8, modifiers: 0, target: "value" }; // variable
+		return { type: TOKEN_TYPE.variable, modifiers: 0, target: "value" };
 	}
 
 	// Security scheme names in security requirements - highlight the KEY
 	if (node.ptr?.includes("/security/") && node.kind === "object" && node.key) {
-		return { type: 14, modifiers: 0, target: "key" }; // macro
+		return { type: TOKEN_TYPE.macro, modifiers: 0, target: "key" };
 	}
 
 	// Media types - highlight the KEY
 	if (node.key?.includes("/") && node.key.match(/^[a-z]+\/[a-z+.-]+$/)) {
-		return { type: 18, modifiers: 0, target: "key" }; // string
+		return { type: TOKEN_TYPE.string, modifiers: 0, target: "key" };
 	}
 
 	// operationId - highlight the VALUE (the actual ID)
 	if (node.key === "operationId" && typeof node.value === "string") {
-		return { type: 12, modifiers: 0, target: "value" }; // function
+		return { type: TOKEN_TYPE.function, modifiers: 0, target: "value" };
 	}
 
 	// Schema types - highlight the VALUE (e.g., "integer", "string", "array")
@@ -1928,22 +1995,26 @@ function getTokenInfo(node: IRNode): TokenInfo | null {
 		node.kind === "string" &&
 		typeof node.value === "string"
 	) {
-		return { type: 15, modifiers: 0, target: "value" }; // keyword
+		return { type: TOKEN_TYPE.keyword, modifiers: 0, target: "value" };
 	}
 
 	// Deprecated flag - highlight the KEY
 	if (node.key === "deprecated" && node.value === true) {
-		return { type: 16, modifiers: 8, target: "key" }; // modifier with deprecated flag
+		return {
+			type: TOKEN_TYPE.modifier,
+			modifiers: TOKEN_MODIFIER.deprecated,
+			target: "key",
+		};
 	}
 
 	// Path parameters in path strings - highlight the KEY
 	if (node.key?.includes("{") && node.key?.includes("}")) {
-		return { type: 6, modifiers: 0, target: "key" }; // typeParameter
+		return { type: TOKEN_TYPE.typeParameter, modifiers: 0, target: "key" };
 	}
 
 	// Components sections - highlight the KEY
 	if (node.ptr?.match(/^#\/components\/\w+$/)) {
-		return { type: 2, modifiers: 0, target: "key" }; // class
+		return { type: TOKEN_TYPE.class, modifiers: 0, target: "key" };
 	}
 
 	// Schema definitions - highlight the KEY (the schema name)
@@ -1956,7 +2027,11 @@ function getTokenInfo(node: IRNode): TokenInfo | null {
 		const parts = node.ptr.split("/");
 		if (parts.length === 4) {
 			// #/components/schemas/SchemaName
-			return { type: 1, modifiers: 2, target: "key" }; // type with definition modifier
+			return {
+				type: TOKEN_TYPE.type,
+				modifiers: TOKEN_MODIFIER.definition,
+				target: "key",
+			};
 		}
 	}
 

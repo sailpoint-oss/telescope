@@ -288,6 +288,8 @@ export class DataVirtualCode implements VirtualCode {
 
 	/**
 	 * Shift all mapping offsets after a change point by the given delta.
+	 * Mappings that span the change range (have offsets both before and after)
+	 * are invalidated since they may be corrupted by the change.
 	 *
 	 * @param changeStart - The byte offset where the change started
 	 * @param delta - The difference in length (newLength - oldLength)
@@ -295,6 +297,27 @@ export class DataVirtualCode implements VirtualCode {
 	protected shiftMappings(changeStart: number, delta: number): void {
 		if (delta === 0) return;
 
+		// Calculate the change end (for deletions, this is same as changeStart)
+		const changeEnd = changeStart + Math.max(0, -delta);
+
+		// Filter out mappings that span the change range, as they may be corrupted
+		// A mapping spans if it has offsets both before changeStart and after changeEnd
+		this.mappings = this.mappings.filter((mapping) => {
+			let hasBefore = false;
+			let hasAfter = false;
+
+			for (const offset of mapping.sourceOffsets) {
+				if (offset !== undefined) {
+					if (offset < changeStart) hasBefore = true;
+					if (offset > changeEnd) hasAfter = true;
+				}
+			}
+
+			// Keep mapping unless it spans (has both before and after)
+			return !(hasBefore && hasAfter);
+		});
+
+		// Shift remaining mappings
 		for (const mapping of this.mappings) {
 			for (let i = 0; i < mapping.sourceOffsets.length; i++) {
 				const offset = mapping.sourceOffsets[i];
@@ -439,6 +462,74 @@ export class DataVirtualCode implements VirtualCode {
 				}
 			}
 		}
+		return undefined;
+	}
+
+	/**
+	 * Get the range of the key name only for a specific path.
+	 * Unlike getRange() which returns the entire node (key + value),
+	 * this returns just the key portion.
+	 *
+	 * For example, for path ['info', 'title'], returns the range of "title" key only.
+	 *
+	 * @param path - Array path to the key
+	 * @returns LSP Range of just the key, or undefined if not found
+	 */
+	getKeyRange(path: (string | number)[]): Range | undefined {
+		if (path.length === 0) return undefined;
+
+		const ast = this.ast;
+		const lineOffsets = this._lineOffsets;
+		const lastSegment = path[path.length - 1];
+		const parentPath = path.slice(0, -1);
+
+		if (this.format === "yaml" && ast instanceof yaml.Document) {
+			// Get the parent node (or root if parentPath is empty)
+			const parentNode = parentPath.length === 0
+				? ast.contents
+				: ast.getIn(parentPath, true);
+
+			if (parentNode && yaml.isMap(parentNode)) {
+				// Find the pair with the matching key
+				for (const pair of parentNode.items) {
+					const key = pair.key;
+					if (yaml.isScalar(key) && key.value === lastSegment) {
+						const keyRange = key.range;
+						if (keyRange && keyRange.length >= 2) {
+							const start = getLineCol(keyRange[0], lineOffsets);
+							const end = getLineCol(keyRange[1], lineOffsets);
+							return {
+								start: { line: start.line - 1, character: start.col - 1 },
+								end: { line: end.line - 1, character: end.col - 1 },
+							};
+						}
+					}
+				}
+			}
+		} else if (this.format === "json" && ast) {
+			// For JSON, get the parent object and find the property with matching key
+			const parentNode = parentPath.length === 0
+				? ast as jsonc.Node
+				: jsonc.findNodeAtLocation(ast as jsonc.Node, parentPath);
+
+			if (parentNode?.type === "object" && parentNode.children) {
+				for (const property of parentNode.children) {
+					if (property.type === "property" && property.children?.length >= 1) {
+						const keyNode = property.children[0];
+						// JSON key nodes are strings, their value is the key name
+						if (keyNode?.type === "string" && keyNode.value === lastSegment) {
+							const start = getLineCol(keyNode.offset, lineOffsets);
+							const end = getLineCol(keyNode.offset + keyNode.length, lineOffsets);
+							return {
+								start: { line: start.line - 1, character: start.col - 1 },
+								end: { line: end.line - 1, character: end.col - 1 },
+							};
+						}
+					}
+				}
+			}
+		}
+
 		return undefined;
 	}
 }

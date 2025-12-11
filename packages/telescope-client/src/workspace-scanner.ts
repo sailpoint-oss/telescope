@@ -46,6 +46,12 @@ function isJSONFile(filePath: string): boolean {
 export type FileFilter = (uri: vscode.Uri) => boolean;
 
 /**
+ * Callback for status updates during scanning.
+ * Used to centralize status bar management in SessionManager.
+ */
+export type ScanStatusCallback = (status: string) => void;
+
+/**
  * WorkspaceScanner provides background scanning of workspace files
  * to identify OpenAPI documents.
  *
@@ -68,9 +74,6 @@ export class WorkspaceScanner {
 	/** Cancellation token for current scan */
 	private cancellationSource: vscode.CancellationTokenSource | null = null;
 
-	/** Status bar item for showing progress */
-	private statusBarItem: vscode.StatusBarItem | null = null;
-
 	/** Number of OpenAPI files found */
 	private openAPICount = 0;
 
@@ -80,17 +83,15 @@ export class WorkspaceScanner {
 	/** Optional workspace folder to scope scanning to */
 	private workspaceFolder: vscode.WorkspaceFolder | null = null;
 
+	/** Callback for status updates (replaces direct status bar manipulation) */
+	private statusCallback: ScanStatusCallback | null = null;
+
 	/**
 	 * Create a new WorkspaceScanner.
 	 *
-	 * @param statusBarItem - Optional status bar item for showing progress
 	 * @param workspaceFolder - Optional workspace folder to scope scanning to
 	 */
-	constructor(
-		statusBarItem?: vscode.StatusBarItem,
-		workspaceFolder?: vscode.WorkspaceFolder,
-	) {
-		this.statusBarItem = statusBarItem || null;
+	constructor(workspaceFolder?: vscode.WorkspaceFolder) {
 		this.workspaceFolder = workspaceFolder || null;
 	}
 
@@ -120,10 +121,13 @@ export class WorkspaceScanner {
 	}
 
 	/**
-	 * Set the status bar item for showing progress.
+	 * Set the status callback for progress updates.
+	 * This centralizes status bar management in SessionManager.
+	 *
+	 * @param callback - Callback function that receives status messages
 	 */
-	setStatusBarItem(item: vscode.StatusBarItem): void {
-		this.statusBarItem = item;
+	setStatusCallback(callback: ScanStatusCallback | null): void {
+		this.statusCallback = callback;
 	}
 
 	/**
@@ -204,8 +208,8 @@ export class WorkspaceScanner {
 			const openAPIFiles: string[] = [];
 			const total = files.length;
 
-			// Update status bar
-			this.updateStatusBar(`Scanning... 0/${total}`);
+			// Update status via callback
+			this.reportStatus(`Scanning... 0/${total}`);
 
 			// Process files in batches
 			for (let i = 0; i < files.length; i += batchSize) {
@@ -228,14 +232,14 @@ export class WorkspaceScanner {
 				// Report progress
 				const scanned = Math.min(i + batchSize, total);
 				onProgress?.(scanned, total);
-				this.updateStatusBar(`Scanning... ${scanned}/${total}`);
+				this.reportStatus(`Scanning... ${scanned}/${total}`);
 
 				// Yield to event loop to keep UI responsive
 				await new Promise((resolve) => setTimeout(resolve, 0));
 			}
 
 			this.openAPICount = openAPIFiles.length;
-			this.updateStatusBar(`OpenAPI: ${this.openAPICount} files`);
+			this.reportStatus(`OpenAPI: ${this.openAPICount} files`);
 
 			return openAPIFiles;
 		} finally {
@@ -347,16 +351,15 @@ export class WorkspaceScanner {
 	}
 
 	/**
-	 * Update the status bar with a message.
+	 * Report status via callback.
+	 * Includes workspace folder name prefix if scoped to a folder.
 	 */
-	private updateStatusBar(text: string): void {
-		if (this.statusBarItem) {
-			// Include folder name if scoped to a workspace folder
+	private reportStatus(text: string): void {
+		if (this.statusCallback) {
 			const prefix = this.workspaceFolder
 				? `${this.workspaceFolder.name}: `
 				: "";
-			this.statusBarItem.text = `$(file-code) ${prefix}${text}`;
-			this.statusBarItem.show();
+			this.statusCallback(`${prefix}${text}`);
 		}
 	}
 

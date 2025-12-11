@@ -279,3 +279,13 @@ export {
 	type TelescopeConfig,
 	TelescopeConfigSchema,
 } from "./config-schema.js";
+
+// =============================================================================
+// Schema Helpers (for creating schemas with extension support)
+// =============================================================================
+export {
+	noExtensions,
+	withExtensions,
+	withPassthrough,
+	type WithExtensionsResult,
+} from "./schema-helpers.js";
