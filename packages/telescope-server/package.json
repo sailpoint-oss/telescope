@@ -27,7 +27,7 @@
 		"ajv-draft-04": "^1.0.0",
 		"ajv-formats": "^3.0.1",
 		"chokidar": "^5.0.0",
-		"esbuild": "^0.27.1",
+		"esbuild": "^0.25.0",
 		"fast-glob": "^3.3.3",
 		"fastest-levenshtein": "^1.0.16",
 		"jsonc-parser": "^3.3.1",
