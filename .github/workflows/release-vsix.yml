@@ -4,17 +4,30 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional version override (X, X.Y, X.Y.Z, or X.Y.Z.W)"
+        required: false
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: publish-extension
+  cancel-in-progress: false
+
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message || '', '[skip publish]') }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -22,7 +35,7 @@ jobs:
           version: 9
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "pnpm"
@@ -33,54 +46,202 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Run tests
+        run: pnpm test
+
       - name: Build server
         run: pnpm --filter telescope-server run build
 
       - name: Build extension
         run: pnpm --filter telescope run build
 
-      - name: Set nightly version
+      - name: Resolve publish version
+        id: version
         run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          cd packages/telescope-client
-          CURRENT_VERSION=$(jq -r '.version' package.json)
-          jq --arg v "${CURRENT_VERSION}-nightly.${SHORT_SHA}" '.version = $v' package.json > tmp.json
-          mv tmp.json package.json
+          PACKAGE_JSON="packages/telescope-client/package.json"
+          
+          # Function to parse version segments
+          parse_version() {
+            local v="$1"
+            local major=0 minor=0 patch=0 build=0
+            IFS='.' read -r major minor patch build <<< "$v"
+            major=${major:-0}
+            minor=${minor:-0}
+            patch=${patch:-0}
+            build=${build:-0}
+            echo "$major $minor $patch $build"
+          }
+          
+          # Function to compare versions (returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal)
+          compare_versions() {
+            local v1="$1"
+            local v2="$2"
+            local seg1=($(parse_version "$v1"))
+            local seg2=($(parse_version "$v2"))
+            
+            for i in 0 1 2 3; do
+              if [ "${seg1[$i]}" -gt "${seg2[$i]}" ]; then
+                echo 1
+                return
+              elif [ "${seg1[$i]}" -lt "${seg2[$i]}" ]; then
+                echo -1
+                return
+              fi
+            done
+            echo 0
+          }
+          
+          # Function to bump minor version
+          bump_minor() {
+            local v="$1"
+            local seg=($(parse_version "$v"))
+            local major=${seg[0]}
+            local minor=${seg[1]}
+            local patch=${seg[2]}
+            local build=${seg[3]}
+            
+            minor=$((minor + 1))
+            patch=0
+            build=0
+            
+            # Count original segments
+            local orig_segments=$(echo "$v" | tr -cd '.' | wc -c)
+            orig_segments=$((orig_segments + 1))
+            
+            if [ "$orig_segments" -eq 1 ]; then
+              echo "$major"
+            elif [ "$orig_segments" -eq 2 ]; then
+              echo "$major.$minor"
+            elif [ "$orig_segments" -eq 3 ]; then
+              echo "$major.$minor.$patch"
+            else
+              echo "$major.$minor.$patch.$build"
+            fi
+          }
+          
+          # Get original local version
+          ORIGINAL_VERSION=$(node -e "console.log(require('./$PACKAGE_JSON').version)")
+          echo "Original local version: $ORIGINAL_VERSION"
+          
+          # Handle manual version input
+          MANUAL_SET="false"
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            MANUAL_VERSION="${{ github.event.inputs.version }}"
+            # Validate format: numeric-only, 1-4 segments
+            if ! echo "$MANUAL_VERSION" | grep -qE '^[0-9]+(\.[0-9]+){0,3}$'; then
+              echo "Error: Invalid version format. Must be X, X.Y, X.Y.Z, or X.Y.Z.W"
+              exit 1
+            fi
+            # Check at least one non-zero segment
+            if echo "$MANUAL_VERSION" | grep -qE '^0+(\.0+)*$'; then
+              echo "Error: Version must have at least one non-zero segment"
+              exit 1
+            fi
+            echo "Using manual version: $MANUAL_VERSION"
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('$PACKAGE_JSON', 'utf8'));
+              pkg.version = '$MANUAL_VERSION';
+              fs.writeFileSync('$PACKAGE_JSON', JSON.stringify(pkg, null, '\t') + '\n');
+            "
+            MANUAL_SET="true"
+          fi
+          
+          # Get current local version (may have been updated by manual input)
+          LOCAL_VERSION=$(node -e "console.log(require('./$PACKAGE_JSON').version)")
+          echo "Local version: $LOCAL_VERSION"
+          
+          # Fetch VS Code Marketplace version
+          VSCE_VERSION="0.0.0"
+          if vsce show "SailPointTechnologies.Telescope OpenAPI" --json 2>/dev/null | jq -r '.version' 2>/dev/null | grep -qE '^[0-9]'; then
+            VSCE_VERSION=$(vsce show "SailPointTechnologies.Telescope OpenAPI" --json 2>/dev/null | jq -r '.version' 2>/dev/null || echo "0.0.0")
+          fi
+          echo "VS Code Marketplace version: $VSCE_VERSION"
+          
+          # Fetch OpenVSX version
+          OPENVSX_VERSION="0.0.0"
+          OPENVSX_RESPONSE=$(curl -s "https://open-vsx.org/api/sailpoint/telescope/latest" 2>/dev/null || echo "")
+          if echo "$OPENVSX_RESPONSE" | jq -r '.version' 2>/dev/null | grep -qE '^[0-9]'; then
+            OPENVSX_VERSION=$(echo "$OPENVSX_RESPONSE" | jq -r '.version' 2>/dev/null || echo "0.0.0")
+          fi
+          echo "OpenVSX version: $OPENVSX_VERSION"
+          
+          # Find max published version
+          PUBLISHED_MAX="$VSCE_VERSION"
+          if [ "$(compare_versions "$OPENVSX_VERSION" "$PUBLISHED_MAX")" -eq 1 ]; then
+            PUBLISHED_MAX="$OPENVSX_VERSION"
+          fi
+          echo "Published max version: $PUBLISHED_MAX"
+          
+          # Compare and bump if needed
+          RESOLVED_VERSION="$LOCAL_VERSION"
+          CHANGED="false"
+          BUMPED="false"
+          
+          COMPARE_RESULT=$(compare_versions "$LOCAL_VERSION" "$PUBLISHED_MAX")
+          if [ "$COMPARE_RESULT" -le 0 ]; then
+            echo "Local version ($LOCAL_VERSION) <= published max ($PUBLISHED_MAX), bumping minor version..."
+            RESOLVED_VERSION=$(bump_minor "$PUBLISHED_MAX")
+            CHANGED="true"
+            BUMPED="true"
+            echo "Bumped to: $RESOLVED_VERSION"
+          else
+            echo "Local version ($LOCAL_VERSION) > published max ($PUBLISHED_MAX), using local version"
+            # Check if version was changed (either manually set or different from original)
+            if [ "$MANUAL_SET" = "true" ] || [ "$LOCAL_VERSION" != "$ORIGINAL_VERSION" ]; then
+              CHANGED="true"
+            fi
+          fi
+          
+          # Write resolved version to package.json if it changed
+          if [ "$RESOLVED_VERSION" != "$LOCAL_VERSION" ]; then
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('$PACKAGE_JSON', 'utf8'));
+              pkg.version = '$RESOLVED_VERSION';
+              fs.writeFileSync('$PACKAGE_JSON', JSON.stringify(pkg, null, '\t') + '\n');
+            "
+            CHANGED="true"
+          fi
+          
+          echo "version=$RESOLVED_VERSION" >> $GITHUB_OUTPUT
+          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+          echo "bumped=$BUMPED" >> $GITHUB_OUTPUT
+          echo "Resolved version: $RESOLVED_VERSION (changed: $CHANGED, bumped: $BUMPED)"
 
       - name: Package VSIX
         run: pnpm --filter telescope run package
 
-      - name: Get VSIX filename
+      - name: Get VSIX filenames
         id: vsix
         run: |
-          VSIX_FILE=$(ls packages/telescope-client/*.vsix | head -1)
-          echo "file=$VSIX_FILE" >> $GITHUB_OUTPUT
-          echo "name=$(basename $VSIX_FILE)" >> $GITHUB_OUTPUT
+          VSIX_OPENVSX=$(ls packages/telescope-client/telescope-openvsx-*.vsix | head -1)
+          VSIX_VSCODE=$(ls packages/telescope-client/telescope-vscode-*.vsix | head -1)
+          echo "openvsx=$VSIX_OPENVSX" >> $GITHUB_OUTPUT
+          echo "vscode=$VSIX_VSCODE" >> $GITHUB_OUTPUT
+          echo "openvsx_name=$(basename $VSIX_OPENVSX)" >> $GITHUB_OUTPUT
+          echo "vscode_name=$(basename $VSIX_VSCODE)" >> $GITHUB_OUTPUT
 
-      - name: Upload VSIX as artifact
+      - name: Upload VSIX artifacts
         uses: actions/upload-artifact@v5
         with:
           name: telescope-vsix
-          path: ${{ steps.vsix.outputs.file }}
+          path: |
+            ${{ steps.vsix.outputs.openvsx }}
+            ${{ steps.vsix.outputs.vscode }}
           retention-days: 90
 
-      - name: Update Latest Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Latest Build
-          body: |
-            Latest build of the telescope VS Code extension.
-
-            This release is automatically updated with each push to main.
-
-            **Commit:** ${{ github.sha }}
-          files: ${{ steps.vsix.outputs.file }}
-          prerelease: true
-          make_latest: true
-
-      # - name: Publish to VS Code Marketplace
-      #   run: pnpm --filter telescope exec vsce publish --pre-release --no-git-tag-version -p ${{ secrets.VSCE_PAT }}
+      - name: Publish to VS Code Marketplace
+        run: pnpm dlx vsce publish --packagePath ${{ steps.vsix.outputs.vscode }} --no-git-tag-version -p ${{ secrets.VSCE_PAT }}
 
       - name: Publish to OpenVSX
-        run: pnpm dlx ovsx publish ${{ steps.vsix.outputs.file }} --pre-release -p ${{ secrets.OPEN_VSX_TOKEN }}
+        run: pnpm dlx ovsx publish ${{ steps.vsix.outputs.openvsx }} -p ${{ secrets.OPEN_VSX_TOKEN }}
+
+      - name: Commit version change
+        if: steps.version.outputs.changed == 'true' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/telescope-client/package.json
+          git commit -m "chore(release): bump extension version to ${{ steps.version.outputs.version }} [skip publish]"
+          git push

@@ -3,10 +3,11 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "bun run --filter ./packages/** build",
-		"test": "bun test",
-		"test:no-coverage": "bun test --no-coverage packages/telescope-lsp packages/lens",
+		"build": "pnpm --filter ./packages/** run build",
+		"test": "pnpm test",
+		"test:no-coverage": "pnpm test --no-coverage packages/telescope-lsp packages/lens",
 		"typecheck:examples": "pnpm -C packages/telescope-server run build && pnpm -C packages/test-files exec tsc -p tsconfig.json",
+		"package": "pnpm --filter telescope-server run build && pnpm --filter telescope run build && pnpm --filter telescope run package",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write ."

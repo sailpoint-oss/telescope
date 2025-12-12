@@ -385,7 +385,7 @@
 		"build:sourcemap": "bun scripts/build.ts --sourcemap",
 		"watch": "bun scripts/build.ts --watch",
 		"typecheck": "tsc --noEmit",
-		"package": "pnpm run build:minify && vsce package --no-dependencies"
+		"package": "pnpm run build:minify && bun scripts/package.ts --target openvsx && bun scripts/package.ts --target vscode"
 	},
 	"devDependencies": {
 		"@types/node": "^20.19.25",
