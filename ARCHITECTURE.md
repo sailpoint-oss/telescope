@@ -4,7 +4,7 @@ This document provides a detailed overview of Telescope's internal architecture 
 
 ## Overview
 
-Telescope is an OpenAPI linting tool built on the [Volar](https://volarjs.dev/) language server framework. It provides real-time diagnostics in VS Code through a unified pipeline that processes OpenAPI documents.
+Telescope is an OpenAPI linting tool built on the Language Server Protocol (LSP) using `vscode-languageserver`. It provides real-time diagnostics in VS Code through a unified pipeline that processes OpenAPI documents.
 
 ## Package Structure
 
@@ -18,11 +18,21 @@ telescope/
 │   ├── telescope-server/        # Language server + linting engine
 │   │   └── src/
 │   │       ├── server.ts       # Main entry point
-│   │       ├── lsp/            # Volar integration layer
-│   │       │   ├── core/       # IR cache coordinator
-│   │       │   ├── languages/  # Language plugins
-│   │       │   ├── services/   # OpenAPI + validation services
-│   │       │   └── workspace/  # Context + documents
+│   │       ├── lsp/            # LSP integration layer
+│   │       │   ├── context.ts      # Shared context
+│   │       │   ├── document-cache.ts  # Document caching
+│   │       │   └── handlers/       # LSP feature handlers
+│   │       │       ├── diagnostics.ts
+│   │       │       ├── navigation.ts
+│   │       │       ├── hover.ts
+│   │       │       ├── completions.ts
+│   │       │       ├── code-actions.ts
+│   │       │       ├── code-lens.ts
+│   │       │       ├── inlay-hints.ts
+│   │       │       ├── rename.ts
+│   │       │       ├── symbols.ts
+│   │       │       ├── semantic-tokens.ts
+│   │       │       └── document-links.ts
 │   │       └── engine/         # Core linting engine
 │   │           ├── config/     # Configuration resolution
 │   │           ├── context/    # Linting context management
@@ -49,15 +59,15 @@ flowchart TB
 
     subgraph Server["Language Server (telescope-server)"]
         subgraph LSP["LSP Layer (src/lsp/)"]
-            VolarServer["Volar Server"]
-            Services["Service Plugins"]
-            Languages["Language Plugins"]
+            Connection["LSP Connection"]
+            TextDocs["TextDocuments"]
+            Cache["DocumentCache"]
+            Handlers["Feature Handlers"]
         end
 
         subgraph Engine["Engine Layer (src/engine/)"]
             Config["Config Resolution"]
             Context["Context Resolver"]
-            Loader["Document Loader"]
             IR["IR Builder"]
             Indexes["Graph + Indexes"]
             Execution["Rule Execution"]
@@ -71,14 +81,14 @@ flowchart TB
         Fixes["Quick Fixes"]
     end
 
-    Extension <--> VolarServer
-    VolarServer --> Services
-    VolarServer --> Languages
+    Extension <--> Connection
+    Connection --> TextDocs
+    TextDocs --> Cache
+    Cache --> Handlers
 
-    Services --> Config
-    Services --> Context
-    Context --> Loader
-    Loader --> IR
+    Handlers --> Config
+    Handlers --> Context
+    Context --> IR
     IR --> Indexes
     Indexes --> Execution
     Rules --> Execution
@@ -86,8 +96,8 @@ flowchart TB
 
     Execution --> Diagnostics
     Execution --> Fixes
-    Diagnostics --> VolarServer
-    Fixes --> VolarServer
+    Diagnostics --> Connection
+    Fixes --> Connection
 
     classDef client fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef lsp fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
@@ -95,8 +105,8 @@ flowchart TB
     classDef output fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 
     class Extension client
-    class VolarServer,Services,Languages lsp
-    class Config,Context,Loader,IR,Indexes,Execution,Rules,Schemas engine
+    class Connection,TextDocs,Cache,Handlers lsp
+    class Config,Context,IR,Indexes,Execution,Rules,Schemas engine
     class Diagnostics,Fixes output
 ```
 
@@ -104,22 +114,23 @@ flowchart TB
 
 ### Phase 1: Server Initialization
 
-1. **Volar Server** starts with configured language and service plugins
-2. **Language Plugins** register support for YAML and JSON documents
+1. **LSP Connection** starts with `vscode-languageserver`
+2. **Feature Handlers** are registered for all LSP capabilities
 3. **Configuration** is loaded from `.telescope/config.yaml`
 
 ### Phase 2: Document Processing
 
-4. **Document Loader** reads files through Volar's FileSystem API:
+4. **DocumentCache** manages parsed documents:
 
    - Parses YAML/JSON content
    - Builds IR (Intermediate Representation) with location tracking
    - Detects document type (root OpenAPI spec vs fragment)
+   - Caches parsed data for performance
 
 5. **IR Builder** creates structured representation:
    - Preserves source locations for precise diagnostics
    - Handles both YAML and JSON formats
-   - Supports incremental updates
+   - Supports incremental updates via cache invalidation
 
 ### Phase 3: Indexing
 
@@ -147,13 +158,18 @@ flowchart TB
 
 ### LSP Layer (`src/lsp/`)
 
-| Component          | File                                        | Purpose                                     |
-| ------------------ | ------------------------------------------- | ------------------------------------------- |
-| Volar Server       | `server.ts`                                 | Main entry point, server initialization     |
-| Core               | `core/core.ts`                              | IR cache coordinator, document lifecycle    |
-| OpenAPI Service    | `services/openapi-service.ts`               | OpenAPI validation and rule execution       |
-| Validation Service | `services/additional-validation-service.ts` | Config files, custom schemas, generic rules |
-| Language Plugin    | `languages/universal-plugin.ts`             | YAML/JSON parsing                           |
+| Component      | File                           | Purpose                         |
+| -------------- | ------------------------------ | ------------------------------- |
+| Server Entry   | `server.ts`                    | Main entry point, initialization |
+| Context        | `context.ts`                   | Shared workspace state, rules   |
+| Document Cache | `document-cache.ts`            | IR/atoms caching, position utils |
+| Diagnostics    | `handlers/diagnostics.ts`      | Pull-based and workspace diags  |
+| Navigation     | `handlers/navigation.ts`       | Definition, references, call hierarchy |
+| Hover          | `handlers/hover.ts`            | $ref previews                   |
+| Completions    | `handlers/completions.ts`      | OpenAPI-specific completions    |
+| Code Actions   | `handlers/code-actions.ts`     | Quick fixes                     |
+| Symbols        | `handlers/symbols.ts`          | Document/workspace symbols      |
+| Semantic Tokens| `handlers/semantic-tokens.ts`  | Enhanced syntax highlighting    |
 
 ### Engine Layer (`src/engine/`)
 
@@ -208,151 +224,109 @@ Configuration is loaded from `.telescope/config.yaml` with these precedence rule
 2. Rule overrides merge with built-in defaults
 3. Custom rules are loaded via Bun's TypeScript loader
 
-## Service Architecture
+## LSP Feature Implementation
 
-Telescope implements a multi-service architecture where each service provides specific LSP capabilities:
+### Handler Architecture
+
+Telescope implements a modular handler architecture where each handler provides specific LSP capabilities:
 
 ```mermaid
 flowchart TB
-    subgraph Services["Language Service Plugins"]
-        OpenAPI["OpenAPI Service"]
-        YAML["YAML Service"]
-        JSON["JSON Service"]
-        Markdown["Markdown Service"]
-        Validation["Validation Service"]
+    subgraph Handlers["LSP Feature Handlers"]
+        Diag["Diagnostics Handler"]
+        Nav["Navigation Handler"]
+        Hover["Hover Handler"]
+        Comp["Completions Handler"]
+        Actions["Code Actions Handler"]
+        Lens["Code Lens Handler"]
+        Hints["Inlay Hints Handler"]
+        Rename["Rename Handler"]
+        Symbols["Symbols Handler"]
+        Semantic["Semantic Tokens Handler"]
+        Links["Document Links Handler"]
     end
 
-    subgraph Features["LSP Features"]
-        Diag["Diagnostics"]
-        Nav["Navigation"]
-        Intel["Code Intelligence"]
-        Refactor["Refactoring"]
-        UI["UI Features"]
+    subgraph Features["LSP Capabilities"]
+        PullDiag["Pull Diagnostics"]
+        WorkspaceDiag["Workspace Diagnostics"]
+        Definition["Go to Definition"]
+        References["Find References"]
+        CallHier["Call Hierarchy"]
+        HoverInfo["Hover Preview"]
+        RefComp["$ref Completions"]
+        QuickFix["Quick Fixes"]
+        RefCount["Reference Counts"]
+        TypeHints["Type Hints"]
+        SymbolRename["Symbol Rename"]
+        DocSymbols["Document Symbols"]
+        Highlighting["Syntax Highlighting"]
+        ClickableRefs["Clickable $refs"]
     end
 
-    OpenAPI --> Diag
-    OpenAPI --> Nav
-    OpenAPI --> Intel
-    OpenAPI --> Refactor
-    OpenAPI --> UI
-
-    YAML --> Diag
-    YAML --> Nav
-    YAML --> Intel
-
-    JSON --> Diag
-    JSON --> Nav
-    JSON --> Intel
-
-    Markdown --> Diag
-    Markdown --> Nav
-    Markdown --> Refactor
-
-    Validation --> Diag
+    Diag --> PullDiag
+    Diag --> WorkspaceDiag
+    Nav --> Definition
+    Nav --> References
+    Nav --> CallHier
+    Hover --> HoverInfo
+    Comp --> RefComp
+    Actions --> QuickFix
+    Lens --> RefCount
+    Hints --> TypeHints
+    Rename --> SymbolRename
+    Symbols --> DocSymbols
+    Semantic --> Highlighting
+    Links --> ClickableRefs
 ```
 
-### OpenAPI Service (`openapi-service.ts`)
+### Feature Summary
 
-The primary service for OpenAPI documents, providing 15 LSP features:
+| Feature                   | Handler                    | Implementation                           |
+| ------------------------- | -------------------------- | ---------------------------------------- |
+| **Diagnostics**           | `diagnostics.ts`           | Runs rule engine against documents       |
+| **Workspace Diagnostics** | `diagnostics.ts`           | Validates all OpenAPI files with caching |
+| **Document Links**        | `document-links.ts`        | Clickable `$ref` with position resolution|
+| **Hover**                 | `hover.ts`                 | Preview referenced content inline        |
+| **Code Actions**          | `code-actions.ts`          | Quick fixes for common issues            |
+| **References**            | `navigation.ts`            | Find all usages of components            |
+| **Workspace Symbols**     | `symbols.ts`               | Search across all OpenAPI files          |
+| **Completions**           | `completions.ts`           | `$ref`, status codes, media types, tags  |
+| **Rename**                | `rename.ts`                | Rename operationIds and components       |
+| **Code Lens**             | `code-lens.ts`             | Reference counts, response summaries     |
+| **Inlay Hints**           | `inlay-hints.ts`           | Type hints, required markers             |
+| **Definition**            | `navigation.ts`            | Enhanced navigation for OpenAPI refs     |
+| **Call Hierarchy**        | `navigation.ts`            | Component reference relationships        |
+| **Semantic Tokens**       | `semantic-tokens.ts`       | Enhanced syntax highlighting             |
 
-| Feature                   | Implementation                             |
-| ------------------------- | ------------------------------------------ |
-| **Diagnostics**           | Runs rule engine against documents         |
-| **Workspace Diagnostics** | Validates all OpenAPI files with caching   |
-| **Document Links**        | Clickable `$ref` with position resolution  |
-| **Hover**                 | Preview referenced content inline          |
-| **Code Actions**          | Quick fixes for common issues              |
-| **References**            | Find all usages of components/operationIds |
-| **Workspace Symbols**     | Search across all OpenAPI files            |
-| **Completions**           | `$ref`, status codes, media types, tags    |
-| **Rename**                | Rename operationIds and components         |
-| **Code Lens**             | Reference counts, response summaries       |
-| **Inlay Hints**           | Type hints, required markers               |
-| **Definition**            | Enhanced navigation for OpenAPI refs       |
-| **Call Hierarchy**        | Component reference relationships          |
-| **Semantic Tokens**       | Enhanced syntax highlighting               |
+### DocumentCache
 
-The service uses `OpenAPIVirtualCode` instances which provide:
+The `DocumentCache` manages parsed document data:
 
-- Parsed IR (Intermediate Representation)
-- Atoms (operations, components, schemas)
-- Location mapping for precise positioning
-
-### YAML Service (`yaml-service.ts`)
-
-Wraps `yaml-language-server` for generic YAML support:
-
-- Code actions, code lens with resolution
-- Completions with schema awareness
-- Definition navigation
-- Diagnostics (TypeBox + JSON Schema)
-- Document symbols, hover, document links
-- Folding ranges, selection ranges
-- On-type formatting
-
-Schema validation uses a priority system:
-
-1. **TypeBox schemas** (if available) - Better error messages
-2. **JSON Schema** - Standard validation fallback
-
-### JSON Service (`json-service.ts`)
-
-Wraps `vscode-json-languageservice` for generic JSON support:
-
-- Completions with resolve support
-- Definition navigation
-- Diagnostics (TypeBox + JSON Schema)
-- Hover, document links
-- Document symbols, colors
-- Folding ranges, selection ranges
-- Document formatting
-
-### Markdown Service (`markdown-service.ts`)
-
-Provides full markdown support for `description` and `summary` fields:
-
-- Code actions with resolve (organize link definitions)
-- Completions for links and paths
-- Definition, references, rename
-- Diagnostics (link validation)
-- Document highlights, document links
-- Document symbols, folding ranges
-- Hover, selection ranges
-- Workspace symbols, file references
-- File rename edits
-
-Handles JSON string encoding for markdown embedded in JSON files.
-
-### Validation Service (`validation-service.ts`)
-
-Handles custom file validation using generic rules:
-
-- Runs rules from `additionalValidation` config
-- Caches diagnostics with content hashing
-- Supports workspace-wide validation
-
-## LSP Feature Implementation Details
-
-### Virtual Codes
-
-Telescope uses Volar's Virtual Code system to provide embedded language support:
-
-```
-OpenAPI Document (openapi-yaml/openapi-json)
-├── DataVirtualCode (yaml/json) - Format-specific features
-├── MarkdownVirtualCode (markdown) - Description fields
-└── OpenAPIVirtualCode - OpenAPI-specific features
+```typescript
+interface CachedDocument {
+  uri: string;
+  version: number;
+  format: "yaml" | "json";
+  content: string;
+  hash: string;
+  ast: yaml.Document | jsonc.Node;
+  parsedObject: unknown;
+  ir: IRDocument;
+  atoms: AtomIndex;
+  documentType: DocumentType;
+  openapiVersion: string;
+  lineOffsets: number[];
+}
 ```
 
-Each Virtual Code type:
-
-- `DataVirtualCode`: Parses YAML/JSON, provides AST, schema key
-- `MarkdownVirtualCode`: Extracts markdown from descriptions with JSON string mapping
-- `OpenAPIVirtualCode`: Extends DataVirtualCode with IR, atoms, location mapping
+Key features:
+- **Version tracking**: Cache invalidated on document changes
+- **IR building**: Automatic IR and atoms extraction
+- **Position utilities**: `locToRange`, `positionToOffset`, `getRange`
 
 ### Semantic Tokens
 
-The OpenAPI service provides semantic highlighting for:
+The semantic tokens handler provides highlighting for:
 
 | Token Type      | Elements                     |
 | --------------- | ---------------------------- |
@@ -385,19 +359,10 @@ Quick fixes are generated based on diagnostic codes:
 
 ### Call Hierarchy
 
-Uses the `GraphIndex` to traverse component relationships:
+Uses the IR graph to traverse component relationships:
 
-- **Incoming calls**: `graphIndex.dependentsOf(node)` - what references this
-- **Outgoing calls**: `graphIndex.referencesFrom(node)` - what this references
-
-### Workspace Index
-
-The `WorkspaceIndex` coordinates cross-document features:
-
-- Tracks `$ref` relationships via `GraphIndex`
-- Monitors operationId uniqueness via `OpIdIndex`
-- Manages affected files for incremental updates
-- Provides result ID caching for workspace diagnostics
+- **Incoming calls**: What references this component
+- **Outgoing calls**: What this component references
 
 ## Extension Points
 
@@ -437,7 +402,7 @@ export default defineSchema((Type) =>
 ## Performance Considerations
 
 - **Incremental Updates**: Only changed documents are reprocessed
-- **IR Caching**: Parsed documents are cached between edits
+- **Document Caching**: Parsed documents are cached between edits
 - **Index Reuse**: Indexes are updated incrementally when possible
 - **Lazy Loading**: Custom rules are loaded on-demand
 

@@ -32,9 +32,9 @@
  * ```
  */
 
-import type { CancellationToken } from "@volar/language-service";
 import type { Range } from "vscode-languageserver-protocol";
 import { DiagnosticSeverity } from "vscode-languageserver-protocol";
+import type { CancellationToken } from "../fs-types.js";
 import {
 	enrichCallbackRef,
 	enrichComponentRef,
@@ -52,7 +52,11 @@ import {
 	enrichSchemaRef,
 	enrichTagRef,
 } from "../indexes/ref-enrichment.js";
-import type { SchemaLocation, SchemaRef } from "../indexes/types.js";
+import type {
+	SchemaLocation,
+	SchemaRef,
+	SchemaRefInput,
+} from "../indexes/types.js";
 import { findNodeByPointer } from "../ir/context.js";
 import type { Loc } from "../ir/types.js";
 import type {
@@ -92,8 +96,8 @@ import { buildLineOffsets, getLineCol } from "../utils/line-offset-utils.js";
  * @yields Child SchemaRef for each nested schema
  */
 export function* walkSchemaChildren(
-	schemaRef: SchemaRef,
-): Generator<SchemaRef> {
+	schemaRef: SchemaRefInput,
+): Generator<SchemaRefInput> {
 	const schema = schemaRef.node as Record<string, unknown>;
 	if (!schema || typeof schema !== "object") return;
 
@@ -230,12 +234,23 @@ function locToRange(
 	options?: { preferKey?: boolean },
 ): Range {
 	const offsets = lineOffsets ?? buildLineOffsets(rawText);
+	const maxOffset = rawText.length;
+
+	const clampOffset = (v: number | undefined): number => {
+		if (typeof v !== "number" || !Number.isFinite(v)) return 0;
+		if (v <= 0) return 0;
+		if (v >= maxOffset) return maxOffset;
+		return v;
+	};
 
 	// Use key range if preferKey and key offsets are available
-	const start =
+	const rawStart =
 		options?.preferKey && loc.keyStart !== undefined ? loc.keyStart : loc.start;
-	const end =
+	const rawEnd =
 		options?.preferKey && loc.keyEnd !== undefined ? loc.keyEnd : loc.end;
+	const start = clampOffset(rawStart);
+	let end = clampOffset(rawEnd);
+	if (end < start) end = start;
 
 	const startPos = getLineCol(start, offsets);
 	const endPos = getLineCol(end, offsets);
@@ -754,9 +769,9 @@ export function runEngine(
  * Normalizes versions like "3.0.0" to "3.0", "3.1.1" to "3.1", etc.
  */
 function detectOpenAPIVersion(document: {
-	parsed?: unknown;
+	ast?: unknown;
 }): OpenAPIVersion | "unknown" {
-	const parsed = document.parsed as Record<string, unknown> | undefined;
+	const parsed = document.ast as Record<string, unknown> | undefined;
 	if (!parsed) return "unknown";
 
 	// Check for OpenAPI 3.x
@@ -1040,7 +1055,12 @@ export function createRuleContext(
 			if (!doc?.ir) return null;
 
 			const node = findNodeByPointer(doc.ir, pointer);
-			if (!node?.loc?.keyStart || !node?.loc?.keyEnd) return null;
+			if (
+				node?.loc?.keyStart === undefined ||
+				node?.loc?.keyEnd === undefined
+			) {
+				return null;
+			}
 
 			const lineOffsets = getLineOffsets(doc);
 			return locToRange(
@@ -1076,8 +1096,19 @@ export function createRuleContext(
 			if (!doc || !doc.rawText) return null;
 
 			const lineOffsets = getLineOffsets(doc);
-			const end = endOffset ?? startOffset + 1;
-			const startPos = getLineCol(startOffset, lineOffsets);
+			const maxOffset = doc.rawText.length;
+			const clampOffset = (v: number): number => {
+				if (!Number.isFinite(v)) return 0;
+				if (v <= 0) return 0;
+				if (v >= maxOffset) return maxOffset;
+				return v;
+			};
+
+			const start = clampOffset(startOffset);
+			let end = clampOffset(endOffset ?? startOffset + 1);
+			if (end < start) end = start;
+
+			const startPos = getLineCol(start, lineOffsets);
 			const endPos = getLineCol(end, lineOffsets);
 
 			return {
@@ -1087,53 +1118,24 @@ export function createRuleContext(
 		},
 		findKeyRange(uri, parentPointer, keyName) {
 			const doc = project.docs.get(uri);
-			if (!doc || !doc.rawText) return null;
+			if (!doc?.ir || !doc.rawText) return null;
 
-			// Get the value range for the key (pointer points to the value)
-			const valuePointer = `${parentPointer}/${keyName}`;
-			const valueRange = project.docs
-				.get(uri)
-				?.sourceMap.pointerToRange(valuePointer);
-			if (!valueRange) return null;
+			// Prefer IR key offsets: they precisely cover only the property key,
+			// work for both YAML and JSON, and avoid brittle regex searching.
+			const escapeSegment = (s: string) =>
+				s.replace(/~/g, "~0").replace(/\//g, "~1");
+			const valuePointer = `${parentPointer}/${escapeSegment(keyName)}`;
+			const node = findNodeByPointer(doc.ir, valuePointer);
+			if (!node?.loc) return null;
 
-			// Get parent range to know where to search
-			const parentRange = project.docs
-				.get(uri)
-				?.sourceMap.pointerToRange(parentPointer);
-			if (!parentRange) return null;
-
-			const rawText = doc.rawText;
+			const keyStart = node.loc.keyStart ?? node.loc.start;
+			const keyEnd = node.loc.keyEnd ?? node.loc.end;
 			const lineOffsets = getLineOffsets(doc);
-
-			// Convert value range start to byte offset
-			const valueStartLine = valueRange.start.line;
-			const valueStartChar = valueRange.start.character;
-			const valueStartOffset =
-				(lineOffsets[valueStartLine] ?? 0) + valueStartChar;
-
-			// Search backwards from value start to find the key name
-			// Look for the key name followed by ":" or ": "
-			const searchStart = Math.max(
-				0,
-				valueStartOffset - keyName.length - 10, // Search up to 10 chars back
+			return locToRange(
+				doc.rawText,
+				{ start: keyStart, end: keyEnd },
+				lineOffsets,
 			);
-			const searchText = rawText.slice(searchStart, valueStartOffset);
-			const keyPattern = new RegExp(
-				`(${keyName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})\\s*:`,
-			);
-			const match = searchText.match(keyPattern);
-			if (!match || !match.index) return null;
-
-			const keyStartOffset = searchStart + match.index;
-			const keyEndOffset = keyStartOffset + keyName.length;
-
-			const startPos = getLineCol(keyStartOffset, lineOffsets);
-			const endPos = getLineCol(keyEndOffset, lineOffsets);
-
-			return {
-				start: { line: startPos.line - 1, character: startPos.col - 1 },
-				end: { line: endPos.line - 1, character: endPos.col - 1 },
-			};
 		},
 		getRootDocuments(targetUri?: string, pointer?: string): string[] {
 			const uri = targetUri ?? fileUri;
@@ -1149,7 +1151,9 @@ export function createRuleContext(
 		// Schema navigation methods
 
 		getChildSchemas(schemaRef: SchemaRef): SchemaRef[] {
-			return [...walkSchemaChildren(schemaRef)];
+			return [...walkSchemaChildren(schemaRef)].map((child) =>
+				enrichSchemaRef(child),
+			);
 		},
 
 		getPropertySchema(
@@ -1170,7 +1174,7 @@ export function createRuleContext(
 				? (schema.required as string[])
 				: [];
 
-			return {
+			return enrichSchemaRef({
 				uri: schemaRef.uri,
 				pointer: `${schemaRef.pointer}/properties/${propertyName}`,
 				node: propSchema,
@@ -1179,7 +1183,7 @@ export function createRuleContext(
 				depth: currentDepth + 1,
 				location: "properties",
 				parent: schemaRef,
-			};
+			});
 		},
 
 		getItemsSchema(schemaRef: SchemaRef): SchemaRef | null {
@@ -1189,14 +1193,14 @@ export function createRuleContext(
 			if (!schema.items || typeof schema.items !== "object") return null;
 
 			const currentDepth = schemaRef.depth ?? 0;
-			return {
+			return enrichSchemaRef({
 				uri: schemaRef.uri,
 				pointer: `${schemaRef.pointer}/items`,
 				node: schema.items,
 				depth: currentDepth + 1,
 				location: "items",
 				parent: schemaRef,
-			};
+			});
 		},
 
 		getRequiredProperties(schemaRef: SchemaRef): string[] {
@@ -1226,7 +1230,10 @@ function dispatch(
 	visitors: Visitors[],
 	kind: keyof Visitors,
 	payload: unknown,
-	pathItemsByPath?: Map<string, import("../indexes/types.js").PathItemRef[]>,
+	pathItemsByPath?: Map<
+		string,
+		import("../indexes/types.js").PathItemRefInput[]
+	>,
 	pathStrings?: string[],
 ) {
 	// Enrich refs with typed accessor methods
@@ -1347,7 +1354,7 @@ function dispatch(
  */
 function dispatchSchemaRecursively(
 	visitors: Visitors[],
-	schemaRef: SchemaRef,
+	schemaRef: SchemaRefInput,
 ): void {
 	const schema = schemaRef.node as Record<string, unknown>;
 	if (!schema || typeof schema !== "object" || "$ref" in schema) return;

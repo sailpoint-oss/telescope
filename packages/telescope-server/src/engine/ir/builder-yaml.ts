@@ -48,12 +48,15 @@ function yamlNodeToIR(
 	const start = range?.[0] ?? 0;
 	const end = range?.[1] ?? start;
 	const loc: Loc = { start, end };
+	const nodeType = (node as unknown as { type?: string }).type;
 
 	// Check for alias (YAML anchor reference)
-	if (node.type === "ALIAS") {
-		const alias = node as YAML.Alias;
+	// The `yaml` package's Node typings don't expose a stable discriminant,
+	// so we use a runtime check with a narrow cast.
+	if (nodeType === "ALIAS") {
+		const alias = node as unknown as YAML.Alias;
 		const targetPtr = alias.source
-			? findAnchorPointer(alias.source, document)
+			? findAnchorPointer(alias.source)
 			: undefined;
 		return {
 			ptr,
@@ -87,11 +90,11 @@ function yamlNodeToIR(
 			}
 			const key = keyValue == null ? "" : String(keyValue);
 
-			const keyRange = keyNode.range;
+			const keyRange = (keyNode as unknown as { range?: number[] }).range;
 			const keyStart = keyRange?.[0] ?? 0;
 			const keyEnd = keyRange?.[1] ?? keyStart;
 
-			const valRange = valueNode.range;
+			const valRange = (valueNode as unknown as { range?: number[] }).range;
 			const valStart = valRange?.[0] ?? 0;
 			const valEnd = valRange?.[1] ?? valStart;
 
@@ -171,17 +174,18 @@ function createScalarIR(
 }
 
 function inferYamlKind(node: YamlNode): IRNodeKind {
-	if (node.type === "ALIAS") return "null"; // Will be resolved later
+	const t = (node as unknown as { type?: string; toJSON?: () => unknown }).type;
+	if (t === "ALIAS") return "null"; // Will be resolved later
 	if (
-		node.type === "BLOCK_FOLDED" ||
-		node.type === "BLOCK_LITERAL" ||
-		node.type === "QUOTE_DOUBLE" ||
-		node.type === "QUOTE_SINGLE"
+		t === "BLOCK_FOLDED" ||
+		t === "BLOCK_LITERAL" ||
+		t === "QUOTE_DOUBLE" ||
+		t === "QUOTE_SINGLE"
 	) {
 		return "string";
 	}
-	if (node.type === "PLAIN") {
-		const value = node.toJSON();
+	if (t === "PLAIN") {
+		const value = (node as unknown as { toJSON?: () => unknown }).toJSON?.();
 		if (value === null) return "null";
 		if (typeof value === "boolean") return "boolean";
 		if (typeof value === "number") return "number";
@@ -198,10 +202,7 @@ function inferYamlKind(node: YamlNode): IRNodeKind {
  * This is a simplified implementation - full anchor resolution would require
  * traversing the document to find where the anchor is defined.
  */
-function findAnchorPointer(
-	anchor: string,
-	_document: YAML.Document.Parsed,
-): string | undefined {
+function findAnchorPointer(_anchor: string): string | undefined {
 	// TODO: Implement full anchor resolution
 	// For now, return undefined - rules can handle this lazily if needed
 	return undefined;

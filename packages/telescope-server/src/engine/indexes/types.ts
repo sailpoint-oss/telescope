@@ -297,7 +297,13 @@ export interface SecuritySchemeRef {
 	 * }
 	 * ```
 	 */
-	eachFlow(fn: (flowType: OAuthFlowType, flow: OAuthFlowNode, ref: OAuthFlowRef) => void): void;
+	eachFlow(
+		fn: (
+			flowType: OAuthFlowType,
+			flow: OAuthFlowNode,
+			ref: OAuthFlowRef,
+		) => void,
+	): void;
 }
 
 /**
@@ -326,7 +332,12 @@ export interface OAuthFlowNode {
  * OAuth2 flow type literals.
  * Represents the different OAuth2 flow types supported by OpenAPI.
  */
-export type OAuthFlowType = "implicit" | "password" | "clientCredentials" | "authorizationCode" | "device";
+export type OAuthFlowType =
+	| "implicit"
+	| "password"
+	| "clientCredentials"
+	| "authorizationCode"
+	| "device";
 
 /**
  * Reference to an OAuth2 flow configuration.
@@ -570,13 +581,19 @@ export interface RootRef {
 	eachServer(fn: (server: ServerNode, ref: ItemRef<ServerNode>) => void): void;
 
 	/** Iterate over root-level tags with typed TagRef */
-	eachTag(fn: (tag: { name: string; description?: string }, ref: TagRef) => void): void;
+	eachTag(
+		fn: (tag: { name: string; description?: string }, ref: TagRef) => void,
+	): void;
 
 	/** Iterate over security schemes with typed SecuritySchemeRef */
-	eachSecurityScheme(fn: (name: string, scheme: unknown, ref: SecuritySchemeRef) => void): void;
+	eachSecurityScheme(
+		fn: (name: string, scheme: unknown, ref: SecuritySchemeRef) => void,
+	): void;
 
 	/** Iterate over paths */
-	eachPath(fn: (path: string, pathItem: unknown, ref: PathItemRef) => void): void;
+	eachPath(
+		fn: (path: string, pathItem: unknown, ref: PathItemRef) => void,
+	): void;
 
 	// ═══════════════════════════════════════════════════════════════════════════
 	// Convenience checks
@@ -692,14 +709,19 @@ export interface OperationRef {
 	 * @param fn - Callback receiving security requirement and ref
 	 */
 	eachSecurityRequirement(
-		fn: (req: Record<string, string[]>, ref: ItemRef<Record<string, string[]>>) => void,
+		fn: (
+			req: Record<string, string[]>,
+			ref: ItemRef<Record<string, string[]>>,
+		) => void,
 	): void;
 
 	/**
 	 * Iterate over callbacks with auto-constructed refs.
 	 * @param fn - Callback receiving callback name, node, and ref
 	 */
-	eachCallback(fn: (name: string, callback: unknown, ref: CallbackRef) => void): void;
+	eachCallback(
+		fn: (name: string, callback: unknown, ref: CallbackRef) => void,
+	): void;
 
 	// ═══════════════════════════════════════════════════════════════════════════
 	// Response helpers
@@ -951,6 +973,30 @@ export type SchemaLocation =
  * }
  * ```
  */
+/**
+ * Data-only schema reference (as stored in the index / produced during traversal),
+ * before accessor methods are attached via {@link enrichSchemaRef}.
+ *
+ * This intentionally does NOT include any accessor methods to avoid type-level
+ * self-referential mapped types when generating declarations.
+ */
+export interface SchemaRefInput {
+	/** URI of the document containing this schema */
+	uri: string;
+	/** JSON pointer to the schema */
+	pointer: JsonPointer;
+	/** The schema object node */
+	node: unknown;
+
+	// Navigation context (optional)
+	parent?: SchemaRefInput;
+	propertyName?: string;
+	isRequired?: boolean;
+	depth?: number;
+	location?: SchemaLocation;
+	locationIndex?: number;
+}
+
 export interface SchemaRef {
 	/** URI of the document containing this schema */
 	uri: string;
@@ -1135,7 +1181,9 @@ export interface SchemaRef {
 	 * Iterate over pattern properties with auto-constructed refs.
 	 * @param fn - Callback receiving pattern string, schema node, and ref
 	 */
-	eachPatternProperty(fn: (pattern: string, schema: unknown, ref: SchemaRef) => void): void;
+	eachPatternProperty(
+		fn: (pattern: string, schema: unknown, ref: SchemaRef) => void,
+	): void;
 
 	// ═══════════════════════════════════════════════════════════════════════════
 	// String validation constraints
@@ -1415,7 +1463,9 @@ export interface ResponseRef {
 	 * Iterate over media types with auto-constructed refs.
 	 * @param fn - Callback receiving media type string, node, and ref
 	 */
-	eachMediaType(fn: (mediaType: string, node: unknown, ref: MediaTypeRef) => void): void;
+	eachMediaType(
+		fn: (mediaType: string, node: unknown, ref: MediaTypeRef) => void,
+	): void;
 
 	/**
 	 * Iterate over links with auto-constructed refs.
@@ -1487,7 +1537,9 @@ export interface RequestBodyRef {
 	 * Iterate over media types with auto-constructed refs.
 	 * @param fn - Callback receiving media type string, node, and ref
 	 */
-	eachMediaType(fn: (mediaType: string, node: unknown, ref: MediaTypeRef) => void): void;
+	eachMediaType(
+		fn: (mediaType: string, node: unknown, ref: MediaTypeRef) => void,
+	): void;
 }
 
 /**
@@ -1568,7 +1620,9 @@ export interface HeaderRef {
 	 * Iterate over examples with auto-constructed refs.
 	 * @param fn - Callback receiving example name, node, and ref
 	 */
-	eachExample(fn: (name: string, example: unknown, ref: ExampleRef) => void): void;
+	eachExample(
+		fn: (name: string, example: unknown, ref: ExampleRef) => void,
+	): void;
 }
 
 /**
@@ -1647,7 +1701,9 @@ export interface MediaTypeRef {
 	 * Iterate over examples with auto-constructed refs.
 	 * @param fn - Callback receiving example name, node, and ref
 	 */
-	eachExample(fn: (name: string, example: unknown, ref: ExampleRef) => void): void;
+	eachExample(
+		fn: (name: string, example: unknown, ref: ExampleRef) => void,
+	): void;
 }
 
 /**
@@ -1865,7 +1921,9 @@ export interface CallbackRef {
 	 * Iterate over callback path items with auto-constructed refs.
 	 * @param fn - Callback receiving expression, path item node, and ref
 	 */
-	eachPathItem(fn: (expression: string, pathItem: unknown, ref: PathItemRef) => void): void;
+	eachPathItem(
+		fn: (expression: string, pathItem: unknown, ref: PathItemRef) => void,
+	): void;
 }
 
 /**
@@ -1967,33 +2025,33 @@ export interface ProjectIndex {
 	/** Detected OpenAPI version (e.g., "3.0", "3.1", "3.2") */
 	version: string;
 	/** PathItems grouped by path string (e.g., "/users") */
-	pathsByString: Map<string, PathItemRef[]>;
+	pathsByString: Map<string, PathItemRefInput[]>;
 	/** Reverse lookup: PathItem key to path strings */
 	pathItemsToPaths: Map<string, string[]>;
 	/** Operations grouped by owning PathItem key */
-	operationsByOwner: Map<string, OperationRef[]>;
+	operationsByOwner: Map<string, OperationRefInput[]>;
 	/** Components by section (schemas, parameters, responses, etc.) */
-	components: Record<string, Map<string, ComponentRef>>;
+	components: Record<string, Map<string, ComponentRefInput>>;
 	/** All schemas (components, fragments, inline) - key is "uri#pointer" */
-	schemas: Map<string, SchemaRef>;
+	schemas: Map<string, SchemaRefInput>;
 	/** All parameters (components, path-level, operation-level, fragments) */
-	parameters: Map<string, ParameterRef>;
+	parameters: Map<string, ParameterRefInput>;
 	/** All responses (components, operation-level, fragments) */
-	responses: Map<string, ResponseRef>;
+	responses: Map<string, ResponseRefInput>;
 	/** All request bodies (components, operation-level, fragments) */
-	requestBodies: Map<string, RequestBodyRef>;
+	requestBodies: Map<string, RequestBodyRefInput>;
 	/** All headers (components, response-level, fragments) */
-	headers: Map<string, HeaderRef>;
+	headers: Map<string, HeaderRefInput>;
 	/** All media types (requestBody.content, response.content) */
-	mediaTypes: Map<string, MediaTypeRef>;
+	mediaTypes: Map<string, MediaTypeRefInput>;
 	/** All security requirements (root, operation-level) */
 	securityRequirements: Map<string, SecurityRequirementRef>;
 	/** All examples (components, inline under media types, parameters, headers) */
-	examples: Map<string, ExampleRef>;
+	examples: Map<string, ExampleRefInput>;
 	/** All links (components, response-level) */
-	links: Map<string, LinkRef>;
+	links: Map<string, LinkRefInput>;
 	/** All callbacks (components, operation-level) */
-	callbacks: Map<string, CallbackRef>;
+	callbacks: Map<string, CallbackRefInput>;
 	/** All webhooks (OpenAPI 3.1+) - key is "uri#pointer" */
 	webhooks: Map<string, WebhookRef>;
 	/** All $ref nodes throughout the document */
@@ -2003,6 +2061,39 @@ export interface ProjectIndex {
 	/** Optional scope provider for determining context */
 	scopeProvider?: (uri: string, pointer: JsonPointer) => ScopeContext | null;
 }
+
+// ============================================================================
+// Unenriched ref types (as stored in the index)
+// ============================================================================
+
+/**
+ * Helper that extracts function-valued keys from a type.
+ * Used to model "unenriched" refs (data-only) before accessor methods are attached.
+ */
+export type MethodKeys<T> = {
+	[K in keyof T]-?: T[K] extends (...args: infer _Args) => infer _Return
+		? K
+		: never;
+}[keyof T];
+
+/**
+ * Represents a ref shape prior to enrichment.
+ * All non-function fields are preserved, but accessor methods are optional.
+ */
+export type Unenriched<T> = Omit<T, MethodKeys<T>> &
+	Partial<Pick<T, MethodKeys<T>>>;
+
+export type PathItemRefInput = Unenriched<PathItemRef>;
+export type OperationRefInput = Unenriched<OperationRef>;
+export type ComponentRefInput = Unenriched<ComponentRef>;
+export type ParameterRefInput = Unenriched<ParameterRef>;
+export type ResponseRefInput = Unenriched<ResponseRef>;
+export type RequestBodyRefInput = Unenriched<RequestBodyRef>;
+export type HeaderRefInput = Unenriched<HeaderRef>;
+export type MediaTypeRefInput = Unenriched<MediaTypeRef>;
+export type ExampleRefInput = Unenriched<ExampleRef>;
+export type LinkRefInput = Unenriched<LinkRef>;
+export type CallbackRefInput = Unenriched<CallbackRef>;
 
 /**
  * Context information about a specific location in an OpenAPI document.

@@ -27,7 +27,7 @@ servers:
           The Host of the PMS.
           If using on a local network, this is the internal IP address of the server hosting the PMS.
           If using on an external network, this is the external IP address for your network, and requires port forwarding.
-          If using a reverse proxy, this would be the external DNS domain for your network, and requires the proxy handle port forwarding. 
+          If using a reverse proxy, this would be the external DNS domain for your network, and requires the proxy handle port forwarding.
         default: localhost
       port:
         description: |
@@ -4122,7 +4122,7 @@ paths:
               - cellular
           example: wan
         - name: mediaBufferSize
-          description: | 
+          description: |
             Buffer size used in playback (in KB). Clients should specify a lower bound if not known exactly. 
             This value could make the difference between transcoding and direct play on bandwidth constrained networks.
           in: query
@@ -4584,56 +4584,56 @@ paths:
           description: Transcoded subtitle file
           content:
             text/srt:
-              example: "1
-              00:00:02,499 --> 00:00:06,416
-              [SERENE MUSIC]
-              
-              2
-              00:00:11,791 --> 00:00:13,958
-              [BROOK BABBLES] 
-              [FLY BUZZES]
-              
-              3
-              00:00:16,166 --> 00:00:17,666
-              [BIRD TWEETS]
-              
-              4
-              00:00:17,666 --> 00:00:18,708
-              [WINGS FLAP]
-              
-              5
-              00:00:19,833 --> 00:00:20,374
-              [BIRD TWEETS] 
-              [WINGS FLAP]
-              
-              6
-              00:00:20,374 --> 00:00:21,041
-              [THUD]
-              
-              7
-              00:00:21,374 --> 00:00:22,249
-              [THUD]
-              
-              8
-              00:00:22,249 --> 00:00:23,083
-              [SQUIRREL LAUGHS]
-              
-              9
-              00:00:26,249 --> 00:00:27,541
-              [SNORES]
-              
-              10
-              00:00:29,416 --> 00:00:30,708
-              [SNORES]
-              
-              11
-              00:00:32,749 --> 00:00:34,041
-              [BUNNY SNORES]
-              
-              12
-              00:00:35,916 --> 00:00:37,249
-              [BUNNY SNORES]
-              "
+              example: |
+                1
+                00:00:02,499 --> 00:00:06,416
+                [SERENE MUSIC]
+
+                2
+                00:00:11,791 --> 00:00:13,958
+                [BROOK BABBLES] 
+                [FLY BUZZES]
+
+                3
+                00:00:16,166 --> 00:00:17,666
+                [BIRD TWEETS]
+
+                4
+                00:00:17,666 --> 00:00:18,708
+                [WINGS FLAP]
+
+                5
+                00:00:19,833 --> 00:00:20,374
+                [BIRD TWEETS] 
+                [WINGS FLAP]
+
+                6
+                00:00:20,374 --> 00:00:21,041
+                [THUD]
+
+                7
+                00:00:21,374 --> 00:00:22,249
+                [THUD]
+
+                8
+                00:00:22,249 --> 00:00:23,083
+                [SQUIRREL LAUGHS]
+
+                9
+                00:00:26,249 --> 00:00:27,541
+                [SNORES]
+
+                10
+                00:00:29,416 --> 00:00:30,708
+                [SNORES]
+
+                11
+                00:00:32,749 --> 00:00:34,041
+                [BUNNY SNORES]
+
+                12
+                00:00:35,916 --> 00:00:37,249
+                [BUNNY SNORES]
         "400":
           $ref: "#/components/responses/400"
         "403":
@@ -10932,8 +10932,7 @@ paths:
         - $ref: "#/components/parameters/transcodeType"
         - $ref: "#/components/parameters/transcodeSessionId"
         - name: extension
-          description: "Extension 
-          "
+          description: Extension
           in: path
           required: true
           schema:

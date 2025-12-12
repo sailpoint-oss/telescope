@@ -1,440 +1,234 @@
-import type {
-	Diagnostic,
-	Disposable,
-	DocumentSelector,
-	LanguageServiceContext,
-	LanguageServicePlugin,
-	LanguageServicePluginInstance,
-	ProviderResult,
-} from "@volar/language-service";
-import type { TextDocument } from "vscode-languageserver-textdocument";
-import { URI, Utils } from "vscode-uri";
-import * as yaml from "yaml-language-server";
-import { DataVirtualCode } from "../languages/virtualCodes/data-virtual-code.js";
-import type { telescopeVolarContext } from "../workspace/context.js";
+/**
+ * YAML Language Service Wrapper
+ *
+ * Wraps yaml-language-server to provide base YAML/JSON language features.
+ * This service handles:
+ * - Hover information (with OpenAPI schema descriptions)
+ * - Folding ranges
+ * - Selection ranges
+ * - Completions
+ * - Document symbols
+ * - Formatting
+ *
+ * OpenAPI-specific features are layered on top by the handler modules.
+ *
+ * @module lsp/services/yaml-service
+ */
+
 import {
-	getBuiltInSchemaEntries,
-	resolveDocumentContext,
-} from "./shared/schema-registry.js";
-import { matchDocument } from "./shared/virtual-code-utils.js";
-
-export interface Provide {
-	"yaml/languageService": () => yaml.LanguageService;
-}
-
-function noop(): undefined {}
+	getLanguageService,
+	type LanguageService,
+	type LanguageSettings,
+} from "yaml-language-server";
+import type { TextDocument } from "vscode-languageserver-textdocument";
+import type {
+	Hover,
+	FoldingRange,
+	SelectionRange,
+	CompletionList,
+	DocumentSymbol,
+	Position,
+	TextEdit,
+	FormattingOptions,
+} from "vscode-languageserver-protocol";
+import { getCachedSchema } from "./shared/schema-cache.js";
 
 /**
- * Create a Volar language service for YAML documents.
- *
- * This service handles only the generic "yaml" languageId.
- * OpenAPI documents use the embedded DataVirtualCode with "yaml" languageId,
- * so they get YAML features through the embedded code.
- *
- * Schema Architecture:
- * - All schemas (OpenAPI + user) are registered ONCE at initialization
- * - A custom schema provider dynamically resolves which schema applies to each document
- * - Schema provider uses VirtualCode.schemaKey for resolution
- * - Schemas are only re-registered on config changes (for user schemas)
+ * YAML Service configuration options.
  */
-export function create({
-	shared,
-	documentSelector = ["yaml"],
-	getWorkspaceContextService = (context) => {
-		return {
-			resolveRelativePath(relativePath, resource) {
-				const base = resource.substring(0, resource.lastIndexOf("/") + 1);
-				let baseUri = URI.parse(base);
-				const decoded = context.decodeEmbeddedDocumentUri(baseUri);
-				if (decoded) {
-					baseUri = decoded[0];
-				}
-				return Utils.resolvePath(baseUri, relativePath).toString();
-			},
-		};
-	},
-	getLanguageSettings = () => {
-		return {
-			completion: true,
-			customTags: [],
-			format: true,
-			hover: true,
-			isKubernetes: false,
-			validate: true,
-			yamlVersion: "1.2",
-		};
-	},
-	onDidChangeLanguageSettings = (listener, context) => {
-		// Hook into configuration changes
-		const disposable = context.env.onDidChangeConfiguration?.(listener);
-		return {
-			dispose() {
-				disposable?.dispose();
-			},
-		};
-	},
-}: {
-	shared: telescopeVolarContext;
-	documentSelector?: DocumentSelector;
-	getWorkspaceContextService?(
-		context: LanguageServiceContext,
-	): yaml.WorkspaceContextService;
-	getLanguageSettings?(
-		context: LanguageServiceContext,
-	): ProviderResult<yaml.LanguageSettings>;
-	onDidChangeLanguageSettings?(
-		listener: () => void,
-		context: LanguageServiceContext,
-	): Disposable;
-}): LanguageServicePlugin {
-	const logger = shared.getLogger("YAML LS");
-	logger.log("Creating YAML LS plugin");
+export interface YAMLServiceOptions {
+	/** Enable validation (disabled by default - we use Zod) */
+	validate?: boolean;
+	/** Enable hover */
+	hover?: boolean;
+	/** Enable completion */
+	completion?: boolean;
+	/** Enable formatting */
+	format?: boolean;
+}
 
-	return {
-		name: "yaml",
-		capabilities: {
-			codeActionProvider: {},
-			codeLensProvider: {
-				resolveProvider: true,
-			},
-			completionProvider: {
-				triggerCharacters: [" ", ":"],
-			},
-			definitionProvider: true,
-			diagnosticProvider: {
-				interFileDependencies: false,
-				workspaceDiagnostics: false,
-			},
-			documentOnTypeFormattingProvider: {
-				triggerCharacters: ["\n"],
-			},
-			documentSymbolProvider: true,
-			hoverProvider: true,
-			documentLinkProvider: {},
-			foldingRangeProvider: true,
-			selectionRangeProvider: true,
+/**
+ * Creates and configures a YAML language service instance.
+ *
+ * @param options - Configuration options
+ * @returns Configured language service
+ */
+export function createYAMLService(options: YAMLServiceOptions = {}): LanguageService {
+	const languageService = getLanguageService({
+		// Schema fetching - return OpenAPI schemas for telescope:// URIs
+		schemaRequestService: async (uri: string): Promise<string> => {
+			// Handle telescope:// schema URIs
+			if (uri.startsWith("telescope://")) {
+				const schemaKey = uri.replace("telescope://", "");
+				const schema = getCachedSchema(schemaKey);
+				if (schema) {
+					return JSON.stringify(schema);
+				}
+			}
+			// Return empty schema for unknown URIs
+			return "{}";
 		},
 
-		create(context): LanguageServicePluginInstance<Provide> {
-			// Schema URI prefix for our schemas
-			const SCHEMA_PREFIX = "telescope://";
-
-			// Create the YAML language service
-			const ls = yaml.getLanguageService({
-				schemaRequestService: async (uri) => {
-					// Handle telescope:// schema URIs
-					if (uri.startsWith(SCHEMA_PREFIX)) {
-						const schemaKey = uri.slice(SCHEMA_PREFIX.length);
-						const schema = shared.getSchemaByKey(schemaKey);
-						if (schema) {
-							logger.log(`[Schema] Serving schema for key: ${schemaKey}`);
-							return JSON.stringify(schema);
-						}
-						logger.log(`[Schema] No schema found for key: ${schemaKey}`);
-						return "{}";
-					}
-
-					// Fall back to file system for external schemas
-					const isInternalRef =
-						uri.startsWith("file:///") &&
-						!uri.includes("/", 8) &&
-						!uri.includes(".");
-					if (!isInternalRef) {
-						logger.log(`[Schema] Loading from file system: ${uri}`);
-					}
-					return (await context.env.fs?.readFile(URI.parse(uri))) ?? "";
-				},
-				telemetry: {
-					send: noop,
-					sendError: noop,
-					sendTrack: noop,
-				},
-				clientCapabilities: context.env?.clientCapabilities,
-				workspaceContext: getWorkspaceContextService(context),
-			});
-
-			// Register custom schema provider - this is called by yaml-language-server
-			// to determine which schema(s) apply to a document
-			ls.registerCustomSchemaProvider(async (documentUri: string) => {
-				const schemaKey = resolveSchemaKeyForDocument(documentUri);
-				if (!schemaKey) {
-					return [];
+		// Workspace path resolution
+		workspaceContext: {
+			resolveRelativePath: (relativePath: string, resource: string) => {
+				// Simple resolution for $ref paths
+				const resourceDir = resource.substring(0, resource.lastIndexOf("/"));
+				if (relativePath.startsWith("/")) {
+					return relativePath;
 				}
-				logger.log(
-					`[Schema] Custom provider resolved: ${documentUri} -> ${schemaKey}`,
-				);
-				return [`${SCHEMA_PREFIX}${schemaKey}`];
-			});
-
-			// Register all built-in OpenAPI schemas once
-			registerBuiltInSchemas();
-
-			// Track if we need to re-register user schemas
-			let userSchemasRegistered = false;
-
-			// Track pending schema registration to prevent race conditions
-			// Workers will wait for this promise before processing requests
-			let pendingSchemaRegistration: Promise<void> | undefined;
-
-			const disposable = onDidChangeLanguageSettings(async () => {
-				// Re-register user schemas on config change
-				logger.log("[Schema] Config changed, re-registering user schemas");
-				// Track the registration so workers can wait for it
-				pendingSchemaRegistration = registerUserSchemas();
-				await pendingSchemaRegistration;
-				pendingSchemaRegistration = undefined;
-			}, context);
-
-			let initializing: Promise<void> | undefined;
-
-			return {
-				dispose() {
-					disposable.dispose();
-				},
-
-				provide: {
-					"yaml/languageService": () => ls,
-				},
-
-				provideCodeActions(document, range, codeActionContext) {
-					return worker(document, () => {
-						return ls.getCodeAction(document, {
-							context: codeActionContext,
-							range,
-							textDocument: document,
-						});
-					});
-				},
-
-				provideCodeLenses(document) {
-					return worker(document, () => {
-						return ls.getCodeLens(document);
-					});
-				},
-
-				provideCompletionItems(document, position) {
-					return worker(document, () => {
-						return ls.doComplete(document, position, false);
-					});
-				},
-
-				provideDefinition(document, position) {
-					return worker(document, () => {
-						return ls.doDefinition(document, {
-							position,
-							textDocument: document,
-						});
-					});
-				},
-
-				async provideDiagnostics(document): Promise<Diagnostic[] | undefined> {
-					return worker(document, async () => {
-						// Skip JSON Schema validation for OpenAPI documents
-						// OpenAPI service handles schema validation with Zod for better error messages
-						const decoded = context.decodeEmbeddedDocumentUri(
-							URI.parse(document.uri),
-						);
-						if (decoded) {
-							const sourceScript = context.language.scripts.get(decoded[0]);
-							if (
-								sourceScript?.generated?.root?.languageId?.startsWith(
-									"openapi-",
-								)
-							) {
-								return []; // OpenAPI service handles schema validation
-							}
-						}
-						return await ls.doValidation(document, false);
-					});
-				},
-
-				provideDocumentSymbols(document) {
-					return worker(document, () => {
-						return ls.findDocumentSymbols2(document, {});
-					});
-				},
-
-				provideHover(document, position) {
-					return worker(document, () => {
-						return ls.doHover(document, position);
-					});
-				},
-
-				provideDocumentLinks(document) {
-					return worker(document, () => {
-						return ls.findLinks(document);
-					});
-				},
-
-				provideFoldingRanges(document) {
-					return worker(document, () => {
-						return ls.getFoldingRanges(
-							document,
-							context.env.clientCapabilities?.textDocument?.foldingRange ?? {},
-						);
-					});
-				},
-
-				provideOnTypeFormattingEdits(document, position, key, options) {
-					return worker(document, () => {
-						return ls.doDocumentOnTypeFormatting(document, {
-							ch: key,
-							options,
-							position,
-							textDocument: document,
-						});
-					});
-				},
-
-				provideSelectionRanges(document, positions) {
-					return worker(document, () => {
-						return ls.getSelectionRanges(document, positions);
-					});
-				},
-
-				resolveCodeLens(codeLens) {
-					return ls.resolveCodeLens(codeLens);
-				},
-			};
-
-			/**
-			 * Register all built-in OpenAPI schemas.
-			 * Called once at initialization.
-			 * Uses shared getBuiltInSchemaEntries() for consistency with JSON service.
-			 */
-			function registerBuiltInSchemas(): void {
-				const entries = getBuiltInSchemaEntries();
-				for (const { id, schema } of entries) {
-					ls.addSchema(id, schema);
-				}
-				logger.log(
-					`[Schema] Registered ${entries.length} built-in OpenAPI schemas`,
-				);
-			}
-
-			/**
-			 * Register user-defined schemas from workspace configuration.
-			 * Called at initialization and on config changes.
-			 */
-			async function registerUserSchemas(): Promise<void> {
-				// Get user schemas from shared context
-				const userSchemas = shared.getUserSchemas();
-				if (userSchemas.length === 0) {
-					if (userSchemasRegistered) {
-						logger.log("[Schema] No user schemas to register");
-					}
-					userSchemasRegistered = true;
-					return;
-				}
-
-				for (const { id, schema } of userSchemas) {
-					ls.addSchema(id, schema);
-				}
-				logger.log(`[Schema] Registered ${userSchemas.length} user schemas`);
-				userSchemasRegistered = true;
-			}
-
-			/**
-			 * Resolve the schema key for a document URI.
-			 * Uses the VirtualCode's schemaKey property.
-			 */
-			function resolveSchemaKeyForDocument(
-				documentUri: string,
-			): string | undefined {
-				try {
-					// Parse the document URI and resolve the virtual code
-					const parsedUri = URI.parse(documentUri);
-					const decoded = context.decodeEmbeddedDocumentUri(parsedUri);
-
-					if (!decoded) {
-						// Not an embedded document - might be a direct file
-						return undefined;
-					}
-
-					const [sourceUri, embeddedCodeId] = decoded;
-					const sourceScript = context.language.scripts.get(sourceUri);
-
-					if (!sourceScript?.generated) {
-						return undefined;
-					}
-
-					let virtualCode: unknown;
-
-					if (embeddedCodeId === "root") {
-						virtualCode = sourceScript.generated.root;
-					} else {
-						// Try Map lookup first
-						virtualCode =
-							sourceScript.generated.embeddedCodes.get(embeddedCodeId);
-
-						// Fallback: iterate through root's embedded codes
-						if (!virtualCode && sourceScript.generated.root?.embeddedCodes) {
-							for (const code of sourceScript.generated.root.embeddedCodes) {
-								if (code.id === embeddedCodeId) {
-									virtualCode = code;
-									break;
-								}
-							}
-						}
-					}
-
-					if (virtualCode instanceof DataVirtualCode) {
-						return virtualCode.schemaKey;
-					}
-
-					return undefined;
-				} catch (error) {
-					logger.log(
-						`[Schema] Error resolving schema key for ${documentUri}: ${error}`,
-					);
-					return undefined;
-				}
-			}
-
-			/**
-			 * Worker that ensures initialization and document matching.
-			 * No longer configures schemas per-request - that's handled by the custom provider.
-			 * Also waits for any pending schema registration to complete.
-			 */
-			async function worker<T>(
-				document: TextDocument,
-				callback: () => T,
-			): Promise<Awaited<T> | undefined> {
-				if (!matchDocument(documentSelector, document)) {
-					return undefined;
-				}
-
-				// Initialize once, with retry on failure
-				try {
-					initializing ??= initialize();
-					await initializing;
-				} catch (error) {
-					// Reset so next call can retry initialization
-					initializing = undefined;
-					throw error;
-				}
-
-				// Wait for any pending schema registration from config changes
-				if (pendingSchemaRegistration) {
-					await pendingSchemaRegistration;
-				}
-
-				return await callback();
-			}
-
-			/**
-			 * Initialize the language service with base settings.
-			 * Schemas are registered separately via addSchema and custom provider.
-			 */
-			async function initialize(): Promise<void> {
-				const settings = await getLanguageSettings(context);
-				ls.configure(settings);
-
-				// Register user schemas on first initialization
-				await registerUserSchemas();
-
-				logger.log("[Schema] YAML language service initialized");
-			}
+				return `${resourceDir}/${relativePath}`;
+			},
 		},
+	});
+
+	// Configure the service with OpenAPI schema associations
+	const settings: LanguageSettings = {
+		validate: options.validate ?? false, // Disabled - we use Zod for OpenAPI validation
+		hover: options.hover ?? true,
+		completion: options.completion ?? true,
+		format: options.format ?? true,
+		// Associate OpenAPI schemas with YAML/JSON files
+		// The yaml-language-server will use these for hover and completions
+		schemas: [
+			{
+				uri: "telescope://openapi-3.1-root",
+				fileMatch: ["*.yaml", "*.yml", "*.json"],
+			},
+		],
+		customTags: [], // Add custom tags if needed
+		yamlVersion: "1.2",
 	};
+
+	languageService.configure(settings);
+
+	return languageService;
+}
+
+/**
+ * YAMLService class wraps the yaml-language-server for easier use.
+ */
+export class YAMLService {
+	private service: LanguageService;
+
+	constructor(options: YAMLServiceOptions = {}) {
+		this.service = createYAMLService(options);
+	}
+
+	/**
+	 * Get hover information for a position in the document.
+	 */
+	async getHover(document: TextDocument, position: Position): Promise<Hover | null> {
+		try {
+			const hover = await this.service.doHover(document, position);
+			return hover ?? null;
+		} catch (error) {
+			// YAML service can throw on malformed documents
+			return null;
+		}
+	}
+
+	/**
+	 * Get folding ranges for a document.
+	 */
+	getFoldingRanges(document: TextDocument): FoldingRange[] {
+		try {
+			const ranges = this.service.getFoldingRanges(document, {
+				rangeLimit: 5000,
+			});
+			return ranges ?? [];
+		} catch (error) {
+			return [];
+		}
+	}
+
+	/**
+	 * Get selection ranges for positions in a document.
+	 */
+	async getSelectionRanges(
+		document: TextDocument,
+		positions: Position[],
+	): Promise<SelectionRange[]> {
+		try {
+			const ranges = await this.service.getSelectionRanges(document, positions);
+			return ranges ?? [];
+		} catch (error) {
+			return [];
+		}
+	}
+
+	/**
+	 * Get completion items for a position in the document.
+	 */
+	async getCompletions(
+		document: TextDocument,
+		position: Position,
+	): Promise<CompletionList | null> {
+		try {
+			const completions = await this.service.doComplete(document, position, false);
+			return completions ?? null;
+		} catch (error) {
+			return null;
+		}
+	}
+
+	/**
+	 * Get document symbols (outline).
+	 */
+	getDocumentSymbols(document: TextDocument): DocumentSymbol[] {
+		try {
+			// Use findDocumentSymbols2 for hierarchical symbols
+			const symbols = this.service.findDocumentSymbols2(document);
+			return symbols ?? [];
+		} catch (error) {
+			return [];
+		}
+	}
+
+	/**
+	 * Format a document.
+	 */
+	async format(
+		document: TextDocument,
+		options?: FormattingOptions,
+	): Promise<TextEdit[]> {
+		try {
+			const edits = await this.service.doFormat(document, {
+				singleQuote: false,
+				bracketSpacing: true,
+				proseWrap: "preserve",
+				printWidth: options?.tabSize ? options.tabSize * 20 : 80,
+			});
+			return edits ?? [];
+		} catch (error) {
+			return [];
+		}
+	}
+
+	/**
+	 * Get the underlying language service for advanced usage.
+	 */
+	getLanguageService(): LanguageService {
+		return this.service;
+	}
+}
+
+/**
+ * Singleton instance of the YAML service.
+ */
+let yamlServiceInstance: YAMLService | null = null;
+
+/**
+ * Get the shared YAML service instance.
+ */
+export function getYAMLService(): YAMLService {
+	if (!yamlServiceInstance) {
+		yamlServiceInstance = new YAMLService({
+			hover: true,
+			completion: true,
+			format: true,
+			validate: false, // We use Zod for OpenAPI validation
+		});
+	}
+	return yamlServiceInstance;
 }

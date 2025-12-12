@@ -1,4 +1,4 @@
-import type { FileSystem } from "@volar/language-service";
+import type { FileSystem } from "../fs-types.js";
 import type { ProjectContext } from "../rules/types.js";
 import { buildProjectContextForRoot } from "./project-builder.js";
 import type { ProjectContextCache } from "./project-cache.js";

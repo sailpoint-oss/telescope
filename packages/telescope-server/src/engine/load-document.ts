@@ -37,7 +37,7 @@
  * ```
  */
 
-import type { FileSystem } from "@volar/language-service";
+import type { FileSystem } from "./fs-types.js";
 import { parseTree } from "jsonc-parser";
 import { URI } from "vscode-uri";
 import YAML from "yaml";

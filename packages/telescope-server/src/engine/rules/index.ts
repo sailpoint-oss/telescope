@@ -34,11 +34,10 @@
  * @see {@link Rule} - Rule interface
  */
 
-import type { Rule } from "./types.js";
-
 // Import rule collections
 import { openapiRules, openapiRulesMap } from "./openapi/index.js";
 import { sailpointRules, sailpointRulesMap } from "./sailpoint/index.js";
+import type { Rule } from "./types.js";
 
 // Export categorized rule collections
 export { openapiRules, openapiRulesMap } from "./openapi/index.js";
@@ -109,57 +108,50 @@ export function categorizeRulesByScope(rules: Rule[]): {
 
 // Named exports for OpenAPI rules
 export {
-	// References rules
-	unresolvedRef,
-
 	// Naming rules
 	componentExampleNameCapital,
 	componentSchemaNameCapital,
-	operationIdUnique,
-	operationTagsFormat,
-
+	// Document rules
+	documentAscii,
+	// Security rules
+	noApiKeyInQuery,
+	oauthFlowUrls,
 	// Documentation rules
 	operationDeprecatedDescription,
-	operationDescriptionHtml,
-	schemaEnumDescription,
-
+	operationIdUnique,
+	// Paths rules
+	operationIdUniqueInPath,
+	operationRequestBodyContent,
+	operationTagsFormat,
+	pathCasingConsistency,
+	pathKebabCase,
+	pathNoHttpVerbs,
+	pathNoTrailingSlash,
+	pathParamsMatch,
 	// Structure rules
 	schemaAdditionalProperties,
 	schemaAllofMixedTypes,
 	schemaAllofStructure,
 	schemaArrayItems,
 	schemaDiscriminatorMapping,
-	operationRequestBodyContent,
-	schemaTypeRequired,
-
+	schemaEnumDescription,
 	// Types rules
 	schemaNoUnknownFormats,
-	schemaStringMaxLength,
-
-	// Security rules
-	noApiKeyInQuery,
-	oauthFlowUrls,
+	schemaTypeRequired,
 	securityGlobalOrOperation,
 	securitySchemesDefined,
-
 	// Servers rules
 	serversDefined,
 	serverUrlHttps,
-
-	// Paths rules
-	operationIdUniqueInPath,
-	pathCasingConsistency,
-	pathKebabCase,
-	pathNoHttpVerbs,
-	pathNoTrailingSlash,
-	pathParamsMatch,
-
-	// Document rules
-	documentAscii,
+	// References rules
+	unresolvedRef,
 } from "./openapi/index.js";
 
 // Named exports for SailPoint rules
 export {
+	// Types rules
+	booleanDefault,
+	numericFormat,
 	// Operation rules
 	operationDescriptionRequired,
 	operationErrorResponses,
@@ -169,26 +161,19 @@ export {
 	operationSummaryRequired,
 	operationTagsRequired,
 	operationUserLevels,
-
 	// Parameter rules
 	parameterDescriptionRequired,
-	parameterExampleRequired,
 	parameterExampleKeys,
+	parameterExampleRequired,
 	parameterFilters,
 	parameterRequiredExplicit,
 	parameterSorters,
-
+	// Root rules
+	rootSailpointApi,
+	rootTags,
 	// Schema rules
 	schemaDescriptionRequired,
 	schemaExampleKeys,
 	schemaExampleRequired,
 	schemaRequiredArray,
-
-	// Types rules
-	booleanDefault,
-	numericFormat,
-
-	// Root rules
-	rootSailpointApi,
-	rootTags,
 } from "./sailpoint/index.js";

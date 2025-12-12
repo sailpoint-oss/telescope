@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import type { FileSystem } from "@volar/language-service";
+import type { FileSystem } from "../fs-types.js";
 import { URI } from "vscode-uri";
 import type { GraphNode, RefGraph } from "../indexes/graph-types.js";
 import { buildRefGraph } from "../indexes/ref-graph.js";

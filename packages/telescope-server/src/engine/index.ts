@@ -36,9 +36,9 @@ export type {
 export * from "./schemas/index.js";
 
 import { pathToFileURL } from "node:url";
-import type { FileSystem } from "@volar/language-service";
 import { filterRulesByContext as filterRules } from "./execution/rule-filter.js";
 import { runEngine } from "./execution/runner.js";
+import type { FileSystem } from "./fs-types.js";
 import { buildIndex } from "./indexes/project-index.js";
 import { buildRefGraph } from "./indexes/ref-graph.js";
 import { builtinRules } from "./rules/index.js";
@@ -407,7 +407,7 @@ export type {
 	ExtensionValidationError,
 } from "./schemas/extensions/types.js";
 
-import { z } from "zod";
+import { z } from "zod/v4";
 
 /**
  * Helper to define a Zod schema for use with Telescope validation.
@@ -449,8 +449,8 @@ export function defineSchema<T extends z.ZodType>(
 	return schemaOrCallback;
 }
 
-export type { z as ZodType } from "zod/v4";
-// Re-export Zod z for users who want direct access
+// Re-export Zod types and the `z` builder for schema authors.
+export type { ZodType } from "zod/v4";
 export { z } from "zod/v4";
 
 export type {
@@ -499,11 +499,15 @@ export {
 	isPartialDocument,
 	isRootDocument,
 } from "./utils/document-type-utils.js";
+export { NodeFileSystem } from "./utils/node-file-system.js";
 export {
 	decodePointerSegment,
 	encodePointerSegment,
+	getLastSegment,
+	getParentPointer,
 	getValueAtPointer,
 	joinPointer,
+	parseJsonPointer,
 	splitPointer,
 } from "./utils/pointer-utils.js";
 // Version detection and resolution

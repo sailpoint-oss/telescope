@@ -1,9 +1,24 @@
-import type { Diagnostic } from "@volar/language-server";
 import { closest } from "fastest-levenshtein";
-import type { z } from "zod/v4";
-import type { Range } from "vscode-languageserver-protocol";
+import type { Diagnostic, Range } from "vscode-languageserver-protocol";
 import { DiagnosticSeverity } from "vscode-languageserver-protocol";
-import type { DataVirtualCode } from "../../languages/virtualCodes/data-virtual-code.js";
+import type { z } from "zod/v4";
+
+// ============================================================================
+// Document Context Interface
+// ============================================================================
+
+/**
+ * Interface for document context used by Zod validation.
+ * This replaces the old DataVirtualCode dependency.
+ */
+export interface DocumentContext {
+	/** Get the range for a JSON path */
+	getRange(path: (string | number)[]): Range | null;
+	/** Get the range for just the key at a JSON path */
+	getKeyRange(path: (string | number)[]): Range | null;
+	/** Get the range for the first key under a JSON path */
+	getFirstKeyRange(path: (string | number)[]): Range | null;
+}
 
 // ============================================================================
 // Zod v4 Issue Type Definition
@@ -61,19 +76,18 @@ interface ZodIssue {
 // ============================================================================
 
 /**
- * Convert Zod validation errors into Volar diagnostics using DataVirtualCode.
+ * Convert Zod validation errors into LSP diagnostics.
  *
  * @param schema - The Zod schema that was used for validation
  * @param value - The value that was validated
- * @param virtualCode - The DataVirtualCode containing the parsed document
+ * @param documentContext - The document context for range mapping
  * @param source - Optional source identifier for the diagnostics (default: "zod-schema")
- * @returns Array of Volar Diagnostic objects with proper ranges and messages
+ * @returns Array of LSP Diagnostic objects with proper ranges and messages
  */
 export function zodErrorsToDiagnostics(
 	schema: z.ZodType,
 	value: unknown,
-	virtualCode: DataVirtualCode,
-	source: string = "zod-schema",
+	documentContext: DocumentContext,
 ): Diagnostic[] {
 	const result = schema.safeParse(value);
 	if (result.success) {
@@ -81,7 +95,7 @@ export function zodErrorsToDiagnostics(
 	}
 
 	const issues = result.error.issues as ZodIssue[];
-	return processIssues(issues, virtualCode, source, schema);
+	return processIssues(issues, documentContext, schema);
 }
 
 /**
@@ -89,8 +103,7 @@ export function zodErrorsToDiagnostics(
  */
 function processIssues(
 	issues: ZodIssue[],
-	virtualCode: DataVirtualCode,
-	source: string,
+	documentContext: DocumentContext,
 	schema: z.ZodType,
 ): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
@@ -100,20 +113,26 @@ function processIssues(
 	};
 
 	for (const issue of issues) {
+		console.log("issue", issue);
 		// For union errors, try to extract a more specific error
-		const effectiveIssue = issue.code === "invalid_union"
-			? extractBestUnionError(issue) ?? issue
-			: issue;
+		const effectiveIssue =
+			issue.code === "invalid_union"
+				? (extractBestUnionError(issue) ?? issue)
+				: issue;
 
-		const path = effectiveIssue.path;
-		const range = getErrorRange(effectiveIssue, virtualCode, defaultRange);
-		const message = formatErrorMessage(effectiveIssue, path, range === defaultRange, schema);
+		// const path = effectiveIssue.path;
+		const range = getErrorRange(effectiveIssue, documentContext, defaultRange);
+		// const message = formatErrorMessage(
+		// 	effectiveIssue,
+		// 	path,
+		// 	range === defaultRange,
+		// 	schema,
+		// );
 
 		diagnostics.push({
 			range,
-			message,
+			message: issue.message,
 			severity: DiagnosticSeverity.Error,
-			source,
 			code: getErrorCode(effectiveIssue),
 		});
 	}
@@ -134,7 +153,7 @@ export const typeboxErrorsToDiagnostics = zodErrorsToDiagnostics;
  */
 function getErrorRange(
 	issue: ZodIssue,
-	virtualCode: DataVirtualCode,
+	documentContext: DocumentContext,
 	defaultRange: Range,
 ): Range {
 	const path = issue.path;
@@ -143,10 +162,10 @@ function getErrorRange(
 		case "unrecognized_keys": {
 			// Highlight just the unrecognized key name, not its value
 			// Path already points to the key (e.g., ['yo'] for yo: yo)
-			const keyRange = virtualCode.getKeyRange(path);
+			const keyRange = documentContext.getKeyRange(path);
 			if (keyRange) return keyRange;
 			// Fallback to full range
-			return virtualCode.getRange(path) ?? defaultRange;
+			return documentContext.getRange(path) ?? defaultRange;
 		}
 
 		case "invalid_type": {
@@ -155,14 +174,14 @@ function getErrorRange(
 				// This is a missing field - highlight where it should be
 				const parentPath = path.slice(0, -1);
 				return (
-					virtualCode.getFirstKeyRange(parentPath) ??
-					virtualCode.getFirstKeyRange([]) ??
-					virtualCode.getRange(parentPath) ??
+					documentContext.getFirstKeyRange(parentPath) ??
+					documentContext.getFirstKeyRange([]) ??
+					documentContext.getRange(parentPath) ??
 					defaultRange
 				);
 			}
 			// For type mismatches, highlight the value
-			return virtualCode.getRange(path) ?? defaultRange;
+			return documentContext.getRange(path) ?? defaultRange;
 		}
 
 		case "invalid_union": {
@@ -170,37 +189,39 @@ function getErrorRange(
 			if (issue.discriminator && path.length > 0) {
 				const discriminatorPath = [...path.slice(0, -1), issue.discriminator];
 				return (
-					virtualCode.getRange(discriminatorPath) ??
-					virtualCode.getRange(path) ??
+					documentContext.getRange(discriminatorPath) ??
+					documentContext.getRange(path) ??
 					defaultRange
 				);
 			}
 			// For regular unions, highlight the whole value
-			return virtualCode.getRange(path) ?? defaultRange;
+			return documentContext.getRange(path) ?? defaultRange;
 		}
 
 		case "invalid_value": {
 			// Highlight the value that has the wrong enum/literal value
-			return virtualCode.getRange(path) ?? defaultRange;
+			return documentContext.getRange(path) ?? defaultRange;
 		}
 
 		case "invalid_format": {
 			// Highlight the malformed value
-			return virtualCode.getRange(path) ?? defaultRange;
+			return documentContext.getRange(path) ?? defaultRange;
 		}
 
 		case "too_small":
 		case "too_big": {
 			// Highlight the value that violates the constraint
-			return virtualCode.getRange(path) ?? defaultRange;
+			return documentContext.getRange(path) ?? defaultRange;
 		}
 
 		default: {
 			// Default: try the path, then fall back
 			return (
-				virtualCode.getRange(path) ??
-				(path.length > 0 ? virtualCode.getRange(path.slice(0, -1)) : null) ??
-				virtualCode.getRange([]) ??
+				documentContext.getRange(path) ??
+				(path.length > 0
+					? documentContext.getRange(path.slice(0, -1))
+					: null) ??
+				documentContext.getRange([]) ??
 				defaultRange
 			);
 		}
@@ -258,9 +279,7 @@ function extractBestUnionError(issue: ZodIssue): ZodIssue | null {
 	// 5. custom errors (from superRefine) with meaningful messages
 	const customError = allErrors.find(
 		(e) =>
-			e.code === "custom" &&
-			e.message &&
-			!e.message.includes("Invalid input"),
+			e.code === "custom" && e.message && !e.message.includes("Invalid input"),
 	);
 	if (customError) return customError;
 
@@ -299,7 +318,7 @@ function formatErrorMessage(
 			if (issue.keys && issue.keys.length > 0) {
 				const key = issue.keys[0];
 				const validKeys = getValidKeysFromSchema(schema, path.slice(0, -1));
-				
+
 				if (validKeys.length > 0) {
 					const closest_match = closest(key, validKeys);
 					return `${message}. Did you mean "${closest_match}"?${pathSuffix}`;
@@ -356,7 +375,9 @@ function formatErrorMessage(
 
 		default: {
 			// For any other codes, use Zod's message
-			return message ? `${message}${pathSuffix}` : `Validation error${pathSuffix}`;
+			return message
+				? `${message}${pathSuffix}`
+				: `Validation error${pathSuffix}`;
 		}
 	}
 }
@@ -436,4 +457,3 @@ function getValidKeysFromSchema(
 
 	return [];
 }
-

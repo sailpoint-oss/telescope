@@ -26,21 +26,21 @@ import {
 } from "../utils/pointer-utils.js";
 import type { RefGraph, Resolver } from "./graph-types.js";
 import type {
-	CallbackRef,
-	ComponentRef,
-	ExampleRef,
-	HeaderRef,
+	CallbackRefInput,
+	ComponentRefInput,
+	ExampleRefInput,
+	HeaderRefInput,
 	JsonPointer,
-	LinkRef,
-	MediaTypeRef,
-	OperationRef,
-	ParameterRef,
-	PathItemRef,
+	LinkRefInput,
+	MediaTypeRefInput,
+	OperationRefInput,
+	ParameterRefInput,
+	PathItemRefInput,
 	ProjectIndex,
 	ReferenceRef,
-	RequestBodyRef,
-	ResponseRef,
-	SchemaRef,
+	RequestBodyRefInput,
+	ResponseRefInput,
+	SchemaRefInput,
 	ScopeContext,
 	SecurityRequirementRef,
 	WebhookRef,
@@ -83,25 +83,25 @@ const COMPONENT_SECTIONS = [
 
 /** All the index maps we're building */
 interface IndexCollectors {
-	pathsByString: Map<string, PathItemRef[]>;
+	pathsByString: Map<string, PathItemRefInput[]>;
 	pathItemsToPaths: Map<string, string[]>;
-	operationsByOwner: Map<string, OperationRef[]>;
-	components: Record<string, Map<string, ComponentRef>>;
-	schemas: Map<string, SchemaRef>;
-	parameters: Map<string, ParameterRef>;
-	responses: Map<string, ResponseRef>;
-	requestBodies: Map<string, RequestBodyRef>;
-	headers: Map<string, HeaderRef>;
-	mediaTypes: Map<string, MediaTypeRef>;
+	operationsByOwner: Map<string, OperationRefInput[]>;
+	components: Record<string, Map<string, ComponentRefInput>>;
+	schemas: Map<string, SchemaRefInput>;
+	parameters: Map<string, ParameterRefInput>;
+	responses: Map<string, ResponseRefInput>;
+	requestBodies: Map<string, RequestBodyRefInput>;
+	headers: Map<string, HeaderRefInput>;
+	mediaTypes: Map<string, MediaTypeRefInput>;
 	securityRequirements: Map<string, SecurityRequirementRef>;
-	examples: Map<string, ExampleRef>;
-	links: Map<string, LinkRef>;
-	callbacks: Map<string, CallbackRef>;
+	examples: Map<string, ExampleRefInput>;
+	links: Map<string, LinkRefInput>;
+	callbacks: Map<string, CallbackRefInput>;
 	webhooks: Map<string, WebhookRef>;
 	references: Map<string, ReferenceRef>;
 	documents: Map<string, Record<string, unknown>>;
-	pathItemsByPointer: Map<string, PathItemRef>;
-	operationsByPointer: Map<string, OperationRef>;
+	pathItemsByPointer: Map<string, PathItemRefInput>;
+	operationsByPointer: Map<string, OperationRefInput>;
 }
 
 /** Create unique key for a node */
@@ -517,14 +517,14 @@ function processOperation(
 	pathItemRef: string | undefined,
 	definitionUri: string,
 	definitionPointer: string,
-): OperationRef {
+): OperationRefInput {
 	const opPointer = joinPointer(["paths", pathString, method]);
 	const opDefinitionPointer = joinPointer([
 		...splitPointer(definitionPointer),
 		method,
 	]);
 
-	const operation: OperationRef = {
+	const operation: OperationRefInput = {
 		uri,
 		pointer: opPointer,
 		definitionUri,
@@ -642,7 +642,7 @@ function processPathItem(
 		}
 	}
 
-	const pathItem: PathItemRef = {
+	const pathItem: PathItemRefInput = {
 		uri,
 		pointer,
 		definitionUri,
@@ -676,7 +676,7 @@ function processPathItem(
 	}
 
 	// Process operations
-	const operations: OperationRef[] = [];
+	const operations: OperationRefInput[] = [];
 	for (const method of HTTP_METHODS) {
 		const opValue = effectivePathItem[method];
 		if (!isObject(opValue)) continue;
@@ -898,7 +898,7 @@ function processPathItemFragment(
 	const pathItemPointer = "#";
 	const fragmentPathKey = `__fragment__${uri}`;
 
-	const pathItem: PathItemRef = {
+	const pathItem: PathItemRefInput = {
 		uri,
 		pointer: pathItemPointer,
 		definitionUri: uri,
@@ -920,7 +920,7 @@ function processPathItemFragment(
 		if (!isObject(opValue)) continue;
 
 		const opPointer = joinPointer([method]);
-		const operation: OperationRef = {
+		const operation: OperationRefInput = {
 			uri,
 			pointer: opPointer,
 			definitionUri: uri,
@@ -1013,8 +1013,8 @@ function processPathItemFragment(
 
 function createScopeProvider(
 	documents: Map<string, Record<string, unknown>>,
-	_pathItems: Map<string, PathItemRef>,
-	_operations: Map<string, OperationRef>,
+	_pathItems: Map<string, PathItemRefInput>,
+	_operations: Map<string, OperationRefInput>,
 ) {
 	return (uri: string, pointer: JsonPointer): ScopeContext | null => {
 		const document = documents.get(uri);
@@ -1189,7 +1189,7 @@ function processWebhooks(
 		}
 
 		// Process operations within webhooks
-		const operations: OperationRef[] = [];
+		const operations: OperationRefInput[] = [];
 		for (const method of HTTP_METHODS) {
 			const opValue = effectiveWebhook[method];
 			if (!isObject(opValue)) continue;
@@ -1200,7 +1200,7 @@ function processWebhooks(
 				method,
 			]);
 
-			const operation: OperationRef = {
+			const operation: OperationRefInput = {
 				uri,
 				pointer: opPointer,
 				definitionUri,
@@ -1302,8 +1302,8 @@ export function buildIndex(options: BuildIndexOptions): ProjectIndex {
 		pathItemsToPaths: new Map(),
 		operationsByOwner: new Map(),
 		components: Object.fromEntries(
-			COMPONENT_SECTIONS.map((s) => [s, new Map<string, ComponentRef>()]),
-		) as Record<string, Map<string, ComponentRef>>,
+			COMPONENT_SECTIONS.map((s) => [s, new Map<string, ComponentRefInput>()]),
+		) as Record<string, Map<string, ComponentRefInput>>,
 		schemas: new Map(),
 		parameters: new Map(),
 		responses: new Map(),

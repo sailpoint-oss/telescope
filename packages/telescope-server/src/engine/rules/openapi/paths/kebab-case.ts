@@ -1,3 +1,4 @@
+import { findNodeByPointer } from "../../../ir/context.js";
 import { accessor, defineRule, type Rule } from "../../api.js";
 
 /**
@@ -62,9 +63,44 @@ const pathKebabCase: Rule = defineRule({
 
 							// Report at the specific path in the paths object
 							const pathPointer = `${pointer}/paths/${escapeJsonPointer(path)}`;
-							ctx.reportAt({ uri, pointer: pathPointer }, [], {
+							const doc = ctx.project.docs.get(uri);
+							let range = ctx.locateKey(uri, pathPointer) ??
+								ctx.locate(uri, pathPointer) ??
+								ctx.locateFirstChild(uri, "#") ?? {
+									start: { line: 0, character: 0 },
+									end: { line: 0, character: 0 },
+								};
+
+							// Prefer highlighting just the offending segment within the path key.
+							if (doc?.ir && doc.rawText) {
+								const irNode = findNodeByPointer(doc.ir, pathPointer);
+								const keyStart = irNode?.loc?.keyStart;
+								const keyEnd = irNode?.loc?.keyEnd;
+								if (
+									typeof keyStart === "number" &&
+									typeof keyEnd === "number" &&
+									keyEnd > keyStart
+								) {
+									const keyText = doc.rawText.slice(keyStart, keyEnd);
+									const pathIndexInKey = keyText.indexOf(path);
+									if (pathIndexInKey !== -1) {
+										const segIndexInPath = path.indexOf(segment);
+										if (segIndexInPath !== -1) {
+											const startOffset =
+												keyStart + pathIndexInKey + segIndexInPath;
+											const endOffset = startOffset + segment.length;
+											range =
+												ctx.offsetToRange(uri, startOffset, endOffset) ?? range;
+										}
+									}
+								}
+							}
+
+							ctx.report({
 								message: `Path segment '${segment}' should be kebab-case (lowercase with hyphens).${suggestion}`,
 								severity: "info",
+								uri,
+								range,
 							});
 							// Only report once per path
 							break;
@@ -95,4 +131,3 @@ function toKebabCase(str: string): string {
 }
 
 export default pathKebabCase;
-

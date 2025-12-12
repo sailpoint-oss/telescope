@@ -44,3 +44,23 @@ await esbuild.build({
 });
 
 console.log("✅ Engine API bundled to dist/engine.js");
+
+// Emit TypeScript declarations for the public engine API.
+// This ensures external consumers (custom rules/schemas) get full type-safety.
+await Bun.$`pnpm exec tsc -p tsconfig.types.json`;
+console.log("✅ Engine API types emitted to dist/types/engine/");
+
+// Build the CLI (for CI / GitHub Actions usage)
+await esbuild.build({
+	entryPoints: ["src/cli/index.ts"],
+	bundle: true,
+	platform: "node",
+	target: "node20",
+	outfile: "dist/cli.js",
+	format: "esm",
+	mainFields: ["module", "main"],
+	banner: { js: esmBanner },
+	external: ["esbuild", "yaml-language-server", "vscode-json-languageservice"],
+});
+
+console.log("✅ CLI bundled to dist/cli.js");

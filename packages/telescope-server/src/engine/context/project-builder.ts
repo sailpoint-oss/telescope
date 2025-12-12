@@ -7,7 +7,7 @@
  * @module context/project-builder
  */
 
-import type { FileSystem } from "@volar/language-service";
+import type { FileSystem } from "../fs-types.js";
 import { buildIndex } from "../indexes/project-index.js";
 import { buildRefGraph, findRefUris } from "../indexes/ref-graph.js";
 import { loadDocument } from "../load-document.js";

@@ -78,6 +78,11 @@
  * ```
  */
 import type { Range } from "vscode-languageserver-protocol";
+import {
+	getValueAtPointer,
+	joinPointer,
+	splitPointer,
+} from "../utils/pointer-utils.js";
 import type { Rule, RuleContext } from "./types.js";
 
 // Re-export engine for testing
@@ -256,7 +261,6 @@ export function locateField(
 	basePointer: string,
 	field: string,
 ): Range | null {
-	const { joinPointer, splitPointer } = require("../utils/pointer-utils.js");
 	const fieldPointer = joinPointer([...splitPointer(basePointer), field]);
 	return ctx.locate(uri, fieldPointer);
 }
@@ -276,11 +280,6 @@ export function getField<T = unknown>(
 	basePointer: string,
 	field: string,
 ): T | undefined {
-	const {
-		getValueAtPointer,
-		joinPointer,
-		splitPointer,
-	} = require("../utils/pointer-utils.js");
 	const doc = ctx.project.docs.get(uri);
 	if (!doc) return undefined;
 	const fieldPointer = joinPointer([...splitPointer(basePointer), field]);

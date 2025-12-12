@@ -60,11 +60,13 @@ const operationIdUnique = defineRule<OperationIdUniqueState>({
 						const range = ctx.locate(location.uri, location.pointer);
 						if (!range) continue;
 
-						const related = locations
+						const relatedInformation = locations
 							.filter((loc) => loc !== location)
 							.map((loc) => ({
-								uri: loc.uri,
-								range: ctx.locate(loc.uri, loc.pointer) ?? range,
+								location: {
+									uri: loc.uri,
+									range: ctx.locate(loc.uri, loc.pointer) ?? range,
+								},
 								message: "Duplicate operationId",
 							}));
 
@@ -73,7 +75,7 @@ const operationIdUnique = defineRule<OperationIdUniqueState>({
 							severity: "error",
 							uri: location.uri,
 							range,
-							related,
+							relatedInformation,
 						});
 					}
 				}

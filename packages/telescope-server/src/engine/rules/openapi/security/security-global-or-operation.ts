@@ -34,9 +34,8 @@ const securityGlobalOrOperation: Rule = defineRule({
 				// Check if there are security schemes defined
 				const components = $.getObject("components");
 				if (components) {
-					const securitySchemes = (
-						components as Record<string, unknown>
-					).securitySchemes;
+					const securitySchemes = (components as Record<string, unknown>)
+						.securitySchemes;
 					if (
 						securitySchemes &&
 						typeof securitySchemes === "object" &&
@@ -84,19 +83,21 @@ const securityGlobalOrOperation: Rule = defineRule({
 					for (let i = 0; i < limit; i++) {
 						const opInfo = state.operationsWithoutSecurity[i];
 						if (!opInfo) continue;
-						ctx.reportAt({ uri: opInfo.uri, pointer: opInfo.pointer }, "security", {
-							message: `Operation ${opInfo.method.toUpperCase()} has no security requirements. Define security at global or operation level.`,
-							severity: "warning",
-						});
+						ctx.reportAt(
+							{ uri: opInfo.uri, pointer: opInfo.pointer },
+							"security",
+							{
+								message: `Operation ${opInfo.method.toUpperCase()} has no security requirements. Define security at global or operation level.`,
+								severity: "warning",
+							},
+						);
 					}
 
 					// If there are more, report a summary
 					if (state.operationsWithoutSecurity.length > limit) {
 						const remaining = state.operationsWithoutSecurity.length - limit;
-						ctx.report({
+						ctx.reportAt({ uri: state.rootUri, pointer: "#" }, "security", {
 							message: `${remaining} more operation(s) without security requirements. Consider adding global security.`,
-							uri: state.rootUri,
-							range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
 							severity: "info",
 						});
 					}

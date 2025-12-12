@@ -35,8 +35,7 @@
  * ```
  */
 
-import type { FileSystem } from "@volar/language-service";
-import { FileType } from "@volar/language-service";
+import { FileType, type FileSystem } from "../fs-types.js";
 import { URI } from "vscode-uri";
 
 /**

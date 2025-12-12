@@ -4,11 +4,11 @@ Telescope supports custom rules for extending validation beyond the built-in rul
 
 ## Overview
 
-| Rule Type       | Use Case                                       | API                   |
-| --------------- | ---------------------------------------------- | --------------------- |
-| OpenAPI Rules   | Validate OpenAPI specs with semantic awareness | `defineRule()`        |
-| Generic Rules   | Validate any YAML/JSON files                   | `defineGenericRule()` |
-| TypeBox Schemas | Structural validation of any files             | `defineSchema()`      |
+| Rule Type     | Use Case                                       | API                   |
+| ------------- | ---------------------------------------------- | --------------------- |
+| OpenAPI Rules | Validate OpenAPI specs with semantic awareness | `defineRule()`        |
+| Generic Rules | Validate any YAML/JSON files                   | `defineGenericRule()` |
+| Zod Schemas   | Structural validation of any YAML/JSON files   | `defineSchema()`      |
 
 ## Directory Structure
 
@@ -107,15 +107,12 @@ check(ctx) {
         severity: "error",   // "error", "warning", or "info"
         uri: op.uri,
         range,
-        // Optional: provide a fix
-        fix: {
-          description: "Add missing field",
-          changes: [{
-            uri: op.uri,
-            range,
-            newText: "operationId: myOperation\n",
-          }],
-        },
+      });
+
+      // Optional: register a fix (separately from reporting)
+      ctx.fix({
+        uri: op.uri,
+        ops: [{ op: "add", path: `${op.pointer}/operationId`, value: "myOperation" }],
       });
     },
   };
@@ -130,7 +127,7 @@ import {
   getValueAtPointer, // Get value at JSON pointer
   joinPointer, // Join pointer segments
   splitPointer, // Split pointer into segments
-  parentPointer, // Get parent pointer
+  getParentPointer, // Get parent pointer
 } from "telescope-server";
 
 export default defineRule({
@@ -354,9 +351,9 @@ export default defineGenericRule({
 });
 ```
 
-## Custom TypeBox Schemas
+## Custom Zod Schemas
 
-Use TypeBox schemas for structural validation of files.
+Use Zod schemas for structural validation of files.
 
 ### Basic Structure
 
@@ -364,27 +361,18 @@ Use TypeBox schemas for structural validation of files.
 // .telescope/schemas/app-config.ts
 import { defineSchema } from "telescope-server";
 
-export default defineSchema((Type) =>
-  Type.Object({
-    name: Type.String({ minLength: 1 }),
-    version: Type.String({ pattern: "^\\d+\\.\\d+\\.\\d+$" }),
-
-    settings: Type.Optional(
-      Type.Object({
-        debug: Type.Optional(Type.Boolean()),
-        timeout: Type.Optional(Type.Number({ minimum: 0 })),
-        logLevel: Type.Optional(
-          Type.Union([
-            Type.Literal("debug"),
-            Type.Literal("info"),
-            Type.Literal("warn"),
-            Type.Literal("error"),
-          ])
-        ),
+export default defineSchema((z) =>
+  z.object({
+    name: z.string().min(1),
+    version: z.string().regex(/^\\d+\\.\\d+\\.\\d+$/),
+    settings: z
+      .object({
+        debug: z.boolean().optional(),
+        timeout: z.number().min(0).optional(),
+        logLevel: z.enum(["debug", "info", "warn", "error"]).optional(),
       })
-    ),
-
-    features: Type.Optional(Type.Array(Type.String())),
+      .optional(),
+    features: z.array(z.string()).optional(),
   })
 );
 ```
@@ -395,56 +383,54 @@ export default defineSchema((Type) =>
 // .telescope/schemas/database-config.ts
 import { defineSchema } from "telescope-server";
 
-export default defineSchema((Type) => {
-  const ConnectionSchema = Type.Object({
-    host: Type.String({ minLength: 1 }),
-    port: Type.Integer({ minimum: 1, maximum: 65535 }),
-    database: Type.String({ minLength: 1 }),
-    username: Type.Optional(Type.String()),
-    password: Type.Optional(Type.String()),
-    ssl: Type.Optional(Type.Boolean()),
-  });
-
-  const PoolSchema = Type.Object({
-    min: Type.Optional(Type.Integer({ minimum: 0 })),
-    max: Type.Optional(Type.Integer({ minimum: 1 })),
-    idleTimeout: Type.Optional(Type.Number({ minimum: 0 })),
-  });
-
-  return Type.Object({
-    connection: ConnectionSchema,
-    pool: Type.Optional(PoolSchema),
-
-    replicas: Type.Optional(Type.Array(ConnectionSchema)),
-
-    migrations: Type.Optional(
-      Type.Object({
-        directory: Type.String(),
-        tableName: Type.Optional(Type.String()),
+export default defineSchema((z) =>
+  z.object({
+    connection: z.object({
+      host: z.string().min(1),
+      port: z.number().int().min(1).max(65535),
+      database: z.string().min(1),
+      username: z.string().optional(),
+      password: z.string().optional(),
+      ssl: z.boolean().optional(),
+    }),
+    pool: z
+      .object({
+        min: z.number().int().min(0).optional(),
+        max: z.number().int().min(1).optional(),
+        idleTimeout: z.number().min(0).optional(),
       })
-    ),
-  });
-});
+      .optional(),
+    replicas: z
+      .array(
+        z.object({
+          host: z.string().min(1),
+          port: z.number().int().min(1).max(65535),
+          database: z.string().min(1),
+          username: z.string().optional(),
+          password: z.string().optional(),
+          ssl: z.boolean().optional(),
+        })
+      )
+      .optional(),
+    migrations: z
+      .object({
+        directory: z.string(),
+        tableName: z.string().optional(),
+      })
+      .optional(),
+  })
+);
 ```
 
-### TypeBox Schema Reference
+### Zod Schema Reference
 
-| TypeBox                            | Description             |
-| ---------------------------------- | ----------------------- |
-| `Type.String()`                    | String type             |
-| `Type.Number()`                    | Number type             |
-| `Type.Integer()`                   | Integer type            |
-| `Type.Boolean()`                   | Boolean type            |
-| `Type.Object({...})`               | Object with properties  |
-| `Type.Array(schema)`               | Array of schema type    |
-| `Type.Optional(schema)`            | Optional field          |
-| `Type.Union([...])`                | Union of schemas        |
-| `Type.Literal("value")`            | Literal value           |
-| `Type.Record(key, value)`          | Record/dictionary       |
-| `Type.String({ minLength: 1 })`    | String with constraints |
-| `Type.Number({ minimum: 0 })`      | Number with constraints |
-| `Type.String({ format: "email" })` | Format validation       |
-| `Type.String({ format: "uri" })`   | URL format validation   |
+See Zod’s documentation for the full API surface; common building blocks:
+
+- `z.object({ ... })`
+- `z.string()`, `z.number()`, `z.boolean()`
+- `z.array(schema)`
+- `schema.optional()`
+- `z.enum([...])`
 
 ## Configuration
 
@@ -484,39 +470,73 @@ additionalValidation:
 
 ### Unit Testing OpenAPI Rules
 
+Use the engine helpers to run a rule against an in-memory document:
+
 ```typescript
-// .telescope/rules/require-contact.test.ts
 import { describe, expect, it } from "bun:test";
-import requireContact from "./require-contact";
-import { createRuleTestContext } from "telescope-server/test-utils";
+import myRule from "./require-contact";
+import {
+  buildIndex,
+  buildRefGraph,
+  createRuleContext,
+  runEngine,
+  type Rule,
+} from "telescope-server";
 
 describe("require-contact", () => {
   it("reports error when contact is missing", async () => {
-    const ctx = await createRuleTestContext(`
-openapi: 3.0.0
-info:
-  title: My API
-  version: 1.0.0
-paths: {}
-    `);
+    const uri = "file:///api.yaml";
+    const doc = {
+      ast: {
+        openapi: "3.0.0",
+        info: { title: "My API", version: "1.0.0" },
+        paths: {},
+      },
+      ir: {
+        root: {
+          ptr: "#",
+          kind: "object",
+          children: [],
+          loc: { start: 0, end: 0 },
+          uri,
+        },
+      },
+      rawText: "",
+      hash: "",
+      mtimeMs: 0,
+      version: "3.0",
+      format: "yaml",
+    } as any;
 
-    const visitors = requireContact.check(ctx);
-    // Simulate visiting the Info node
-    // ... test logic
-  });
+    const docs = new Map([[uri, doc]]);
+    const { graph, resolver, rootResolver } = buildRefGraph({ docs });
+    const index = buildIndex({ docs, graph, resolver });
+    const project = {
+      docs,
+      index,
+      resolver,
+      graph,
+      rootResolver,
+      version: index.version,
+    };
 
-  it("passes when contact is present", async () => {
-    const ctx = await createRuleTestContext(`
-openapi: 3.0.0
-info:
-  title: My API
-  version: 1.0.0
-  contact:
-    email: support@example.com
-paths: {}
-    `);
+    const diagnostics: any[] = [];
+    const fixes: any[] = [];
+    const ctx = createRuleContext(
+      project,
+      uri,
+      diagnostics,
+      fixes,
+      myRule as Rule
+    );
+    const visitors = (myRule as Rule).check?.(
+      ctx,
+      (myRule as any).state?.() ?? undefined
+    );
+    expect(visitors).toBeTruthy();
 
-    // ... test logic
+    const result = runEngine(project, [uri], { rules: [myRule as Rule] });
+    expect(result.diagnostics.length).toBeGreaterThan(0);
   });
 });
 ```
