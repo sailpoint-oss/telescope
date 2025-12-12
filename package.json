@@ -4,7 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "pnpm --filter ./packages/** run build",
-		"test": "pnpm test",
+		"test": "pnpm --filter ./packages/** run test",
 		"test:no-coverage": "pnpm test --no-coverage packages/telescope-lsp packages/lens",
 		"typecheck:examples": "pnpm -C packages/telescope-server run build && pnpm -C packages/test-files exec tsc -p tsconfig.json",
 		"package": "pnpm --filter telescope-server run build && pnpm --filter telescope run build && pnpm --filter telescope run package",
