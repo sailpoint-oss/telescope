@@ -90,6 +90,10 @@ export function resolveRef(fromUri: URI, ref: string): URI {
 
 	// Extract fragment from ref if present (e.g., "./file.yaml#/path/to/element")
 	const [refPath, fragment] = ref.split("#", 2);
+	if (!refPath) {
+		// Defensive: if split produced no path, treat as same-document reference
+		return fromUri;
+	}
 
 	// Handle absolute paths
 	if (refPath.startsWith("/")) {

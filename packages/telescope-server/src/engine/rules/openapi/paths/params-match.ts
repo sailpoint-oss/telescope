@@ -6,7 +6,8 @@
  */
 
 import type { Range } from "vscode-languageserver-protocol";
-import { accessor, type OperationRef } from "../../api.js";
+import type { OperationRefInput } from "../../../indexes/types.js";
+import { findNodeByPointer } from "../../../ir/context.js";
 import {
 	defineRule,
 	type FilePatch,
@@ -16,7 +17,6 @@ import {
 	type RuleContext,
 	splitPointer,
 } from "../../api.js";
-import { findNodeByPointer } from "../../../ir/context.js";
 
 /** Regex to extract template parameters from path strings */
 const TEMPLATE_PARAM_REGEX = /\{([^}]+)\}/g;
@@ -29,24 +29,28 @@ function findParamRangeInPath(
 	ctx: RuleContext,
 	uri: string,
 	pathsPointer: string,
-	pathString: string,
 	paramName: string,
 ): Range | null {
 	const doc = ctx.project.docs.get(uri);
-	if (!doc?.ir) return null;
+	if (!doc?.ir || !doc.rawText) return null;
 
 	// Find the node for the path entry
 	const node = findNodeByPointer(doc.ir, pathsPointer);
-	if (!node?.loc?.keyStart || !node?.loc?.keyEnd) return null;
+	if (!node?.loc) return null;
+	const keyStart = node.loc.keyStart ?? node.loc.start;
+	const keyEnd = node.loc.keyEnd ?? node.loc.end;
+	if (keyEnd <= keyStart) return null;
 
-	// Find where {paramName} appears in the path string
+	// Find where {paramName} appears within the actual source slice of the key.
+	// This avoids offset drift when the key is quoted (JSON or quoted YAML),
+	// because `pathString` does not include quotes but the source slice might.
 	const paramPlaceholder = `{${paramName}}`;
-	const paramIndex = pathString.indexOf(paramPlaceholder);
+	const keyText = doc.rawText.slice(keyStart, keyEnd);
+	const paramIndex = keyText.indexOf(paramPlaceholder);
 	if (paramIndex === -1) return null;
 
-	// Calculate byte offsets within the key
-	// Note: keyStart points to the beginning of the path string key (e.g., the `/` in `/users/{id}`)
-	const paramStartOffset = node.loc.keyStart + paramIndex;
+	// Calculate byte offsets within the key slice
+	const paramStartOffset = keyStart + paramIndex;
 	const paramEndOffset = paramStartOffset + paramPlaceholder.length;
 
 	return ctx.offsetToRange(uri, paramStartOffset, paramEndOffset);
@@ -71,7 +75,7 @@ function extractTemplateParams(paths: string[]): Set<string> {
 /**
  * Collect all declared path parameters for an operation.
  */
-function collectDeclaredPathParams(op: OperationRef, ctx: RuleContext) {
+function collectDeclaredPathParams(op: OperationRefInput, ctx: RuleContext) {
 	const params: Array<{ name?: string; in?: string }> = [];
 	const docUri = op.definitionUri ?? op.uri;
 	const doc = ctx.project.docs.get(docUri);
@@ -139,7 +143,7 @@ function collectDeclaredPathParams(op: OperationRef, ctx: RuleContext) {
  */
 function addMissingParamPatch(
 	ctx: RuleContext,
-	op: OperationRef,
+	op: OperationRefInput,
 	name: string,
 ): FilePatch {
 	const docUri = op.definitionUri ?? op.uri;
@@ -186,7 +190,6 @@ const pathParamsMatch: Rule = defineRule({
 	check(ctx) {
 		return {
 			PathItem(pathItem) {
-				const $ = accessor(pathItem.node);
 				const ownerKey = `${pathItem.uri}#${pathItem.pointer}`;
 				const ownerPaths =
 					ctx.project.index.pathItemsToPaths.get(ownerKey) ?? [];
@@ -200,7 +203,7 @@ const pathParamsMatch: Rule = defineRule({
 
 				const missingByParam = new Map<
 					string,
-					Array<{ op: OperationRef; method: string }>
+					Array<{ op: OperationRefInput; method: string }>
 				>();
 
 				for (const op of operations) {
@@ -224,38 +227,35 @@ const pathParamsMatch: Rule = defineRule({
 					if (!pathString) continue;
 
 					const pathsPointer = joinPointer(["paths", pathString]);
-					
+
 					// Try to get precise range for just the {paramName} placeholder
 					const paramRange = findParamRangeInPath(
 						ctx,
 						pathItem.uri,
 						pathsPointer,
-						pathString,
 						paramName,
 					);
-					
+
 					// Fall back to the whole path string key if precise range not available
 					const pathStringRange = paramRange ??
 						ctx.locateKey(pathItem.uri, pathsPointer) ??
 						ctx.locate(pathItem.uri, pathsPointer) ??
-						ctx.locate(pathItem.uri, pathItem.pointer) ?? {
+						ctx.locate(pathItem.uri, pathItem.pointer) ??
+						ctx.locateFirstChild(pathItem.uri, "#") ?? {
 							start: { line: 0, character: 0 },
 							end: { line: 0, character: 0 },
 						};
 
-					const related = missingOps.map(({ op, method }) => {
+					const relatedInformation = missingOps.map(({ op, method }) => {
 						const opDefinitionUri = op.definitionUri ?? op.uri;
 						const opDefinitionPointer = op.definitionPointer ?? op.pointer;
-						const opRange = ctx.locate(
-							opDefinitionUri,
-							opDefinitionPointer,
-						) ?? {
-							start: { line: 0, character: 0 },
-							end: { line: 0, character: 0 },
-						};
+						const opRange = ctx.locate(opDefinitionUri, opDefinitionPointer) ??
+							ctx.locateFirstChild(opDefinitionUri, "#") ?? {
+								start: { line: 0, character: 0 },
+								end: { line: 0, character: 0 },
+							};
 						return {
-							uri: opDefinitionUri,
-							range: opRange,
+							location: { uri: opDefinitionUri, range: opRange },
 							message: `Missing in ${method.toUpperCase()} operation`,
 						};
 					});
@@ -265,7 +265,7 @@ const pathParamsMatch: Rule = defineRule({
 						severity: "error",
 						uri: pathItem.uri,
 						range: pathStringRange,
-						related,
+						relatedInformation,
 						suggest: missingOps.map(({ op }) => ({
 							title: `Add "{${paramName}}" parameter to ${op.method.toUpperCase()} operation`,
 							fix: addMissingParamPatch(ctx, op, paramName),

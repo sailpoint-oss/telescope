@@ -20,6 +20,10 @@
 		"formatter",
 		"linter"
 	],
+	"extensionKind": [
+		"workspace"
+	],
+	"icon": "./icons/Extension-Logo-256.png",
 	"main": "./dist/client.js",
 	"engines": {
 		"vscode": "^1.99.3"
@@ -311,6 +315,10 @@
 			{
 				"command": "telescope.convertYamlToJsonCopy",
 				"title": "Telescope: Convert YAML to JSON (Copy)"
+			},
+			{
+				"command": "telescope.showReferences",
+				"title": "Telescope: Show References"
 			}
 		],
 		"menus": {

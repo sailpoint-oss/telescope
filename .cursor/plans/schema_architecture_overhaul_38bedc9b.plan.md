@@ -9,7 +9,7 @@ todos:
     content: Update CompositionOnlySchema to be a flexible fallback schema
     status: completed
   - id: update-reference-schemas
-    content: Change Reference schemas from strict() to withExtensions()
+    content: Change Reference schemas from strict() to z.object()
     status: completed
   - id: simplify-schema-union
     content: Simplify SchemaObject union structure
@@ -28,7 +28,7 @@ todos:
 
 ### Issue 1: `$ref` Not Recognized in Schemas
 
-The `CompositionOnlySchema31` uses `withExtensions()` which only allows `x-*` extensions. Since `$ref` doesn't match `x-*`, it's rejected as an unrecognized key.
+The `CompositionOnlySchema31` uses `z.object()` which only allows `x-*` extensions. Since `$ref` doesn't match `x-*`, it's rejected as an unrecognized key.
 
 **Root cause**: OpenAPI 3.1+ uses JSON Schema 2020-12 where `$ref` can coexist with other schema keywords. The current architecture treats `$ref` as exclusive (in Reference objects).
 
@@ -41,9 +41,9 @@ export const InternalRef31Schema = z.object({...}).strict()
 Using `.strict()` means if a Reference has ANY extra properties, validation fails. This prevents valid uses like:
 
 ```yaml
-$ref: '#/components/schemas/Pet'
-description: 'Override description'
-x-custom: true  # Extension not allowed!
+$ref: "#/components/schemas/Pet"
+description: "Override description"
+x-custom: true # Extension not allowed!
 ```
 
 ### Issue 3: Schema Union Falls Through Incorrectly
@@ -52,7 +52,7 @@ x-custom: true  # Extension not allowed!
 SchemaObject31Schema = union([
     Reference31Schema,        # Strict, fails if extra fields
     TypedSchema31,           # Needs type literal
-    NullableTypeSchema31,    # Needs type array  
+    NullableTypeSchema31,    # Needs type array
     CompositionOnlySchema31, # Fallback, rejects $ref
 ])
 ```
@@ -73,36 +73,37 @@ Rather than treating References as completely separate objects, make `$ref` a va
 
 ```typescript
 const baseSchemaFields = {
-    $ref: z.string()
-        .meta({ title: "$ref" })
-        .describe("Reference to another schema")
-        .optional(),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    // ... rest of base fields
+  $ref: z
+    .string()
+    .meta({ title: "$ref" })
+    .describe("Reference to another schema")
+    .optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  // ... rest of base fields
 };
 ```
 
 ### Step 2: Update CompositionOnlySchema to Include `$ref`
 
 ```typescript
-const CompositionOnlySchema31 = withExtensions({
+const CompositionOnlySchema31 = z.object({
     $ref: z.string().optional(),  // Add this
     ...baseSchemaFields,
     allOf: ..., oneOf: ..., anyOf: ..., not: ...
 });
 ```
 
-### Step 3: Make Reference Schemas Use `withExtensions`
+### Step 3: Make Reference Schemas Use `z.object`
 
 Reference objects in OpenAPI CAN have extensions:
 
 ```typescript
-export const InternalRef31Schema = withExtensions({
-    $ref: z.string().regex(/^#.*/),
-    summary: z.string().optional(),
-    description: z.string().optional(),
-})
+export const InternalRef31Schema = z.object({
+  $ref: z.string().regex(/^#.*/),
+  summary: z.string().optional(),
+  description: z.string().optional(),
+});
 ```
 
 ### Step 4: Simplify Union Structure
@@ -110,17 +111,17 @@ export const InternalRef31Schema = withExtensions({
 Instead of:
 
 ```typescript
-union([Reference, TypedSchema, NullableType, CompositionOnly])
+union([Reference, TypedSchema, NullableType, CompositionOnly]);
 ```
 
 Use:
 
 ```typescript
 union([
-    TypedSchema31,         // type: string literal
-    NullableTypeSchema31,  // type: array
-    FlexibleSchema31,      // Catch-all with optional $ref, allOf, etc.
-])
+  TypedSchema31, // type: string literal
+  NullableTypeSchema31, // type: array
+  FlexibleSchema31, // Catch-all with optional $ref, allOf, etc.
+]);
 ```
 
 Where `FlexibleSchema31` handles:
@@ -140,8 +141,8 @@ Since `$ref` is now handled in base fields, we don't need Reference31Schema as a
 1. **[`openapi-3.1-module.ts`](packages/telescope-server/src/engine/schemas/openapi-3.1-module.ts)**
 
    - Add `$ref` to `baseSchemaFields`
-   - Update `CompositionOnlySchema31` 
-   - Update Reference schemas to use `withExtensions`
+   - Update `CompositionOnlySchema31`
+   - Update Reference schemas to use `z.object`
    - Simplify `SchemaObject31Schema` union
 
 2. **[`openapi-3.0-module.ts`](packages/telescope-server/src/engine/schemas/openapi-3.0-module.ts)**
@@ -165,7 +166,7 @@ SchemaObject31Schema = union([
     FlexibleSchema31,      // Composition, $ref, or minimal schemas
 ])
 
-FlexibleSchema31 = withExtensions({
+FlexibleSchema31 = z.object({
     $ref: z.string().optional(),
     type: z.string().optional(),  // For edge cases
     ...baseSchemaFields,
@@ -187,8 +188,8 @@ FlexibleSchema31 = withExtensions({
 After changes, a schema like:
 
 ```yaml
-$ref: '#/components/schemas/Base'
-description: 'Extended pet'
+$ref: "#/components/schemas/Base"
+description: "Extended pet"
 x-custom: value
 ```
 
@@ -196,4 +197,4 @@ Will be validated by `FlexibleSchema31`:
 
 - `$ref`: valid string
 - `description`: valid (in baseSchemaFields)
-- `x-custom`: valid (withExtensions allows x-*)
+- `x-custom`: valid (z.object allows x-\*)

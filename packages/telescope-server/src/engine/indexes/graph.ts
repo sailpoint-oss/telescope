@@ -90,11 +90,11 @@ export class GraphIndex implements RefGraph {
 	getRefEdgesFrom(uri: string, ptr?: string): RefEdge[] {
 		const uriEdges = this.edgesByFromUri.get(uri);
 		if (!uriEdges) return [];
-		
+
 		if (!ptr) {
 			return Array.from(uriEdges);
 		}
-		
+
 		// Filter by pointer if specified
 		return Array.from(uriEdges).filter((edge) => edge.fromPtr === ptr);
 	}
@@ -297,7 +297,14 @@ export class GraphIndex implements RefGraph {
 				const ref = refChild.value as string;
 				const resolved = this.resolveRef(uri, ref);
 				if (resolved) {
-					this.addEdge(uri, node.ptr, resolved.uri, resolved.ptr, ref, resolved.isExternal);
+					this.addEdge(
+						uri,
+						node.ptr,
+						resolved.uri,
+						resolved.ptr,
+						ref,
+						resolved.isExternal,
+					);
 				}
 			}
 		}
@@ -336,6 +343,7 @@ export class GraphIndex implements RefGraph {
 			// Split ref to separate URI part from fragment
 			const [refUri, fragment] = ref.split("#", 2);
 			const fromUriObj = URI.parse(fromUri);
+			if (!refUri) return null;
 			const resolvedUri = resolveRef(fromUriObj, refUri);
 			const resolvedUriStr = resolvedUri.toString();
 			// Preserve fragment from original ref if present

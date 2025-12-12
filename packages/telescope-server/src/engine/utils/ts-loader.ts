@@ -9,7 +9,8 @@
 import { pathToFileURL } from "node:url";
 
 // Detect if running in Bun
-const isBun = typeof globalThis.Bun !== "undefined";
+const isBun =
+	typeof (globalThis as unknown as { Bun?: unknown }).Bun !== "undefined";
 
 /**
  * Import a TypeScript file at runtime.
@@ -30,9 +31,9 @@ export async function importTypeScript(filePath: string): Promise<unknown> {
 
 	// Node.js fallback using esbuild
 	const esbuild = await import("esbuild");
-	const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
+	const { mkdtemp, rm } = await import("node:fs/promises");
 	const { tmpdir } = await import("node:os");
-	const { dirname, join, basename } = await import("node:path");
+	const { dirname, join } = await import("node:path");
 
 	// Create a temporary directory for the bundled output
 	const tempDir = await mkdtemp(join(tmpdir(), "telescope-rule-"));
@@ -65,4 +66,3 @@ export async function importTypeScript(filePath: string): Promise<unknown> {
 		}
 	}
 }
-

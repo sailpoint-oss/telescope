@@ -76,15 +76,6 @@ importers:
 
   packages/telescope-server:
     dependencies:
-      '@volar/language-core':
-        specifier: ^2.4.26
-        version: 2.4.26
-      '@volar/language-server':
-        specifier: ^2.4.26
-        version: 2.4.26
-      '@volar/language-service':
-        specifier: ^2.4.26
-        version: 2.4.26
       ajv:
         specifier: ^8.17.1
         version: 8.17.1
@@ -115,9 +106,6 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
-      volar-service-yaml:
-        specifier: ^0.0.68
-        version: 0.0.68(@volar/language-service@2.4.26)
       vscode-json-languageservice:
         specifier: ^5.6.4
         version: 5.6.4
@@ -133,9 +121,6 @@ importers:
       vscode-languageserver-textdocument:
         specifier: ^1.0.12
         version: 1.0.12
-      vscode-markdown-languageservice:
-        specifier: 0.5.0-alpha.11
-        version: 0.5.0-alpha.11
       vscode-uri:
         specifier: ^3.1.0
         version: 3.1.0
@@ -749,17 +734,11 @@ packages:
   '@volar/language-core@2.4.26':
     resolution: {integrity: sha512-hH0SMitMxnB43OZpyF1IFPS9bgb2I3bpCh76m2WEK7BE0A0EzpYsRp0CCH2xNKshr7kacU5TQBLYn4zj7CG60A==}
 
-  '@volar/language-server@2.4.26':
-    resolution: {integrity: sha512-Xsyu+VDgM8TyVkQfBz2aIViSEOgH2un0gIJlp0M8rssDDLCqr4ssQzwHOyPf7sT7UIjrlAMnJvRkC/u0mmgtYw==}
-
   '@volar/language-service@2.4.26':
     resolution: {integrity: sha512-ZBPRR1ytXttSV5X4VPvEQR/glxs+7/4IOJIBCOW3/EJk4z77R4mF2y4wM3fNgOXXZT5h16j3sC5w+LGNkz2VlA==}
 
   '@volar/source-map@2.4.26':
     resolution: {integrity: sha512-JJw0Tt/kSFsIRmgTQF4JSt81AUSI1aEye5Zl65EeZ8H35JHnTvFGmpDOBn5iOxd48fyGE+ZvZBp5FcgAy/1Qhw==}
-
-  '@volar/typescript@2.4.26':
-    resolution: {integrity: sha512-N87ecLD48Sp6zV9zID/5yuS1+5foj0DfuYGdQ6KHj/IbKvyKv1zNX6VCmnKYwtmHadEO6mFc2EKISiu3RDPAvA==}
 
   '@volar/vscode@2.4.23':
     resolution: {integrity: sha512-rLghFmq5+pEpEkuMZtnFUVZFagYxas9q9U4U8ErcJ5Qv4bZ7AZ2oj5Wz4gx0O79ZgdOblDZIgttokw2Pc+VtnQ==}
@@ -1613,9 +1592,6 @@ packages:
   request-light@0.5.8:
     resolution: {integrity: sha512-3Zjgh+8b5fhRJBQZoy+zbVKpAQGLyka0MPgW3zruTF4dFFJ8Fqcfu9YsAvi/rvdcaTeWG3MkbZv4WKxAn/84Lg==}
 
-  request-light@0.7.0:
-    resolution: {integrity: sha512-lMbBMrDoxgsyO+yB3sDcrDuX85yYt7sS8BfQd11jtbW/z5ZWgLZRcEGLsLoYw7I0WSUGQBs8CC8ScIxkTX1+6Q==}
-
   require-from-string@2.0.2:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
@@ -1853,14 +1829,6 @@ packages:
 
   volar-service-markdown@0.0.67:
     resolution: {integrity: sha512-5c7xb2mu1OLDfQ+4L8jJxluVLKew2Bu7Hk0OunTM8k6SSRLetkO2G78gbfayKqbhZEWrmOgjQb/aRkVsMsscmQ==}
-    peerDependencies:
-      '@volar/language-service': ~2.4.0
-    peerDependenciesMeta:
-      '@volar/language-service':
-        optional: true
-
-  volar-service-yaml@0.0.68:
-    resolution: {integrity: sha512-84XgE02LV0OvTcwfqhcSwVg4of3MLNUWPMArO6Aj8YXqyEVnPu8xTEMY2btKSq37mVAPuaEVASI4e3ptObmqcA==}
     peerDependencies:
       '@volar/language-service': ~2.4.0
     peerDependenciesMeta:
@@ -2496,18 +2464,7 @@ snapshots:
   '@volar/language-core@2.4.26':
     dependencies:
       '@volar/source-map': 2.4.26
-
-  '@volar/language-server@2.4.26':
-    dependencies:
-      '@volar/language-core': 2.4.26
-      '@volar/language-service': 2.4.26
-      '@volar/typescript': 2.4.26
-      path-browserify: 1.0.1
-      request-light: 0.7.0
-      vscode-languageserver: 9.0.1
-      vscode-languageserver-protocol: 3.17.5
-      vscode-languageserver-textdocument: 1.0.12
-      vscode-uri: 3.1.0
+    optional: true
 
   '@volar/language-service@2.4.26':
     dependencies:
@@ -2515,14 +2472,10 @@ snapshots:
       vscode-languageserver-protocol: 3.17.5
       vscode-languageserver-textdocument: 1.0.12
       vscode-uri: 3.1.0
+    optional: true
 
-  '@volar/source-map@2.4.26': {}
-
-  '@volar/typescript@2.4.26':
-    dependencies:
-      '@volar/language-core': 2.4.26
-      path-browserify: 1.0.1
-      vscode-uri: 3.1.0
+  '@volar/source-map@2.4.26':
+    optional: true
 
   '@volar/vscode@2.4.23':
     dependencies:
@@ -3478,8 +3431,6 @@ snapshots:
 
   request-light@0.5.8: {}
 
-  request-light@0.7.0: {}
-
   require-from-string@2.0.2: {}
 
   reusify@1.1.0: {}
@@ -3727,13 +3678,6 @@ snapshots:
       vscode-jsonrpc: 8.2.1
       vscode-markdown-languageservice: 0.5.0-alpha.11
       vscode-uri: 3.1.0
-    optionalDependencies:
-      '@volar/language-service': 2.4.26
-
-  volar-service-yaml@0.0.68(@volar/language-service@2.4.26):
-    dependencies:
-      vscode-uri: 3.1.0
-      yaml-language-server: 1.19.2
     optionalDependencies:
       '@volar/language-service': 2.4.26
 

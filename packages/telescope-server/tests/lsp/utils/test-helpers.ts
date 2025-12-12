@@ -1,5 +1,5 @@
 /**
- * Test Helpers for Zod Schema Diagnostics Testing
+ * Test Helpers for LSP Testing
  *
  * Shared utilities for creating test fixtures and asserting on diagnostics.
  *
@@ -8,39 +8,36 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Diagnostic } from "@volar/language-server";
-import type { IScriptSnapshot } from "typescript";
+import type { Diagnostic } from "vscode-languageserver-protocol";
 import { DiagnosticSeverity } from "vscode-languageserver-protocol";
-import { DataVirtualCode } from "../../../src/lsp/languages/virtualCodes/data-virtual-code";
+import { TextDocument } from "vscode-languageserver-textdocument";
 
 /**
- * Create a DataVirtualCode from YAML text for testing.
+ * Create a TextDocument from YAML text for testing.
  *
  * @param yaml - The YAML content
- * @returns A DataVirtualCode instance
+ * @param uri - Optional URI for the document
+ * @returns A TextDocument instance
  */
-export function createVirtualCodeFromYAML(yaml: string): DataVirtualCode {
-	const snapshot: IScriptSnapshot = {
-		getText: (start, end) => yaml.slice(start, end),
-		getLength: () => yaml.length,
-		getChangeRange: () => undefined,
-	};
-	return new DataVirtualCode(snapshot, "yaml");
+export function createDocumentFromYAML(
+	yaml: string,
+	uri = "file:///test.yaml",
+): TextDocument {
+	return TextDocument.create(uri, "yaml", 1, yaml);
 }
 
 /**
- * Create a DataVirtualCode from JSON text for testing.
+ * Create a TextDocument from JSON text for testing.
  *
  * @param json - The JSON content
- * @returns A DataVirtualCode instance
+ * @param uri - Optional URI for the document
+ * @returns A TextDocument instance
  */
-export function createVirtualCodeFromJSON(json: string): DataVirtualCode {
-	const snapshot: IScriptSnapshot = {
-		getText: (start, end) => json.slice(start, end),
-		getLength: () => json.length,
-		getChangeRange: () => undefined,
-	};
-	return new DataVirtualCode(snapshot, "json");
+export function createDocumentFromJSON(
+	json: string,
+	uri = "file:///test.json",
+): TextDocument {
+	return TextDocument.create(uri, "json", 1, json);
 }
 
 /**
@@ -277,17 +274,20 @@ export function loadFixture(name: string): string {
 }
 
 /**
- * Load a fixture and create a DataVirtualCode from it.
+ * Load a fixture and create a TextDocument from it.
  *
  * @param name - The fixture file name
- * @returns A DataVirtualCode instance
+ * @param uri - Optional URI for the document
+ * @returns A TextDocument instance
  */
-export function loadFixtureAsVirtualCode(name: string): DataVirtualCode {
+export function loadFixtureAsDocument(
+	name: string,
+	uri?: string,
+): TextDocument {
 	const content = loadFixture(name);
 	const languageId = name.endsWith(".json") ? "json" : "yaml";
-	return languageId === "json"
-		? createVirtualCodeFromJSON(content)
-		: createVirtualCodeFromYAML(content);
+	const docUri = uri ?? `file:///fixtures/${name}`;
+	return TextDocument.create(docUri, languageId, 1, content);
 }
 
 /**
@@ -297,7 +297,9 @@ export function loadFixtureAsVirtualCode(name: string): DataVirtualCode {
  */
 export function getFixtureNames(): string[] {
 	try {
-		return fs.readdirSync(FIXTURES_DIR).filter((f) => f.endsWith(".yaml") || f.endsWith(".json"));
+		return fs
+			.readdirSync(FIXTURES_DIR)
+			.filter((f) => f.endsWith(".yaml") || f.endsWith(".json"));
 	} catch {
 		return [];
 	}
@@ -320,4 +322,3 @@ export function getValidFixtureNames(): string[] {
 export function getInvalidFixtureNames(): string[] {
 	return getFixtureNames().filter((f) => f.startsWith("invalid-"));
 }
-

@@ -10,6 +10,33 @@ import {
 } from "../../test-utils.js";
 import pathParamsMatch from "./params-match.js";
 
+type Position = { line: number; character: number };
+type Range = { start: Position; end: Position };
+
+function buildLineOffsets(text: string): number[] {
+	const offsets: number[] = [0];
+	let idx = text.indexOf("\n", 0);
+	while (idx !== -1) {
+		offsets.push(idx + 1);
+		idx = text.indexOf("\n", idx + 1);
+	}
+	return offsets;
+}
+
+function positionToOffset(
+	lineOffsets: number[],
+	pos: { line: number; character: number },
+): number {
+	return (lineOffsets[pos.line] ?? 0) + pos.character;
+}
+
+function sliceRange(text: string, range: Range): string {
+	const lineOffsets = buildLineOffsets(text);
+	const start = positionToOffset(lineOffsets, range.start);
+	const end = positionToOffset(lineOffsets, range.end);
+	return text.slice(start, end);
+}
+
 describe("path-params-match", () => {
 	it("should error when path template parameter is not declared", async () => {
 		const project = await createTestProjectFromComprehensiveDocument(
@@ -146,12 +173,8 @@ paths:
 		expect(diagnostics.length).toBe(2);
 
 		// Check that the diagnostic ranges are precise (just the {param} not the whole path)
-		const userIdDiag = diagnostics.find((d) =>
-			d.message.includes("{userId}"),
-		);
-		const postIdDiag = diagnostics.find((d) =>
-			d.message.includes("{postId}"),
-		);
+		const userIdDiag = diagnostics.find((d) => d.message.includes("{userId}"));
+		const postIdDiag = diagnostics.find((d) => d.message.includes("{postId}"));
 
 		expect(userIdDiag).toBeDefined();
 		expect(postIdDiag).toBeDefined();
@@ -161,6 +184,53 @@ paths:
 			expect(userIdDiag.range.start.character).not.toBe(
 				postIdDiag.range.start.character,
 			);
+			const text = project.docs.get("file:///test.yaml")?.rawText ?? "";
+			expect(sliceRange(text, userIdDiag.range)).toBe("{userId}");
+			expect(sliceRange(text, postIdDiag.range)).toBe("{postId}");
 		}
+	});
+
+	it("should highlight {param} correctly in JSON (quoted path keys)", async () => {
+		const project = await createTestProject(
+			JSON.stringify(
+				{
+					openapi: "3.1.0",
+					info: { title: "Test API", version: "1.0.0" },
+					paths: {
+						"/users/{userId}/posts/{postId}": {
+							get: {
+								summary: "Get post",
+								operationId: "getPost",
+								responses: { "200": { description: "OK" } },
+							},
+						},
+					},
+				},
+				null,
+				2,
+			),
+			"file:///test.json",
+		);
+
+		const result = runEngine(project, ["file:///test.json"], {
+			rules: [pathParamsMatch],
+		});
+
+		const diagnostics = findDiagnostics(
+			result.diagnostics,
+			"path-params-match",
+		);
+		expect(diagnostics.length).toBe(2);
+
+		const text = project.docs.get("file:///test.json")?.rawText ?? "";
+		const userIdDiag = diagnostics.find((d) => d.message.includes("{userId}"));
+		const postIdDiag = diagnostics.find((d) => d.message.includes("{postId}"));
+
+		expect(userIdDiag).toBeDefined();
+		expect(postIdDiag).toBeDefined();
+		if (!userIdDiag || !postIdDiag) return;
+
+		expect(sliceRange(text, userIdDiag.range)).toBe("{userId}");
+		expect(sliceRange(text, postIdDiag.range)).toBe("{postId}");
 	});
 });

@@ -1,64 +1,45 @@
-import { accessor, defineRule, type Rule } from "../../api.js";
+import { defineRule, type Rule } from "../../api.js";
 
 /**
- * String Max Length Rule
+ * Schema String Max Length Rule
  *
- * Suggests that string schemas define a maxLength constraint.
- * Unbounded strings can cause issues with storage, validation,
- * and API abuse. This is a hint-level suggestion for best practice.
+ * Encourages string schemas to declare a maxLength to avoid unbounded inputs.
+ * This is a best-practice style rule (info) and intentionally skips:
+ * - $ref schemas
+ * - enums (bounded by definition)
+ * - composition schemas (allOf/anyOf/oneOf) where limits may be defined elsewhere
  */
-const stringMaxLength: Rule = defineRule({
+const schemaStringMaxLength: Rule = defineRule({
 	meta: {
-		id: "string-max-length",
+		id: "schema-string-max-length",
 		number: 310,
 		type: "suggestion",
-		description: "String schemas should define maxLength",
-		defaultSeverity: "hint",
+		description: "String schemas should declare maxLength",
+		defaultSeverity: "info",
 	},
 	check(ctx) {
 		return {
-			Schema(schemaRef) {
-				const $ = accessor(schemaRef.node);
+			Schema(schema) {
+				if (schema.isRef()) return;
+				if (schema.isComposition()) return;
 
-				// Skip $ref schemas
-				if ($.has("$ref")) return;
+				const raw = schema.node as Record<string, unknown>;
+				if (!raw || typeof raw !== "object") return;
 
-				// Only check string schemas
-				const type = $.getString("type");
-				if (type !== "string") return;
+				if (raw.type !== "string") return;
+				if (Array.isArray(raw.enum) && raw.enum.length > 0) return;
 
-				// Skip if maxLength is already defined
-				if ($.has("maxLength")) return;
-
-				// Skip if this is an enum (fixed values)
-				if ($.has("enum")) return;
-
-				// Skip if format suggests bounded values
-				const format = $.getString("format");
-				const boundedFormats = new Set([
-					"date",
-					"date-time",
-					"time",
-					"duration",
-					"email",
-					"uuid",
-					"ipv4",
-					"ipv6",
-					"uri",
-					"hostname",
-					"byte",
-				]);
-				if (format && boundedFormats.has(format)) return;
-
-				ctx.reportAt(schemaRef, "maxLength", {
-					message:
-						"Consider adding maxLength to string schema to prevent unbounded input",
-					severity: "hint",
-				});
+				const maxLength = raw.maxLength;
+				if (typeof maxLength !== "number") {
+					ctx.reportAt(schema, "maxLength", {
+						message:
+							"String schema should declare maxLength to avoid unbounded input. If unbounded is intended, consider documenting that explicitly.",
+						severity: "info",
+					});
+				}
 			},
 		};
 	},
 });
 
-export default stringMaxLength;
-
+export default schemaStringMaxLength;

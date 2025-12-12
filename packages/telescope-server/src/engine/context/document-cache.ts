@@ -1,4 +1,4 @@
-import type { FileSystem } from "@volar/language-service";
+import type { FileSystem } from "../fs-types.js";
 import { loadDocument } from "../load-document.js";
 import type { ParsedDocument } from "../types.js";
 import {

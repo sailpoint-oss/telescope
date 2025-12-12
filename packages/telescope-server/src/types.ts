@@ -1,7 +1,3 @@
-import type {
-	LanguageServiceContext,
-	VirtualCode,
-} from "@volar/language-service";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { z } from "zod/v4";
 
@@ -30,14 +26,8 @@ export interface NotifyFileChangeParams {
 }
 
 // ============================================================================
-// Virtual Code Types
+// Schema Types
 // ============================================================================
-
-export interface ParsedContent extends VirtualCode {
-	parsedObject: unknown;
-	ast: unknown;
-	type: "json" | "yaml";
-}
 
 export interface ValidationRule {
 	id: string;
@@ -66,7 +56,6 @@ export interface SchemaConfiguration {
  */
 export type SchemaResolver = (
 	document: TextDocument,
-	context?: LanguageServiceContext,
 ) =>
 	| SchemaConfiguration[]
 	| undefined

@@ -34,7 +34,7 @@ const tagHierarchy: Rule = defineRule({
 				}> = [];
 
 				// First pass: collect tag names and parent references
-				doc.eachTag((tag, ref) => {
+				doc.eachTag((_tag, ref) => {
 					const name = ref.name();
 					tagNames.add(name);
 
@@ -85,26 +85,16 @@ const tagHierarchy: Rule = defineRule({
 				if (ctx.isVersion("3.2")) {
 					for (const { name, parent, pointer, uri } of tagsWithParents) {
 						if (!tagNames.has(parent)) {
-							ctx.report({
+							ctx.reportAt({ uri, pointer }, "parent", {
 								message: `Tag "${name}" references non-existent parent tag "${parent}"`,
-								uri,
-								range: ctx.locate(uri, `${pointer}/parent`) ?? {
-									start: { line: 0, character: 0 },
-									end: { line: 0, character: 0 },
-								},
 								severity: "error",
 							});
 						}
 
 						// Check for circular parent references
 						if (parent === name) {
-							ctx.report({
+							ctx.reportAt({ uri, pointer }, "parent", {
 								message: `Tag "${name}" cannot be its own parent`,
-								uri,
-								range: ctx.locate(uri, `${pointer}/parent`) ?? {
-									start: { line: 0, character: 0 },
-									end: { line: 0, character: 0 },
-								},
 								severity: "error",
 							});
 						}
@@ -116,4 +106,3 @@ const tagHierarchy: Rule = defineRule({
 });
 
 export default tagHierarchy;
-

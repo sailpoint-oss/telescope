@@ -26,25 +26,22 @@ import operationUserLevels from "./operations/user-levels.js";
 
 // Parameter rules - SailPoint requirements
 import parameterDescriptionRequired from "./parameters/description-required.js";
-import parameterExampleRequired from "./parameters/example-required.js";
 import parameterExampleKeys from "./parameters/example-keys.js";
+import parameterExampleRequired from "./parameters/example-required.js";
 import parameterFilters from "./parameters/filters.js";
 import parameterRequiredExplicit from "./parameters/required-explicit.js";
 import parameterSorters from "./parameters/sorters.js";
-
+// Root rules - SailPoint-specific extensions
+import rootSailpointApi from "./root/sailpoint-api.js";
+import rootTags from "./root/tags.js";
 // Schema rules - SailPoint requirements
 import schemaDescriptionRequired from "./schemas/description-required.js";
 import schemaExampleKeys from "./schemas/example-keys.js";
 import schemaExampleRequired from "./schemas/example-required.js";
 import schemaRequiredArray from "./schemas/required-array.js";
-
 // Types rules - SailPoint requirements
 import booleanDefault from "./types/boolean-default.js";
 import numericFormat from "./types/numeric-format.js";
-
-// Root rules - SailPoint-specific extensions
-import rootSailpointApi from "./root/sailpoint-api.js";
-import rootTags from "./root/tags.js";
 
 /**
  * All SailPoint-specific rules as an array
@@ -101,7 +98,6 @@ export {
 	operationSummaryRequired,
 	operationTagsRequired,
 	operationUserLevels,
-
 	// Parameter rules
 	parameterDescriptionRequired,
 	parameterExampleRequired,
@@ -109,17 +105,14 @@ export {
 	parameterFilters,
 	parameterRequiredExplicit,
 	parameterSorters,
-
 	// Schema rules
 	schemaDescriptionRequired,
 	schemaExampleKeys,
 	schemaExampleRequired,
 	schemaRequiredArray,
-
 	// Types rules
 	booleanDefault,
 	numericFormat,
-
 	// Root rules
 	rootSailpointApi,
 	rootTags,

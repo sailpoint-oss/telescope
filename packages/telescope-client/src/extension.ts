@@ -77,13 +77,16 @@ export async function activate(context: ExtensionContext) {
 		sessionManager.initialize().then(
 			() => {
 				outputChannel.appendLine(formatSetupLog("✅ All sessions initialized"));
-				
+
 				// Register clients with Volar Labs after initialization completes
 				// This ensures all sessions have their clients started
-				for (const session of sessionManager!.getAllSessions()) {
-					const client = session.getClient();
-					if (client) {
-						labsInfo.addLanguageClient(client);
+				const sm = sessionManager;
+				if (sm) {
+					for (const session of sm.getAllSessions()) {
+						const client = session.getClient();
+						if (client) {
+							labsInfo.addLanguageClient(client);
+						}
 					}
 				}
 			},
@@ -197,6 +200,72 @@ export async function activate(context: ExtensionContext) {
 				await sessionManager?.restartAllSessions();
 				window.showInformationMessage("Telescope language servers restarted");
 			}),
+		);
+
+		// Bridge for server-provided CodeLens clicks:
+		// Convert LSP protocol args to VS Code objects and call the built-in references UI.
+		context.subscriptions.push(
+			commands.registerCommand(
+				"telescope.showReferences",
+				async (
+					arg1:
+						| string
+						| {
+								uri: string;
+								position: { line: number; character: number };
+								locations: Array<{
+									uri: string;
+									range: {
+										start: { line: number; character: number };
+										end: { line: number; character: number };
+									};
+								}>;
+						  },
+					arg2?: { line: number; character: number },
+					arg3?: Array<{
+						uri: string;
+						range: {
+							start: { line: number; character: number };
+							end: { line: number; character: number };
+						};
+					}>,
+				) => {
+					const payload =
+						typeof arg1 === "string"
+							? { uri: arg1, position: arg2, locations: arg3 ?? [] }
+							: arg1;
+
+					if (
+						!payload ||
+						typeof payload.uri !== "string" ||
+						!payload.position ||
+						!Array.isArray(payload.locations)
+					) {
+						throw new Error("telescope.showReferences: invalid arguments");
+					}
+
+					const targetUri = vscode.Uri.parse(payload.uri);
+					const pos = new vscode.Position(
+						payload.position.line,
+						payload.position.character,
+					);
+					const locs = payload.locations.map((l) => {
+						const uri = vscode.Uri.parse(l.uri);
+						const range = new vscode.Range(
+							new vscode.Position(l.range.start.line, l.range.start.character),
+							new vscode.Position(l.range.end.line, l.range.end.character),
+						);
+						return new vscode.Location(uri, range);
+					});
+
+					await vscode.commands.executeCommand(
+						"editor.action.showReferences",
+						targetUri,
+						pos,
+						locs,
+					);
+				},
+			),
 		);
 
 		// ====================================================================

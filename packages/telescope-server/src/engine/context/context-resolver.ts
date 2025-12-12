@@ -1,4 +1,4 @@
-import type { FileSystem } from "@volar/language-service";
+import type { FileSystem } from "../fs-types.js";
 import { buildRefGraph, findRefUris } from "../indexes/ref-graph.js";
 import type { ProjectContext } from "../rules/types.js";
 import type { ParsedDocument } from "../types.js";
