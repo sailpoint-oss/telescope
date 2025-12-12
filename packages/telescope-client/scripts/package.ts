@@ -15,8 +15,21 @@ const __dirname = dirname(__filename);
 const packageJsonPath = join(__dirname, "..", "package.json");
 
 // Parse target argument
-const targetArg = process.argv.find((arg) => arg.startsWith("--target"));
-const target = targetArg?.split("=")[1] || targetArg?.split(" ")[1];
+let target: string | undefined;
+const targetArgIndex = process.argv.findIndex((arg) =>
+	arg.startsWith("--target"),
+);
+
+if (targetArgIndex !== -1) {
+	const targetArg = process.argv[targetArgIndex];
+	// Handle --target=value format
+	if (targetArg.includes("=")) {
+		target = targetArg.split("=")[1];
+	} else {
+		// Handle --target value format (value is next argument)
+		target = process.argv[targetArgIndex + 1];
+	}
+}
 
 if (!target || (target !== "vscode" && target !== "openvsx")) {
 	console.error("Usage: bun scripts/package.ts --target <vscode|openvsx>");
