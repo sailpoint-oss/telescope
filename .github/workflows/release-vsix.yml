@@ -231,11 +231,11 @@ jobs:
             ${{ steps.vsix.outputs.vscode }}
           retention-days: 90
 
-      - name: Publish to VS Code Marketplace
-        run: pnpm dlx vsce publish --packagePath ${{ steps.vsix.outputs.vscode }} --no-git-tag-version -p ${{ secrets.VSCE_PAT }}
-
       - name: Publish to OpenVSX
         run: pnpm dlx ovsx publish ${{ steps.vsix.outputs.openvsx }} -p ${{ secrets.OPEN_VSX_TOKEN }}
+
+      - name: Publish to VS Code Marketplace
+        run: pnpm dlx vsce publish --packagePath ${{ steps.vsix.outputs.vscode }} --no-git-tag-version -p ${{ secrets.VSCE_PAT }}
 
       - name: Commit version change
         if: steps.version.outputs.changed == 'true' && github.ref == 'refs/heads/main'
