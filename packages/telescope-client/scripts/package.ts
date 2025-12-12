@@ -40,7 +40,7 @@ if (!target || (target !== "vscode" && target !== "openvsx")) {
 const configs = {
 	vscode: {
 		publisher: "SailPointTechnologies",
-		name: "Telescope OpenAPI",
+		name: "telescope-openapi",
 	},
 	openvsx: {
 		publisher: "sailpoint",
