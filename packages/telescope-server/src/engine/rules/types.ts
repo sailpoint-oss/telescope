@@ -98,6 +98,11 @@ export interface Diagnostic {
 	/** Optional suggested fixes that can be applied automatically */
 	suggest?: Array<{ title: string; fix: FilePatch | FilePatch[] }>;
 	/**
+	 * Optional arbitrary data payload. This is forwarded to the LSP Diagnostic `data`
+	 * field and can be used to power code actions (quick fixes) without parsing text.
+	 */
+	data?: unknown;
+	/**
 	 * Indicates how precisely the range was determined.
 	 * UI tools can use this to indicate uncertainty (e.g., dashed underline for fallback).
 	 *

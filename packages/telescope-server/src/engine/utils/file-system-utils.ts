@@ -37,6 +37,7 @@
 
 import { FileType, type FileSystem } from "../fs-types.js";
 import { URI } from "vscode-uri";
+import { matchesPattern } from "../pattern-matcher.js";
 
 /**
  * Check if a file exists using Volar's FileSystem.
@@ -247,34 +248,92 @@ export async function globFiles(
 	const results: string[] = [];
 	const visited = new Set<string>();
 
-	// Extract extensions from patterns
-	const extensions = new Set<string>();
-	for (const pattern of patterns) {
-		const extensionMatch = pattern.match(/\.(yaml|yml|json)$/);
-		if (extensionMatch) {
-			extensions.add(extensionMatch[0]);
+	// We always scan a conservative set of OpenAPI-relevant file extensions.
+	// Pattern matching is applied after discovery via matchesPattern().
+	const extensions = new Set<string>([".yaml", ".yml", ".json", ".jsonc"]);
+
+	// Derive scan roots from patterns by extracting the static prefix before the first glob token.
+	// This prevents broad workspace crawls when patterns are narrow (e.g. "apis/**", "!apis/**/fixtures/**").
+	const scanRootsByWorkspace = new Map<string, URI[]>();
+	for (const folderUri of workspaceFolders) {
+		scanRootsByWorkspace.set(folderUri.toString(), []);
+	}
+
+	const stripNegation = (p: string) => (p.startsWith("!") ? p.slice(1) : p);
+	const firstGlobIdx = (p: string): number => {
+		const candidates = ["*", "?", "[", "{"]; // minimatch tokens we treat as “glob”
+		let idx = -1;
+		for (const t of candidates) {
+			const i = p.indexOf(t);
+			if (i === -1) continue;
+			if (idx === -1 || i < idx) idx = i;
+		}
+		return idx;
+	};
+	const normalizePrefix = (prefix: string): string => {
+		// Convert Windows separators to URI-style, remove leading './'
+		let out = prefix.replace(/\\/g, "/");
+		if (out.startsWith("./")) out = out.slice(2);
+		return out;
+	};
+	const dirnamePrefix = (prefix: string): string => {
+		// If prefix looks like a file path, scan its parent directory.
+		const lastSlash = prefix.lastIndexOf("/");
+		if (lastSlash === -1) return "";
+		return prefix.slice(0, lastSlash + 1);
+	};
+	const joinUriPath = (base: URI, rel: string): URI => {
+		if (!rel) return base;
+		const basePath = base.path.endsWith("/") ? base.path : `${base.path}/`;
+		const joined = `${basePath}${rel}`.replace(/\/+/g, "/");
+		return base.with({ path: joined });
+	};
+
+	const rawPatterns = patterns ?? [];
+	for (const folderUri of workspaceFolders) {
+		const roots = scanRootsByWorkspace.get(folderUri.toString())!;
+		for (const raw of rawPatterns) {
+			const p = normalizePrefix(stripNegation(raw).trim());
+			if (p === "" || p.startsWith("**")) continue;
+			const gi = firstGlobIdx(p);
+			const staticPrefix = gi === -1 ? p : p.slice(0, gi);
+			// If staticPrefix ends with a file extension, scan its directory instead.
+			const scanPrefix = dirnamePrefix(staticPrefix);
+			const dirUri = joinUriPath(folderUri, scanPrefix);
+			roots.push(dirUri);
 		}
 	}
+	// If we didn’t derive anything useful, scan the workspace roots.
+	for (const folderUri of workspaceFolders) {
+		const roots = scanRootsByWorkspace.get(folderUri.toString())!;
+		if (roots.length === 0) roots.push(folderUri);
+	}
+
+	// Workspace roots as filesystem paths for matchesPattern()
+	const workspaceRootPaths = workspaceFolders.map((u) => u.fsPath);
 
 	// Walk each workspace folder for each extension
 	for (const folderUri of workspaceFolders) {
+		const scanRoots = scanRootsByWorkspace.get(folderUri.toString()) ?? [folderUri];
 		for (const extension of extensions) {
-			await walkDirectoryForExtension(
-				fileSystem,
-				folderUri,
-				extension,
-				results,
-				visited,
-			);
+			for (const scanRoot of scanRoots) {
+				await walkDirectoryForExtension(
+					fileSystem,
+					scanRoot,
+					extension,
+					results,
+					visited,
+				);
+			}
 		}
 	}
 
-	// Filter results if callback provided
-	if (shouldProcessFile) {
-		return results.filter((uri) => shouldProcessFile(uri));
-	}
-
-	return results;
+	// Apply pattern filter (include/exclude) and optional callback.
+	return results.filter((uri) => {
+		if (!matchesPattern(uri, rawPatterns, workspaceRootPaths)) return false;
+		if (shouldProcessFile && !shouldProcessFile(uri)) return false;
+		return true;
+	});
 }
 
 /**
@@ -364,7 +423,33 @@ export class MemoryFileSystem implements FileSystem {
 	/**
 	 * Read directory contents. Returns empty array for in-memory filesystem.
 	 */
-	async readDirectory(_uri: URI): Promise<[string, FileType][]> {
-		return [];
+	async readDirectory(uri: URI): Promise<[string, FileType][]> {
+		const dir = uri.with({ fragment: undefined });
+		const dirPath = dir.path.endsWith("/") ? dir.path : `${dir.path}/`;
+		const dirStr = dir.toString();
+
+		// If nothing is under this directory, behave like “empty directory”.
+		const entries = new Map<string, FileType>();
+
+		for (const fileUri of this.files.keys()) {
+			const u = URI.parse(fileUri);
+			if (u.scheme !== dir.scheme) continue;
+			if (u.authority !== dir.authority) continue;
+			if (!u.path.startsWith(dirPath)) continue;
+
+			const rest = u.path.slice(dirPath.length);
+			if (rest.length === 0) continue;
+			const [first] = rest.split("/", 1);
+			if (!first) continue;
+
+			// If there’s more path after the first segment, it’s a directory.
+			const isDir = rest.includes("/");
+			entries.set(first, isDir ? FileType.Directory : FileType.File);
+		}
+
+		// Special case: if they ask for the exact file URI, return empty.
+		if (this.files.has(dirStr)) return [];
+
+		return Array.from(entries.entries());
 	}
 }

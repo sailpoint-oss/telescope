@@ -1,5 +1,5 @@
 # Telescope Configuration
-# 
+#
 # This is an example configuration file showing how to:
 # - Override built-in rule severities
 # - Register custom OpenAPI rules
@@ -13,7 +13,7 @@ openapi:
     - "openapi/**/*.yaml"
     - "openapi/**/*.yml"
     - "openapi/**/*.json"
-  
+
   # Register custom OpenAPI rules
   rules:
     - rule: example-custom-openapi-rule.ts
@@ -28,7 +28,7 @@ additionalValidation:
   zod-schema-validation:
     patterns:
       - "custom/custom-zod-schema-*.yaml"
-    schemas: 
+    schemas:
       - schema: example-zod-schema.ts
   json-schema-validation:
     patterns:

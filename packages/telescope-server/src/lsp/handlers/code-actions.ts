@@ -56,6 +56,31 @@ function provideCodeActions(
 	// Process each diagnostic
 	for (const diagnostic of params.context.diagnostics) {
 		const code = String(diagnostic.code ?? "");
+		// Structural invalid-key rename quick fix (powered by diagnostic.data)
+		// biome-ignore lint/suspicious/noExplicitAny: LSP Diagnostic `data` is optional/loosely typed
+		const data: any = (diagnostic as any).data;
+		if (
+			code === "structural-validation" &&
+			data?.kind === "invalid_key" &&
+			typeof data?.to === "string" &&
+			data.to.length > 0
+		) {
+			actions.push({
+				title: `Rename key to "${data.to}"`,
+				kind: "quickfix" as CodeActionKind,
+				diagnostics: [diagnostic],
+				edit: {
+					changes: {
+						[cached.uri]: [
+							{
+								range: diagnostic.range,
+								newText: data.to,
+							} as TextEdit,
+						],
+					},
+				},
+			});
+		}
 
 		// Add missing description
 		if (

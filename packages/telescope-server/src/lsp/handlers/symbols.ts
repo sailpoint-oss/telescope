@@ -17,9 +17,13 @@ import type {
 } from "vscode-languageserver-protocol";
 import { SymbolKind } from "vscode-languageserver-protocol";
 
+import { joinPointer } from "../../engine/utils/pointer-utils.js";
 import type { DocumentCache, CachedDocument } from "../document-cache.js";
 import type { TelescopeContext } from "../context.js";
+import { createDocumentProvider } from "../services/document-provider.js";
+import type { DocumentProvider, ProvidedDocument } from "../services/document-provider.js";
 import { getYAMLService } from "../services/yaml-service.js";
+import type { WorkspaceProject } from "../workspace/workspace-project.js";
 import { isOpenAPIDocument } from "./shared.js";
 
 /**
@@ -30,6 +34,7 @@ export function registerSymbolHandlers(
 	documents: TextDocuments<TextDocument>,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
+	getProject: () => WorkspaceProject,
 ): void {
 	const logger = ctx.getLogger("Symbols");
 	const yamlService = getYAMLService();
@@ -61,9 +66,14 @@ export function registerSymbolHandlers(
 	});
 
 	// Workspace symbols
-	connection.onWorkspaceSymbol((params): WorkspaceSymbol[] => {
+	connection.onWorkspaceSymbol(async (params): Promise<WorkspaceSymbol[]> => {
 		try {
-			return provideWorkspaceSymbols(params.query, cache, ctx);
+			const provider = createDocumentProvider({
+				documents,
+				cache,
+				project: getProject(),
+			});
+			return await provideWorkspaceSymbols(params.query, ctx, provider);
 		} catch (error) {
 			logger.error(
 				`Workspace symbols failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -299,80 +309,97 @@ function provideOpenAPIDocumentSymbols(
  */
 function provideWorkspaceSymbols(
 	query: string,
-	cache: DocumentCache,
 	ctx: TelescopeContext,
-): WorkspaceSymbol[] {
+	provider: DocumentProvider,
+): Promise<WorkspaceSymbol[]> {
 	const symbols: WorkspaceSymbol[] = [];
 	const lowerQuery = query.toLowerCase();
 
-	for (const uri of ctx.getKnownOpenAPIFiles()) {
-		const doc = cache.getByUri(uri);
-		if (!doc || !isOpenAPIDocument(doc)) continue;
+	return (async () => {
+		for (const uri of ctx.getKnownOpenAPIFiles()) {
+			const doc = await provider.get(uri);
+			if (!doc) continue;
 
-		const ast = doc.parsedObject as Record<string, unknown>;
+			const ast = getAstForProvided(doc);
+			if (!ast || typeof ast !== "object") continue;
 
-		// Search operations
-		const paths = ast.paths as Record<string, unknown> | undefined;
-		if (paths) {
-			const methods = ["get", "post", "put", "patch", "delete", "options", "head"];
+			// Search operations
+			const paths = (ast as any).paths as Record<string, unknown> | undefined;
+			if (paths) {
+				const methods = [
+					"get",
+					"post",
+					"put",
+					"patch",
+					"delete",
+					"options",
+					"head",
+				];
 
-			for (const [path, pathItem] of Object.entries(paths)) {
-				if (!pathItem || typeof pathItem !== "object") continue;
+				for (const [path, pathItem] of Object.entries(paths)) {
+					if (!pathItem || typeof pathItem !== "object") continue;
 
-				for (const method of methods) {
-					const operation = (pathItem as Record<string, unknown>)[method] as
-						| Record<string, unknown>
-						| undefined;
-					if (!operation) continue;
+					for (const method of methods) {
+						const operation = (pathItem as Record<string, unknown>)[method] as
+							| Record<string, unknown>
+							| undefined;
+						if (!operation) continue;
 
-					const opId = operation.operationId
-						? String(operation.operationId)
-						: `${method.toUpperCase()} ${path}`;
+						const opId = operation.operationId
+							? String(operation.operationId)
+							: `${method.toUpperCase()} ${path}`;
 
-					if (opId.toLowerCase().includes(lowerQuery)) {
-						const range = cache.getRange(doc, ["paths", path, method]);
-						if (range) {
-							symbols.push({
-								name: opId,
-								kind: SymbolKind.Method,
-								location: { uri, range },
-								containerName: path,
-							});
+						if (opId.toLowerCase().includes(lowerQuery)) {
+							const pointer = joinPointer(["paths", path, method]);
+							const range = provider.pointerToRange(doc, pointer);
+							if (range) {
+								symbols.push({
+									name: opId,
+									kind: SymbolKind.Method,
+									location: { uri, range },
+									containerName: path,
+								});
+							}
+						}
+					}
+				}
+			}
+
+			// Search components
+			const components = (ast as any).components as Record<string, unknown> | undefined;
+			if (components) {
+				const sections = [
+					{ key: "schemas", kind: SymbolKind.Class },
+					{ key: "parameters", kind: SymbolKind.Property },
+					{ key: "responses", kind: SymbolKind.Event },
+				] as const;
+
+				for (const { key, kind } of sections) {
+					const section = components[key] as Record<string, unknown> | undefined;
+					if (!section) continue;
+
+					for (const name of Object.keys(section)) {
+						if (name.toLowerCase().includes(lowerQuery)) {
+							const pointer = joinPointer(["components", key, name]);
+							const range = provider.pointerToRange(doc, pointer);
+							if (range) {
+								symbols.push({
+									name,
+									kind,
+									location: { uri, range },
+									containerName: `components/${key}`,
+								});
+							}
 						}
 					}
 				}
 			}
 		}
 
-		// Search components
-		const components = ast.components as Record<string, unknown> | undefined;
-		if (components) {
-			const sections = [
-				{ key: "schemas", kind: SymbolKind.Class },
-				{ key: "parameters", kind: SymbolKind.Property },
-				{ key: "responses", kind: SymbolKind.Event },
-			] as const;
+		return symbols;
+	})();
+}
 
-			for (const { key, kind } of sections) {
-				const section = components[key] as Record<string, unknown> | undefined;
-				if (!section) continue;
-
-				for (const name of Object.keys(section)) {
-					if (name.toLowerCase().includes(lowerQuery)) {
-						const range = cache.getRange(doc, ["components", key, name]);
-						if (range) {
-							symbols.push({
-								name,
-								kind,
-								location: { uri, range },
-								containerName: `components/${key}`,
-							});
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return symbols;
+function getAstForProvided(doc: ProvidedDocument): unknown {
+	return doc.kind === "open" ? doc.cached.parsedObject : doc.parsed.ast;
 }

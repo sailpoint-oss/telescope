@@ -44,6 +44,20 @@ bun packages/telescope-server/src/server.ts
 
 In production, the server is bundled as JavaScript and launched by `telescope-client` using Node.js.
 
+## GitHub Actions (CI linting)
+
+The package includes a lightweight CLI entrypoint at `packages/telescope-server/src/cli/index.ts` that is designed for CI:
+
+- **Annotations**: `--format github` prints workflow commands (errors/warnings) that GitHub displays inline on PRs.
+- **Summary**: when `GITHUB_STEP_SUMMARY` is set, Telescope appends a short summary table to the job summary.
+- **Fail on errors**: the process exits non-zero if any error-severity diagnostics exist (warnings do not fail by default).
+
+Example workflow step:
+
+```bash
+bun packages/telescope-server/src/cli/index.ts --workspace . --format github
+```
+
 ## Source Layout
 
 ```

@@ -669,6 +669,36 @@ export class Session implements vscode.Disposable {
 	}
 
 	/**
+	 * Get project info from the language server.
+	 * This is a test-only method for E2E testing.
+	 */
+	async getProjectInfo(): Promise<{
+		knownOpenAPIFiles: number;
+		rootDocuments: number;
+		hasClientFileList: boolean;
+		workspacePath: string | null;
+		cachedDocuments: number;
+	} | null> {
+		if (!this.client || this._state !== SessionState.Running) {
+			return null;
+		}
+
+		try {
+			const result = await this.client.sendRequest("telescope/getProjectInfo");
+			return result as {
+				knownOpenAPIFiles: number;
+				rootDocuments: number;
+				hasClientFileList: boolean;
+				workspacePath: string | null;
+				cachedDocuments: number;
+			};
+		} catch (error) {
+			this.logError(`Failed to get project info: ${error}`);
+			return null;
+		}
+	}
+
+	/**
 	 * Log a message to the output channel.
 	 */
 	private log(message: string): void {

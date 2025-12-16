@@ -6,6 +6,7 @@ import type { LintingContext } from "../../engine/index.js";
 import {
 	DocumentTypeCache,
 	discoverWorkspaceRoots,
+	matchesPattern,
 	NodeFileSystem,
 	ProjectContextCache,
 	resolveLintingContext,
@@ -40,6 +41,7 @@ export class WorkspaceProject {
 	private readonly projectCache = new ProjectContextCache();
 
 	private candidateOpenApiFiles: string[] | null = null;
+	private openapiPatterns: string[] | null = null;
 	private roots: string[] = [];
 	private rootsDirty = true;
 
@@ -69,7 +71,23 @@ export class WorkspaceProject {
 	 * This is a hint to reduce scanning work; the server remains authoritative.
 	 */
 	setCandidateOpenApiFiles(files: string[]): void {
-		this.candidateOpenApiFiles = files.filter((u) => !isConfigFile(u));
+		const workspacePath = URI.parse(this.workspaceFolderUri).fsPath;
+		const patterns = this.openapiPatterns ?? [];
+		this.candidateOpenApiFiles = files.filter((u) => {
+			if (isConfigFile(u)) return false;
+			try {
+				const fsPath = URI.parse(u).fsPath;
+				if (!fsPath.startsWith(workspacePath)) return false;
+			} catch {
+				return false;
+			}
+			return matchesPattern(u, patterns, [workspacePath]);
+		});
+		this.rootsDirty = true;
+	}
+
+	setOpenApiPatterns(patterns: string[] | undefined): void {
+		this.openapiPatterns = patterns && patterns.length > 0 ? patterns : null;
 		this.rootsDirty = true;
 	}
 
@@ -83,6 +101,16 @@ export class WorkspaceProject {
 		this.docTypeCache.invalidate(normalized);
 		this.projectCache.invalidateForDocument(normalized);
 		this.rootsDirty = true;
+	}
+
+	/**
+	 * Called when configuration changes (e.g., openapi.patterns).
+	 * Forces root discovery to re-run on next access.
+	 */
+	notifyConfigChange(): void {
+		this.rootsDirty = true;
+		// Candidate list might now be out of scope; re-evaluate on next set.
+		this.candidateOpenApiFiles = null;
 	}
 
 	/**
@@ -114,12 +142,16 @@ export class WorkspaceProject {
 	): Promise<LintingContext> {
 		const fs = fileSystemOverride ?? this.fs;
 		const useProjectCache = options?.useProjectCache ?? true;
+		// If we're analyzing ephemeral in-memory state (overlay FS), we must avoid
+		// poisoning long-lived caches (both project graph cache and doc-type cache).
+		const docTypeCache = useProjectCache ? this.docTypeCache : new DocumentTypeCache();
 		return await resolveLintingContext(
 			uri,
 			fs,
 			[this.workspaceFolderUri],
-			this.docTypeCache,
+			docTypeCache,
 			useProjectCache ? this.projectCache : undefined,
+			{ openapiPatterns: this.openapiPatterns ?? undefined },
 		);
 	}
 
@@ -155,6 +187,7 @@ export class WorkspaceProject {
 				[this.workspaceFolderUri],
 				this.fs,
 				this.docTypeCache,
+				this.openapiPatterns ?? undefined,
 			);
 			for (const r of roots) found.add(normalizeFileUri(r));
 		}

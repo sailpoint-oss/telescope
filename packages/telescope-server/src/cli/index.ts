@@ -1,167 +1,48 @@
-import { pathToFileURL } from "node:url";
-import { URI } from "vscode-uri";
-import {
-	DocumentTypeCache,
-	discoverWorkspaceRoots,
-	type Diagnostic as EngineDiagnostic,
-	lintDocument,
-	materializeRules,
-	NodeFileSystem,
-	ProjectContextCache,
-	type Rule,
-	resolveConfig,
-	resolveLintingContext,
-} from "../engine/index.js";
-
-type OutputFormat = "json" | "github";
+import { runCiCommand } from "./ci.js";
+import { runLintCommand } from "./lint.js";
+import { runLspCommand } from "./lsp.js";
 
 function usage(): string {
 	return [
-		"telescope-server lint [--workspace <path|file-uri>] [--format json|github] [--root <file-uri>]...",
+		"telescope lint [--workspace <path|file-uri>] [--format json|github] [--root <file-uri>]... [--report-md <path>] [--report-json <path>]",
+		"telescope ci [--workspace <path|file-uri>] [--report-md <path>] [--comment-pr] [--comment-review] [--diff-base <ref>] [--diff-head <ref>]",
+		"telescope lsp",
+		"",
+		"Back-compat:",
+		"  Running without a subcommand behaves like `telescope lint`.",
 		"",
 		"Examples:",
-		"  bun src/cli/index.ts --workspace . --format json",
 		"  bun src/cli/index.ts --workspace . --format github",
-		"  bun src/cli/index.ts --root file:///path/to/api.yaml --format json",
+		"  bun src/cli/index.ts lint --workspace . --format json",
+		"  bun src/cli/index.ts ci --workspace . --report-md telescope-report.md",
+		"  node dist/cli.js ci --workspace . --comment-pr --comment-review",
 	].join("\n");
 }
 
-function parseArgs(argv: string[]): {
-	workspace: string;
-	format: OutputFormat;
-	roots: string[];
-} {
-	let workspace = process.cwd();
-	let format: OutputFormat = "json";
-	const roots: string[] = [];
-
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (!a) continue;
-		if (a === "--help" || a === "-h") {
-			console.log(usage());
-			process.exit(0);
-		}
-		if (a === "--workspace") {
-			const v = argv[i + 1];
-			if (!v) throw new Error("--workspace requires a value");
-			workspace = v;
-			i++;
-			continue;
-		}
-		if (a === "--format") {
-			const v = argv[i + 1];
-			if (v !== "json" && v !== "github") {
-				throw new Error(`--format must be one of: json, github`);
-			}
-			format = v;
-			i++;
-			continue;
-		}
-		if (a === "--root") {
-			const v = argv[i + 1];
-			if (!v) throw new Error("--root requires a file URI");
-			roots.push(v);
-			i++;
-		}
-	}
-
-	return { workspace, format, roots };
-}
-
-function toWorkspaceFolderUri(workspace: string): string {
-	if (workspace.startsWith("file://")) return workspace;
-	return pathToFileURL(workspace).toString();
-}
-
-function compareEngineDiagnostics(
-	a: EngineDiagnostic,
-	b: EngineDiagnostic,
-): number {
-	if (a.uri !== b.uri) return a.uri.localeCompare(b.uri);
-	if (a.range.start.line !== b.range.start.line)
-		return a.range.start.line - b.range.start.line;
-	if (a.range.start.character !== b.range.start.character) {
-		return a.range.start.character - b.range.start.character;
-	}
-	const aCode = a.code?.toString() ?? "";
-	const bCode = b.code?.toString() ?? "";
-	if (aCode !== bCode) return aCode.localeCompare(bCode);
-	if (a.message !== b.message) return a.message.localeCompare(b.message);
-	return (a.severity ?? 0) - (b.severity ?? 0);
-}
-
-function toGithubAnnotation(d: EngineDiagnostic): string {
-	// GitHub Actions annotations use 1-based line/col.
-	const uri = URI.parse(d.uri);
-	const file = uri.scheme === "file" ? uri.fsPath : d.uri;
-	const line = d.range.start.line + 1;
-	const col = d.range.start.character + 1;
-	const severity =
-		d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "notice";
-	const msg = (d.message ?? "").replace(/\r?\n/g, " ");
-	return `::${severity} file=${file},line=${line},col=${col}::${msg}`;
-}
-
 async function main(): Promise<void> {
-	const {
-		workspace,
-		format,
-		roots: explicitRoots,
-	} = parseArgs(process.argv.slice(2));
-	const workspaceFolderUri = toWorkspaceFolderUri(workspace);
-	const workspacePath = URI.parse(workspaceFolderUri).fsPath;
+	const argv = process.argv.slice(2);
+	const cmd = argv[0];
 
-	const fileSystem = new NodeFileSystem();
-	const docCache = new DocumentTypeCache();
-	const projectCache = new ProjectContextCache();
-
-	// Load config + rules from the workspace (same behavior as LSP).
-	const config = resolveConfig(workspacePath);
-	const rules = (await materializeRules(config, workspacePath)).map(
-		(r) => r.rule,
-	) as Rule[];
-
-	const rootUris =
-		explicitRoots.length > 0
-			? explicitRoots
-			: await discoverWorkspaceRoots(
-					[workspaceFolderUri],
-					fileSystem,
-					docCache,
-				);
-
-	const allDiagnostics: EngineDiagnostic[] = [];
-
-	for (const rootUri of rootUris) {
-		const ctx = await resolveLintingContext(
-			rootUri,
-			fileSystem,
-			[workspaceFolderUri],
-			docCache,
-			projectCache,
-		);
-		const diags = await lintDocument(ctx, fileSystem, rules);
-		allDiagnostics.push(...diags);
+	if (cmd === "--help" || cmd === "-h") {
+		console.log(usage());
+		process.exit(0);
 	}
 
-	allDiagnostics.sort(compareEngineDiagnostics);
-
-	if (format === "github") {
-		for (const d of allDiagnostics) {
-			console.log(toGithubAnnotation(d));
-		}
+	if (cmd === "lint") {
+		await runLintCommand(argv.slice(1));
+		return;
+	}
+	if (cmd === "ci") {
+		await runCiCommand(argv.slice(1));
+		return;
+	}
+	if (cmd === "lsp") {
+		await runLspCommand(argv.slice(1));
 		return;
 	}
 
-	// JSON output (stable, machine-readable)
-	const json = {
-		workspace: workspaceFolderUri,
-		roots: rootUris,
-		diagnosticCount: allDiagnostics.length,
-		diagnostics: allDiagnostics,
-	};
-	process.stdout.write(`${JSON.stringify(json, null, 2)}\n`);
+	// Back-compat: existing callers pass flags only, no subcommand.
+	await runLintCommand(argv);
 }
 
 main().catch((err) => {

@@ -28,6 +28,7 @@ import {
 	ParameterStyleSchema,
 	StringFormatSchema,
 } from "./data-types/format-schemas.js";
+import { withSpec } from "./spec-meta.js";
 
 // ============================================
 // Base/Simple Schemas
@@ -85,7 +86,7 @@ export const License32Schema = z
 				title: "name",
 				examples: ["Apache 2.0", "MIT", "BSD-3-Clause", "GPL-3.0"],
 			})
-			.describe("REQUIRED. The license name used for the API."),
+			.describe("The license name used for the API."),
 		identifier: z
 			.string()
 			.meta({
@@ -131,7 +132,7 @@ export const Info32Schema = z
 					"Payment Gateway",
 				],
 			})
-			.describe("REQUIRED. The title of the API."),
+			.describe("The title of the API."),
 		version: z
 			.string()
 			.meta({
@@ -139,7 +140,7 @@ export const Info32Schema = z
 				examples: ["1.0.0", "2.3.1", "0.1.0-beta", "1.0.0-rc.1"],
 			})
 			.describe(
-				"REQUIRED. The version of the API document (not the OpenAPI spec version).",
+				"The version of the API document (not the OpenAPI spec version).",
 			),
 		summary: z
 			.string()
@@ -205,9 +206,7 @@ export const ServerVariable32Schema = z
 				title: "default",
 				examples: ["https", "api.example.com", "443", "v1"],
 			})
-			.describe(
-				"REQUIRED. The default value for substitution if not supplied.",
-			),
+			.describe("The default value for substitution if not supplied."),
 		description: z
 			.string()
 			.meta({
@@ -239,7 +238,7 @@ export const Server32Schema = z
 				],
 			})
 			.describe(
-				"REQUIRED. A URL to the target host. Supports server variables in {braces}. May be relative.",
+				"A URL to the target host. Supports server variables in {braces}. May be relative.",
 			),
 		description: z
 			.string()
@@ -315,7 +314,7 @@ export const Tag32Schema = z
 				title: "name",
 				examples: ["pets", "users", "orders", "authentication", "admin"],
 			})
-			.describe("REQUIRED. The name of the tag."),
+			.describe("The name of the tag."),
 		description: z
 			.string()
 			.meta({
@@ -375,78 +374,71 @@ export const Tag32Schema = z
 // Reference Objects
 // ============================================
 
-export const InternalRef32Schema = z
-	.object({
-		$ref: z
-			.string()
-			.regex(/^#.*/)
-			.meta({ title: "$ref" })
-			.describe(
-				"Internal JSON Pointer reference (e.g., #/components/schemas/User)",
-			),
-		summary: z
-			.string()
-			.meta({ title: "summary" })
-			.describe(
-				"A short summary which by default SHOULD override that of the referenced component.",
-			)
-			.optional(),
-		description: z
-			.string()
-			.meta({ title: "description" })
-			.describe(
-				"A description which by default SHOULD override that of the referenced component.",
-			)
-			.optional(),
-	})
-	.meta({
-		title: "InternalRef",
-		description: "Internal reference using JSON Pointer syntax.",
-		examples: [{ $ref: "#/components/schemas/Pet" }],
-	});
+export const InternalRef32Schema = z.string().regex(/^#.*/).meta({
+	title: "$ref",
+	description:
+		"Internal JSON Pointer reference (e.g., #/components/schemas/User)",
+});
 
 export const UrlRef32Schema = z
-	.object({
-		$ref: z
-			.string()
-			.regex(/^https?:\/\//)
-			.meta({ title: "$ref" })
-			.describe("URL reference (e.g., https://example.com/schemas/Pet.yaml)"),
-		summary: z.string().optional().meta({ title: "summary" }),
-		description: z.string().optional().meta({ title: "description" }),
-	})
+	.string()
+	.regex(/^https?:\/\//)
 	.meta({
-		title: "UrlRef",
-		description: "External URL reference.",
-		examples: [{ $ref: "https://api.example.com/schemas/Pet.yaml" }],
+		title: "$ref",
+		description: "URL reference (e.g., https://example.com/schemas/Pet.yaml)",
 	});
 
 export const FileRef32Schema = z
-	.object({
-		$ref: z
-			.string()
-			.meta({ title: "$ref" })
-			.describe(
-				"Relative file reference (e.g., ./schemas/Pet.yaml, ../common/types.yaml, schemas/Pet.yaml)",
-			),
-		summary: z.string().optional().meta({ title: "summary" }),
-		description: z.string().optional().meta({ title: "description" }),
-	})
+	.string()
+	// Allow relative file refs with optional JSON Pointer fragment
+	// e.g. ./v2/components/parameters.yaml#/components/parameters/LimitParam
+	.regex(/^[^#\s]+(\.ya?ml|\.json)(#\/.*)?$/i)
 	.meta({
-		title: "FileRef",
-		description: "Relative file reference.",
-		examples: [{ $ref: "./schemas/Pet.yaml" }],
+		title: "$ref",
+		description:
+			"Relative file reference (e.g., ./schemas/Pet.yaml, ../common/types.yaml, schemas/Pet.yaml)",
 	});
 
 export const Reference32Schema = z
-	.union([InternalRef32Schema, UrlRef32Schema, FileRef32Schema])
+	.object({
+		$ref: z.union([InternalRef32Schema, UrlRef32Schema, FileRef32Schema]),
+		summary: z
+			.string()
+			.meta({
+				title: "summary",
+				description:
+					"A short summary which by default SHOULD override that of the referenced component.",
+			})
+			.optional(),
+		description: z
+			.string()
+			.meta({
+				title: "description",
+				description:
+					"A description which by default SHOULD override that of the referenced component.",
+			})
+			.optional(),
+	})
 	.meta({
 		title: "Reference",
-		description:
-			"A simple object to allow referencing other components in the specification.",
+		description: "A reference to another component in the specification.",
 		examples: [
 			{ $ref: "#/components/schemas/Pet" },
-			{ $ref: "./schemas/User.yaml" },
+			{
+				$ref: "./schemas/User.yaml",
+				summary: "A user",
+				description: "A user is a type of person.",
+			},
+			{
+				$ref: "definitions.yaml#/Pet",
+				summary: "A pet",
+				description: "A pet is a type of animal.",
+			},
+			{
+				$ref: "https://example.com/schemas/Pet.yaml",
+				summary: "A pet",
+				description: "A pet is a type of animal.",
+			},
 		],
 	});
 
@@ -601,22 +593,7 @@ export const OAuthFlows32Schema = z
 // Uses z.any() for recursive parts to avoid circular reference issues
 // ============================================
 
-const baseSchemaFields32 = {
-	// $ref can coexist with other schema keywords in OpenAPI 3.2+ (JSON Schema 2020-12)
-	$ref: z
-		.string()
-		.meta({
-			title: "$ref",
-			examples: [
-				"#/components/schemas/Pet",
-				"./schemas/common.yaml#/Address",
-				"https://example.com/schemas/user.json",
-			],
-		})
-		.describe(
-			"Reference to another schema. Can be combined with other keywords in OpenAPI 3.2+.",
-		)
-		.optional(),
+const baseSchemaFields32 = z.object({
 	title: z
 		.string()
 		.meta({
@@ -718,16 +695,7 @@ const baseSchemaFields32 = {
 			"When true, indicates this schema is deprecated and should be avoided.",
 		)
 		.optional(),
-};
-
-// Composition fields using z.any() to break circular reference
-const compositionFields32 = {
-	allOf: z.array(z.any()).optional().meta({ title: "allOf" }),
-	oneOf: z.array(z.any()).optional().meta({ title: "oneOf" }),
-	anyOf: z.array(z.any()).optional().meta({ title: "anyOf" }),
-	not: z.any().optional().meta({ title: "not" }),
-	if: z.any().optional().meta({ title: "if" }),
-};
+});
 
 // ============================================
 // Type-specific field definitions (for discriminated unions)
@@ -737,37 +705,168 @@ const stringSpecificFields32 = {
 	format: StringFormatSchema.optional(),
 	pattern: z
 		.string()
-		.meta({ title: "pattern" })
-		.describe("A regular expression pattern the string must match.")
+		.meta({
+			title: "pattern",
+			description: "A regular expression pattern the string must match.",
+			examples: ["^[a-zA-Z0-9]+$", "^\\d{3}-\\d{2}-\\d{4}$"],
+		})
 		.optional(),
-	minLength: z.number().int().min(0).optional().meta({ title: "minLength" }),
-	maxLength: z.number().int().min(0).optional().meta({ title: "maxLength" }),
+	minLength: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "minLength",
+			description: "Minimum string length.",
+			examples: [0, 1, 10],
+		}),
+	maxLength: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "maxLength",
+			description: "Maximum string length.",
+			examples: [255, 1024],
+		}),
 };
 
 const numberSpecificFields32 = {
 	format: NumberFormatSchema.optional(),
-	multipleOf: z.number().optional().meta({ title: "multipleOf" }),
-	minimum: z.number().optional().meta({ title: "minimum" }),
-	maximum: z.number().optional().meta({ title: "maximum" }),
-	exclusiveMinimum: z.number().optional().meta({ title: "exclusiveMinimum" }),
-	exclusiveMaximum: z.number().optional().meta({ title: "exclusiveMaximum" }),
+	multipleOf: z
+		.number()
+		.optional()
+		.meta({
+			title: "multipleOf",
+			description: "Require the number to be a multiple of this value.",
+			examples: [0.5, 1, 10],
+		}),
+	minimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "minimum",
+			description: "Inclusive lower bound for the number.",
+			examples: [0, 1, -10],
+		}),
+	maximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "maximum",
+			description: "Inclusive upper bound for the number.",
+			examples: [100, 1000],
+		}),
+	exclusiveMinimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "exclusiveMinimum",
+			description: "Exclusive lower bound (instance must be > this value).",
+			examples: [0, 1],
+		}),
+	exclusiveMaximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "exclusiveMaximum",
+			description: "Exclusive upper bound (instance must be < this value).",
+			examples: [100, 1000],
+		}),
 };
 
 const integerSpecificFields32 = {
 	format: IntegerFormatSchema.optional(),
-	multipleOf: z.number().optional().meta({ title: "multipleOf" }),
-	minimum: z.number().optional().meta({ title: "minimum" }),
-	maximum: z.number().optional().meta({ title: "maximum" }),
-	exclusiveMinimum: z.number().optional().meta({ title: "exclusiveMinimum" }),
-	exclusiveMaximum: z.number().optional().meta({ title: "exclusiveMaximum" }),
+	multipleOf: z
+		.number()
+		.optional()
+		.meta({
+			title: "multipleOf",
+			description: "Require the integer to be a multiple of this value.",
+			examples: [1, 2, 10],
+		}),
+	minimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "minimum",
+			description: "Inclusive lower bound for the integer.",
+			examples: [0, 1, -10],
+		}),
+	maximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "maximum",
+			description: "Inclusive upper bound for the integer.",
+			examples: [100, 1000],
+		}),
+	exclusiveMinimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "exclusiveMinimum",
+			description: "Exclusive lower bound (instance must be > this value).",
+			examples: [0, 1],
+		}),
+	exclusiveMaximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "exclusiveMaximum",
+			description: "Exclusive upper bound (instance must be < this value).",
+			examples: [100, 1000],
+		}),
 };
 
 const arraySpecificFields32 = {
-	items: z.any().optional().meta({ title: "items" }),
-	prefixItems: z.array(z.any()).optional().meta({ title: "prefixItems" }),
-	contains: z.any().optional().meta({ title: "contains" }),
-	minItems: z.number().int().min(0).optional().meta({ title: "minItems" }),
-	maxItems: z.number().int().min(0).optional().meta({ title: "maxItems" }),
+	get items() {
+		return SchemaObject32Schema.optional().meta({
+			title: "items",
+			description: "Schema for array items.",
+			examples: [{ type: "string" }, { $ref: "#/components/schemas/Pet" }],
+		});
+	},
+	prefixItems: z
+		.array(z.any())
+		.optional()
+		.meta({
+			title: "prefixItems",
+			description:
+				"Tuple validation: schemas for items by index (array position).",
+			examples: [[{ type: "string" }, { type: "integer" }]],
+		}),
+	contains: z
+		.any()
+		.optional()
+		.meta({
+			title: "contains",
+			description:
+				"Require the array to contain at least one item matching this subschema.",
+			examples: [{ type: "integer" }],
+		}),
+	minItems: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "minItems",
+			description: "Minimum number of items in the array.",
+			examples: [0, 1],
+		}),
+	maxItems: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "maxItems",
+			description: "Maximum number of items in the array.",
+			examples: [10, 100],
+		}),
 	minContains: z
 		.number()
 		.int()
@@ -780,17 +879,33 @@ const arraySpecificFields32 = {
 		.min(0)
 		.meta({ title: "maxContains" })
 		.optional(),
-	uniqueItems: z.boolean().optional().meta({ title: "uniqueItems" }),
+	uniqueItems: z
+		.boolean()
+		.optional()
+		.meta({
+			title: "uniqueItems",
+			description: "When true, all items in the array must be unique.",
+			examples: [true, false],
+		}),
 };
 
 const objectSpecificFields32 = {
 	properties: z
 		.record(z.string(), z.any())
-		.meta({ title: "properties" })
+		.meta({
+			title: "properties",
+			description: "Property schemas keyed by property name.",
+			examples: [{ id: { type: "integer" }, name: { type: "string" } }],
+		})
 		.optional(),
 	additionalProperties: z
 		.union([z.any(), z.boolean()])
-		.meta({ title: "additionalProperties" })
+		.meta({
+			title: "additionalProperties",
+			description:
+				"Controls properties not listed in `properties`: boolean to allow/disallow, or a schema to validate them.",
+			examples: [true, false, { type: "string" }],
+		})
 		.optional(),
 	patternProperties: z
 		.record(z.string(), z.any())
@@ -805,7 +920,14 @@ const objectSpecificFields32 = {
 		.record(z.string(), z.array(z.string()))
 		.meta({ title: "dependentRequired" })
 		.optional(),
-	required: z.array(z.string()).optional().meta({ title: "required" }),
+	required: z
+		.array(z.string())
+		.optional()
+		.meta({
+			title: "required",
+			description: "List of required property names.",
+			examples: [["id", "name"]],
+		}),
 	minProperties: z
 		.number()
 		.int()
@@ -833,7 +955,6 @@ const TypedStringSchema32 = z
 		type: z.literal("string").meta({ title: "type" }),
 		...stringSpecificFields32,
 		...baseSchemaFields32,
-		...compositionFields32,
 	})
 	.meta({ title: "StringSchema" });
 
@@ -842,7 +963,6 @@ const TypedNumberSchema32 = z
 		type: z.literal("number").meta({ title: "type" }),
 		...numberSpecificFields32,
 		...baseSchemaFields32,
-		...compositionFields32,
 	})
 	.meta({ title: "NumberSchema" });
 
@@ -867,16 +987,77 @@ const TypedNullSchema32 = z
 	.object({
 		type: z.literal("null").meta({ title: "type" }),
 		...baseSchemaFields32,
-		...compositionFields32,
 	})
 	.meta({ title: "NullSchema" });
 
-const TypedArraySchema32 = z
-	.object({
-		type: z.literal("array").meta({ title: "type" }),
-		...arraySpecificFields32,
-		...baseSchemaFields32,
-		...compositionFields32,
+export const ArraySchema32Schema = baseSchemaFields32
+	.extend({
+		type: z.literal("array").meta({ title: "The OpenAPI Array Schema type" }),
+		get items() {
+			return SchemaObject32Schema.optional().meta({
+				title: "items",
+				description: "Schema for array items.",
+				examples: [{ type: "string" }, { $ref: "#/components/schemas/Pet" }],
+			});
+		},
+		prefixItems: z
+			.array(z.any())
+			.optional()
+			.meta({
+				title: "prefixItems",
+				description:
+					"Tuple validation: schemas for items by index (array position).",
+				examples: [[{ type: "string" }, { type: "integer" }]],
+			}),
+		contains: z
+			.any()
+			.optional()
+			.meta({
+				title: "contains",
+				description:
+					"Require the array to contain at least one item matching this subschema.",
+				examples: [{ type: "integer" }],
+			}),
+		minItems: z
+			.number()
+			.int()
+			.min(0)
+			.optional()
+			.meta({
+				title: "minItems",
+				description: "Minimum number of items in the array.",
+				examples: [0, 1],
+			}),
+		maxItems: z
+			.number()
+			.int()
+			.min(0)
+			.optional()
+			.meta({
+				title: "maxItems",
+				description: "Maximum number of items in the array.",
+				examples: [10, 100],
+			}),
+		minContains: z
+			.number()
+			.int()
+			.min(0)
+			.meta({ title: "minContains" })
+			.optional(),
+		maxContains: z
+			.number()
+			.int()
+			.min(0)
+			.meta({ title: "maxContains" })
+			.optional(),
+		uniqueItems: z
+			.boolean()
+			.optional()
+			.meta({
+				title: "uniqueItems",
+				description: "When true, all items in the array must be unique.",
+				examples: [true, false],
+			}),
 	})
 	.meta({ title: "ArraySchema" });
 
@@ -885,7 +1066,6 @@ const TypedObjectSchema32 = z
 		type: z.literal("object").meta({ title: "type" }),
 		...objectSpecificFields32,
 		...baseSchemaFields32,
-		...compositionFields32,
 	})
 	.meta({ title: "ObjectSchema" });
 
@@ -894,7 +1074,7 @@ const TypedObjectSchema32 = z
  * Uses "type" as the discriminator for clear error messages.
  */
 const TypedSchema32 = z
-	.discriminatedUnion("type", [
+	.union([
 		TypedStringSchema32,
 		TypedNumberSchema32,
 		TypedIntegerSchema32,
@@ -904,51 +1084,6 @@ const TypedSchema32 = z
 		TypedObjectSchema32,
 	])
 	.meta({ title: "TypedSchema" });
-
-/**
- * Schema with array type (for nullable types in OpenAPI 3.2).
- * Example: type: ["string", "null"]
- */
-const NullableTypeSchema32 = z
-	.object({
-		type: z.array(z.string()).meta({ title: "type" }),
-		// Include all possible type-specific fields
-		...stringSpecificFields32,
-		...numberSpecificFields32,
-		...arraySpecificFields32,
-		...objectSpecificFields32,
-		...baseSchemaFields32,
-		...compositionFields32,
-	})
-	.meta({ title: "NullableSchema" });
-
-/**
- * Flexible fallback schema for:
- * - Pure $ref schemas
- * - Composition schemas (allOf/oneOf/anyOf)
- * - Schemas with $ref combined with other keywords
- * - Any valid schema without explicit type
- *
- * Includes all possible schema fields to be maximally accepting.
- */
-const FlexibleSchema32 = z
-	.object({
-		// Allow optional type for edge cases
-		type: z.string().optional().meta({ title: "type" }),
-		// Include all base fields (including $ref)
-		...baseSchemaFields32,
-		// Include all composition fields
-		...compositionFields32,
-		// biome-ignore lint/suspicious/noThenProperty: then is a perfectly valid object key, come on biome
-		then: z.any().optional().meta({ title: "then" }),
-		else: z.any().optional().meta({ title: "else" }),
-		// Include all type-specific fields
-		...stringSpecificFields32,
-		...numberSpecificFields32,
-		...arraySpecificFields32,
-		...objectSpecificFields32,
-	})
-	.meta({ title: "FlexibleSchema" });
 
 // Legacy exports - use the typed versions internally
 export const StringSchema32 = TypedStringSchema32;
@@ -963,15 +1098,16 @@ export const ObjectSchema32 = TypedObjectSchema32;
  * Schema Object union with proper ordering for better error messages.
  *
  * Order of checking:
- * 1. TypedSchema (discriminated union by type literal) - Clear type discrimination
- * 2. NullableTypeSchema (type is array) - For OpenAPI 3.2 nullable types
- * 3. FlexibleSchema - Fallback for $ref, composition, and edge cases
+ * 1. Reference32Schema - Reference Objects (strict: only $ref, summary, description)
+ * 2. TypedSchema (discriminated union by type literal) - Clear type discrimination
+ * 3. NullableTypeSchema (type is array) - For OpenAPI 3.2 nullable types
+ * 4. FlexibleSchema - Fallback for composition and edge cases (NO $ref)
  *
- * Note: Reference32Schema is NOT in this union - $ref is handled as a field in FlexibleSchema
- * since OpenAPI 3.2+ / JSON Schema allows $ref with other keywords.
+ * Note: $ref is NOT allowed as a sibling in schema objects. If $ref is present,
+ * the object must be a Reference Object (only $ref, summary, description allowed).
  */
 export const SchemaObject32Schema = z
-	.union([TypedSchema32, NullableTypeSchema32, FlexibleSchema32])
+	.union([Reference32Schema, TypedSchema32])
 	.meta({
 		title: "SchemaObject",
 		description:
@@ -1121,11 +1257,9 @@ const ApiKeySecurityScheme32 = z
 				title: "name",
 				examples: ["X-API-Key", "api_key", "Authorization", "X-Auth-Token"],
 			})
-			.describe(
-				"REQUIRED. The name of the header, query, or cookie parameter.",
-			),
+			.describe("The name of the header, query, or cookie parameter."),
 		in: ApiKeyLocationSchema.describe(
-			"REQUIRED. Location of the API key: 'header' (most common), 'query', or 'cookie'.",
+			"Location of the API key: 'header' (most common), 'query', or 'cookie'.",
 		),
 		description: z
 			.string()
@@ -1154,7 +1288,7 @@ const HttpSecurityScheme32 = z
 			})
 			.describe("Must be 'http' for HTTP authentication."),
 		scheme: HttpAuthSchemeSchema.describe(
-			"REQUIRED. HTTP auth scheme (IANA registered). Common: 'bearer', 'basic'.",
+			"HTTP auth scheme (IANA registered). Common: 'bearer', 'basic'.",
 		),
 		bearerFormat: z
 			.string()
@@ -1418,9 +1552,9 @@ const ParameterObjectSchema32 = z
 					"status",
 				],
 			})
-			.describe("REQUIRED. The name of the parameter. Case-sensitive."),
+			.describe("The name of the parameter. Case-sensitive."),
 		in: ParameterLocationSchema.describe(
-			"REQUIRED. Location of the parameter. 'path' parameters must have required=true.",
+			"Location of the parameter. 'path' parameters must have required=true.",
 		),
 		description: z
 			.string()
@@ -1440,9 +1574,7 @@ const ParameterObjectSchema32 = z
 			.boolean()
 			.optional()
 			.default(false)
-			.describe(
-				"Whether the parameter is required. MUST be true for 'in: path'.",
-			)
+			.describe("Whether the parameter is MUST be true for 'in: path'.")
 			.meta({
 				title: "required",
 				examples: [true, false],
@@ -1740,7 +1872,7 @@ export const Operation32Schema = z
 // PathItem Object (OpenAPI 3.2 - includes query and additionalOperations)
 // ============================================
 
-export const PathItem32Schema: z.ZodTypeAny = z
+export const PathItem32Schema = z
 	.object({
 		$ref: z.string().optional().meta({ title: "$ref" }),
 		summary: z.string().optional().meta({ title: "summary" }),
@@ -1810,15 +1942,14 @@ export const Callback32Schema: z.ZodTypeAny = z
 // Paths Object
 // ============================================
 
-export const Paths32Schema = z
-	.record(z.string().startsWith("/"), PathItem32Schema)
-	.meta({
-		title: "Paths",
-		description: "Holds the relative paths to the individual endpoints.",
-		examples: [
-			{ "/pets": { get: { responses: { "200": { description: "OK" } } } } },
-		],
-	});
+export const PathString = z.string().regex(/^\/[^/]+$/);
+
+export const Paths32Schema = z.record(PathString, PathItem32Schema).meta({
+	title: "Paths",
+	description: `Holds the relative paths to the individual endpoints. 
+
+These paths are resolved relative to the server's base path.`,
+});
 
 // ============================================
 // Components Object (OpenAPI 3.2 - includes pathItems)
@@ -1878,98 +2009,104 @@ export const Components32Schema: z.ZodTypeAny = z
 // OpenAPI Root Object (OpenAPI 3.2 - includes webhooks and jsonSchemaDialect)
 // ============================================
 
-export const OpenAPI32Schema: z.ZodTypeAny = z
-	.object({
-		openapi: z
-			.string()
-			.regex(/^3\.2\.\d+$/)
-			.meta({
-				title: "openapi",
-				examples: ["3.2.0"],
-			})
-			.describe(
-				"REQUIRED. OpenAPI version. Must be '3.2.x' for OpenAPI 3.2 documents.",
-			),
-		info: Info32Schema.describe("REQUIRED. API metadata.").meta({
-			title: "info",
+export const OpenAPI32Schema: z.ZodTypeAny = withSpec(
+	z
+		.object({
+			openapi: z
+				.string()
+				.regex(/^3\.2\.\d+$/)
+				.meta({
+					title: "openapi",
+					description:
+						"OpenAPI version. Must be '3.2.x' for OpenAPI 3.2 documents.",
+					examples: ["3.2.0"],
+				}),
+			info: Info32Schema.meta({
+				title: "info",
+				description: "API metadata.",
+			}),
+			jsonSchemaDialect: z
+				.url()
+				.meta({
+					title: "jsonSchemaDialect",
+					description:
+						"The default JSON Schema dialect for Schema Objects. Defaults to Draft 2020-12.",
+					examples: [
+						"https://json-schema.org/draft/2020-12/schema",
+						"https://json-schema.org/draft/2019-09/schema",
+					],
+				})
+				.optional(),
+			servers: z
+				.array(Server32Schema)
+				.optional()
+				.meta({
+					title: "servers",
+					description:
+						"Array of servers. 3.2 adds 'name' field for server identification.",
+					examples: [
+						[{ url: "https://api.example.com/v1", name: "Production" }],
+						[
+							{
+								url: "https://{environment}.example.com/v2",
+								name: "Staging",
+								variables: {
+									environment: {
+										default: "staging",
+										enum: ["staging", "production"],
+									},
+								},
+							},
+						],
+					],
+				}),
+			paths: Paths32Schema.optional().meta({
+				title: "paths",
+				description:
+					"Available paths and operations. Optional if webhooks is provided.",
+			}),
+			webhooks: z
+				.record(z.string(), PathItem32Schema)
+				.optional()
+				.meta({
+					title: "webhooks",
+					description: "Incoming webhooks that the API can receive.",
+					examples: [{ newPet: { post: { operationId: "newPetWebhook" } } }],
+				}),
+			components: Components32Schema.optional().meta({
+				title: "components",
+				description: "Reusable schemas, parameters, responses, etc.",
+			}),
+			security: z
+				.array(SecurityRequirement32Schema)
+				.optional()
+				.meta({
+					title: "security",
+					description:
+						"Default security for all operations. Can be overridden per-operation.",
+					examples: [[{ api_key: [] }], [{ bearerAuth: [] }]],
+				}),
+			tags: z
+				.array(Tag32Schema)
+				.optional()
+				.meta({
+					title: "tags",
+					description:
+						"Tags for grouping. 3.2 adds 'parent', 'kind', and 'summary' for hierarchy.",
+					examples: [
+						[{ name: "pets", description: "Pet operations", kind: "nav" }],
+					],
+				}),
+			externalDocs: ExternalDocumentation32Schema.optional(),
+		})
+		.meta({
+			title: "OpenAPI",
+			description:
+				"Root object of an OpenAPI 3.2 document. Adds tag hierarchy, server names, query method.",
 		}),
-		jsonSchemaDialect: z
-			.url()
-			.meta({
-				title: "jsonSchemaDialect",
-				examples: [
-					"https://json-schema.org/draft/2020-12/schema",
-					"https://json-schema.org/draft/2019-09/schema",
-				],
-			})
-			.describe(
-				"The default JSON Schema dialect for Schema Objects. Defaults to Draft 2020-12.",
-			)
-			.optional(),
-		servers: z
-			.array(Server32Schema)
-			.meta({
-				title: "servers",
-				examples: [[{ url: "https://api.example.com/v1", name: "Production" }]],
-			})
-			.describe(
-				"Array of servers. 3.2 adds 'name' field for server identification.",
-			)
-			.optional(),
-		paths: Paths32Schema.meta({ title: "paths" })
-			.describe(
-				"Available paths and operations. Optional if webhooks is provided.",
-			)
-			.optional(),
-		webhooks: z
-			.record(z.string(), PathItem32Schema)
-			.meta({
-				title: "webhooks",
-				examples: [{ newPet: { post: { operationId: "newPetWebhook" } } }],
-			})
-			.describe("Incoming webhooks that the API can receive.")
-			.optional(),
-		components: Components32Schema.meta({ title: "components" })
-			.describe("Reusable schemas, parameters, responses, etc.")
-			.optional(),
-		security: z
-			.array(SecurityRequirement32Schema)
-			.meta({
-				title: "security",
-				examples: [[{ api_key: [] }], [{ bearerAuth: [] }]],
-			})
-			.describe(
-				"Default security for all operations. Can be overridden per-operation.",
-			)
-			.optional(),
-		tags: z
-			.array(Tag32Schema)
-			.meta({
-				title: "tags",
-				examples: [
-					[{ name: "pets", description: "Pet operations", kind: "nav" }],
-				],
-			})
-			.describe(
-				"Tags for grouping. 3.2 adds 'parent', 'kind', and 'summary' for hierarchy.",
-			)
-			.optional(),
-		externalDocs: ExternalDocumentation32Schema.meta({
-			title: "externalDocs",
-		}).optional(),
-	})
-	.meta({
-		title: "OpenAPI",
-		description:
-			"Root object of an OpenAPI 3.2 document. Adds tag hierarchy, server names, query method.",
-		examples: [
-			{
-				openapi: "3.2.0",
-				info: { title: "My API", version: "1.0.0" },
-				paths: {},
-			},
-		],
-	});
+	"3.2",
+	"openapi-object",
+);
 
 // ============================================
 // Export TypeScript types

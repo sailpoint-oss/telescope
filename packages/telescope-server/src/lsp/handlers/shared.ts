@@ -17,6 +17,7 @@ import {
 	joinPointer,
 	parseJsonPointer,
 } from "../../engine/utils/pointer-utils.js";
+import { splitPointer } from "../../engine/utils/pointer-utils.js";
 import { normalizeUri, resolveRef } from "../../engine/utils/ref-utils.js";
 import { URI } from "vscode-uri";
 
@@ -34,7 +35,7 @@ export interface HandlerContext {
  * Check if a cached document is an OpenAPI document.
  */
 export function isOpenAPIDocument(cached: CachedDocument): boolean {
-	return cached.documentType !== "unknown";
+	return cached.documentType !== "unknown" && cached.openapiScoped;
 }
 
 /**
@@ -83,23 +84,37 @@ export function findAllRefNodes(
  * Find a node at a specific JSON pointer in IR.
  */
 export function findNodeAtPointer(root: IRNode, pointer: string): IRNode | null {
-	if (pointer === "#" || pointer === "") return root;
+	// NOTE: Prefer engine's `findNodeByPointer(IRDocument, ptr)` when you have an IRDocument.
+	// This helper exists for legacy call sites that only have an IRNode root.
+	if (!pointer || pointer === "#") return root;
+	const normalized = pointer.startsWith("/") ? `#${pointer}` : pointer;
+	const segments = splitPointer(normalized);
+	if (segments.length === 0) return root;
 
-	const path = parseJsonPointer(pointer);
 	let current: IRNode = root;
+	for (const seg of segments) {
+		const children = current.children;
+		if (!children || !Array.isArray(children)) return null;
 
-	for (const segment of path) {
-		if (!current.children) return null;
-
-		const found = current.children.find((child) => {
-			if (typeof segment === "number") {
-				return child.kind === "object" || child.kind === "array";
+		if (current.kind === "array") {
+			const index = Number(seg);
+			if (!Number.isInteger(index) || index < 0 || index >= children.length) {
+				return null;
 			}
-			return child.key === segment;
-		});
+			const next = children[index];
+			if (!next) return null;
+			current = next;
+			continue;
+		}
 
-		if (!found) return null;
-		current = found;
+		if (current.kind === "object") {
+			const next = children.find((c) => c && c.key === seg);
+			if (!next) return null;
+			current = next;
+			continue;
+		}
+
+		return null;
 	}
 
 	return current;

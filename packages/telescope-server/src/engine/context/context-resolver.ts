@@ -46,6 +46,7 @@ export async function resolveLintingContext(
 	workspaceFolders: string[] = [],
 	cache?: DocumentTypeCache,
 	projectCache?: ProjectContextCache,
+	options?: { openapiPatterns?: string[] },
 ): Promise<LintingContext> {
 	// Normalize input URI for consistent storage and lookup
 	const normalizedUri = normalizeUri(uri);
@@ -97,6 +98,7 @@ export async function resolveLintingContext(
 			workspaceFolders,
 			fileSystem,
 			docCache,
+			options?.openapiPatterns,
 		);
 
 		const allRoots = new Set<string>(workspaceRoots);

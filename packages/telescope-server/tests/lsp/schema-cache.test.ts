@@ -20,6 +20,15 @@ import {
 
 describe("Schema Cache - Basic Operations", () => {
 	describe("getCachedSchema", () => {
+		test("returns valid JSON Schema for openapi-2.0-root", () => {
+			const schema = getCachedSchema("openapi-2.0-root");
+
+			expect(schema).toBeDefined();
+			expect(schema?.$id).toBe("telescope://openapi-2.0-root");
+			expect(typeof schema?.title).toBe("string");
+			expect(typeof schema?.type).toBe("string");
+		});
+
 		test("returns valid JSON Schema for openapi-3.0-root", () => {
 			const schema = getCachedSchema("openapi-3.0-root");
 
@@ -81,6 +90,13 @@ describe("Schema Cache - Basic Operations", () => {
 	});
 
 	describe("getZodSchema", () => {
+		test("returns Zod schema for openapi-2.0-root", () => {
+			const schema = getZodSchema("openapi-2.0-root");
+
+			expect(schema).toBeDefined();
+			expect(typeof schema?.safeParse).toBe("function");
+		});
+
 		test("returns Zod schema for openapi-3.0-root", () => {
 			const schema = getZodSchema("openapi-3.0-root");
 
@@ -149,6 +165,7 @@ describe("Schema Cache - Basic Operations", () => {
 		});
 
 		test("returns true for all supported root schemas", () => {
+			expect(hasSchema("openapi-2.0-root")).toBe(true);
 			expect(hasSchema("openapi-3.0-root")).toBe(true);
 			expect(hasSchema("openapi-3.1-root")).toBe(true);
 			expect(hasSchema("openapi-3.2-root")).toBe(true);
@@ -173,6 +190,11 @@ describe("Schema Cache - Schema Keys", () => {
 			expect(keys).toContain("openapi-3.0-schema");
 			expect(keys).toContain("openapi-3.0-parameter");
 			expect(keys).toContain("openapi-3.0-response");
+		});
+
+		test("includes OpenAPI 2.0 root schema", () => {
+			const keys = getSchemaKeys();
+			expect(keys).toContain("openapi-2.0-root");
 		});
 
 		test("includes all OpenAPI 3.1 schemas", () => {
@@ -225,6 +247,11 @@ describe("Schema Cache - Schema Keys", () => {
 	});
 
 	describe("getVersionedSchemaKey", () => {
+		test("generates correct key for root with version 2.0", () => {
+			expect(getVersionedSchemaKey("root", "2.0")).toBe("openapi-2.0-root");
+			expect(getVersionedSchemaKey("schema", "2.0")).toBe("openapi-2.0-schema");
+		});
+
 		test("generates correct key for root with version 3.0.0", () => {
 			const key = getVersionedSchemaKey("root", "3.0.0");
 
@@ -287,12 +314,13 @@ describe("Schema Cache - Schema Keys", () => {
 			const versions = getSupportedVersions();
 
 			expect(Array.isArray(versions)).toBe(true);
-			expect(versions.length).toBe(3);
+			expect(versions.length).toBe(4);
 		});
 
-		test("includes 3.0, 3.1, and 3.2", () => {
+		test("includes 2.0, 3.0, 3.1, and 3.2", () => {
 			const versions = getSupportedVersions();
 
+			expect(versions).toContain("2.0");
 			expect(versions).toContain("3.0");
 			expect(versions).toContain("3.1");
 			expect(versions).toContain("3.2");

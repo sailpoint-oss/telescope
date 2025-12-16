@@ -26,6 +26,7 @@ import {
 	ParameterStyleSchema,
 	StringFormatSchema,
 } from "./data-types/format-schemas.js";
+import { withSpec } from "./spec-meta.js";
 
 // ============================================
 // Schema Atoms
@@ -34,6 +35,33 @@ export const SchemaDescription = z.string().meta({
 	title: "Schema Description",
 	description: "A description of the schema. CommonMark syntax MAY be used.",
 });
+
+/**
+ * Strict-ish object helper for OpenAPI objects:
+ * - allow `x-` specification extensions
+ * - report non-`x-` unknown keys as `unrecognized_keys` so structural validation
+ *   can surface precise diagnostics.
+ *
+ * Note: Zod's `.strict()` can't be used directly because it would also reject
+ * `x-*` extension fields which OpenAPI allows in many locations.
+ */
+function openapiStrictObject<T extends z.ZodRawShape>(shape: T) {
+	const knownKeys = new Set(Object.keys(shape));
+	return z
+		.object(shape)
+		.passthrough()
+		.superRefine((data, ctx) => {
+			for (const key of Object.keys(data as Record<string, unknown>)) {
+				if (knownKeys.has(key)) continue;
+				if (key.startsWith("x-")) continue;
+				ctx.addIssue({
+					code: z.ZodIssueCode.unrecognized_keys,
+					keys: [key],
+					path: [],
+				});
+			}
+		});
+}
 
 // ============================================
 // Base/Simple Schemas
@@ -357,6 +385,7 @@ export const InternalRef31Schema = z
 			)
 			.optional(),
 	})
+	.strict()
 	.meta({
 		title: "InternalRef",
 		description: "Internal reference using JSON Pointer syntax.",
@@ -373,6 +402,7 @@ export const UrlRef31Schema = z
 		summary: z.string().optional().meta({ title: "summary" }),
 		description: z.string().optional().meta({ title: "description" }),
 	})
+	.strict()
 	.meta({
 		title: "UrlRef",
 		description: "External URL reference.",
@@ -381,14 +411,20 @@ export const UrlRef31Schema = z
 
 export const FileRef31Schema = z
 	.object({
-		$ref: z.string().meta({
-			title: "$ref",
-			description:
-				"Relative file reference (e.g., ./schemas/Pet.yaml, ../common/types.yaml, schemas/Pet.yaml)",
-		}),
+		$ref: z
+			.string()
+			// Allow relative file refs with optional JSON Pointer fragment
+			// e.g. ./v2/components/parameters.yaml#/components/parameters/LimitParam
+			.regex(/^[^#\s]+(\.ya?ml|\.json)(#\/.*)?$/i)
+			.meta({
+				title: "$ref",
+				description:
+					"Relative file reference (e.g., ./schemas/Pet.yaml, ../common/types.yaml, schemas/Pet.yaml) with optional JSON Pointer fragment.",
+			}),
 		summary: z.string().optional().meta({ title: "summary" }),
 		description: z.string().optional().meta({ title: "description" }),
 	})
+	.strict()
 	.meta({
 		title: "FileRef",
 		description: "Relative file reference.",
@@ -547,21 +583,6 @@ export const OAuthFlows31Schema = z
 // ============================================
 
 const baseSchemaFields = {
-	// $ref can coexist with other schema keywords in OpenAPI 3.1+ (JSON Schema 2020-12)
-	$ref: z
-		.string()
-		.meta({
-			title: "$ref",
-			examples: [
-				"#/components/schemas/Pet",
-				"./schemas/common.yaml#/Address",
-				"https://example.com/schemas/user.json",
-			],
-		})
-		.describe(
-			"Reference to another schema. Can be combined with other keywords in OpenAPI 3.1+.",
-		)
-		.optional(),
 	title: z
 		.string()
 		.meta({
@@ -669,11 +690,55 @@ const baseSchemaFields = {
 
 // Composition fields using z.any() to break circular reference
 const compositionFields = {
-	allOf: z.array(z.any()).optional().meta({ title: "allOf" }),
-	oneOf: z.array(z.any()).optional().meta({ title: "oneOf" }),
-	anyOf: z.array(z.any()).optional().meta({ title: "anyOf" }),
-	not: z.any().optional().meta({ title: "not" }),
-	if: z.any().optional().meta({ title: "if" }),
+	allOf: z
+		.array(z.any())
+		.optional()
+		.meta({
+			title: "allOf",
+			description: "Require the instance to validate against all subschemas.",
+			examples: [[{ $ref: "#/components/schemas/Base" }, { type: "object" }]],
+		}),
+	oneOf: z
+		.array(z.any())
+		.optional()
+		.meta({
+			title: "oneOf",
+			description:
+				"Require the instance to validate against exactly one subschema.",
+			examples: [
+				[
+					{ $ref: "#/components/schemas/Cat" },
+					{ $ref: "#/components/schemas/Dog" },
+				],
+			],
+		}),
+	anyOf: z
+		.array(z.any())
+		.optional()
+		.meta({
+			title: "anyOf",
+			description:
+				"Require the instance to validate against at least one subschema.",
+			examples: [[{ type: "string" }, { type: "number" }]],
+		}),
+	not: z
+		.any()
+		.optional()
+		.meta({
+			title: "not",
+			description:
+				"Require the instance to NOT validate against the given subschema.",
+			examples: [{ type: "null" }],
+		}),
+	if: z
+		.any()
+		.optional()
+		.meta({
+			title: "if",
+			description:
+				"Conditional validation: if the instance matches this schema, apply `then`, otherwise apply `else` (when present).",
+			examples: [{ properties: { country: { const: "US" } } }],
+		}),
 };
 
 // ============================================
@@ -694,34 +759,163 @@ const stringSpecificFields31 = {
 		})
 		.describe("A regular expression pattern the string must match.")
 		.optional(),
-	minLength: z.number().int().min(0).optional().meta({ title: "minLength" }),
-	maxLength: z.number().int().min(0).optional().meta({ title: "maxLength" }),
+	minLength: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "minLength",
+			description: "Minimum string length.",
+			examples: [0, 1, 10],
+		}),
+	maxLength: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "maxLength",
+			description: "Maximum string length.",
+			examples: [255, 1024],
+		}),
 };
 
 const numberSpecificFields31 = {
 	format: NumberFormatSchema.optional(),
-	multipleOf: z.number().optional().meta({ title: "multipleOf" }),
-	minimum: z.number().optional().meta({ title: "minimum" }),
-	maximum: z.number().optional().meta({ title: "maximum" }),
-	exclusiveMinimum: z.number().optional().meta({ title: "exclusiveMinimum" }),
-	exclusiveMaximum: z.number().optional().meta({ title: "exclusiveMaximum" }),
+	multipleOf: z
+		.number()
+		.optional()
+		.meta({
+			title: "multipleOf",
+			description: "Require the number to be a multiple of this value.",
+			examples: [0.5, 1, 10],
+		}),
+	minimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "minimum",
+			description: "Inclusive lower bound for the number.",
+			examples: [0, 1, -10],
+		}),
+	maximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "maximum",
+			description: "Inclusive upper bound for the number.",
+			examples: [100, 1000],
+		}),
+	exclusiveMinimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "exclusiveMinimum",
+			description: "Exclusive lower bound (instance must be > this value).",
+			examples: [0, 1],
+		}),
+	exclusiveMaximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "exclusiveMaximum",
+			description: "Exclusive upper bound (instance must be < this value).",
+			examples: [100, 1000],
+		}),
 };
 
 const integerSpecificFields31 = {
 	format: IntegerFormatSchema.optional(),
-	multipleOf: z.number().optional().meta({ title: "multipleOf" }),
-	minimum: z.number().optional().meta({ title: "minimum" }),
-	maximum: z.number().optional().meta({ title: "maximum" }),
-	exclusiveMinimum: z.number().optional().meta({ title: "exclusiveMinimum" }),
-	exclusiveMaximum: z.number().optional().meta({ title: "exclusiveMaximum" }),
+	multipleOf: z
+		.number()
+		.optional()
+		.meta({
+			title: "multipleOf",
+			description: "Require the integer to be a multiple of this value.",
+			examples: [1, 2, 10],
+		}),
+	minimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "minimum",
+			description: "Inclusive lower bound for the integer.",
+			examples: [0, 1, -10],
+		}),
+	maximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "maximum",
+			description: "Inclusive upper bound for the integer.",
+			examples: [100, 1000],
+		}),
+	exclusiveMinimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "exclusiveMinimum",
+			description: "Exclusive lower bound (instance must be > this value).",
+			examples: [0, 1],
+		}),
+	exclusiveMaximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "exclusiveMaximum",
+			description: "Exclusive upper bound (instance must be < this value).",
+			examples: [100, 1000],
+		}),
 };
 
 const arraySpecificFields31 = {
-	items: z.any().optional().meta({ title: "items" }),
-	prefixItems: z.array(z.any()).optional().meta({ title: "prefixItems" }),
-	contains: z.any().optional().meta({ title: "contains" }),
-	minItems: z.number().int().min(0).optional().meta({ title: "minItems" }),
-	maxItems: z.number().int().min(0).optional().meta({ title: "maxItems" }),
+	items: z
+		.any()
+		.optional()
+		.meta({
+			title: "items",
+			description: "Schema for array items.",
+			examples: [{ type: "string" }, { $ref: "#/components/schemas/Pet" }],
+		}),
+	prefixItems: z
+		.array(z.any())
+		.optional()
+		.meta({
+			title: "prefixItems",
+			description:
+				"Tuple validation: schemas for items by index (array position).",
+			examples: [[{ type: "string" }, { type: "integer" }]],
+		}),
+	contains: z
+		.any()
+		.optional()
+		.meta({
+			title: "contains",
+			description:
+				"Require the array to contain at least one item matching this subschema.",
+			examples: [{ type: "integer" }],
+		}),
+	minItems: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "minItems",
+			description: "Minimum number of items in the array.",
+			examples: [0, 1],
+		}),
+	maxItems: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "maxItems",
+			description: "Maximum number of items in the array.",
+			examples: [10, 100],
+		}),
 	minContains: z
 		.number()
 		.int()
@@ -734,32 +928,75 @@ const arraySpecificFields31 = {
 		.min(0)
 		.meta({ title: "maxContains" })
 		.optional(),
-	uniqueItems: z.boolean().optional().meta({ title: "uniqueItems" }),
+	uniqueItems: z
+		.boolean()
+		.optional()
+		.meta({
+			title: "uniqueItems",
+			description: "When true, all items in the array must be unique.",
+			examples: [true, false],
+		}),
 };
 
 const objectSpecificFields31 = {
 	properties: z
 		.record(z.string(), z.any())
-		.meta({ title: "properties" })
+		.meta({
+			title: "properties",
+			description: "Property schemas keyed by property name.",
+			examples: [{ id: { type: "integer" }, name: { type: "string" } }],
+		})
 		.optional(),
 	additionalProperties: z
 		.union([z.any(), z.boolean()])
-		.meta({ title: "additionalProperties" })
+		.meta({
+			title: "additionalProperties",
+			description:
+				"Controls properties not listed in `properties`: boolean to allow/disallow, or a schema to validate them.",
+			examples: [true, false, { type: "string" }],
+		})
 		.optional(),
 	patternProperties: z
 		.record(z.string(), z.any())
-		.meta({ title: "patternProperties" })
+		.meta({
+			title: "patternProperties",
+			description:
+				"Property schemas keyed by regex patterns matched against property names.",
+			examples: [{ "^S_": { type: "string" } }],
+		})
 		.optional(),
-	propertyNames: z.any().optional().meta({ title: "propertyNames" }),
+	propertyNames: z
+		.any()
+		.optional()
+		.meta({
+			title: "propertyNames",
+			description: "Schema that property names (keys) must validate against.",
+			examples: [{ pattern: "^[a-z][a-z0-9_]*$" }],
+		}),
 	dependentSchemas: z
 		.record(z.string(), z.any())
-		.meta({ title: "dependentSchemas" })
+		.meta({
+			title: "dependentSchemas",
+			description: "Schema dependencies keyed by property name.",
+			examples: [{ credit_card: { required: ["billing_address"] } }],
+		})
 		.optional(),
 	dependentRequired: z
 		.record(z.string(), z.array(z.string()))
-		.meta({ title: "dependentRequired" })
+		.meta({
+			title: "dependentRequired",
+			description: "Required property dependencies keyed by property name.",
+			examples: [{ credit_card: ["billing_address"] }],
+		})
 		.optional(),
-	required: z.array(z.string()).optional().meta({ title: "required" }),
+	required: z
+		.array(z.string())
+		.optional()
+		.meta({
+			title: "required",
+			description: "List of required property names.",
+			examples: [["id", "name"]],
+		}),
 	minProperties: z
 		.number()
 		.int()
@@ -782,73 +1019,61 @@ const objectSpecificFields31 = {
 // Typed Schemas with REQUIRED type literal (for discriminated union)
 // ============================================
 
-const TypedStringSchema31 = z
-	.object({
-		type: z.literal("string").meta({ title: "type" }),
-		...stringSpecificFields31,
-		...baseSchemaFields,
-		...compositionFields,
-	})
-	.meta({ title: "StringSchema" });
+// Schema objects must not silently accept unknown keys (e.g. `$ref` siblings).
+// Use OpenAPI-strict behavior with support for `x-*` extensions.
+const TypedStringSchema31 = openapiStrictObject({
+	type: z.literal("string").meta({ title: "type" }),
+	...stringSpecificFields31,
+	...baseSchemaFields,
+	...compositionFields,
+}).meta({ title: "StringSchema" });
 
-const TypedNumberSchema31 = z
-	.object({
-		type: z.literal("number").meta({ title: "type" }),
-		...numberSpecificFields31,
-		...baseSchemaFields,
-		...compositionFields,
-	})
-	.meta({ title: "NumberSchema" });
+const TypedNumberSchema31 = openapiStrictObject({
+	type: z.literal("number").meta({ title: "type" }),
+	...numberSpecificFields31,
+	...baseSchemaFields,
+	...compositionFields,
+}).meta({ title: "NumberSchema" });
 
-const TypedIntegerSchema31 = z
-	.object({
-		type: z.literal("integer").meta({ title: "type" }),
-		...integerSpecificFields31,
-		...baseSchemaFields,
-		...compositionFields,
-	})
-	.meta({ title: "IntegerSchema" });
+const TypedIntegerSchema31 = openapiStrictObject({
+	type: z.literal("integer").meta({ title: "type" }),
+	...integerSpecificFields31,
+	...baseSchemaFields,
+	...compositionFields,
+}).meta({ title: "IntegerSchema" });
 
-const TypedBooleanSchema31 = z
-	.object({
-		type: z.literal("boolean").meta({ title: "type" }),
-		...baseSchemaFields,
-		...compositionFields,
-	})
-	.meta({ title: "BooleanSchema" });
+const TypedBooleanSchema31 = openapiStrictObject({
+	type: z.literal("boolean").meta({ title: "type" }),
+	...baseSchemaFields,
+	...compositionFields,
+}).meta({ title: "BooleanSchema" });
 
-const TypedNullSchema31 = z
-	.object({
-		type: z.literal("null").meta({ title: "type" }),
-		...baseSchemaFields,
-		...compositionFields,
-	})
-	.meta({ title: "NullSchema" });
+const TypedNullSchema31 = openapiStrictObject({
+	type: z.literal("null").meta({ title: "type" }),
+	...baseSchemaFields,
+	...compositionFields,
+}).meta({ title: "NullSchema" });
 
-const TypedArraySchema31 = z
-	.object({
-		type: z.literal("array").meta({ title: "type" }),
-		...arraySpecificFields31,
-		...baseSchemaFields,
-		...compositionFields,
-	})
-	.meta({ title: "ArraySchema" });
+const TypedArraySchema31 = openapiStrictObject({
+	type: z.literal("array").meta({ title: "type" }),
+	...arraySpecificFields31,
+	...baseSchemaFields,
+	...compositionFields,
+}).meta({ title: "ArraySchema" });
 
-const TypedObjectSchema31 = z
-	.object({
-		type: z.literal("object").meta({ title: "type" }),
-		...objectSpecificFields31,
-		...baseSchemaFields,
-		...compositionFields,
-	})
-	.meta({ title: "ObjectSchema" });
+const TypedObjectSchema31 = openapiStrictObject({
+	type: z.literal("object").meta({ title: "type" }),
+	...objectSpecificFields31,
+	...baseSchemaFields,
+	...compositionFields,
+}).meta({ title: "ObjectSchema" });
 
 /**
  * Discriminated union of typed schemas.
  * Uses "type" as the discriminator for clear error messages.
  */
 const TypedSchema31 = z
-	.discriminatedUnion("type", [
+	.union([
 		TypedStringSchema31,
 		TypedNumberSchema31,
 		TypedIntegerSchema31,
@@ -863,46 +1088,41 @@ const TypedSchema31 = z
  * Schema with array type (for nullable types in OpenAPI 3.1).
  * Example: type: ["string", "null"]
  */
-const NullableTypeSchema31 = z
-	.object({
-		type: z.array(z.string()).meta({ title: "type" }),
-		// Include all possible type-specific fields
-		...stringSpecificFields31,
-		...numberSpecificFields31,
-		...arraySpecificFields31,
-		...objectSpecificFields31,
-		...baseSchemaFields,
-		...compositionFields,
-	})
-	.meta({ title: "NullableSchema" });
+const NullableTypeSchema31 = openapiStrictObject({
+	type: z.array(z.string()).meta({ title: "type" }),
+	// Include all possible type-specific fields
+	...stringSpecificFields31,
+	...numberSpecificFields31,
+	...arraySpecificFields31,
+	...objectSpecificFields31,
+	...baseSchemaFields,
+	...compositionFields,
+}).meta({ title: "NullableSchema" });
 
 /**
  * Flexible fallback schema for:
- * - Pure $ref schemas
  * - Composition schemas (allOf/oneOf/anyOf)
- * - Schemas with $ref combined with other keywords
  * - Any valid schema without explicit type
  *
- * Includes all possible schema fields to be maximally accepting.
+ * Note: $ref is NOT included here. Objects with $ref must be Reference Objects
+ * (checked first in the union). This ensures $ref cannot have arbitrary siblings.
  */
-const FlexibleSchema31 = z
-	.object({
-		// Allow optional type for edge cases
-		type: z.string().optional().meta({ title: "type" }),
-		// Include all base fields (including $ref)
-		...baseSchemaFields,
-		// Include all composition fields
-		...compositionFields,
-		// biome-ignore lint/suspicious/noThenProperty: then is a perfectly valid object key, come on biome
-		then: z.any().optional().meta({ title: "then" }),
-		else: z.any().optional().meta({ title: "else" }),
-		// Include all type-specific fields
-		...stringSpecificFields31,
-		...numberSpecificFields31,
-		...arraySpecificFields31,
-		...objectSpecificFields31,
-	})
-	.meta({ title: "FlexibleSchema" });
+const FlexibleSchema31 = openapiStrictObject({
+	// Allow optional type for edge cases
+	type: z.string().optional().meta({ title: "type" }),
+	// Include all base fields (NO $ref - that's handled by Reference31Schema)
+	...baseSchemaFields,
+	// Include all composition fields
+	...compositionFields,
+	// biome-ignore lint/suspicious/noThenProperty: then is a perfectly valid object key, come on biome
+	then: z.any().optional().meta({ title: "then" }),
+	else: z.any().optional().meta({ title: "else" }),
+	// Include all type-specific fields
+	...stringSpecificFields31,
+	...numberSpecificFields31,
+	...arraySpecificFields31,
+	...objectSpecificFields31,
+}).meta({ title: "FlexibleSchema" });
 
 // Legacy exports - use the typed versions internally
 export const StringSchema31 = TypedStringSchema31;
@@ -917,15 +1137,21 @@ export const ObjectSchema31 = TypedObjectSchema31;
  * Schema Object union with proper ordering for better error messages.
  *
  * Order of checking:
- * 1. TypedSchema (discriminated union by type literal) - Clear type discrimination
- * 2. NullableTypeSchema (type is array) - For OpenAPI 3.1 nullable types
- * 3. FlexibleSchema - Fallback for $ref, composition, and edge cases
+ * 1. Reference31Schema - Reference Objects (strict: only $ref, summary, description)
+ * 2. TypedSchema (discriminated union by type literal) - Clear type discrimination
+ * 3. NullableTypeSchema (type is array) - For OpenAPI 3.1 nullable types
+ * 4. FlexibleSchema - Fallback for composition and edge cases (NO $ref)
  *
- * Note: Reference31Schema is NOT in this union - $ref is handled as a field in FlexibleSchema
- * since OpenAPI 3.1+ / JSON Schema allows $ref with other keywords.
+ * Note: $ref is NOT allowed as a sibling in schema objects. If $ref is present,
+ * the object must be a Reference Object (only $ref, summary, description allowed).
  */
 export const SchemaObject31Schema = z
-	.union([TypedSchema31, NullableTypeSchema31, FlexibleSchema31])
+	.union([
+		Reference31Schema,
+		TypedSchema31,
+		NullableTypeSchema31,
+		FlexibleSchema31,
+	])
 	.meta({
 		title: "SchemaObject",
 		description:
@@ -1733,7 +1959,13 @@ export const Callback31Schema: z.ZodTypeAny = z
 // ============================================
 
 export const Paths31Schema = z
-	.record(z.string().startsWith("/"), PathItem31Schema)
+	.record(
+		z.string().refine((k) => k.startsWith("/") || k.startsWith("x-"), {
+			message:
+				"Paths Object keys must start with '/' (path template) or 'x-' (extension).",
+		}),
+		PathItem31Schema,
+	)
 	.meta({
 		title: "Paths",
 		description: "Holds the relative paths to the individual endpoints.",
@@ -1800,94 +2032,100 @@ export const Components31Schema: z.ZodTypeAny = z
 // OpenAPI Root Object (OpenAPI 3.1 - includes webhooks and jsonSchemaDialect)
 // ============================================
 
-export const OpenAPI31Schema: z.ZodTypeAny = z
-	.object({
-		openapi: z
-			.string()
-			.regex(/^3\.1\.\d+$/)
-			.meta({
-				title: "openapi",
-				examples: ["3.1.0", "3.1.1"],
-			})
-			.describe(
-				"REQUIRED. OpenAPI version. Must be '3.1.x' for OpenAPI 3.1 documents.",
-			),
-		info: Info31Schema.describe("REQUIRED. API metadata.").meta({
-			title: "info",
+export const OpenAPI31Schema: z.ZodTypeAny = withSpec(
+	z
+		.object({
+			openapi: z
+				.string()
+				.regex(/^3\.1\.\d+$/)
+				.meta({
+					title: "openapi",
+					examples: ["3.1.0", "3.1.1", "3.1.2"],
+				})
+				.describe(
+					"REQUIRED. OpenAPI version. Must be '3.1.x' for OpenAPI 3.1 documents.",
+				),
+			info: Info31Schema.describe("REQUIRED. API metadata.").meta({
+				title: "info",
+			}),
+			jsonSchemaDialect: z
+				.url()
+				.meta({
+					title: "jsonSchemaDialect",
+					examples: [
+						"https://json-schema.org/draft/2020-12/schema",
+						"https://json-schema.org/draft/2019-09/schema",
+					],
+				})
+				.describe(
+					"The default JSON Schema dialect for Schema Objects. Defaults to Draft 2020-12.",
+				)
+				.optional(),
+			servers: z
+				.array(Server31Schema)
+				.meta({
+					title: "servers",
+					examples: [[{ url: "https://api.example.com/v1" }]],
+				})
+				.describe(
+					"Array of servers. Defaults to [{ url: '/' }] if not provided.",
+				)
+				.optional(),
+			paths: Paths31Schema.meta({ title: "paths" })
+				.describe(
+					"Available paths and operations. Optional in 3.1 if webhooks is provided.",
+				)
+				.optional(),
+			webhooks: z
+				.record(z.string(), PathItem31Schema)
+				.meta({
+					title: "webhooks",
+					examples: [{ newPet: { post: { operationId: "newPetWebhook" } } }],
+				})
+				.describe(
+					"Incoming webhooks that the API can receive. New in OpenAPI 3.1.",
+				)
+				.optional(),
+			components: Components31Schema.meta({ title: "components" })
+				.describe("Reusable schemas, parameters, responses, etc.")
+				.optional(),
+			security: z
+				.array(SecurityRequirement31Schema)
+				.meta({
+					title: "security",
+					examples: [[{ api_key: [] }], [{ bearerAuth: [] }]],
+				})
+				.describe(
+					"Default security for all operations. Can be overridden per-operation.",
+				)
+				.optional(),
+			tags: z
+				.array(Tag31Schema)
+				.meta({
+					title: "tags",
+					examples: [[{ name: "pets", description: "Pet operations" }]],
+				})
+				.describe("Tags for grouping operations in documentation.")
+				.optional(),
+			externalDocs: ExternalDocumentation31Schema.meta({
+				title: "externalDocs",
+			}).optional(),
+		})
+		.meta({
+			title: "OpenAPI",
+			description:
+				"Root object of an OpenAPI 3.1 document. Supports webhooks and full JSON Schema.",
+			examples: [
+				{
+					openapi: "3.1.2",
+					info: { title: "My API", version: "1.0.0" },
+					paths: {},
+				},
+			],
 		}),
-		jsonSchemaDialect: z
-			.url()
-			.meta({
-				title: "jsonSchemaDialect",
-				examples: [
-					"https://json-schema.org/draft/2020-12/schema",
-					"https://json-schema.org/draft/2019-09/schema",
-				],
-			})
-			.describe(
-				"The default JSON Schema dialect for Schema Objects. Defaults to Draft 2020-12.",
-			)
-			.optional(),
-		servers: z
-			.array(Server31Schema)
-			.meta({
-				title: "servers",
-				examples: [[{ url: "https://api.example.com/v1" }]],
-			})
-			.describe("Array of servers. Defaults to [{ url: '/' }] if not provided.")
-			.optional(),
-		paths: Paths31Schema.meta({ title: "paths" })
-			.describe(
-				"Available paths and operations. Optional in 3.1 if webhooks is provided.",
-			)
-			.optional(),
-		webhooks: z
-			.record(z.string(), PathItem31Schema)
-			.meta({
-				title: "webhooks",
-				examples: [{ newPet: { post: { operationId: "newPetWebhook" } } }],
-			})
-			.describe(
-				"Incoming webhooks that the API can receive. New in OpenAPI 3.1.",
-			)
-			.optional(),
-		components: Components31Schema.meta({ title: "components" })
-			.describe("Reusable schemas, parameters, responses, etc.")
-			.optional(),
-		security: z
-			.array(SecurityRequirement31Schema)
-			.meta({
-				title: "security",
-				examples: [[{ api_key: [] }], [{ bearerAuth: [] }]],
-			})
-			.describe(
-				"Default security for all operations. Can be overridden per-operation.",
-			)
-			.optional(),
-		tags: z
-			.array(Tag31Schema)
-			.meta({
-				title: "tags",
-				examples: [[{ name: "pets", description: "Pet operations" }]],
-			})
-			.describe("Tags for grouping operations in documentation.")
-			.optional(),
-		externalDocs: ExternalDocumentation31Schema.meta({
-			title: "externalDocs",
-		}).optional(),
-	})
-	.meta({
-		title: "OpenAPI",
-		description:
-			"Root object of an OpenAPI 3.1 document. Supports webhooks and full JSON Schema.",
-		examples: [
-			{
-				openapi: "3.1.0",
-				info: { title: "My API", version: "1.0.0" },
-				paths: {},
-			},
-		],
-	});
+	"3.1",
+	"openapi-object",
+);
 
 // ============================================
 // Export TypeScript types

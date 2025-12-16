@@ -18,13 +18,15 @@ import type {
 
 import type { DocumentCache, CachedDocument } from "../document-cache.js";
 import type { TelescopeContext } from "../context.js";
+import { createDocumentProvider } from "../services/document-provider.js";
+import type { ProvidedDocument } from "../services/document-provider.js";
+import type { WorkspaceProject } from "../workspace/workspace-project.js";
 import {
 	isOpenAPIDocument,
-	findRefNodeAtOffset,
 	findAllRefNodes,
 	resolveRefTarget,
-	findNodeAtPointer,
 } from "./shared.js";
+import { joinPointer } from "../../engine/utils/pointer-utils.js";
 
 /**
  * Register rename handlers on the connection.
@@ -34,6 +36,7 @@ export function registerRenameHandlers(
 	documents: TextDocuments<TextDocument>,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
+	getProject: () => WorkspaceProject,
 ): void {
 	// Prepare rename
 	connection.onPrepareRename((params) => {
@@ -47,14 +50,19 @@ export function registerRenameHandlers(
 	});
 
 	// Execute rename
-	connection.onRenameRequest((params) => {
+	connection.onRenameRequest(async (params) => {
 		const doc = documents.get(params.textDocument.uri);
 		if (!doc) return null;
 
 		const cached = cache.get(doc);
 		if (!isOpenAPIDocument(cached)) return null;
 
-		return executeRename(cached, params, cache, ctx);
+		const provider = createDocumentProvider({
+			documents,
+			cache,
+			project: getProject(),
+		});
+		return await executeRename(cached, params, cache, ctx, provider);
 	});
 }
 
@@ -87,31 +95,44 @@ function prepareRename(
 		};
 	}
 
+	// Check if on a tag name (root tags[] or operation tags[])
+	const tagInfo = findTagNameAtOffset(cached, offset, cache);
+	if (tagInfo) {
+		return { range: tagInfo.range, placeholder: tagInfo.name };
+	}
+
 	return null;
 }
 
 /**
  * Execute rename operation.
  */
-function executeRename(
+async function executeRename(
 	cached: CachedDocument,
 	params: RenameParams,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
-): WorkspaceEdit | null {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<WorkspaceEdit | null> {
 	const offset = cache.positionToOffset(cached, params.position);
 	const newName = params.newName;
 
 	// Check if renaming a component
 	const componentInfo = findComponentAtOffset(cached, offset, cache);
 	if (componentInfo) {
-		return renameComponent(componentInfo, newName, cached, cache, ctx);
+		return await renameComponent(componentInfo, newName, cached, cache, ctx, provider);
 	}
 
 	// Check if renaming an operationId
 	const opIdInfo = findOperationIdAtOffset(cached, offset, cache);
 	if (opIdInfo) {
-		return renameOperationId(opIdInfo, newName, cached, cache, ctx);
+		return await renameOperationId(opIdInfo, newName, cached, cache, ctx, provider);
+	}
+
+	// Check if renaming a tag
+	const tagInfo = findTagNameAtOffset(cached, offset, cache);
+	if (tagInfo) {
+		return await renameTag(tagInfo, newName, ctx, provider);
 	}
 
 	return null;
@@ -129,6 +150,11 @@ interface OperationIdInfo {
 	range: Range;
 	path: string;
 	method: string;
+}
+
+interface TagNameInfo {
+	name: string;
+	range: Range;
 }
 
 /**
@@ -237,15 +263,131 @@ function findOperationIdAtOffset(
 }
 
 /**
+ * Find a tag name at the given offset (root tags[] or operation tags[] value).
+ */
+function findTagNameAtOffset(
+	cached: CachedDocument,
+	offset: number,
+	cache: DocumentCache,
+): TagNameInfo | null {
+	const ast = cached.parsedObject as Record<string, unknown>;
+
+	// Root tags array: tags[i].name
+	const tags = ast?.tags as Array<{ name?: unknown }> | undefined;
+	if (Array.isArray(tags)) {
+		for (let i = 0; i < tags.length; i++) {
+			const t = tags[i];
+			if (!t || typeof t !== "object") continue;
+			if (typeof (t as any).name !== "string") continue;
+			const range = cache.getRange(cached, ["tags", i, "name"]);
+			if (!range) continue;
+			const startOffset = cache.positionToOffset(cached, range.start);
+			const endOffset = cache.positionToOffset(cached, range.end);
+			if (offset >= startOffset && offset <= endOffset) {
+				return { name: String((t as any).name), range };
+			}
+		}
+	}
+
+	// Operation tags arrays
+	const paths = ast?.paths as Record<string, unknown> | undefined;
+	if (paths) {
+		const methods = ["get", "post", "put", "patch", "delete", "options", "head"];
+		for (const [path, pathItem] of Object.entries(paths)) {
+			if (!pathItem || typeof pathItem !== "object") continue;
+
+			for (const method of methods) {
+				const operation = (pathItem as any)[method] as Record<string, unknown> | undefined;
+				if (!operation || !Array.isArray((operation as any).tags)) continue;
+				const opTags = (operation as any).tags as unknown[];
+				for (let i = 0; i < opTags.length; i++) {
+					if (typeof opTags[i] !== "string") continue;
+					const range = cache.getRange(cached, ["paths", path, method, "tags", i]);
+					if (!range) continue;
+					const startOffset = cache.positionToOffset(cached, range.start);
+					const endOffset = cache.positionToOffset(cached, range.end);
+					if (offset >= startOffset && offset <= endOffset) {
+						return { name: String(opTags[i]), range };
+					}
+				}
+			}
+		}
+	}
+
+	return null;
+}
+
+async function renameTag(
+	info: TagNameInfo,
+	newName: string,
+	ctx: TelescopeContext,
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<WorkspaceEdit> {
+	const changes: Record<string, TextEdit[]> = {};
+	const oldName = info.name;
+
+	for (const uri of ctx.getKnownOpenAPIFiles()) {
+		const doc = await provider.get(uri);
+		if (!doc) continue;
+
+		const ast =
+			doc.kind === "open"
+				? (doc.cached.parsedObject as Record<string, unknown>)
+				: (doc.parsed.ast as Record<string, unknown>);
+
+		// Root tags array: tags[i].name
+		const tags = ast?.tags as Array<{ name?: unknown }> | undefined;
+		if (Array.isArray(tags)) {
+			for (let i = 0; i < tags.length; i++) {
+				const t = tags[i] as any;
+				if (!t || typeof t !== "object") continue;
+				if (t.name !== oldName) continue;
+				const ptr = joinPointer(["tags", String(i), "name"]);
+				const range = provider.pointerToRange(doc, ptr);
+				if (!range) continue;
+				if (!changes[uri]) changes[uri] = [];
+				changes[uri].push({ range, newText: newName });
+			}
+		}
+
+		// Operation tags arrays
+		const paths = ast?.paths as Record<string, unknown> | undefined;
+		if (paths) {
+			const methods = ["get", "post", "put", "patch", "delete", "options", "head"];
+			for (const [path, pathItem] of Object.entries(paths)) {
+				if (!pathItem || typeof pathItem !== "object") continue;
+
+				for (const method of methods) {
+					const operation = (pathItem as any)[method] as Record<string, unknown> | undefined;
+					if (!operation || !Array.isArray((operation as any).tags)) continue;
+					const opTags = (operation as any).tags as unknown[];
+					for (let i = 0; i < opTags.length; i++) {
+						if (opTags[i] !== oldName) continue;
+						const ptr = joinPointer(["paths", String(path), method, "tags", String(i)]);
+						const range = provider.pointerToRange(doc, ptr);
+						if (!range) continue;
+						if (!changes[uri]) changes[uri] = [];
+						changes[uri].push({ range, newText: newName });
+					}
+				}
+			}
+		}
+	}
+
+	return { changes };
+}
+
+/**
  * Rename a component and all its references.
  */
-function renameComponent(
+async function renameComponent(
 	info: ComponentInfo,
 	newName: string,
 	cached: CachedDocument,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
-): WorkspaceEdit {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<WorkspaceEdit> {
 	const changes: Record<string, TextEdit[]> = {};
 
 	// Rename the definition
@@ -256,19 +398,21 @@ function renameComponent(
 	});
 
 	// Find and rename all references
-	const oldRefPattern = `#/components/${info.type}/${info.name}`;
-	const newRefPattern = `#/components/${info.type}/${newName}`;
+	const oldPointer = `/components/${info.type}/${info.name}`;
+	const newPointer = `/components/${info.type}/${newName}`;
+	const oldRefPattern = `#${oldPointer}`;
+	const newRefPattern = `#${newPointer}`;
 
 	for (const uri of ctx.getKnownOpenAPIFiles()) {
-		const doc = cache.getByUri(uri);
+		const doc = await provider.get(uri);
 		if (!doc) continue;
 
-		const refs = findAllRefNodes(doc.ir.root);
+		const refs = findAllRefNodes(provider.getIR(doc).root);
 		for (const { node, ref } of refs) {
 			// Check for same-document refs
 			if (ref === oldRefPattern) {
 				if (!node.loc) continue;
-				const range = cache.locToRange(doc, node.loc);
+				const range = provider.locToRange(doc, node.loc);
 				if (!range) continue;
 
 				if (!changes[uri]) changes[uri] = [];
@@ -281,13 +425,18 @@ function renameComponent(
 			// Check for cross-document refs
 			if (uri !== cached.uri) {
 				const { targetUri, pointer } = resolveRefTarget(uri, ref);
-				if (targetUri === cached.uri && pointer === `/components/${info.type}/${info.name}`) {
+				if (targetUri === cached.uri && pointer === oldPointer) {
 					if (!node.loc) continue;
-					const range = cache.locToRange(doc, node.loc);
+					const range = provider.locToRange(doc, node.loc);
 					if (!range) continue;
 
-					// Construct the new ref value maintaining the same format
-					const newRef = ref.replace(info.name, newName);
+					// Construct the new ref value maintaining the same file portion (no naive replace)
+					const newRef =
+						ref.startsWith("#")
+							? `#${newPointer}`
+							: ref.includes("#")
+								? `${ref.split("#", 2)[0]}#${newPointer}`
+								: ref;
 
 					if (!changes[uri]) changes[uri] = [];
 					changes[uri].push({
@@ -299,19 +448,134 @@ function renameComponent(
 		}
 	}
 
+	// If renaming a security scheme, also rename its usage in `security` requirements (not $ref-based)
+	if (info.type === "securitySchemes") {
+		await renameSecuritySchemeUsage(
+			info.name,
+			newName,
+			ctx,
+			provider,
+			changes,
+		);
+	}
+
 	return { changes };
+}
+
+async function renameSecuritySchemeUsage(
+	oldName: string,
+	newName: string,
+	ctx: TelescopeContext,
+	provider: ReturnType<typeof createDocumentProvider>,
+	changes: Record<string, TextEdit[]>,
+): Promise<void> {
+	for (const uri of ctx.getKnownOpenAPIFiles()) {
+		const doc = await provider.get(uri);
+		if (!doc) continue;
+
+		const ast =
+			doc.kind === "open"
+				? (doc.cached.parsedObject as Record<string, unknown>)
+				: (doc.parsed.ast as Record<string, unknown>);
+
+		// Root-level security
+		const rootSecurity = ast.security as Array<Record<string, unknown>> | undefined;
+		if (Array.isArray(rootSecurity)) {
+			for (let i = 0; i < rootSecurity.length; i++) {
+				const req = rootSecurity[i];
+				if (!req || typeof req !== "object") continue;
+				if (!(oldName in req)) continue;
+				await addKeyRenameEdit(doc, uri, ["security", String(i), oldName], oldName, newName, provider, changes);
+			}
+		}
+
+		// Operation-level security
+		const paths = ast.paths as Record<string, unknown> | undefined;
+		if (paths) {
+			const methods = ["get", "post", "put", "patch", "delete", "options", "head"];
+			for (const [path, pathItem] of Object.entries(paths)) {
+				if (!pathItem || typeof pathItem !== "object") continue;
+				for (const method of methods) {
+					const op = (pathItem as any)[method] as Record<string, unknown> | undefined;
+					if (!op) continue;
+					const sec = op.security as Array<Record<string, unknown>> | undefined;
+					if (!Array.isArray(sec)) continue;
+					for (let i = 0; i < sec.length; i++) {
+						const req = sec[i];
+						if (!req || typeof req !== "object") continue;
+						if (!(oldName in req)) continue;
+						await addKeyRenameEdit(
+							doc,
+							uri,
+							["paths", path, method, "security", String(i), oldName],
+							oldName,
+							newName,
+							provider,
+							changes,
+						);
+					}
+				}
+			}
+		}
+	}
+}
+
+async function addKeyRenameEdit(
+	doc: ProvidedDocument,
+	uri: string,
+	pointerSegments: string[],
+	oldName: string,
+	newName: string,
+	provider: ReturnType<typeof createDocumentProvider>,
+	changes: Record<string, TextEdit[]>,
+): Promise<void> {
+	const ptr = joinPointer(pointerSegments);
+	const range = provider.pointerToRange(doc, ptr);
+	if (!range) return;
+	const text = provider.getText(doc);
+	const line = text.split("\n")[range.start.line] ?? "";
+
+	let startChar = -1;
+	let endChar = -1;
+
+	// YAML: key appears as `oldName:` somewhere on the line
+	const yamlIdx = line.indexOf(`${oldName}:`);
+	if (yamlIdx >= 0) {
+		startChar = yamlIdx;
+		endChar = yamlIdx + oldName.length;
+	} else {
+		// JSON: key appears as `"oldName":`
+		const jsonNeedle = `"${oldName}"`;
+		const jsonIdx = line.indexOf(jsonNeedle);
+		if (jsonIdx >= 0) {
+			startChar = jsonIdx + 1;
+			endChar = startChar + oldName.length;
+		}
+	}
+
+	if (startChar < 0 || endChar < 0) return;
+
+	if (!changes[uri]) changes[uri] = [];
+	changes[uri].push({
+		range: {
+			start: { line: range.start.line, character: startChar },
+			end: { line: range.start.line, character: endChar },
+		},
+		newText: newName,
+	});
 }
 
 /**
  * Rename an operationId and all its references.
  */
-function renameOperationId(
+async function renameOperationId(
 	info: OperationIdInfo,
 	newName: string,
 	cached: CachedDocument,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
-): WorkspaceEdit {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<WorkspaceEdit> {
 	const changes: Record<string, TextEdit[]> = {};
 
 	// Rename the definition
@@ -323,11 +587,11 @@ function renameOperationId(
 
 	// Search for operationId references in links and callbacks
 	for (const uri of ctx.getKnownOpenAPIFiles()) {
-		const doc = cache.getByUri(uri);
+		const doc = await provider.get(uri);
 		if (!doc) continue;
 
 		// Search for operationId in links
-		findOperationIdReferences(doc, info.name, cache).forEach(({ range }) => {
+		(await findOperationIdReferences(doc, info.name, cache, provider)).forEach(({ range }) => {
 			if (!changes[uri]) changes[uri] = [];
 			changes[uri].push({ range, newText: newName });
 		});
@@ -336,16 +600,23 @@ function renameOperationId(
 	return { changes };
 }
 
+
 /**
  * Find references to an operationId in links and callbacks.
  */
-function findOperationIdReferences(
-	doc: CachedDocument,
+async function findOperationIdReferences(
+	doc: ProvidedDocument,
 	operationId: string,
 	cache: DocumentCache,
-): Array<{ range: Range }> {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<Array<{ range: Range }>> {
 	const results: Array<{ range: Range }> = [];
-	const ast = doc.parsedObject as Record<string, unknown>;
+	// doc is always present here
+
+	const ast =
+		doc.kind === "open"
+			? (doc.cached.parsedObject as Record<string, unknown>)
+			: (doc.parsed.ast as Record<string, unknown>);
 
 	// Check links in responses
 	const paths = ast?.paths as Record<string, unknown> | undefined;
@@ -377,7 +648,7 @@ function findOperationIdReferences(
 
 						const linkObj = link as Record<string, unknown>;
 						if (linkObj.operationId === operationId) {
-							const range = cache.getRange(doc, [
+							const pointer = joinPointer([
 								"paths",
 								path,
 								method,
@@ -387,9 +658,8 @@ function findOperationIdReferences(
 								linkName,
 								"operationId",
 							]);
-							if (range) {
-								results.push({ range });
-							}
+							const range = provider.pointerToRange(doc, pointer);
+							if (range) results.push({ range });
 						}
 					}
 				}

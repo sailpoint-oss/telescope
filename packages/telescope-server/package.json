@@ -5,7 +5,9 @@
 	"main": "./dist/server.js",
 	"types": "./dist/types/engine/index.d.ts",
 	"type": "module",
-	"private": true,
+	"bin": {
+		"telescope": "dist/cli.js"
+	},
 	"exports": {
 		".": {
 			"types": "./dist/types/engine/index.d.ts",

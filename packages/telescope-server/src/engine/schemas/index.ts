@@ -8,6 +8,38 @@
  */
 
 // =============================================================================
+// OpenAPI 2.0 (Swagger 2.0) Schemas
+// =============================================================================
+export {
+	type Contact2,
+	Contact2Schema,
+	type ExternalDocs2,
+	ExternalDocs2Schema,
+	type Info2,
+	Info2Schema,
+	type OpenAPI2,
+	OpenAPI2Schema,
+	type Operation2,
+	Operation2Schema,
+	type Parameter2,
+	Parameter2Schema,
+	type PathItem2,
+	PathItem2Schema,
+	type Paths2,
+	Paths2Schema,
+	type Reference2,
+	Reference2Schema,
+	type Response2,
+	Response2Schema,
+	type Responses2,
+	Responses2Schema,
+	type SchemaObject2,
+	SchemaObject2Schema,
+	type Tag2,
+	Tag2Schema,
+} from "./openapi-2.0-module.js";
+
+// =============================================================================
 // Telescope Configuration Schema
 // =============================================================================
 export {
@@ -64,6 +96,8 @@ export {
 	ObjectSchema30,
 	type OpenAPI30,
 	OpenAPI30Schema,
+	type OpenAPI3,
+	OpenAPI3Schema,
 	type Operation30,
 	Operation30Schema,
 	type Parameter30,

@@ -385,13 +385,18 @@
 		"build:sourcemap": "bun scripts/build.ts --sourcemap",
 		"watch": "bun scripts/build.ts --watch",
 		"typecheck": "tsc --noEmit",
-		"package": "pnpm run build:minify && bun scripts/package.ts --target openvsx && bun scripts/package.ts --target vscode"
+		"package": "pnpm run build:minify && bun scripts/package.ts --target openvsx && bun scripts/package.ts --target vscode",
+		"test": "bun test",
+		"test:e2e": "pnpm run build && tsc -p tsconfig.e2e.json && node out/test/runTest.js"
 	},
 	"devDependencies": {
+		"@types/mocha": "^10.0.6",
 		"@types/node": "^20.19.25",
 		"@types/vscode": "^1.99.3",
+		"@vscode/test-electron": "^2.4.1",
 		"@vscode/vsce": "^3.2.2",
 		"esbuild": "^0.24.2",
+		"mocha": "^10.4.0",
 		"ovsx": "^0.10.1",
 		"typescript": "^5.6.3",
 		"vscode-oniguruma": "^2.0.1"

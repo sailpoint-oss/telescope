@@ -59,7 +59,8 @@ await esbuild.build({
 	outfile: "dist/cli.js",
 	format: "esm",
 	mainFields: ["module", "main"],
-	banner: { js: esmBanner },
+	// CLI should be directly executable when installed via npm (bin entry).
+	banner: { js: `#!/usr/bin/env node\n${esmBanner}` },
 	external: ["esbuild", "yaml-language-server", "vscode-json-languageservice"],
 });
 

@@ -22,6 +22,13 @@ import type { TelescopeContext } from "../context.js";
 import { getYAMLService } from "../services/yaml-service.js";
 import { isOpenAPIDocument } from "./shared.js";
 
+type OpenAPICompletionData =
+	| { telescope: "openapi"; kind: "ref"; label: string }
+	| { telescope: "openapi"; kind: "statusCode"; code: string; description: string }
+	| { telescope: "openapi"; kind: "mediaType"; mediaType: string }
+	| { telescope: "openapi"; kind: "securityScheme"; name: string }
+	| { telescope: "openapi"; kind: "tag"; name: string };
+
 /**
  * Register completion handlers on the connection.
  */
@@ -55,6 +62,56 @@ export function registerCompletionHandlers(
 				`Completions failed: ${error instanceof Error ? error.message : String(error)}`,
 			);
 			return null;
+		}
+	});
+
+	connection.onCompletionResolve((item): CompletionItem => {
+		const data = item.data as OpenAPICompletionData | undefined;
+		if (!data || data.telescope !== "openapi") return item;
+
+		switch (data.kind) {
+			case "ref":
+				return {
+					...item,
+					documentation: {
+						kind: "markdown",
+						value: `OpenAPI **$ref** target.\n\n\`${data.label}\``,
+					},
+				};
+			case "statusCode":
+				return {
+					...item,
+					documentation: {
+						kind: "markdown",
+						value: `HTTP status code **${data.code}** — ${data.description}.`,
+					},
+				};
+			case "mediaType":
+				return {
+					...item,
+					documentation: {
+						kind: "markdown",
+						value: `Media type: \`${data.mediaType}\``,
+					},
+				};
+			case "securityScheme":
+				return {
+					...item,
+					documentation: {
+						kind: "markdown",
+						value: `Security scheme: \`${data.name}\` (from \`components.securitySchemes\`).`,
+					},
+				};
+			case "tag":
+				return {
+					...item,
+					documentation: {
+						kind: "markdown",
+						value: `Tag: \`${data.name}\``,
+					},
+				};
+			default:
+				return item;
 		}
 	});
 }
@@ -193,11 +250,13 @@ function getRefCompletions(
 		const schemas = components.schemas as Record<string, unknown> | undefined;
 		if (schemas) {
 			for (const name of Object.keys(schemas)) {
+				const label = `#/components/schemas/${name}`;
 				items.push({
-					label: `#/components/schemas/${name}`,
+					label,
 					kind: 12 as CompletionItemKind, // Value
 					detail: "Schema reference",
-					insertText: `#/components/schemas/${name}`,
+					insertText: label,
+					data: { telescope: "openapi", kind: "ref", label } satisfies OpenAPICompletionData,
 				});
 			}
 		}
@@ -206,11 +265,13 @@ function getRefCompletions(
 		const parameters = components.parameters as Record<string, unknown> | undefined;
 		if (parameters) {
 			for (const name of Object.keys(parameters)) {
+				const label = `#/components/parameters/${name}`;
 				items.push({
-					label: `#/components/parameters/${name}`,
+					label,
 					kind: 12 as CompletionItemKind,
 					detail: "Parameter reference",
-					insertText: `#/components/parameters/${name}`,
+					insertText: label,
+					data: { telescope: "openapi", kind: "ref", label } satisfies OpenAPICompletionData,
 				});
 			}
 		}
@@ -219,11 +280,13 @@ function getRefCompletions(
 		const responses = components.responses as Record<string, unknown> | undefined;
 		if (responses) {
 			for (const name of Object.keys(responses)) {
+				const label = `#/components/responses/${name}`;
 				items.push({
-					label: `#/components/responses/${name}`,
+					label,
 					kind: 12 as CompletionItemKind,
 					detail: "Response reference",
-					insertText: `#/components/responses/${name}`,
+					insertText: label,
+					data: { telescope: "openapi", kind: "ref", label } satisfies OpenAPICompletionData,
 				});
 			}
 		}
@@ -232,11 +295,13 @@ function getRefCompletions(
 		const requestBodies = components.requestBodies as Record<string, unknown> | undefined;
 		if (requestBodies) {
 			for (const name of Object.keys(requestBodies)) {
+				const label = `#/components/requestBodies/${name}`;
 				items.push({
-					label: `#/components/requestBodies/${name}`,
+					label,
 					kind: 12 as CompletionItemKind,
 					detail: "Request body reference",
-					insertText: `#/components/requestBodies/${name}`,
+					insertText: label,
+					data: { telescope: "openapi", kind: "ref", label } satisfies OpenAPICompletionData,
 				});
 			}
 		}
@@ -275,6 +340,7 @@ function getStatusCodeCompletions(): CompletionItem[] {
 		kind: 13 as CompletionItemKind, // EnumMember
 		detail: desc,
 		insertText: `${code}:`,
+		data: { telescope: "openapi", kind: "statusCode", code, description: desc } satisfies OpenAPICompletionData,
 	}));
 }
 
@@ -301,6 +367,7 @@ function getMediaTypeCompletions(): CompletionItem[] {
 		kind: 12 as CompletionItemKind, // Value
 		detail: "Media type",
 		insertText: `${type}:`,
+		data: { telescope: "openapi", kind: "mediaType", mediaType: type } satisfies OpenAPICompletionData,
 	}));
 }
 
@@ -320,6 +387,7 @@ function getSecurityCompletions(cached: CachedDocument): CompletionItem[] {
 				kind: 12 as CompletionItemKind,
 				detail: "Security scheme",
 				insertText: `${name}: []`,
+				data: { telescope: "openapi", kind: "securityScheme", name } satisfies OpenAPICompletionData,
 			});
 		}
 	}
@@ -342,6 +410,7 @@ function getTagCompletions(cached: CachedDocument): CompletionItem[] {
 				kind: 12 as CompletionItemKind,
 				detail: tag.description || "Tag",
 				insertText: `- ${tag.name}`,
+				data: { telescope: "openapi", kind: "tag", name: tag.name } satisfies OpenAPICompletionData,
 			});
 		}
 	}

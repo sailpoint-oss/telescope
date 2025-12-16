@@ -17,6 +17,8 @@ import * as yaml from "yaml";
 import { identifyDocumentType } from "../../engine/utils/document-type-utils.js";
 import { parseJsonPointer } from "../../engine/utils/pointer-utils.js";
 import type { CachedDocument, DocumentCache } from "../document-cache.js";
+import { createDocumentProvider } from "../services/document-provider.js";
+import type { WorkspaceProject } from "../workspace/workspace-project.js";
 import {
 	findAllRefNodes,
 	getValueAtPath,
@@ -31,26 +33,33 @@ export function registerInlayHintHandlers(
 	connection: Connection,
 	documents: TextDocuments<TextDocument>,
 	cache: DocumentCache,
+	getProject: () => WorkspaceProject,
 ): void {
-	connection.languages.inlayHint.on((params) => {
+	connection.languages.inlayHint.on(async (params) => {
 		const doc = documents.get(params.textDocument.uri);
 		if (!doc) return [];
 
 		const cached = cache.get(doc);
 		if (!isOpenAPIDocument(cached)) return [];
 
-		return provideInlayHints(cached, params.range, cache);
+		const provider = createDocumentProvider({
+			documents,
+			cache,
+			project: getProject(),
+		});
+		return await provideInlayHints(cached, params.range, cache, provider);
 	});
 }
 
 /**
  * Provide inlay hints for a document.
  */
-function provideInlayHints(
+async function provideInlayHints(
 	cached: CachedDocument,
 	range: Range,
 	cache: DocumentCache,
-): InlayHint[] {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<InlayHint[]> {
 	const hints: InlayHint[] = [];
 
 	// Add type hints for $refs
@@ -70,7 +79,7 @@ function provideInlayHints(
 		}
 
 		// Get the type hint
-		const typeHint = getRefTypeHint(ref, cached, cache);
+		const typeHint = await getRefTypeHint(ref, cached, cache, provider);
 		if (typeHint) {
 			hints.push({
 				position: nodeRange.end,
@@ -87,11 +96,12 @@ function provideInlayHints(
 /**
  * Get the type hint for a $ref.
  */
-function getRefTypeHint(
+async function getRefTypeHint(
 	ref: string,
 	cached: CachedDocument,
 	cache: DocumentCache,
-): string | null {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<string | null> {
 	// Skip external URLs
 	if (/^https?:/i.test(ref)) {
 		return "external";
@@ -99,24 +109,33 @@ function getRefTypeHint(
 
 	const { targetUri, pointer } = resolveRefTarget(cached.uri, ref);
 
-	// Get target document
-	const targetDoc =
-		targetUri === cached.uri ? cached : cache.getByUri(targetUri);
-	if (!targetDoc) return null;
+	const resolvedTarget =
+		targetUri === cached.uri
+			? ({ kind: "open", uri: cached.uri, cached } as const)
+			: await provider.get(targetUri);
+	if (!resolvedTarget) return null;
 
 	// Get the value at the pointer
 	const path = parseJsonPointer(pointer);
 	let value: unknown;
 
-	if (targetDoc.format === "yaml" && targetDoc.ast instanceof yaml.Document) {
-		const node = targetDoc.ast.getIn(path, true);
-		if (node && typeof node === "object" && "toJSON" in node) {
-			value = (node as yaml.Node).toJSON();
+	if (resolvedTarget.kind === "open") {
+		if (
+			resolvedTarget.cached.format === "yaml" &&
+			resolvedTarget.cached.ast instanceof yaml.Document
+		) {
+			const node = resolvedTarget.cached.ast.getIn(path, true);
+			if (node && typeof node === "object" && "toJSON" in node) {
+				value = (node as yaml.Node).toJSON();
+			} else {
+				value = node;
+			}
 		} else {
-			value = node;
+			value = getValueAtPath(resolvedTarget.cached.parsedObject, path);
 		}
 	} else {
-		value = getValueAtPath(targetDoc.parsedObject, path);
+		// ParsedDocument.ast is already the plain object representation.
+		value = getValueAtPath(resolvedTarget.parsed.ast, path);
 	}
 
 	if (!value || typeof value !== "object") return null;

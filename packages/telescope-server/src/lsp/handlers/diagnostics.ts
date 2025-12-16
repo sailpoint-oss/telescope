@@ -26,6 +26,7 @@ import type {
 import { lintDocument } from "../../engine/index.js";
 import type { TelescopeContext } from "../context.js";
 import type { DiagnosticsScheduler } from "../services/diagnostics-scheduler.js";
+import { isCancelledError } from "../services/diagnostics-scheduler.js";
 import { isConfigFile } from "../utils.js";
 import type { WorkspaceProject } from "../workspace/workspace-project.js";
 
@@ -59,9 +60,20 @@ export function registerDiagnosticHandlers(
 				uri,
 				previousResultId: params.previousResultId,
 				content: openDoc?.getText(),
-				fileSystem: project.getFileSystem(),
+				fileSystem:
+					documents.all().length > 0
+						? project.createOverlayFileSystem(
+								new Map(documents.all().map((d) => [d.uri, d.getText()])),
+							)
+						: project.getFileSystem(),
 				compute: async () =>
-					await computeDocumentDiagnostics(uri, openDoc, project, rules),
+					await computeDocumentDiagnostics(
+						uri,
+						openDoc,
+						documents.all(),
+						project,
+						rules,
+					),
 			});
 
 			if (computed.kind === "unchanged") {
@@ -95,16 +107,28 @@ export function registerDiagnosticHandlers(
 
 		logger.log(`Workspace diagnostics for ${rootUris.length} root(s)`);
 
+		const openDocs = documents.all();
+		const openDocsMap = new Map(openDocs.map((d) => [d.uri, d.getText()]));
+		const fs =
+			openDocsMap.size > 0
+				? project.createOverlayFileSystem(openDocsMap)
+				: project.getFileSystem();
+		const useProjectCache = openDocsMap.size === 0;
+
 		const byUri = new Map<string, Diagnostic[]>();
 
 		for (const rootUri of rootUris) {
+			if (token?.isCancellationRequested) {
+				// Stop early without logging; client asked to cancel.
+				break;
+			}
 			try {
 				const snapshot = await scheduler.getOrComputeRootDiagnostics({
 					rootUri,
 					rulesSignature,
-					fileSystem: project.getFileSystem(),
+					fileSystem: fs,
 					resolveContext: async () =>
-						await project.resolveLintingContext(rootUri),
+						await project.resolveLintingContext(rootUri, fs, { useProjectCache }),
 					token,
 					rules,
 					toLspDiagnostic,
@@ -117,6 +141,9 @@ export function registerDiagnosticHandlers(
 					byUri.set(uri, list);
 				}
 			} catch (error) {
+				if (token?.isCancellationRequested || isCancelledError(error)) {
+					break;
+				}
 				logger.error(
 					`Failed workspace diagnostics for root ${rootUri}: ${error instanceof Error ? error.message : String(error)}`,
 				);
@@ -145,13 +172,18 @@ export function registerDiagnosticHandlers(
 async function computeDocumentDiagnostics(
 	uri: string,
 	openDoc: TextDocument | undefined,
+	allOpenDocs: TextDocument[],
 	project: WorkspaceProject,
 	rules: Rule[],
 ): Promise<Diagnostic[]> {
 	const openDocs = new Map<string, string>();
 
-	// Overlay open buffer content (if available) so results match the editor.
-	if (openDoc) {
+	// Overlay ALL open buffers so cross-file diagnostics match the editor state.
+	for (const d of allOpenDocs) {
+		openDocs.set(d.uri, d.getText());
+	}
+	// Defensive fallback for callers that didn't pass allOpenDocs.
+	if (openDocs.size === 0 && openDoc) {
 		openDocs.set(openDoc.uri, openDoc.getText());
 	}
 
@@ -185,6 +217,8 @@ function toLspDiagnostic(diag: EngineDiagnostic): Diagnostic {
 		code: diag.code,
 		codeDescription: diag.codeDescription,
 		relatedInformation: diag.relatedInformation,
+		// Forward arbitrary data for powering code actions.
+		data: (diag as unknown as { data?: unknown }).data,
 	};
 }
 

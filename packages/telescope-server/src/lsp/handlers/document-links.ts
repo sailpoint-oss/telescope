@@ -12,11 +12,12 @@ import type { DocumentLink } from "vscode-languageserver-protocol";
 
 import type { DocumentCache, CachedDocument } from "../document-cache.js";
 import type { TelescopeContext } from "../context.js";
+import { createDocumentProvider } from "../services/document-provider.js";
+import type { WorkspaceProject } from "../workspace/workspace-project.js";
 import {
 	isOpenAPIDocument,
 	findAllRefNodes,
 	resolveRefTarget,
-	findNodeAtPointer,
 } from "./shared.js";
 
 /**
@@ -27,6 +28,7 @@ export function registerDocumentLinkHandlers(
 	documents: TextDocuments<TextDocument>,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
+	getProject: () => WorkspaceProject,
 ): void {
 	// Provide document links
 	connection.onDocumentLinks((params) => {
@@ -41,7 +43,12 @@ export function registerDocumentLinkHandlers(
 
 	// Resolve document links
 	connection.onDocumentLinkResolve(async (link) => {
-		return resolveDocumentLink(link, cache, ctx);
+		const provider = createDocumentProvider({
+			documents,
+			cache,
+			project: getProject(),
+		});
+		return await resolveDocumentLink(link, cache, ctx, provider);
 	});
 }
 
@@ -112,6 +119,7 @@ async function resolveDocumentLink(
 	link: DocumentLink,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
+	provider: ReturnType<typeof createDocumentProvider>,
 ): Promise<DocumentLink> {
 	const data = link.data as LinkData | undefined;
 	if (!data?.fragment || !link.target) {
@@ -121,8 +129,7 @@ async function resolveDocumentLink(
 	const fragment = data.fragment;
 	const targetUriString = data.sourceUri ?? link.target;
 
-	// Try to find position in target document
-	const targetDoc = cache.getByUri(targetUriString);
+	const targetDoc = await provider.get(targetUriString);
 	if (!targetDoc) {
 		// Fallback: return link with JSON pointer fragment
 		return {
@@ -131,17 +138,13 @@ async function resolveDocumentLink(
 		};
 	}
 
-	// Find the node at the pointer
-	const node = findNodeAtPointer(targetDoc.ir.root, fragment);
-	if (node?.loc) {
-		const range = cache.locToRange(targetDoc, node.loc);
-		if (range) {
-			// Use VSCode's #L{line},{column} format (1-based)
-			return {
-				...link,
-				target: `${link.target}#L${range.start.line + 1},${range.start.character + 1}`,
-			};
-		}
+	const range = provider.pointerToRange(targetDoc, fragment);
+	if (range) {
+		// Use VSCode's #L{line},{column} format (1-based)
+		return {
+			...link,
+			target: `${link.target}#L${range.start.line + 1},${range.start.character + 1}`,
+		};
 	}
 
 	// Fallback: return link with JSON pointer fragment

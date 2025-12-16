@@ -17,12 +17,17 @@ import type {
 } from "vscode-languageserver-protocol";
 import { SymbolKind } from "vscode-languageserver-protocol";
 import type { TextDocument } from "vscode-languageserver-textdocument";
+import * as jsonc from "jsonc-parser";
+import * as yaml from "yaml";
 import type { IRNode } from "../../engine/ir/types.js";
+import { joinPointer } from "../../engine/utils/pointer-utils.js";
 import type { TelescopeContext } from "../context.js";
 import type { CachedDocument, DocumentCache } from "../document-cache.js";
+import { createDocumentProvider } from "../services/document-provider.js";
+import type { ReferencesIndex } from "../services/references-index.js";
+import type { WorkspaceProject } from "../workspace/workspace-project.js";
 import {
 	findAllRefNodes,
-	findNodeAtPointer,
 	findRefNodeAtOffset,
 	isOpenAPIDocument,
 	resolveRefTarget,
@@ -36,52 +41,84 @@ export function registerNavigationHandlers(
 	documents: TextDocuments<TextDocument>,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
+	getProject: () => WorkspaceProject,
+	getReferencesIndex: () => ReferencesIndex,
 ): void {
 	// Go to Definition
-	connection.onDefinition((params) => {
+	connection.onDefinition(async (params) => {
 		const doc = documents.get(params.textDocument.uri);
 		if (!doc) return null;
 
 		const cached = cache.get(doc);
 		if (!isOpenAPIDocument(cached)) return null;
 
-		return provideDefinition(cached, params.position, cache);
+		const provider = createDocumentProvider({
+			documents,
+			cache,
+			project: getProject(),
+		});
+
+		return await provideDefinition(cached, params.position, cache, ctx, provider);
 	});
 
 	// Find References
-	connection.onReferences((params) => {
+	connection.onReferences(async (params) => {
 		const doc = documents.get(params.textDocument.uri);
 		if (!doc) return null;
 
 		const cached = cache.get(doc);
 		if (!isOpenAPIDocument(cached)) return null;
 
-		return provideReferences(
+		const provider = createDocumentProvider({
+			documents,
+			cache,
+			project: getProject(),
+		});
+
+		return await provideReferences(
 			cached,
 			params.position,
 			params.context.includeDeclaration,
 			cache,
 			ctx,
+			provider,
+			getReferencesIndex(),
 		);
 	});
 
 	// Call Hierarchy - use connection.languages.callHierarchy API
-	connection.languages.callHierarchy.onPrepare((params) => {
+	connection.languages.callHierarchy.onPrepare(async (params) => {
 		const doc = documents.get(params.textDocument.uri);
 		if (!doc) return null;
 
 		const cached = cache.get(doc);
 		if (!isOpenAPIDocument(cached)) return null;
 
-		return prepareCallHierarchy(cached, params.position, cache);
+		const provider = createDocumentProvider({
+			documents,
+			cache,
+			project: getProject(),
+		});
+
+		return await prepareCallHierarchy(cached, params.position, cache, provider);
 	});
 
-	connection.languages.callHierarchy.onIncomingCalls((params) => {
-		return provideIncomingCalls(params.item, cache, ctx);
+	connection.languages.callHierarchy.onIncomingCalls(async (params) => {
+		const provider = createDocumentProvider({
+			documents,
+			cache,
+			project: getProject(),
+		});
+		return await provideIncomingCalls(params.item, cache, ctx, provider);
 	});
 
-	connection.languages.callHierarchy.onOutgoingCalls((params) => {
-		return provideOutgoingCalls(params.item, cache);
+	connection.languages.callHierarchy.onOutgoingCalls(async (params) => {
+		const provider = createDocumentProvider({
+			documents,
+			cache,
+			project: getProject(),
+		});
+		return await provideOutgoingCalls(params.item, cache, provider);
 	});
 }
 
@@ -92,66 +129,266 @@ function provideDefinition(
 	cached: CachedDocument,
 	position: Position,
 	cache: DocumentCache,
-): Definition | null {
+	ctx: TelescopeContext,
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<Definition | null> | Definition | null {
 	const offset = cache.positionToOffset(cached, position);
 
 	// Find $ref node at position
 	const refNode = findRefNodeAtOffset(cached.ir.root, offset, cache, cached);
 
-	if (!refNode || typeof refNode.value !== "string") {
-		return null;
+	// 1) $ref definition
+	if (refNode && typeof refNode.value === "string") {
+		const refValue = refNode.value;
+		// Don't navigate to external URLs
+		if (/^https?:/i.test(refValue)) return null;
+		const { targetUri, pointer } = resolveRefTarget(cached.uri, refValue);
+		return resolvePointerLocation(provider, targetUri, pointer);
 	}
 
-	const refValue = refNode.value;
+	// 2) Non-$ref definitions (tags, security schemes, operationRef/operationId, discriminator mapping)
+	const cursor = findCursorPath(cached, position, cache);
+	if (!cursor) return null;
 
-	// Don't navigate to external URLs
-	if (/^https?:/i.test(refValue)) {
-		return null;
-	}
-
-	const { targetUri, pointer } = resolveRefTarget(cached.uri, refValue);
-
-	// Try to find position in target document
-	const targetDoc =
-		targetUri === cached.uri ? cached : cache.getByUri(targetUri);
-
-	if (!targetDoc) {
-		// Return just the file location
-		return {
-			uri: targetUri,
-			range: {
-				start: { line: 0, character: 0 },
-				end: { line: 0, character: 0 },
-			},
-		};
-	}
-
-	// Find the node at the pointer
-	const targetNode = findNodeAtPointer(targetDoc.ir.root, pointer);
-	if (targetNode?.loc) {
-		const range = cache.locToRange(targetDoc, targetNode.loc);
-		if (range) {
-			return { uri: targetUri, range };
+	// security requirement scheme name (key)
+	if (cursor.isKey && typeof cursor.key === "string") {
+		const scheme = cursor.key;
+		if (cursor.path.includes("security")) {
+			return findSecuritySchemeDefinition(provider, ctx, scheme);
 		}
 	}
 
-	// Fallback to start of document
-	return {
-		uri: targetUri,
-		range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-	};
+	// value-based navigation cases
+	if (!cursor.isKey && typeof cursor.value === "string") {
+		const key = cursor.key;
+		const val = cursor.value;
+
+		// Operation tags: jump to Tag Object with matching name
+		if (key === "tags" && cursor.path[cursor.path.length - 1] !== "tags") {
+			return findTagDefinition(provider, ctx, val);
+		}
+
+		// Links/callbacks: operationId → operation definition
+		if (key === "operationId" && (cursor.path.includes("links") || cursor.path.includes("callbacks"))) {
+			return findOperationByOperationId(provider, ctx, val);
+		}
+
+		// operationRef: resolve like a ref target
+		if (key === "operationRef") {
+			if (/^https?:/i.test(val)) return null;
+			const { targetUri, pointer } = resolveRefTarget(cached.uri, val);
+			return resolvePointerLocation(provider, targetUri, pointer);
+		}
+
+		// discriminator.mapping values: resolve like a ref target
+		const parentKey = cursor.path[cursor.path.length - 2];
+		if (parentKey === "mapping") {
+			if (/^https?:/i.test(val)) return null;
+			const { targetUri, pointer } = resolveRefTarget(cached.uri, val);
+			return resolvePointerLocation(provider, targetUri, pointer);
+		}
+	}
+
+	return null;
+}
+
+type CursorPath = {
+	path: (string | number)[];
+	isKey: boolean;
+	key: string | null;
+	value: string | null;
+};
+
+function findCursorPath(
+	cached: CachedDocument,
+	position: Position,
+	cache: DocumentCache,
+): CursorPath | null {
+	const offset = cache.positionToOffset(cached, position);
+	if (cached.format === "json") {
+		const loc = jsonc.getLocation(cached.content, offset);
+		const path = (loc.path ?? []) as (string | number)[];
+		if (loc.isAtPropertyKey) {
+			const key = path.length > 0 && typeof path[path.length - 1] === "string" ? String(path[path.length - 1]) : null;
+			return { path, isKey: true, key, value: null };
+		}
+		const value = getValueAtPath(cached.parsedObject, path);
+		const parentKey = path.length > 0 && typeof path[path.length - 1] === "number" ? path[path.length - 2] : path[path.length - 1];
+		const key = typeof parentKey === "string" ? String(parentKey) : null;
+		return { path, isKey: false, key, value: typeof value === "string" ? value : null };
+	}
+
+	// YAML
+	if (!(cached.ast instanceof yaml.Document)) return null;
+	return findYamlCursorPath(cached.ast, offset, []);
+}
+
+function findYamlCursorPath(
+	doc: yaml.Document | yaml.Node | null,
+	offset: number,
+	path: (string | number)[],
+): CursorPath | null {
+	const node = doc && doc instanceof yaml.Document ? doc.contents : doc;
+	if (!node) return null;
+
+	if (yaml.isMap(node)) {
+		for (const pair of node.items) {
+			const keyNode = pair.key;
+			const key = yaml.isScalar(keyNode) ? String(keyNode.value) : null;
+
+			if (key && Array.isArray(keyNode.range)) {
+				const [start, end] = keyNode.range;
+				if (typeof start === "number" && typeof end === "number" && offset >= start && offset <= end) {
+					return { path: [...path, key], isKey: true, key, value: null };
+				}
+			}
+
+			const nextPath = key ? [...path, key] : path;
+			const valueNode = pair.value;
+			if (yaml.isScalar(valueNode) && typeof valueNode.value === "string" && Array.isArray(valueNode.range)) {
+				const [start, end] = valueNode.range;
+				if (typeof start === "number" && typeof end === "number" && offset >= start && offset <= end) {
+					return { path: nextPath, isKey: false, key, value: String(valueNode.value) };
+				}
+			}
+
+			const found = findYamlCursorPath(valueNode, offset, nextPath);
+			if (found) return found;
+		}
+		return null;
+	}
+
+	if (yaml.isSeq(node)) {
+		for (let i = 0; i < node.items.length; i++) {
+			const child = node.items[i];
+			if (yaml.isScalar(child) && typeof child.value === "string" && Array.isArray(child.range)) {
+				const [start, end] = child.range;
+				if (typeof start === "number" && typeof end === "number" && offset >= start && offset <= end) {
+					const parentKey = path.length > 0 && typeof path[path.length - 1] === "string" ? String(path[path.length - 1]) : null;
+					return { path: [...path, i], isKey: false, key: parentKey, value: String(child.value) };
+				}
+			}
+			const found = findYamlCursorPath(child, offset, [...path, i]);
+			if (found) return found;
+		}
+		return null;
+	}
+
+	return null;
+}
+
+function resolvePointerLocation(
+	provider: ReturnType<typeof createDocumentProvider>,
+	targetUri: string,
+	pointer: string,
+): Promise<Definition | null> {
+	return (async () => {
+		const targetDoc = await provider.get(targetUri);
+		if (!targetDoc) {
+			return {
+				uri: targetUri,
+				range: {
+					start: { line: 0, character: 0 },
+					end: { line: 0, character: 0 },
+				},
+			};
+		}
+		const range = provider.pointerToRange(targetDoc, pointer);
+		return range
+			? { uri: targetUri, range }
+			: {
+					uri: targetUri,
+					range: {
+						start: { line: 0, character: 0 },
+						end: { line: 0, character: 0 },
+					},
+				};
+	})();
+}
+
+async function findSecuritySchemeDefinition(
+	provider: ReturnType<typeof createDocumentProvider>,
+	ctx: TelescopeContext,
+	scheme: string,
+): Promise<Definition | null> {
+	const candidates = [
+		joinPointer(["components", "securitySchemes", scheme]),
+		joinPointer(["securityDefinitions", scheme]), // Swagger 2.0
+	];
+	for (const uri of ctx.getKnownOpenAPIFiles()) {
+		const doc = await provider.get(uri);
+		if (!doc) continue;
+		for (const ptr of candidates) {
+			const range = provider.pointerToRange(doc, ptr);
+			if (range) return { uri, range };
+		}
+	}
+	return null;
+}
+
+async function findTagDefinition(
+	provider: ReturnType<typeof createDocumentProvider>,
+	ctx: TelescopeContext,
+	tagName: string,
+): Promise<Definition | null> {
+	for (const uri of ctx.getKnownOpenAPIFiles()) {
+		const doc = await provider.get(uri);
+		if (!doc) continue;
+		const ast = doc.kind === "open" ? (doc.cached.parsedObject as any) : (doc.parsed.ast as any);
+		const tags = Array.isArray(ast?.tags) ? ast.tags : null;
+		if (!tags) continue;
+		for (let i = 0; i < tags.length; i++) {
+			const t = tags[i];
+			if (t && typeof t === "object" && (t as any).name === tagName) {
+				const ptr = joinPointer(["tags", String(i), "name"]);
+				const range = provider.pointerToRange(doc, ptr);
+				if (range) return { uri, range };
+			}
+		}
+	}
+	return null;
+}
+
+async function findOperationByOperationId(
+	provider: ReturnType<typeof createDocumentProvider>,
+	ctx: TelescopeContext,
+	opId: string,
+): Promise<Definition | null> {
+	const methods = ["get", "post", "put", "patch", "delete", "options", "head"];
+	for (const uri of ctx.getKnownOpenAPIFiles()) {
+		const doc = await provider.get(uri);
+		if (!doc) continue;
+		const ast = doc.kind === "open" ? (doc.cached.parsedObject as any) : (doc.parsed.ast as any);
+		const paths = ast?.paths && typeof ast.paths === "object" ? ast.paths : null;
+		if (!paths) continue;
+		for (const [path, pathItem] of Object.entries(paths)) {
+			if (!pathItem || typeof pathItem !== "object") continue;
+			for (const method of methods) {
+				const op = (pathItem as any)[method];
+				if (!op || typeof op !== "object") continue;
+				if (typeof op.operationId === "string" && op.operationId === opId) {
+					const ptr = joinPointer(["paths", String(path), method, "operationId"]);
+					const range = provider.pointerToRange(doc, ptr);
+					if (range) return { uri, range };
+				}
+			}
+		}
+	}
+	return null;
 }
 
 /**
  * Provide references to a component.
  */
-function provideReferences(
+async function provideReferences(
 	cached: CachedDocument,
 	position: Position,
 	includeDeclaration: boolean,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
-): Location[] {
+	provider: ReturnType<typeof createDocumentProvider>,
+	referencesIndex: ReferencesIndex,
+): Promise<Location[]> {
 	const locations: Location[] = [];
 
 	// Find what's at the cursor position
@@ -183,37 +420,23 @@ function provideReferences(
 
 	// Add declaration if requested
 	if (includeDeclaration) {
-		const targetDoc =
-			targetUri === cached.uri ? cached : cache.getByUri(targetUri);
+		const targetDoc = await provider.get(targetUri);
 		if (targetDoc) {
-			const targetNode = findNodeAtPointer(targetDoc.ir.root, targetPointer);
-			if (targetNode?.loc) {
-				const range = cache.locToRange(targetDoc, targetNode.loc);
-				if (range) {
-					locations.push({ uri: targetUri, range });
-				}
-			}
+			const range = provider.pointerToRange(targetDoc, targetPointer);
+			if (range) locations.push({ uri: targetUri, range });
 		}
 	}
 
-	// Search all known OpenAPI files for references
-	for (const uri of ctx.getKnownOpenAPIFiles()) {
-		const doc = cache.getByUri(uri);
-		if (!doc) continue;
-
-		const refs = findAllRefNodes(doc.ir.root);
-		for (const { node, ref } of refs) {
-			// Check if this ref points to our target
-			const { targetUri: resolvedUri, pointer } = resolveRefTarget(uri, ref);
-			if (resolvedUri === targetUri && pointer === targetPointer) {
-				if (node.loc) {
-					const range = cache.locToRange(doc, node.loc);
-					if (range) {
-						locations.push({ uri, range });
-					}
-				}
-			}
-		}
+	// Use the FS-backed references index for inbound $ref locations
+	if (targetPointer) {
+		const inbound = await referencesIndex.getInboundRefsToPointer(
+			targetUri,
+			targetPointer,
+		);
+		locations.push(...inbound.locations);
+	} else {
+		const inbound = await referencesIndex.getInboundRefsWithOptions(targetUri);
+		locations.push(...inbound.locations);
 	}
 
 	return locations;
@@ -259,21 +482,24 @@ function findNodeContainingOffset(node: IRNode, offset: number): IRNode | null {
 /**
  * Prepare call hierarchy item at position.
  */
-function prepareCallHierarchy(
+async function prepareCallHierarchy(
 	cached: CachedDocument,
 	position: Position,
 	cache: DocumentCache,
-): CallHierarchyItem[] | null {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<CallHierarchyItem[] | null> {
 	const offset = cache.positionToOffset(cached, position);
 
 	// Find component at position
 	const pointer = findComponentPointerAtOffset(cached, offset);
 	if (!pointer) return null;
 
-	const node = findNodeAtPointer(cached.ir.root, pointer);
+	const openDoc = await provider.get(cached.uri);
+	if (!openDoc) return null;
+	const node = provider.findNode(openDoc, pointer);
 	if (!node?.loc) return null;
 
-	const range = cache.locToRange(cached, node.loc);
+	const range = provider.locToRange(openDoc, node.loc);
 	if (!range) return null;
 
 	const name = getComponentName(pointer);
@@ -293,11 +519,12 @@ function prepareCallHierarchy(
 /**
  * Provide incoming calls (what references this item).
  */
-function provideIncomingCalls(
+async function provideIncomingCalls(
 	item: CallHierarchyItem,
 	cache: DocumentCache,
 	ctx: TelescopeContext,
-): CallHierarchyIncomingCall[] {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<CallHierarchyIncomingCall[]> {
 	const calls: CallHierarchyIncomingCall[] = [];
 	const targetPointer = (item.data as { pointer?: string } | undefined)
 		?.pointer;
@@ -305,15 +532,15 @@ function provideIncomingCalls(
 
 	// Search all known OpenAPI files
 	for (const uri of ctx.getKnownOpenAPIFiles()) {
-		const doc = cache.getByUri(uri);
+		const doc = await provider.get(uri);
 		if (!doc) continue;
 
-		const refs = findAllRefNodes(doc.ir.root);
+		const refs = findAllRefNodes(provider.getIR(doc).root);
 		for (const { node, ref } of refs) {
 			const { targetUri, pointer } = resolveRefTarget(uri, ref);
 			if (targetUri === item.uri && pointer === targetPointer) {
 				if (node.loc) {
-					const range = cache.locToRange(doc, node.loc);
+					const range = provider.locToRange(doc, node.loc);
 					if (range) {
 						// Find the containing component
 						const containingPointer = findContainingComponentPointer(node);
@@ -344,13 +571,14 @@ function provideIncomingCalls(
 /**
  * Provide outgoing calls (what this item references).
  */
-function provideOutgoingCalls(
+async function provideOutgoingCalls(
 	item: CallHierarchyItem,
 	cache: DocumentCache,
-): CallHierarchyOutgoingCall[] {
+	provider: ReturnType<typeof createDocumentProvider>,
+): Promise<CallHierarchyOutgoingCall[]> {
 	const calls: CallHierarchyOutgoingCall[] = [];
 
-	const doc = cache.getByUri(item.uri);
+	const doc = await provider.get(item.uri);
 	if (!doc) return calls;
 
 	const targetPointer = (item.data as { pointer?: string } | undefined)
@@ -358,7 +586,7 @@ function provideOutgoingCalls(
 	if (!targetPointer) return calls;
 
 	// Find the node for this item
-	const node = findNodeAtPointer(doc.ir.root, targetPointer);
+	const node = provider.findNode(doc, targetPointer);
 	if (!node) return calls;
 
 	// Find all refs within this node
@@ -367,19 +595,16 @@ function provideOutgoingCalls(
 		const { targetUri, pointer } = resolveRefTarget(doc.uri, ref);
 
 		if (refNode.loc) {
-			const fromRange = cache.locToRange(doc, refNode.loc);
+			const fromRange = provider.locToRange(doc, refNode.loc);
 			if (fromRange) {
 				// Get target info
 				const targetDoc =
-					targetUri === doc.uri ? doc : cache.getByUri(targetUri);
+					targetUri === doc.uri ? doc : await provider.get(targetUri);
 				let targetRange = fromRange; // fallback
 
 				if (targetDoc) {
-					const targetNode = findNodeAtPointer(targetDoc.ir.root, pointer);
-					if (targetNode?.loc) {
-						const r = cache.locToRange(targetDoc, targetNode.loc);
-						if (r) targetRange = r;
-					}
+					const r = provider.pointerToRange(targetDoc, pointer);
+					if (r) targetRange = r;
 				}
 
 				calls.push({

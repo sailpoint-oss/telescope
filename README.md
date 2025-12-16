@@ -182,6 +182,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 ## Documentation
 
 - [LSP Features Reference](docs/LSP-FEATURES.md)
+- [CI (GitHub Actions)](docs/CI.md)
 - [Configuration Reference](docs/CONFIGURATION.md)
 - [Custom Rules Guide](docs/CUSTOM-RULES.md)
 - [Publishing Guide](docs/PUBLISHING.md)

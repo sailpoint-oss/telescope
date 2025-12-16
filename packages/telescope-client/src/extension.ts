@@ -484,7 +484,84 @@ export async function activate(context: ExtensionContext) {
 			),
 		);
 
-		return labsInfo.extensionExports;
+		// Create test API for E2E tests (only available in test environment)
+		const testAPI = {
+			/**
+			 * Wait for all sessions to be running.
+			 * @param timeoutMs - Maximum time to wait in milliseconds (default: 30000)
+			 */
+			async waitForSessionsRunning(timeoutMs = 30000): Promise<void> {
+				const startTime = Date.now();
+				while (Date.now() - startTime < timeoutMs) {
+					if (sessionManager) {
+						await sessionManager.waitForReady();
+						const runningSessions = sessionManager.getRunningSessions();
+						const allSessions = sessionManager.getAllSessions();
+						if (
+							allSessions.length > 0 &&
+							runningSessions.length === allSessions.length
+						) {
+							return;
+						}
+					}
+					await new Promise((resolve) => setTimeout(resolve, 100));
+				}
+				throw new Error(
+					`Timeout waiting for sessions to be running after ${timeoutMs}ms`,
+				);
+			},
+
+			/**
+			 * Get session states for debugging.
+			 */
+			getSessionStates(): Array<{ folder: string; state: string }> {
+				if (!sessionManager) {
+					return [];
+				}
+				return sessionManager.getAllSessions().map((session) => ({
+					folder: session.workspaceFolder.name,
+					state: session.state,
+				}));
+			},
+
+			/**
+			 * Get project info from the server for a given URI.
+			 * @param uri - Optional URI to get project info for (defaults to active document)
+			 */
+			async getProjectInfo(
+				uri?: vscode.Uri,
+			): Promise<{
+				knownOpenAPIFiles: number;
+				rootDocuments: number;
+				hasClientFileList: boolean;
+				workspacePath: string | null;
+				cachedDocuments: number;
+			} | null> {
+				if (!sessionManager) {
+					return null;
+				}
+
+				const targetUri =
+					uri || vscode.window.activeTextEditor?.document.uri;
+				if (!targetUri) {
+					return null;
+				}
+
+				const session = sessionManager.getSessionForUri(targetUri);
+				if (!session) {
+					return null;
+				}
+
+				return session.getProjectInfo();
+			},
+		};
+
+		// Attach test API to exports (preserving labsInfo.extensionExports)
+		const exports = labsInfo.extensionExports || {};
+		return {
+			...exports,
+			__telescopeTest: testAPI,
+		};
 	} catch (error: unknown) {
 		console.error("❌ Failed to activate Telescope extension:", error);
 		window.showErrorMessage(

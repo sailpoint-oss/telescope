@@ -252,8 +252,8 @@ export class DiagnosticsScheduler {
 
 	private async acquireRootSlot(token?: CancellationToken): Promise<void> {
 		while (this.inUse >= this.maxRootConcurrency) {
-			token?.isCancellationRequested && throwCancelled();
-			await new Promise<void>((resolve) => this.waiters.push(resolve));
+			if (token?.isCancellationRequested) throwCancelled();
+			await this.waitForRootSlot(token);
 		}
 		this.inUse++;
 	}
@@ -262,6 +262,30 @@ export class DiagnosticsScheduler {
 		this.inUse = Math.max(0, this.inUse - 1);
 		const next = this.waiters.shift();
 		if (next) next();
+	}
+
+	private waitForRootSlot(token?: CancellationToken): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			const waiter = () => {
+				dispose?.dispose?.();
+				resolve();
+			};
+			this.waiters.push(waiter);
+
+			const cancelEvent = token as unknown as
+				| {
+						onCancellationRequested?: (cb: () => void) => { dispose(): void };
+				  }
+				| undefined;
+
+			const dispose =
+				cancelEvent?.onCancellationRequested?.(() => {
+					// Remove our waiter if we're still queued.
+					const idx = this.waiters.indexOf(waiter);
+					if (idx !== -1) this.waiters.splice(idx, 1);
+					reject(new CancelledError());
+				}) ?? null;
+		});
 	}
 }
 
@@ -287,6 +311,17 @@ function computeProjectHash(project: ProjectContext): string {
 	return hash.digest("hex").substring(0, 16);
 }
 
+class CancelledError extends Error {
+	constructor() {
+		super("Cancelled");
+		this.name = "CancelledError";
+	}
+}
+
+export function isCancelledError(err: unknown): boolean {
+	return err instanceof CancelledError || (err instanceof Error && err.message === "Cancelled");
+}
+
 function throwCancelled(): never {
-	throw new Error("Cancelled");
+	throw new CancelledError();
 }

@@ -20,35 +20,33 @@ export const ContactSchema = z
 	.object({
 		name: z
 			.string()
-			.describe("The identifying name of the contact person/organization.")
-			.optional()
 			.meta({
 				title: "name",
+				description: "The identifying name of the contact person/organization.",
 				examples: ["API Support", "Developer Team", "John Smith"],
-			}),
+			})
+			.optional(),
 		url: z
 			.url()
-			.describe(
-				"The URL pointing to the contact information. Must be a valid URL.",
-			)
-			.optional()
 			.meta({
 				title: "url",
+				description:
+					"The URL pointing to the contact information. Must be a valid URL.",
 				examples: [
 					"https://www.example.com/support",
 					"https://developer.example.com",
 				],
-			}),
+			})
+			.optional(),
 		email: z
 			.email()
-			.describe(
-				"The email address of the contact person/organization. Must be a valid email format.",
-			)
-			.optional()
 			.meta({
 				title: "email",
+				description:
+					"The email address of the contact person/organization. Must be a valid email format.",
 				examples: ["support@example.com", "api@company.io", "dev-team@org.com"],
-			}),
+			})
+			.optional(),
 	})
 	.meta({
 		title: "Contact",
@@ -86,12 +84,11 @@ export const LicenseSchema = z
 			}),
 		identifier: z
 			.string()
-			.describe(
-				"An SPDX license expression for the API. Mutually exclusive with 'url'. See https://spdx.org/licenses/",
-			)
 			.optional()
 			.meta({
 				title: "identifier",
+				description:
+					"An SPDX license expression for the API. Mutually exclusive with 'url'. See https://spdx.org/licenses/",
 				examples: ["Apache-2.0", "MIT", "BSD-3-Clause", "GPL-3.0-only"],
 			}),
 		url: z

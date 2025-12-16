@@ -44,6 +44,7 @@ import { buildRefGraph } from "./indexes/ref-graph.js";
 import { builtinRules } from "./rules/index.js";
 import type { Diagnostic as EngineDiagnostic, Rule } from "./rules/types.js";
 import { identifyDocumentType as identifyDocType } from "./utils/document-type-utils.js";
+import { validateProjectStructure } from "./validation/zod-structural.js";
 
 export type {
 	GraphEdge,
@@ -173,6 +174,13 @@ export async function lintDocument(
 				}
 			}
 
+			// Run structural validation first
+			const structuralDiags = validateProjectStructure(
+				multiRootContext.context.docs,
+				multiRootContext.context.version,
+			);
+			allDiagnostics.push(...structuralDiags);
+
 			// Run engine for this context
 			const result = runEngine(
 				multiRootContext.context,
@@ -230,6 +238,10 @@ export async function lintDocument(
 			version: index.version,
 		} as const;
 
+		// Run structural validation first
+		const structuralDiags = validateProjectStructure(docs, project.version);
+		allDiagnostics.push(...structuralDiags);
+
 		// Filter rules to only those that don't require root/extra context
 		const filteredRules = filterRules(rulesToUse, project);
 
@@ -279,6 +291,13 @@ export async function lintDocument(
 				version: index.version,
 			};
 		}
+
+		// Run structural validation first
+		const structuralDiags = validateProjectStructure(
+			context.context.docs,
+			context.context.version,
+		);
+		allDiagnostics.push(...structuralDiags);
 
 		// Filter rules based on context
 		const filteredRules = filterRules(rulesToUse, context.context);

@@ -11,8 +11,10 @@
 import type { Connection, TextDocuments } from "vscode-languageserver";
 import type { Hover, Position } from "vscode-languageserver-protocol";
 import type { TextDocument } from "vscode-languageserver-textdocument";
+import * as jsonc from "jsonc-parser";
 import * as yaml from "yaml";
 import type { ParsedDocument } from "../../engine/types.js";
+import { specLink, type SpecVersion } from "../../engine/schemas/spec-meta.js";
 import { identifyDocumentType } from "../../engine/utils/document-type-utils.js";
 import { parseJsonPointer } from "../../engine/utils/pointer-utils.js";
 import type { TelescopeContext } from "../context.js";
@@ -83,11 +85,33 @@ function mergeHoverResults(
 	if (!yamlHover && openapiHover) return openapiHover;
 	if (!yamlHover && !openapiHover) return null;
 
-	// Both have content - prefer OpenAPI but could combine
-	// For now, OpenAPI takes priority since it has richer $ref info
-	if (openapiHover) return openapiHover;
+	// Both have content - prefer OpenAPI first (richer), but preserve YAML as extra context.
+	const openMd = hoverContentsToMarkdown(openapiHover?.contents);
+	const yamlMd = hoverContentsToMarkdown(yamlHover?.contents);
+	const combined = [openMd, yamlMd].filter(Boolean).join("\n\n---\n\n");
+	if (!combined) return null;
 
-	return yamlHover;
+	return {
+		contents: { kind: "markdown", value: combined },
+		range: openapiHover?.range ?? yamlHover?.range,
+	};
+}
+
+type MarkdownHover = { kind: "markdown"; value: string };
+
+function hoverContentsToMarkdown(contents: Hover["contents"] | undefined): string {
+	if (!contents) return "";
+	if (typeof contents === "string") return contents;
+	if (Array.isArray(contents)) {
+		return contents
+			.map((c) => (typeof c === "string" ? c : c.value))
+			.filter(Boolean)
+			.join("\n\n");
+	}
+	if (typeof contents === "object" && "kind" in contents && "value" in contents) {
+		return (contents as MarkdownHover).value ?? "";
+	}
+	return "";
 }
 
 /**
@@ -107,7 +131,15 @@ async function provideOpenAPIHover(
 	const refNode = findRefNodeAtOffset(cached.ir.root, offset, cache, cached);
 
 	if (!refNode || typeof refNode.value !== "string") {
-		return null;
+		// Not a $ref hover; attempt key hover spec link.
+		const keyAtPos = findKeyAtPosition(cached, position, cache);
+		if (!keyAtPos) return null;
+		const spec = resolveSpecLinkForKey(cached, keyAtPos.path);
+		if (!spec) return null;
+		return {
+			contents: { kind: "markdown", value: renderSpecLinkMarkdown(spec) },
+			range: keyAtPos.range,
+		};
 	}
 
 	const refValue = refNode.value;
@@ -125,6 +157,252 @@ async function provideOpenAPIHover(
 		},
 		range: refRange,
 	};
+}
+
+type KeyAtPosition = {
+	path: (string | number)[];
+	range: import("vscode-languageserver-protocol").Range;
+};
+
+function findKeyAtPosition(
+	cached: CachedDocument,
+	position: Position,
+	cache: DocumentCache,
+): KeyAtPosition | null {
+	const offset = cache.positionToOffset(cached, position);
+
+	if (cached.format === "json") {
+		const loc = jsonc.getLocation(cached.content, offset);
+		if (!loc.isAtPropertyKey) return null;
+		const path = loc.path as (string | number)[];
+		const range = cache.getKeyRange(cached, path);
+		if (!range) return null;
+		return { path, range };
+	}
+
+	// YAML
+	if (!(cached.ast instanceof yaml.Document)) return null;
+	const root = cached.ast.contents as yaml.Node | null;
+	const path = findYamlKeyPathAtOffset(root, offset, []);
+	if (!path) return null;
+	const range = cache.getKeyRange(cached, path);
+	if (!range) return null;
+	return { path, range };
+}
+
+function findYamlKeyPathAtOffset(
+	node: yaml.Node | null,
+	offset: number,
+	path: (string | number)[],
+): (string | number)[] | null {
+	if (!node) return null;
+
+	if (yaml.isMap(node)) {
+		for (const pair of node.items) {
+			const keyNode = pair.key;
+			if (yaml.isScalar(keyNode) && Array.isArray(keyNode.range)) {
+				const [start, end] = keyNode.range;
+				if (
+					typeof start === "number" &&
+					typeof end === "number" &&
+					offset >= start &&
+					offset <= end
+				) {
+					return [...path, String(keyNode.value)];
+				}
+			}
+
+			if (yaml.isScalar(keyNode)) {
+				const nextPath = [...path, String(keyNode.value)];
+				const found = findYamlKeyPathAtOffset(
+					pair.value as yaml.Node | null,
+					offset,
+					nextPath,
+				);
+				if (found) return found;
+			} else {
+				const found = findYamlKeyPathAtOffset(
+					pair.value as yaml.Node | null,
+					offset,
+					path,
+				);
+				if (found) return found;
+			}
+		}
+		return null;
+	}
+
+	if (yaml.isSeq(node)) {
+		for (let i = 0; i < node.items.length; i++) {
+			const child = node.items[i] as yaml.Node | null;
+			const found = findYamlKeyPathAtOffset(child, offset, [...path, i]);
+			if (found) return found;
+		}
+		return null;
+	}
+
+	return null;
+}
+
+type SpecLinkInfo = {
+	version: SpecVersion;
+	anchor: string;
+	url: string;
+	label: string;
+};
+
+function resolveSpecLinkForKey(
+	cached: CachedDocument,
+	keyPath: (string | number)[],
+): SpecLinkInfo | null {
+	if (keyPath.length === 0) return null;
+	const key = keyPath[keyPath.length - 1];
+	if (typeof key !== "string") return null;
+
+	const version = detectSpecVersion(cached.parsedObject, cached.openapiVersion);
+
+	if (key.startsWith("x-")) {
+		const { url } = specLink(version, "specification-extensions");
+		return {
+			version,
+			anchor: "specification-extensions",
+			url,
+			label: version === "2.0" ? "Vendor Extensions" : "Specification Extensions",
+		};
+	}
+
+	if (key === "$ref") {
+		const { url } = specLink(version, "reference-object");
+		return { version, anchor: "reference-object", url, label: "Reference Object" };
+	}
+
+	for (let i = keyPath.length - 1; i >= 0; i--) {
+		const containerPath = keyPath.slice(0, i);
+		const containerValue =
+			containerPath.length === 0
+				? cached.parsedObject
+				: getValueAtPath(cached.parsedObject, containerPath);
+		const kind = identifyDocumentType(containerValue);
+		const anchor = anchorForKindAndKey(kind, key, version);
+		if (anchor) {
+			const { url } = specLink(version, anchor);
+			return { version, anchor, url, label: labelForAnchor(anchor, version) };
+		}
+	}
+
+	const rootAnchor = version === "2.0" ? "swagger-object" : "openapi-object";
+	const { url } = specLink(version, rootAnchor);
+	return { version, anchor: rootAnchor, url, label: labelForAnchor(rootAnchor, version) };
+}
+
+function anchorForKindAndKey(
+	kind: ReturnType<typeof identifyDocumentType>,
+	key: string,
+	version: SpecVersion,
+): string | null {
+	if (kind === "root") {
+		if (key === "paths") return "paths-object";
+		if (key === "components") return "components-object";
+		if (key === "tags") return "tag-object";
+		if (key === "security") return "security-requirement-object";
+		return version === "2.0" ? "swagger-object" : "openapi-object";
+	}
+
+	switch (kind) {
+		case "path-item":
+			return "path-item-object";
+		case "operation":
+			return "operation-object";
+		case "schema":
+		case "json-schema":
+			return "schema-object";
+		case "parameter":
+			return "parameter-object";
+		case "response":
+			return "response-object";
+		case "request-body":
+			return "request-body-object";
+		case "header":
+			return "header-object";
+		case "security-scheme":
+			return "security-scheme-object";
+		case "example":
+			return "example-object";
+		case "link":
+			return "link-object";
+		case "callback":
+			return "callback-object";
+		case "components":
+			return "components-object";
+		default:
+			return null;
+	}
+}
+
+function detectSpecVersion(obj: unknown, fallbackOpenapiVersion: string): SpecVersion {
+	if (obj && typeof obj === "object") {
+		const rec = obj as Record<string, unknown>;
+		if (typeof rec.swagger === "string" && rec.swagger.startsWith("2.")) return "2.0";
+		if (typeof rec.openapi === "string") {
+			const m = rec.openapi.match(/^(\d+)\.(\d+)/);
+			const mm = m ? `${m[1]}.${m[2]}` : "";
+			if (mm === "3.0" || mm === "3.1" || mm === "3.2") return mm as SpecVersion;
+		}
+	}
+
+	const m = fallbackOpenapiVersion.match(/^(\d+)\.(\d+)/);
+	const mm = m ? `${m[1]}.${m[2]}` : "";
+	if (mm === "2.0" || mm === "3.0" || mm === "3.1" || mm === "3.2") return mm as SpecVersion;
+	return "3.1";
+}
+
+function labelForAnchor(anchor: string, version: SpecVersion): string {
+	switch (anchor) {
+		case "swagger-object":
+			return "Swagger Object";
+		case "openapi-object":
+			return "OpenAPI Object";
+		case "paths-object":
+			return "Paths Object";
+		case "path-item-object":
+			return "Path Item Object";
+		case "operation-object":
+			return "Operation Object";
+		case "components-object":
+			return "Components Object";
+		case "schema-object":
+			return "Schema Object";
+		case "parameter-object":
+			return "Parameter Object";
+		case "response-object":
+			return "Response Object";
+		case "request-body-object":
+			return "Request Body Object";
+		case "header-object":
+			return "Header Object";
+		case "security-scheme-object":
+			return "Security Scheme Object";
+		case "security-requirement-object":
+			return "Security Requirement Object";
+		case "tag-object":
+			return "Tag Object";
+		case "example-object":
+			return "Example Object";
+		case "link-object":
+			return "Link Object";
+		case "callback-object":
+			return "Callback Object";
+		case "reference-object":
+			return "Reference Object";
+		case "specification-extensions":
+			return version === "2.0" ? "Vendor Extensions" : "Specification Extensions";
+		default:
+			return anchor;
+	}
+}
+
+function renderSpecLinkMarkdown(link: SpecLinkInfo): string {
+	return `**Spec**: [${link.label}](${link.url})`;
 }
 
 /**
@@ -336,4 +614,19 @@ export function __testFormatPreview(
 	format: "yaml" | "json",
 ): string {
 	return formatPreview(value, pointer, filePath, format);
+}
+
+export function __testProvideSpecLinkHover(
+	cached: CachedDocument,
+	position: Position,
+	cache: DocumentCache,
+): Hover | null {
+	const keyAtPos = findKeyAtPosition(cached, position, cache);
+	if (!keyAtPos) return null;
+	const spec = resolveSpecLinkForKey(cached, keyAtPos.path);
+	if (!spec) return null;
+	return {
+		contents: { kind: "markdown", value: renderSpecLinkMarkdown(spec) },
+		range: keyAtPos.range,
+	};
 }

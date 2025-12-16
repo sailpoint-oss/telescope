@@ -17,7 +17,7 @@
  */
 import { z } from "zod";
 import {
-	ApiKeyLocationSchema,
+	ApiKeyLocationSchema as APIKeyLocationSchema,
 	HttpAuthSchemeSchema,
 	IntegerFormatSchema,
 	NumberFormatSchema,
@@ -25,6 +25,7 @@ import {
 	ParameterStyleSchema,
 	StringFormatSchema,
 } from "./data-types/format-schemas.js";
+import { withSpec } from "./spec-meta.js";
 
 // ============================================
 // Base/Simple Schemas
@@ -48,18 +49,17 @@ export const Contact30Schema = z
 					"https://www.example.com/support",
 					"https://developer.example.com",
 				],
+				description:
+					"The URL pointing to the contact information. Must be a valid URL.",
 			})
-			.describe(
-				"The URL pointing to the contact information. Must be a valid URL.",
-			)
 			.optional(),
 		email: z
 			.email()
 			.meta({
 				title: "email",
 				examples: ["support@example.com", "api@company.io"],
+				description: "The email address of the contact person/organization.",
 			})
-			.describe("The email address of the contact person/organization.")
 			.optional(),
 	})
 	.meta({
@@ -337,6 +337,7 @@ export const InternalRef30Schema = z
 			.optional()
 			.meta({ title: "description" }),
 	})
+	.strict()
 	.meta({
 		title: "InternalRef",
 		description: "Internal reference using JSON Pointer syntax.",
@@ -353,6 +354,7 @@ export const UrlRef30Schema = z
 		summary: z.string().optional().meta({ title: "summary" }),
 		description: z.string().optional().meta({ title: "description" }),
 	})
+	.strict()
 	.meta({
 		title: "UrlRef",
 		description: "External URL reference.",
@@ -363,6 +365,9 @@ export const FileRef30Schema = z
 	.object({
 		$ref: z
 			.string()
+			// Allow relative file refs with optional JSON Pointer fragment
+			// e.g. ./v2/components/parameters.yaml#/components/parameters/LimitParam
+			.regex(/^[^#\s]+(\.ya?ml|\.json)(#\/.*)?$/i)
 			.meta({ title: "$ref" })
 			.describe(
 				"Relative file reference (e.g., ./schemas/Pet.yaml, ../common/types.yaml, schemas/Pet.yaml)",
@@ -370,6 +375,7 @@ export const FileRef30Schema = z
 		summary: z.string().optional().meta({ title: "summary" }),
 		description: z.string().optional().meta({ title: "description" }),
 	})
+	.strict()
 	.meta({
 		title: "FileRef",
 		description: "Relative file reference.",
@@ -528,15 +534,6 @@ export const OAuthFlows30Schema = z
 // ============================================
 
 const baseSchemaFields30 = {
-	// $ref - in OpenAPI 3.0, $ref is typically exclusive but we allow it for flexibility
-	$ref: z
-		.string()
-		.meta({
-			title: "$ref",
-			examples: ["#/components/schemas/Pet", "./schemas/common.yaml#/Address"],
-		})
-		.describe("Reference to another schema.")
-		.optional(),
 	title: z
 		.string()
 		.meta({
@@ -639,10 +636,46 @@ const baseSchemaFields30 = {
 
 // Composition fields using z.any() to break circular reference
 const compositionFields30 = {
-	allOf: z.array(z.any()).optional().meta({ title: "allOf" }),
-	oneOf: z.array(z.any()).optional().meta({ title: "oneOf" }),
-	anyOf: z.array(z.any()).optional().meta({ title: "anyOf" }),
-	not: z.any().optional().meta({ title: "not" }),
+	allOf: z
+		.array(z.any())
+		.optional()
+		.meta({
+			title: "allOf",
+			description: "Require the instance to validate against all subschemas.",
+			examples: [[{ $ref: "#/components/schemas/Base" }, { type: "object" }]],
+		}),
+	oneOf: z
+		.array(z.any())
+		.optional()
+		.meta({
+			title: "oneOf",
+			description:
+				"Require the instance to validate against exactly one subschema.",
+			examples: [
+				[
+					{ $ref: "#/components/schemas/Cat" },
+					{ $ref: "#/components/schemas/Dog" },
+				],
+			],
+		}),
+	anyOf: z
+		.array(z.any())
+		.optional()
+		.meta({
+			title: "anyOf",
+			description:
+				"Require the instance to validate against at least one subschema.",
+			examples: [[{ type: "string" }, { type: "number" }]],
+		}),
+	not: z
+		.any()
+		.optional()
+		.meta({
+			title: "not",
+			description:
+				"Require the instance to NOT validate against the given subschema.",
+			examples: [{ type: "null" }],
+		}),
 };
 
 // ============================================
@@ -653,59 +686,210 @@ const stringSpecificFields30 = {
 	format: StringFormatSchema.optional(),
 	pattern: z
 		.string()
-		.meta({ title: "pattern" })
-		.describe("A regular expression pattern the string must match.")
+		.meta({
+			title: "pattern",
+			description: "A regular expression pattern the string must match.",
+			examples: ["^[a-zA-Z0-9]+$", "^\\d{3}-\\d{2}-\\d{4}$"],
+		})
 		.optional(),
-	minLength: z.number().int().min(0).optional().meta({ title: "minLength" }),
-	maxLength: z.number().int().min(0).optional().meta({ title: "maxLength" }),
+	minLength: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "minLength",
+			description: "Minimum string length.",
+			examples: [0, 1, 10],
+		}),
+	maxLength: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "maxLength",
+			description: "Maximum string length.",
+			examples: [255, 1024],
+		}),
 };
 
 const numberSpecificFields30 = {
 	format: NumberFormatSchema.optional(),
-	multipleOf: z.number().optional().meta({ title: "multipleOf" }),
-	minimum: z.number().optional().meta({ title: "minimum" }),
-	maximum: z.number().optional().meta({ title: "maximum" }),
-	exclusiveMinimum: z.boolean().optional().meta({ title: "exclusiveMinimum" }),
-	exclusiveMaximum: z.boolean().optional().meta({ title: "exclusiveMaximum" }),
+	multipleOf: z
+		.number()
+		.optional()
+		.meta({
+			title: "multipleOf",
+			description: "Require the number to be a multiple of this value.",
+			examples: [0.5, 1, 10],
+		}),
+	minimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "minimum",
+			description: "Inclusive lower bound for the number.",
+			examples: [0, 1, -10],
+		}),
+	maximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "maximum",
+			description: "Inclusive upper bound for the number.",
+			examples: [100, 1000],
+		}),
+	exclusiveMinimum: z
+		.boolean()
+		.optional()
+		.meta({
+			title: "exclusiveMinimum",
+			description:
+				"When true, the instance must be strictly greater than `minimum`.",
+			examples: [true, false],
+		}),
+	exclusiveMaximum: z
+		.boolean()
+		.optional()
+		.meta({
+			title: "exclusiveMaximum",
+			description:
+				"When true, the instance must be strictly less than `maximum`.",
+			examples: [true, false],
+		}),
 };
 
 const integerSpecificFields30 = {
 	format: IntegerFormatSchema.optional(),
-	multipleOf: z.number().optional().meta({ title: "multipleOf" }),
-	minimum: z.number().optional().meta({ title: "minimum" }),
-	maximum: z.number().optional().meta({ title: "maximum" }),
-	exclusiveMinimum: z.boolean().optional().meta({ title: "exclusiveMinimum" }),
-	exclusiveMaximum: z.boolean().optional().meta({ title: "exclusiveMaximum" }),
+	multipleOf: z
+		.number()
+		.optional()
+		.meta({
+			title: "multipleOf",
+			description: "Require the integer to be a multiple of this value.",
+			examples: [1, 2, 10],
+		}),
+	minimum: z
+		.number()
+		.optional()
+		.meta({
+			title: "minimum",
+			description: "Inclusive lower bound for the integer.",
+			examples: [0, 1, -10],
+		}),
+	maximum: z
+		.number()
+		.optional()
+		.meta({
+			title: "maximum",
+			description: "Inclusive upper bound for the integer.",
+			examples: [100, 1000],
+		}),
+	exclusiveMinimum: z
+		.boolean()
+		.optional()
+		.meta({
+			title: "exclusiveMinimum",
+			description:
+				"When true, the instance must be strictly greater than `minimum`.",
+			examples: [true, false],
+		}),
+	exclusiveMaximum: z
+		.boolean()
+		.optional()
+		.meta({
+			title: "exclusiveMaximum",
+			description:
+				"When true, the instance must be strictly less than `maximum`.",
+			examples: [true, false],
+		}),
 };
 
 const arraySpecificFields30 = {
-	items: z.any().optional().meta({ title: "items" }),
-	minItems: z.number().int().min(0).optional().meta({ title: "minItems" }),
-	maxItems: z.number().int().min(0).optional().meta({ title: "maxItems" }),
-	uniqueItems: z.boolean().optional().meta({ title: "uniqueItems" }),
+	items: z
+		.any()
+		.optional()
+		.meta({
+			title: "items",
+			description: "Schema for array items.",
+			examples: [{ type: "string" }, { $ref: "#/components/schemas/Pet" }],
+		}),
+	minItems: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "minItems",
+			description: "Minimum number of items in the array.",
+			examples: [0, 1],
+		}),
+	maxItems: z
+		.number()
+		.int()
+		.min(0)
+		.optional()
+		.meta({
+			title: "maxItems",
+			description: "Maximum number of items in the array.",
+			examples: [10, 100],
+		}),
+	uniqueItems: z
+		.boolean()
+		.optional()
+		.meta({
+			title: "uniqueItems",
+			description: "When true, all items in the array must be unique.",
+			examples: [true, false],
+		}),
 };
 
 const objectSpecificFields30 = {
 	properties: z
 		.record(z.string(), z.any())
-		.meta({ title: "properties" })
+		.meta({
+			title: "properties",
+			description: "Property schemas keyed by property name.",
+			examples: [{ id: { type: "integer" }, name: { type: "string" } }],
+		})
 		.optional(),
 	additionalProperties: z
 		.union([z.any(), z.boolean()])
-		.meta({ title: "additionalProperties" })
+		.meta({
+			title: "additionalProperties",
+			description:
+				"Controls properties not listed in `properties`: boolean to allow/disallow, or a schema to validate them.",
+			examples: [true, false, { type: "string" }],
+		})
 		.optional(),
-	required: z.array(z.string()).optional().meta({ title: "required" }),
+	required: z
+		.array(z.string())
+		.optional()
+		.meta({
+			title: "required",
+			description: "List of required property names.",
+			examples: [["id", "name"]],
+		}),
 	minProperties: z
 		.number()
 		.int()
 		.min(0)
-		.meta({ title: "minProperties" })
+		.meta({
+			title: "minProperties",
+			description: "Minimum number of properties in the object.",
+			examples: [0, 1],
+		})
 		.optional(),
 	maxProperties: z
 		.number()
 		.int()
 		.min(0)
-		.meta({ title: "maxProperties" })
+		.meta({
+			title: "maxProperties",
+			description: "Maximum number of properties in the object.",
+			examples: [10, 100],
+		})
 		.optional(),
 };
 
@@ -771,7 +955,7 @@ const TypedObjectSchema30 = z
  * Uses "type" as the discriminator for clear error messages.
  */
 const TypedSchema30 = z
-	.discriminatedUnion("type", [
+	.union([
 		TypedStringSchema30,
 		TypedNumberSchema30,
 		TypedIntegerSchema30,
@@ -783,18 +967,17 @@ const TypedSchema30 = z
 
 /**
  * Flexible fallback schema for:
- * - Pure $ref schemas
  * - Composition schemas (allOf/oneOf/anyOf)
- * - Schemas with $ref combined with other keywords
  * - Any valid schema without explicit type
  *
- * Includes all possible schema fields to be maximally accepting.
+ * Note: $ref is NOT included here. Objects with $ref must be Reference Objects
+ * (checked first in the union). This ensures $ref cannot have arbitrary siblings.
  */
 const FlexibleSchema30 = z
 	.object({
 		// Allow optional type for edge cases
 		type: z.string().optional().meta({ title: "type" }),
-		// Include all base fields (including $ref)
+		// Include all base fields (NO $ref - that's handled by Reference30Schema)
 		...baseSchemaFields30,
 		// Include all composition fields
 		...compositionFields30,
@@ -818,13 +1001,15 @@ export const ObjectSchema30 = TypedObjectSchema30;
  * Schema Object union with proper ordering for better error messages.
  *
  * Order of checking:
- * 1. TypedSchema (discriminated union by type literal) - Clear type discrimination
- * 2. FlexibleSchema - Fallback for $ref, composition, and edge cases
+ * 1. Reference30Schema - Reference Objects (strict: only $ref, summary, description)
+ * 2. TypedSchema (discriminated union by type literal) - Clear type discrimination
+ * 3. FlexibleSchema - Fallback for composition and edge cases (NO $ref)
  *
- * Note: Reference30Schema is NOT in this union - $ref is handled as a field in FlexibleSchema.
+ * Note: $ref is NOT allowed as a sibling in schema objects. If $ref is present,
+ * the object must be a Reference Object (only $ref, summary, description allowed).
  */
 export const SchemaObject30Schema = z
-	.union([TypedSchema30, FlexibleSchema30])
+	.union([Reference30Schema, TypedSchema30, FlexibleSchema30])
 	.meta({
 		title: "SchemaObject",
 		description:
@@ -945,7 +1130,7 @@ export const Link30Schema = z
 // Security Scheme Object (OpenAPI 3.0 - no mutualTLS)
 // ============================================
 
-const ApiKeySecurityScheme30 = z
+const APIKeySecurityScheme30 = z
 	.object({
 		type: z
 			.literal("apiKey")
@@ -963,7 +1148,7 @@ const ApiKeySecurityScheme30 = z
 			.describe(
 				"REQUIRED. The name of the header, query, or cookie parameter.",
 			),
-		in: ApiKeyLocationSchema.describe(
+		in: APIKeyLocationSchema.describe(
 			"REQUIRED. Location of the API key: 'header' (most common), 'query', or 'cookie'.",
 		),
 		description: z
@@ -1066,7 +1251,7 @@ const OpenIdConnectSecurityScheme30 = z
 export const SecurityScheme30Schema = z
 	.union([
 		Reference30Schema,
-		ApiKeySecurityScheme30,
+		APIKeySecurityScheme30,
 		HttpSecurityScheme30,
 		OAuth2SecurityScheme30,
 		OpenIdConnectSecurityScheme30,
@@ -1615,15 +1800,13 @@ export const Callback30Schema = z
 // Paths Object
 // ============================================
 
-export const Paths30Schema = z
-	.record(z.string().startsWith("/"), PathItem30Schema)
-	.meta({
-		title: "Paths",
-		description: "Holds the relative paths to the individual endpoints.",
-		examples: [
-			{ "/pets": { get: { responses: { "200": { description: "OK" } } } } },
-		],
-	});
+export const Paths30Schema = z.record(z.string(), PathItem30Schema).meta({
+	title: "Paths",
+	description: "Holds the relative paths to the individual endpoints.",
+	examples: [
+		{ "/pets": { get: { responses: { "200": { description: "OK" } } } } },
+	],
+});
 
 // ============================================
 // Components Object (OpenAPI 3.0 - no pathItems)
@@ -1679,6 +1862,9 @@ export const Components30Schema: z.ZodTypeAny = z
 // OpenAPI Root Object (OpenAPI 3.0 - no webhooks, no jsonSchemaDialect)
 // ============================================
 
+// OpenAPI Object MAY be extended with specification extensions (x-*)
+// Canonical source: OAS 3.0.4 `#openapi-object`
+// (we still accept any 3.0.x version string in the `openapi` field)
 export const OpenAPI30Schema: z.ZodTypeAny = z
 	.object({
 		openapi: z
@@ -1735,12 +1921,18 @@ export const OpenAPI30Schema: z.ZodTypeAny = z
 		description: "Root object of an OpenAPI 3.0 document.",
 		examples: [
 			{
-				openapi: "3.0.3",
+				openapi: "3.0.4",
 				info: { title: "My API", version: "1.0.0" },
 				paths: {},
 			},
 		],
 	});
+
+export const OpenAPI3Schema = withSpec(
+	OpenAPI30Schema,
+	"3.0",
+	"openapi-object",
+);
 
 // ============================================
 // Export TypeScript types
@@ -1778,3 +1970,4 @@ export type PathItem30 = z.infer<typeof PathItem30Schema>;
 export type Paths30 = z.infer<typeof Paths30Schema>;
 export type Components30 = z.infer<typeof Components30Schema>;
 export type OpenAPI30 = z.infer<typeof OpenAPI30Schema>;
+export type OpenAPI3 = z.infer<typeof OpenAPI3Schema>;

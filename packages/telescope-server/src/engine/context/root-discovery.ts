@@ -110,6 +110,7 @@ export async function discoverWorkspaceRoots(
 	workspaceFolders: string[],
 	fileSystem: FileSystem,
 	cache: DocumentTypeCache,
+	patterns?: string[],
 ): Promise<string[]> {
 	const rootUris: string[] = [];
 
@@ -118,12 +119,15 @@ export async function discoverWorkspaceRoots(
 		folder.startsWith("file://") ? URI.parse(folder) : URI.file(folder),
 	);
 
-	// Use shared globFiles utility to find all YAML/JSON files
-	const globResults = await globFiles(
-		fileSystem,
-		["**/*.yaml", "**/*.yml", "**/*.json"],
-		workspaceFolderUris,
-	);
+	// Use config patterns if provided; otherwise fall back to broad defaults.
+	// Note: matchesPattern() already implements include/exclude ordering semantics.
+	const scanPatterns =
+		patterns && patterns.length > 0
+			? patterns
+			: ["**/*.yaml", "**/*.yml", "**/*.json", "**/*.jsonc"];
+
+	// Use shared globFiles utility to find candidate files
+	const globResults = await globFiles(fileSystem, scanPatterns, workspaceFolderUris);
 
 	// Process glob results
 	for (const match of globResults) {

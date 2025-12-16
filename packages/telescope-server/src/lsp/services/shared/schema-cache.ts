@@ -8,6 +8,7 @@
  * and the .meta() and .describe() methods provide title and description.
  *
  * Schemas are organized by OpenAPI version:
+ * - openapi-2.0-* : OpenAPI 2.0 (Swagger 2.0) schemas
  * - openapi-3.0-* : OpenAPI 3.0.x schemas
  * - openapi-3.1-* : OpenAPI 3.1.x schemas
  * - openapi-3.2-* : OpenAPI 3.2.x schemas
@@ -19,6 +20,15 @@ import { z } from "zod";
 
 // Telescope Config Schema
 import { TelescopeConfigSchema } from "../../../engine/schemas/config-schema.js";
+// OpenAPI 2.0 Schemas
+import {
+	OpenAPI2Schema,
+	Operation2Schema,
+	Parameter2Schema,
+	PathItem2Schema,
+	Response2Schema,
+	SchemaObject2Schema,
+} from "../../../engine/schemas/openapi-2.0-module.js";
 // OpenAPI 3.0 Schemas
 import {
 	Callback30Schema,
@@ -79,6 +89,34 @@ import {
  * Organized by OpenAPI version for proper language service support.
  */
 const SCHEMA_METADATA: Record<string, { title: string; schema: z.ZodType }> = {
+	// =========================================================================
+	// OpenAPI 2.0 Schemas (Swagger 2.0)
+	// =========================================================================
+	"openapi-2.0-root": {
+		title: "OpenAPI 2.0 Document (Swagger 2.0)",
+		schema: OpenAPI2Schema,
+	},
+	"openapi-2.0-path-item": {
+		title: "Path Item Object (2.0)",
+		schema: PathItem2Schema,
+	},
+	"openapi-2.0-operation": {
+		title: "Operation Object (2.0)",
+		schema: Operation2Schema,
+	},
+	"openapi-2.0-schema": {
+		title: "Schema Object (2.0)",
+		schema: SchemaObject2Schema,
+	},
+	"openapi-2.0-parameter": {
+		title: "Parameter Object (2.0)",
+		schema: Parameter2Schema,
+	},
+	"openapi-2.0-response": {
+		title: "Response Object (2.0)",
+		schema: Response2Schema,
+	},
+
 	// =========================================================================
 	// OpenAPI 3.0 Schemas
 	// =========================================================================
@@ -417,7 +455,12 @@ function normalizeVersion(version: string): string {
 	if (match) {
 		const majorMinor = match[1];
 		// Ensure we support this version
-		if (majorMinor === "3.0" || majorMinor === "3.1" || majorMinor === "3.2") {
+		if (
+			majorMinor === "2.0" ||
+			majorMinor === "3.0" ||
+			majorMinor === "3.1" ||
+			majorMinor === "3.2"
+		) {
 			return majorMinor;
 		}
 	}
@@ -431,5 +474,5 @@ function normalizeVersion(version: string): string {
  * @returns Array of supported version strings
  */
 export function getSupportedVersions(): string[] {
-	return ["3.0", "3.1", "3.2"];
+	return ["2.0", "3.0", "3.1", "3.2"];
 }

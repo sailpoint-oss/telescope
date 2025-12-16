@@ -64,6 +64,8 @@ export class TelescopeContext {
 	// Known OpenAPI files (from client scan)
 	private knownOpenAPIFiles = new Set<string>();
 	private hasReceivedClientFileList = false;
+	// Fallback OpenAPI files (server-discovered when client list is unavailable)
+	private fallbackOpenAPIFiles = new Set<string>();
 
 	// Root documents (files with openapi: x.x.x)
 	private rootDocumentUris = new Set<string>();
@@ -210,6 +212,28 @@ export class TelescopeContext {
 	}
 
 	/**
+	 * Returns true if a file URI is considered in-scope for OpenAPI features/diagnostics
+	 * per `openapi.patterns` and the current workspace root.
+	 *
+	 * Semantics:
+	 * - Only files within the workspace folder are in-scope
+	 * - `openapi.patterns` supports include/exclude (`!`) and last-match-wins
+	 * - If patterns are empty, default scope is `*.{yaml,yml,json,jsonc}`
+	 */
+	isOpenApiInScope(uri: string): boolean {
+		const workspacePath = this.workspacePath;
+		if (!workspacePath) return false;
+		try {
+			const fsPath = URI.parse(uri).fsPath;
+			if (!fsPath.startsWith(workspacePath)) return false;
+		} catch {
+			return false;
+		}
+		const patterns = this.config.openapi?.patterns ?? [];
+		return matchesPattern(uri, patterns, [workspacePath]);
+	}
+
+	/**
 	 * Check if the client supports workspace folder events.
 	 */
 	hasWorkspaceFolderCapability(): boolean {
@@ -290,7 +314,12 @@ export class TelescopeContext {
 	 * Get all known OpenAPI file URIs.
 	 */
 	getKnownOpenAPIFiles(): string[] {
-		return Array.from(this.knownOpenAPIFiles);
+		// If the client sent an authoritative file list, prefer it.
+		if (this.hasReceivedClientFileList) {
+			return Array.from(this.knownOpenAPIFiles);
+		}
+		// Otherwise, fall back to server-discovered candidates.
+		return Array.from(this.fallbackOpenAPIFiles);
 	}
 
 	/**
@@ -327,6 +356,18 @@ export class TelescopeContext {
 	clearKnownOpenAPIFiles(): void {
 		this.knownOpenAPIFiles.clear();
 		this.hasReceivedClientFileList = false;
+	}
+
+	/**
+	 * Set server-discovered fallback OpenAPI files (used when client does not provide a list).
+	 */
+	setFallbackOpenAPIFiles(files: string[]): void {
+		// Only used when the client file list is absent; do not flip hasReceivedClientFileList.
+		this.fallbackOpenAPIFiles = new Set(files);
+	}
+
+	clearFallbackOpenAPIFiles(): void {
+		this.fallbackOpenAPIFiles.clear();
 	}
 
 	// =========================================================================

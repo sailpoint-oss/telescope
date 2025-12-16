@@ -65,6 +65,8 @@ export interface CachedDocument {
 	documentType: DocumentType;
 	/** OpenAPI specification version */
 	openapiVersion: string;
+	/** Whether this file is in-scope per config openapi.patterns */
+	openapiScoped: boolean;
 
 	// Position helpers
 	/** Line offset array for position calculations */
@@ -197,6 +199,9 @@ export class DocumentCache {
 		const documentType = identifyDocumentType(parsedObject);
 		const openapiVersion = this.detectVersion(parsedObject);
 
+		// Config-aware scoping: only treat in-scope files as OpenAPI in the LSP.
+		const openapiScoped = this.ctx.isOpenApiInScope(doc.uri);
+
 		// Build IR
 		const ir =
 			format === "yaml"
@@ -233,6 +238,7 @@ export class DocumentCache {
 			atoms,
 			documentType,
 			openapiVersion,
+			openapiScoped,
 			lineOffsets,
 		};
 
