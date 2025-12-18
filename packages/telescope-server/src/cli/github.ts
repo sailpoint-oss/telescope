@@ -10,8 +10,30 @@ export interface PullRequestContext {
 }
 
 export function readPullRequestContextFromEnv(payload: unknown): PullRequestContext | null {
+	let owner = "";
+	let repo = "";
+
 	const repoSlug = process.env.GITHUB_REPOSITORY ?? "";
-	const [owner, repo] = repoSlug.split("/");
+	if (repoSlug) {
+		const parts = repoSlug.split("/");
+		owner = parts[0] ?? "";
+		repo = parts[1] ?? "";
+	}
+
+	// Fallback: pull from event payload (helps when env is missing/misconfigured).
+	if (!owner || !repo) {
+		const obj = payload as {
+			repository?: { name?: string; owner?: { login?: string }; full_name?: string };
+		};
+		if (obj.repository?.full_name) {
+			const parts = obj.repository.full_name.split("/");
+			owner = owner || (parts[0] ?? "");
+			repo = repo || (parts[1] ?? "");
+		}
+		owner = owner || (obj.repository?.owner?.login ?? "");
+		repo = repo || (obj.repository?.name ?? "");
+	}
+
 	if (!owner || !repo) return null;
 
 	const obj = payload as {
@@ -94,19 +116,27 @@ export class GitHubClient {
 		pullNumber: number;
 		commitId: string;
 		body: string;
-		comments: Array<{ path: string; line: number; body: string }>;
+		comments?: Array<{ path: string; line: number; body: string }>;
 	}): Promise<void> {
-		await this.request("POST", `/repos/${this.owner}/${this.repo}/pulls/${opts.pullNumber}/reviews`, {
+		const payload: Record<string, unknown> = {
 			commit_id: opts.commitId,
 			event: "COMMENT",
 			body: opts.body,
-			comments: opts.comments.map((c) => ({
+		};
+		if (opts.comments && opts.comments.length > 0) {
+			payload.comments = opts.comments.map((c) => ({
 				path: c.path,
 				line: c.line,
 				side: "RIGHT",
 				body: c.body,
-			})),
-		});
+			}));
+		}
+
+		await this.request(
+			"POST",
+			`/repos/${this.owner}/${this.repo}/pulls/${opts.pullNumber}/reviews`,
+			payload,
+		);
 	}
 }
 
@@ -140,7 +170,7 @@ export function buildPrSummaryComment(opts: {
 
 	const lines: string[] = [];
 	lines.push(opts.marker);
-	lines.push("## Telescope CI");
+	lines.push("## Telescope CI (PR delta)");
 	lines.push("");
 	lines.push(
 		`Changed files with diagnostics: **${byFile.size}** (errors: **${totalE}**, warnings: **${totalW}**)`,
@@ -163,7 +193,7 @@ export function buildPrSummaryComment(opts: {
 			if (d.severity === 1) e++;
 			else if (d.severity === 2) w++;
 		}
-		lines.push(`| \`${f}\` | ${e} | ${w} | ${diags.length} |`);
+		lines.push(`| [\`${f}\`](${f}) | ${e} | ${w} | ${diags.length} |`);
 	}
 	lines.push("");
 

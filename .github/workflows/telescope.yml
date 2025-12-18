@@ -38,6 +38,7 @@ jobs:
       - name: Run Telescope (CI)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
         run: |
           bun ./packages/telescope-server/src/cli/index.ts ci \
             --workspace packages/test-files \

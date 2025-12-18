@@ -201,7 +201,11 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 	}
 
 	// Post/update PR feedback (only when running on a PR in GitHub Actions).
-	if ((args.commentPr || args.commentReview) && prEventName === "pull_request" && prEventPath) {
+	if (
+		(args.commentPr || args.commentReview) &&
+		(prEventName === "pull_request" || prEventName === "pull_request_target") &&
+		prEventPath
+	) {
 		const token = process.env.GITHUB_TOKEN ?? "";
 		if (!token) {
 			console.warn("telescope ci: GITHUB_TOKEN not set; skipping PR comments.");
@@ -211,30 +215,25 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 		try {
 			payload = JSON.parse(await readFile(prEventPath, "utf8"));
 		} catch {
-			console.warn("telescope ci: failed to read GITHUB_EVENT_PATH; skipping PR comments.");
+			console.warn(
+				"telescope ci: failed to read/parse GITHUB_EVENT_PATH; skipping PR comments.",
+			);
 			return;
 		}
 		const pr = readPullRequestContextFromEnv(payload);
 		if (!pr) {
-			console.warn("telescope ci: not a pull_request event payload; skipping PR comments.");
-			return;
-		}
-		if (!changedFiles || !changedLinesByFile) {
-			console.warn("telescope ci: unable to compute changed files/lines; skipping PR comments.");
+			console.warn(
+				"telescope ci: could not determine PR context (owner/repo/number/base/head); skipping PR comments.",
+			);
 			return;
 		}
 
 		const gh = new GitHubClient({ token, owner: pr.owner, repo: pr.repo });
-		const marker = "<!-- telescope-ci -->";
 
 		if (args.commentPr) {
-			const body = buildPrSummaryComment({
-				marker,
-				workspacePath: result.workspacePath,
-				diagnostics: result.diagnostics,
-				changedFiles,
-				maxPerFile: args.maxSummaryPerFile,
-			});
+			// Full report goes into the PR conversation as a single (updated) comment.
+			const marker = "<!-- telescope-ci:full -->";
+			const body = `${marker}\n${writeMarkdownReport(result)}`;
 			const parts = splitCommentIntoParts({
 				body,
 				maxChars: args.maxPrCommentChars,
@@ -259,25 +258,28 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 		}
 
 		if (args.commentReview) {
-			const inline = buildInlineReviewComments({
+			if (!changedFiles) {
+				console.warn(
+					"telescope ci: unable to compute changed files; skipping PR review summary.",
+				);
+				return;
+			}
+
+			// Delta (changed-files) report goes into a PR review summary (no inline comments).
+			const marker = "<!-- telescope-ci:delta -->";
+			const body = buildPrSummaryComment({
+				marker,
 				workspacePath: result.workspacePath,
 				diagnostics: result.diagnostics,
-				changedLinesByFile,
-				maxComments: args.maxInline,
+				changedFiles,
+				maxPerFile: args.maxSummaryPerFile,
 			});
-			const chunkSize = 20;
-			for (let i = 0; i < inline.length; i += chunkSize) {
-				const chunk = inline.slice(i, i + chunkSize);
-				await gh.createReview({
-					pullNumber: pr.pullNumber,
-					commitId: pr.headSha,
-					body: `<!-- telescope-ci-review -->\nTelescope inline comments (${i + 1}-${Math.min(
-						i + chunkSize,
-						inline.length,
-					)} of ${inline.length}).`,
-					comments: chunk,
-				});
-			}
+
+			await gh.createReview({
+				pullNumber: pr.pullNumber,
+				commitId: pr.headSha,
+				body,
+			});
 		}
 	}
 }
