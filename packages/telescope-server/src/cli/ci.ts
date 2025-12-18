@@ -1,19 +1,18 @@
-import { writeFile, readFile } from "node:fs/promises";
-import type { Diagnostic as EngineDiagnostic } from "../engine/index.js";
-import {
-	maybeWriteGithubSummary,
-	runLint,
-	toGithubAnnotation,
-} from "./lint.js";
+import { readFile, writeFile } from "node:fs/promises";
 import { computeChangedLinesFromGitDiff } from "./diff.js";
 import { computeGates } from "./gating.js";
-import { writeMarkdownReport } from "./report.js";
 import {
 	buildPrSummaryComment,
 	GitHubClient,
 	readPullRequestContextFromEnv,
 	splitCommentIntoParts,
 } from "./github.js";
+import {
+	maybeWriteGithubSummary,
+	runLint,
+	toGithubAnnotation,
+} from "./lint.js";
+import { writeMarkdownReport } from "./report.js";
 
 export interface CiCommandArgs {
 	workspace: string;
@@ -103,7 +102,9 @@ export function parseCiArgs(argv: string[]): CiCommandArgs {
 			if (!v) throw new Error("--max-summary-per-file requires a number");
 			maxSummaryPerFile = Number.parseInt(v, 10);
 			if (!Number.isFinite(maxSummaryPerFile) || maxSummaryPerFile < 0) {
-				throw new Error("--max-summary-per-file must be a non-negative integer");
+				throw new Error(
+					"--max-summary-per-file must be a non-negative integer",
+				);
 			}
 			i++;
 			continue;
@@ -124,10 +125,6 @@ export function parseCiArgs(argv: string[]): CiCommandArgs {
 		maxPrCommentChars,
 		maxSummaryPerFile,
 	};
-}
-
-function hasAnyErrors(diags: EngineDiagnostic[]): boolean {
-	return diags.some((d) => d.severity === 1);
 }
 
 export async function runCiCommand(argv: string[]): Promise<void> {
@@ -167,7 +164,6 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 	}
 
 	let changedFiles: Set<string> | undefined;
-	let changedLinesByFile: Map<string, Set<number>> | undefined;
 	if (baseRef && headRef) {
 		const diff = await computeChangedLinesFromGitDiff({
 			cwd: result.workspacePath,
@@ -175,7 +171,6 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 			head: headRef,
 		});
 		changedFiles = diff.changedFiles;
-		changedLinesByFile = diff.changedLinesByFile;
 	}
 
 	const gates = computeGates({
@@ -233,19 +228,36 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 		const githubCtx = { owner: pr.owner, repo: pr.repo, sha: pr.headSha };
 
 		const runId = Number.parseInt(process.env.GITHUB_RUN_ID ?? "", 10);
-		const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10);
+		const runAttempt = Number.parseInt(
+			process.env.GITHUB_RUN_ATTEMPT ?? "1",
+			10,
+		);
 		const runSha = process.env.GITHUB_SHA ?? pr.headSha;
-		const hasRunInfo = Number.isFinite(runId) && runId > 0 && Number.isFinite(runAttempt) && runAttempt > 0;
-		const runMarker = hasRunInfo ? `<!-- telescope-run:${runId}:${runAttempt}:${runSha} -->` : "<!-- telescope-run:local -->";
+		const hasRunInfo =
+			Number.isFinite(runId) &&
+			runId > 0 &&
+			Number.isFinite(runAttempt) &&
+			runAttempt > 0;
+		const runMarker = hasRunInfo
+			? `<!-- telescope-run:${runId}:${runAttempt}:${runSha} -->`
+			: "<!-- telescope-run:local -->";
 
 		const parseRunMarker = (
 			body: string,
 		): { runId: number; attempt: number } | null => {
-			const m = /<!--\s*telescope-run:(\d+):(\d+):[a-f0-9]{7,40}\s*-->/.exec(body);
+			const m = /<!--\s*telescope-run:(\d+):(\d+):[a-f0-9]{7,40}\s*-->/.exec(
+				body,
+			);
 			if (!m) return null;
 			const rid = Number.parseInt(m[1] ?? "0", 10);
 			const att = Number.parseInt(m[2] ?? "0", 10);
-			if (!Number.isFinite(rid) || !Number.isFinite(att) || rid <= 0 || att <= 0) return null;
+			if (
+				!Number.isFinite(rid) ||
+				!Number.isFinite(att) ||
+				rid <= 0 ||
+				att <= 0
+			)
+				return null;
 			return { runId: rid, attempt: att };
 		};
 
@@ -300,10 +312,13 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 			const keptIds = new Set<number>();
 
 			for (let i = 0; i < parts.length; i++) {
-				const p = parts[i]!;
-				if (existing[i]) {
-					await gh.updateIssueComment(existing[i]!.id, p);
-					keptIds.add(existing[i]!.id);
+				const p = parts[i];
+				if (!p) continue;
+
+				const existingComment = existing[i];
+				if (existingComment) {
+					await gh.updateIssueComment(existingComment.id, p);
+					keptIds.add(existingComment.id);
 				} else {
 					// create at end; ordering will be stable after first run
 					await gh.createIssueComment(pr.pullNumber, p);
@@ -325,7 +340,9 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 					await gh.deleteIssueComment(c.id);
 				} catch (err) {
 					// Likely deleted by an overlapping run; ignore.
-					console.warn(`telescope ci: delete comment failed (id=${c.id}): ${String(err)}`);
+					console.warn(
+						`telescope ci: delete comment failed (id=${c.id}): ${String(err)}`,
+					);
 				}
 			}
 
@@ -340,7 +357,9 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 					try {
 						await gh.deleteIssueComment(c.id);
 					} catch (err) {
-						console.warn(`telescope ci: delete legacy comment failed (id=${c.id}): ${String(err)}`);
+						console.warn(
+							`telescope ci: delete legacy comment failed (id=${c.id}): ${String(err)}`,
+						);
 					}
 				}
 			} else {
@@ -373,11 +392,17 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 				// Keep PR comments readable; the artifact contains the full, untruncated report.
 				maxDiagnosticsPerRule: 20,
 			});
+			const total = result.diagnostics.length;
+			const err = result.counts.error;
+			const warn = result.counts.warning;
+			const other = result.counts.notice;
 			const body = [
 				marker,
 				"## Telescope CI — Full workspace",
 				"",
 				"This report contains a full summary of the designated workspace.",
+				"",
+				`<kbd>${total} diagnostics</kbd> <kbd>Errors ${err}</kbd> <kbd>Warnings ${warn}</kbd> <kbd>Other ${other}</kbd>`,
 				"",
 				fullReport,
 			].join("\n");
@@ -390,5 +415,3 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 		}
 	}
 }
-
-

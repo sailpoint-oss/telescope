@@ -212,7 +212,7 @@ export function buildPrSummaryComment(opts: {
 	);
 	lines.push("");
 	lines.push(
-		`Changed files with diagnostics: **${byFile.size}** (errors: **${totalE}**, warnings: **${totalW}**)`,
+		`<kbd>${byFile.size} changed file(s)</kbd> <kbd>Errors ${totalE}</kbd> <kbd>Warnings ${totalW}</kbd>`,
 	);
 	lines.push("");
 
@@ -363,6 +363,17 @@ export function splitCommentIntoParts(opts: {
 		// Still too large (single block too big). Do NOT raw-slice (can corrupt markdown/HTML).
 		// Instead: if it's a <details> block, keep only its summary and a message.
 		if (candidate2.length > maxBodyChars) {
+			// If the header makes the first block not fit, emit the header as its own page
+			// and retry the block on a fresh page (more room, cleaner UX).
+			if (cur === headerFirstTrim) {
+				flush();
+				const retry = `${cur}\n\n${block}`.trimEnd();
+				if (retry.length <= maxBodyChars) {
+					cur = retry;
+					continue;
+				}
+			}
+
 			if (block.trimStart().startsWith("<details>")) {
 				const lines = block.split("\n");
 				const summaryIdx = lines.findIndex((l) => l.trimStart().startsWith("<summary"));
