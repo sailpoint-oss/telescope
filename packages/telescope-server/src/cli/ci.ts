@@ -231,27 +231,120 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 		const gh = new GitHubClient({ token, owner: pr.owner, repo: pr.repo });
 
 		const githubCtx = { owner: pr.owner, repo: pr.repo, sha: pr.headSha };
-		const list = await gh.listIssueComments(pr.pullNumber);
+
+		const runId = Number.parseInt(process.env.GITHUB_RUN_ID ?? "", 10);
+		const runAttempt = Number.parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10);
+		const runSha = process.env.GITHUB_SHA ?? pr.headSha;
+		const hasRunInfo = Number.isFinite(runId) && runId > 0 && Number.isFinite(runAttempt) && runAttempt > 0;
+		const runMarker = hasRunInfo ? `<!-- telescope-run:${runId}:${runAttempt}:${runSha} -->` : "<!-- telescope-run:local -->";
+
+		const parseRunMarker = (
+			body: string,
+		): { runId: number; attempt: number } | null => {
+			const m = /<!--\s*telescope-run:(\d+):(\d+):[a-f0-9]{7,40}\s*-->/.exec(body);
+			if (!m) return null;
+			const rid = Number.parseInt(m[1] ?? "0", 10);
+			const att = Number.parseInt(m[2] ?? "0", 10);
+			if (!Number.isFinite(rid) || !Number.isFinite(att) || rid <= 0 || att <= 0) return null;
+			return { runId: rid, attempt: att };
+		};
+
+		const compareRun = (
+			a: { runId: number; attempt: number },
+			b: { runId: number; attempt: number },
+		): number => {
+			if (a.runId !== b.runId) return a.runId - b.runId;
+			return a.attempt - b.attempt;
+		};
+
+		const isTelescopeComment = (body: string): boolean => {
+			return (
+				body.includes("<!-- telescope-ci") ||
+				body.includes("<!-- telescope-run:") ||
+				body.includes("<!-- telescope-ci-review") ||
+				body.includes("<!-- telescope-ci -->")
+			);
+		};
+
+		// Overlap safety: if we can see a newer run already posted, do nothing.
+		if (hasRunInfo) {
+			const existingAll = await gh.listIssueComments(pr.pullNumber);
+			let newest: { runId: number; attempt: number } | null = null;
+			for (const c of existingAll) {
+				if (!isTelescopeComment(c.body)) continue;
+				const r = parseRunMarker(c.body);
+				if (!r) continue;
+				if (!newest || compareRun(r, newest) > 0) newest = r;
+			}
+			if (newest && compareRun(newest, { runId, attempt: runAttempt }) > 0) {
+				console.warn(
+					`telescope ci: newer run already posted comments (runId=${newest.runId} attempt=${newest.attempt}); skipping.`,
+				);
+				return;
+			}
+		}
 
 		const upsertPaged = async (marker: string, body: string) => {
+			const bodyWithRun = `${marker}\n${runMarker}\n${body.replace(marker, "").replace(/^\s*\n?/, "")}`;
 			const parts = splitCommentIntoParts({
-				body,
+				body: bodyWithRun,
 				maxChars: args.maxPrCommentChars,
 				marker,
 			});
 
-			const existing = list
+			const all = await gh.listIssueComments(pr.pullNumber);
+			const existing = all
 				.filter((c) => c.body.includes(marker))
 				.sort((a, b) => a.id - b.id);
 
+			const keptIds = new Set<number>();
+
 			for (let i = 0; i < parts.length; i++) {
 				const p = parts[i]!;
-				if (existing[i]) await gh.updateIssueComment(existing[i]!.id, p);
-				else await gh.createIssueComment(pr.pullNumber, p);
+				if (existing[i]) {
+					await gh.updateIssueComment(existing[i]!.id, p);
+					keptIds.add(existing[i]!.id);
+				} else {
+					// create at end; ordering will be stable after first run
+					await gh.createIssueComment(pr.pullNumber, p);
+				}
 			}
-			for (let i = parts.length; i < existing.length; i++) {
-				// Clean UX across reruns: delete old pages when the report shrinks.
-				await gh.deleteIssueComment(existing[i]!.id);
+
+			// Re-list so we can safely delete extras (including any concurrent duplicates created while we were posting).
+			const after = await gh.listIssueComments(pr.pullNumber);
+			const markerComments = after
+				.filter((c) => c.body.includes(marker))
+				.sort((a, b) => a.id - b.id);
+
+			// Keep the first N pages for this marker for this run; delete everything else for this marker (older runs/duplicates).
+			const toKeep = markerComments.slice(0, parts.length).map((c) => c.id);
+			for (const id of toKeep) keptIds.add(id);
+
+			for (const c of markerComments.slice(parts.length)) {
+				try {
+					await gh.deleteIssueComment(c.id);
+				} catch (err) {
+					// Likely deleted by an overlapping run; ignore.
+					console.warn(`telescope ci: delete comment failed (id=${c.id}): ${String(err)}`);
+				}
+			}
+
+			// Delete any legacy/duplicate Telescope comments from older runs (but never delete a newer run).
+			if (hasRunInfo) {
+				for (const c of after) {
+					if (!isTelescopeComment(c.body)) continue;
+					if (keptIds.has(c.id)) continue;
+					// Keep unrelated markers belonging to a newer run.
+					const r = parseRunMarker(c.body);
+					if (r && compareRun(r, { runId, attempt: runAttempt }) > 0) continue;
+					try {
+						await gh.deleteIssueComment(c.id);
+					} catch (err) {
+						console.warn(`telescope ci: delete legacy comment failed (id=${c.id}): ${String(err)}`);
+					}
+				}
+			} else {
+				// No run info (local); do not attempt broad cleanup.
 			}
 		};
 
