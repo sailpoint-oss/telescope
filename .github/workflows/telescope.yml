@@ -1,0 +1,46 @@
+name: Telescope (CI preview)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  telescope:
+    name: Telescope (packages/test-files)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Telescope CLI
+        run: npm i --no-save telescope-server
+
+      - name: Run Telescope (CI)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx telescope ci \
+            --workspace packages/test-files \
+            --comment-pr \
+            --comment-review \
+            --report-md telescope-report.md
+
+      - name: Upload Telescope report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telescope-report
+          path: telescope-report.md
+
+

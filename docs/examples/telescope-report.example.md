@@ -1,0 +1,47 @@
+# Example Telescope CI report (excerpt)
+
+This is a **static example** of what the `telescope ci` GitHub Action produces as `telescope-report.md`.
+
+In this repository, we intentionally run Telescope against `packages/test-files/` so PRs can preview the exact comment/review behavior we use in downstream repos.
+
+---
+
+# Telescope report
+
+- Workspace: `file:///home/runner/work/telescope/telescope/packages/test-files`
+- Generated: `2026-01-01T00:00:00.000Z`
+- Roots: 0
+- Diagnostics: 3 (errors: 1, warnings: 2, other: 0)
+- Project hash: `example`
+
+## Files
+
+| File | Count | Errors | Warnings |
+| --- | ---: | ---: | ---: |
+| `file:///home/runner/work/telescope/telescope/packages/test-files/openapi/test-errors.yaml` | 2 | 1 | 1 |
+| `file:///home/runner/work/telescope/telescope/packages/test-files/openapi/test-warnings.yaml` | 1 | 0 | 1 |
+
+## Rules
+
+| Rule | Count |
+| --- | ---: |
+| `operation-summary` | 1 |
+| `servers-defined` | 1 |
+| `security-schemes-defined` | 1 |
+
+## Diagnostics
+
+### `file:///home/runner/work/telescope/telescope/packages/test-files/openapi/test-errors.yaml`
+
+| Severity | Line | Code | Message |
+| --- | ---: | --- | --- |
+| error | 3 | `servers-defined` | API should define at least one server URL in the servers array |
+| warning | 12 | `operation-summary` | Operation should include a summary |
+
+### `file:///home/runner/work/telescope/telescope/packages/test-files/openapi/test-warnings.yaml`
+
+| Severity | Line | Code | Message |
+| --- | ---: | --- | --- |
+| warning | 7 | `security-schemes-defined` | API should define security schemes in components/securitySchemes |
+
+

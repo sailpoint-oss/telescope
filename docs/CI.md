@@ -2,6 +2,14 @@
 
 This repo’s lint engine can run in CI via the **same CLI** that powers the LSP rule pipeline.
 
+## This repository: live PR preview workflow
+
+This repo includes a **live example** workflow you can copy:
+
+- `.github/workflows/telescope.yml`
+
+It intentionally runs Telescope against `packages/test-files/` so that pull requests can **force deterministic warnings/errors** and preview the exact PR comment + inline review behavior.
+
 ## Recommended workflow (for spec repositories)
 
 Create `.github/workflows/telescope.yml`:
@@ -33,6 +41,8 @@ jobs:
         run: npm i --no-save telescope-server
 
       - name: Run Telescope (CI)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx telescope ci --workspace . --comment-pr --comment-review --report-md telescope-report.md
 
       - name: Upload Telescope report artifact
