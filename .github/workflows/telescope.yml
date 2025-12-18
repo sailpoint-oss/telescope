@@ -23,14 +23,11 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Install Telescope CLI
-        run: npm i --no-save telescope-server
-
       - name: Run Telescope (CI)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npx telescope ci \
+          bun run ./packages/telescope-server/src/cli ci \
             --workspace packages/test-files \
             --comment-pr \
             --comment-review \
