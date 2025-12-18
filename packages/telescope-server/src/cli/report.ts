@@ -30,6 +30,30 @@ function severityLabel(sev: number | undefined): string {
 	return "unknown";
 }
 
+function severityCounts(diags: EngineDiagnostic[]): {
+	error: number;
+	warning: number;
+	info: number;
+	hint: number;
+	unknown: number;
+} {
+	let error = 0;
+	let warning = 0;
+	let info = 0;
+	let hint = 0;
+	let unknown = 0;
+
+	for (const d of diags) {
+		if (d.severity === 1) error++;
+		else if (d.severity === 2) warning++;
+		else if (d.severity === 3) info++;
+		else if (d.severity === 4) hint++;
+		else unknown++;
+	}
+
+	return { error, warning, info, hint, unknown };
+}
+
 function diagLine(d: EngineDiagnostic): number {
 	return (d.range?.start?.line ?? 0) + 1;
 }
@@ -161,12 +185,35 @@ export function writeMarkdownReport(
 	if (Object.keys(result.byCode).length > 0) {
 		lines.push("## Rules");
 		lines.push("");
-		lines.push("| Rule | Count |");
-		lines.push("| --- | ---: |");
-		const rows = Object.entries(result.byCode).sort((a, b) => b[1] - a[1]);
-		for (const [code, count] of rows) {
-			lines.push(`| \`${code}\` | ${count} |`);
+		lines.push("| Rule | Total | E | W | I | H |");
+		lines.push("| --- | ---: | ---: | ---: | ---: | ---: |");
+
+		const byRule = new Map<string, EngineDiagnostic[]>();
+		for (const d of result.diagnostics) {
+			const code = diagCode(d);
+			const arr = byRule.get(code) ?? [];
+			arr.push(d);
+			byRule.set(code, arr);
 		}
+
+		const rows = [...byRule.entries()]
+			.map(([code, diags]) => ({ code, diags, c: severityCounts(diags) }))
+			.sort(
+				(a, b) =>
+					b.diags.length - a.diags.length ||
+					b.c.error - a.c.error ||
+					b.c.warning - a.c.warning ||
+					a.code.localeCompare(b.code),
+			);
+
+		for (const r of rows) {
+			lines.push(
+				`| \`${escapeMd(r.code)}\` | ${r.diags.length} | ${r.c.error} | ${r.c.warning} | ${r.c.info} | ${r.c.hint} |`,
+			);
+		}
+
+		lines.push("");
+		lines.push("_Legend: E=errors, W=warnings, I=info, H=hints._");
 		lines.push("");
 	}
 
@@ -200,12 +247,7 @@ export function writeMarkdownReport(
 				return aUri.localeCompare(bUri) || aLine - bLine || aChar - bChar;
 			});
 
-			let e = 0;
-			let w = 0;
-			for (const d of allDiags) {
-				if (d.severity === 1) e++;
-				else if (d.severity === 2) w++;
-			}
+			const c = severityCounts(allDiags);
 
 			const maxPerRule = opts?.maxDiagnosticsPerRule;
 			const diags =
@@ -215,7 +257,7 @@ export function writeMarkdownReport(
 
 			lines.push("<details>");
 			lines.push(
-				`<summary><code>${escapeMd(code)}</code> — ${allDiags.length} diagnostics (errors: ${e}, warnings: ${w})</summary>`,
+				`<summary><code>${escapeMd(code)}</code> <kbd>${allDiags.length}</kbd> <kbd>Errors ${c.error}</kbd> <kbd>Warnings ${c.warning}</kbd> <kbd>Info ${c.info}</kbd> <kbd>Hints ${c.hint}</kbd></summary>`,
 			);
 			lines.push("");
 			lines.push("| Severity | File | Location | Message |");
