@@ -35,24 +35,32 @@ In this repository, we intentionally run Telescope against `packages/test-files/
 | `servers-defined` | 1 |
 | `security-schemes-defined` | 1 |
 
-## Diagnostics
+## Diagnostics (by rule)
 
 <details>
-<summary><code>packages/test-files/openapi/test-errors.yaml</code> — 2 diagnostics (errors: 1, warnings: 1)</summary>
+<summary><code>servers-defined</code> — 1 diagnostics (errors: 1, warnings: 0)</summary>
 
-| Severity | Line | Code | Message |
-| --- | ---: | --- | --- |
-| error | 3 | `servers-defined` | API should define at least one server URL in the servers array |
-| warning | 12 | `operation-summary` | Operation should include a summary |
+| Severity | File | Location | Message |
+| --- | --- | --- | --- |
+| error | [`packages/test-files/openapi/test-errors.yaml`](packages/test-files/openapi/test-errors.yaml) | [L3](packages/test-files/openapi/test-errors.yaml#L3) | API should define at least one server URL in the servers array |
 
 </details>
 
 <details>
-<summary><code>packages/test-files/openapi/test-warnings.yaml</code> — 1 diagnostics (errors: 0, warnings: 1)</summary>
+<summary><code>operation-summary</code> — 1 diagnostics (errors: 0, warnings: 1)</summary>
 
-| Severity | Line | Code | Message |
-| --- | ---: | --- | --- |
-| warning | 7 | `security-schemes-defined` | API should define security schemes in components/securitySchemes |
+| Severity | File | Location | Message |
+| --- | --- | --- | --- |
+| warning | [`packages/test-files/openapi/test-errors.yaml`](packages/test-files/openapi/test-errors.yaml) | [L12](packages/test-files/openapi/test-errors.yaml#L12) | Operation should include a summary |
+
+</details>
+
+<details>
+<summary><code>security-schemes-defined</code> — 1 diagnostics (errors: 0, warnings: 1)</summary>
+
+| Severity | File | Location | Message |
+| --- | --- | --- | --- |
+| warning | [`packages/test-files/openapi/test-warnings.yaml`](packages/test-files/openapi/test-warnings.yaml) | [L7](packages/test-files/openapi/test-warnings.yaml#L7) | API should define security schemes in components/securitySchemes |
 
 </details>
 

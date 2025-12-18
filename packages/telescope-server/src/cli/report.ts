@@ -4,6 +4,12 @@ import { URI } from "vscode-uri";
 import type { Diagnostic as EngineDiagnostic } from "../engine/index.js";
 import type { LintRunResult } from "./lint.js";
 
+export interface GitHubBlobContext {
+	owner: string;
+	repo: string;
+	sha: string;
+}
+
 function findGitRoot(startDir: string): string | null {
 	// Best-effort: walk up until we find a .git directory.
 	let dir = startDir;
@@ -37,6 +43,11 @@ function escapeMd(s: string): string {
 	return s.replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
 }
 
+function escapeMdLinkText(s: string): string {
+	// Link text is allowed to contain backticks, but pipes/newlines break tables.
+	return escapeMd(s);
+}
+
 function uriToFsPath(uri: string): string | null {
 	try {
 		const parsed = URI.parse(uri);
@@ -55,16 +66,46 @@ function toRepoRelativePath(repoRoot: string, uri: string): string {
 	return rel.split(path.sep).join("/");
 }
 
-function mdLinkToPath(repoRelPath: string): string {
-	// GitHub renders relative links within the repo context.
-	const escaped = escapeMd(repoRelPath);
-	return `[${escaped}](${escaped})`;
+function githubBlobUrl(ctx: GitHubBlobContext, repoRelPath: string, anchor?: string): string {
+	const cleanPath = repoRelPath.replace(/^\/+/, "");
+	const cleanAnchor = anchor ? (anchor.startsWith("#") ? anchor : `#${anchor}`) : "";
+	return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.sha}/${cleanPath}${cleanAnchor}`;
 }
 
-export function writeMarkdownReport(result: LintRunResult): string {
+function mdLink(text: string, url: string): string {
+	return `[${escapeMdLinkText(text)}](${url})`;
+}
+
+function mdLinkToFile(
+	repoRelPath: string,
+	github?: GitHubBlobContext,
+): string {
+	if (github) {
+		return mdLink(`\`${repoRelPath}\``, githubBlobUrl(github, repoRelPath));
+	}
+	// GitHub renders relative links within the repo context in artifacts/markdown files,
+	// but in PR comments they can incorrectly resolve under `/pull/...`.
+	return mdLink(repoRelPath, repoRelPath);
+}
+
+function diagRange(
+	d: EngineDiagnostic,
+): { startLine: number; endLine: number; anchor: string; label: string } {
+	const startLine = Math.max(1, (d.range?.start?.line ?? 0) + 1);
+	const endLine = Math.max(startLine, (d.range?.end?.line ?? d.range?.start?.line ?? 0) + 1);
+	const label = endLine === startLine ? `L${startLine}` : `L${startLine}-L${endLine}`;
+	const anchor = endLine === startLine ? `#L${startLine}` : `#L${startLine}-L${endLine}`;
+	return { startLine, endLine, anchor, label };
+}
+
+export function writeMarkdownReport(
+	result: LintRunResult,
+	opts?: { github?: GitHubBlobContext; maxDiagnosticsPerRule?: number },
+): string {
 	const lines: string[] = [];
 	const now = new Date().toISOString();
 	const repoRoot = findGitRoot(result.workspacePath) ?? process.cwd();
+	const github = opts?.github;
 
 	lines.push("# Telescope report");
 	lines.push("");
@@ -104,14 +145,13 @@ export function writeMarkdownReport(result: LintRunResult): string {
 				if (d.severity === 1) e++;
 				else if (d.severity === 2) w++;
 			}
-			const repoRel = toRepoRelativePath(repoRoot, uri);
 			return { uri, count: diags.length, e, w };
 		});
 		rows.sort((a, b) => b.count - a.count || a.uri.localeCompare(b.uri));
 		for (const r of rows) {
 			const repoRel = toRepoRelativePath(repoRoot, r.uri);
 			lines.push(
-				`| ${mdLinkToPath(repoRel)} | ${r.count} | ${r.e} | ${r.w} |`,
+				`| ${mdLinkToFile(repoRel, github)} | ${r.count} | ${r.e} | ${r.w} |`,
 			);
 		}
 		lines.push("");
@@ -130,41 +170,77 @@ export function writeMarkdownReport(result: LintRunResult): string {
 		lines.push("");
 	}
 
-	// Full listing
+	// Diagnostics grouped by rule (keeps people in the same “mind space”).
 	if (result.diagnostics.length > 0) {
-		lines.push("## Diagnostics");
+		lines.push("## Diagnostics (by rule)");
 		lines.push("");
-		const uris = [...byFile.keys()].sort((a, b) => a.localeCompare(b));
-		for (const uri of uris) {
-			const repoRel = toRepoRelativePath(repoRoot, uri);
-			const fileDiags = byFile.get(uri) ?? [];
+
+		const byRule = new Map<string, EngineDiagnostic[]>();
+		for (const d of result.diagnostics) {
+			const code = diagCode(d);
+			const arr = byRule.get(code) ?? [];
+			arr.push(d);
+			byRule.set(code, arr);
+		}
+
+		const ruleCodes = [...byRule.keys()].sort((a, b) => {
+			const ac = byRule.get(a)?.length ?? 0;
+			const bc = byRule.get(b)?.length ?? 0;
+			return bc - ac || a.localeCompare(b);
+		});
+
+		for (const code of ruleCodes) {
+			const allDiags = (byRule.get(code) ?? []).slice().sort((a, b) => {
+				const aUri = toRepoRelativePath(repoRoot, a.uri);
+				const bUri = toRepoRelativePath(repoRoot, b.uri);
+				const aLine = a.range?.start?.line ?? 0;
+				const bLine = b.range?.start?.line ?? 0;
+				const aChar = a.range?.start?.character ?? 0;
+				const bChar = b.range?.start?.character ?? 0;
+				return aUri.localeCompare(bUri) || aLine - bLine || aChar - bChar;
+			});
+
 			let e = 0;
 			let w = 0;
-			for (const d of fileDiags) {
+			for (const d of allDiags) {
 				if (d.severity === 1) e++;
 				else if (d.severity === 2) w++;
 			}
+
+			const maxPerRule = opts?.maxDiagnosticsPerRule;
+			const diags =
+				typeof maxPerRule === "number" && Number.isFinite(maxPerRule) && maxPerRule > 0
+					? allDiags.slice(0, maxPerRule)
+					: allDiags;
+
 			lines.push("<details>");
 			lines.push(
-				`<summary><code>${escapeMd(repoRel)}</code> — ${fileDiags.length} diagnostics (errors: ${e}, warnings: ${w})</summary>`,
+				`<summary><code>${escapeMd(code)}</code> — ${allDiags.length} diagnostics (errors: ${e}, warnings: ${w})</summary>`,
 			);
 			lines.push("");
-			lines.push("| Severity | Line | Code | Message |");
-			lines.push("| --- | ---: | --- | --- |");
-			const diags = (byFile.get(uri) ?? []).slice().sort((a, b) => {
-				return (
-					(a.range?.start?.line ?? 0) - (b.range?.start?.line ?? 0) ||
-					(a.range?.start?.character ?? 0) - (b.range?.start?.character ?? 0)
-				);
-			});
+			lines.push("| Severity | File | Location | Message |");
+			lines.push("| --- | --- | --- | --- |");
+
 			for (const d of diags) {
+				const repoRel = toRepoRelativePath(repoRoot, d.uri);
+				const r = diagRange(d);
+				const fileUrl = github ? githubBlobUrl(github, repoRel) : repoRel;
+				const locUrl = github ? githubBlobUrl(github, repoRel, r.anchor) : `${repoRel}${r.anchor}`;
 				lines.push(
-					`| ${severityLabel(d.severity)} | ${diagLine(d)} | \`${escapeMd(
-						diagCode(d),
-					)}\` | ${escapeMd(d.message ?? "")} |`,
+					`| ${severityLabel(d.severity)} | ${mdLink(
+						`\`${repoRel}\``,
+						fileUrl,
+					)} | ${mdLink(r.label, locUrl)} | ${escapeMd(d.message ?? "")} |`,
 				);
 			}
+
 			lines.push("");
+			if (diags.length < allDiags.length) {
+				lines.push(
+					`_Showing ${diags.length} of ${allDiags.length} diagnostics for this rule. See the workflow artifact for the full list._`,
+				);
+				lines.push("");
+			}
 			lines.push("</details>");
 			lines.push("");
 		}

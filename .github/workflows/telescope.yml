@@ -43,7 +43,6 @@ jobs:
           bun ./packages/telescope-server/src/cli/index.ts ci \
             --workspace packages/test-files \
             --comment-pr \
-            --comment-review \
             --report-md telescope-report.md
 
       - name: Upload Telescope report artifact

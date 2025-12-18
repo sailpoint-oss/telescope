@@ -1,6 +1,12 @@
 import type { Diagnostic as EngineDiagnostic } from "../engine/index.js";
 import { repoRelativePathFromDiagnostic } from "./gating.js";
 
+export interface GitHubBlobContext {
+	owner: string;
+	repo: string;
+	sha: string;
+}
+
 export interface PullRequestContext {
 	owner: string;
 	repo: string;
@@ -140,8 +146,22 @@ export class GitHubClient {
 	}
 }
 
+function githubBlobUrl(ctx: GitHubBlobContext, repoRelPath: string, anchor?: string): string {
+	const cleanPath = repoRelPath.replace(/^\/+/, "");
+	const cleanAnchor = anchor ? (anchor.startsWith("#") ? anchor : `#${anchor}`) : "";
+	return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.sha}/${cleanPath}${cleanAnchor}`;
+}
+
+function diagRangeAnchor(d: EngineDiagnostic): { label: string; anchor: string } {
+	const startLine = Math.max(1, (d.range?.start?.line ?? 0) + 1);
+	const endLine = Math.max(startLine, (d.range?.end?.line ?? d.range?.start?.line ?? 0) + 1);
+	if (endLine === startLine) return { label: `L${startLine}`, anchor: `#L${startLine}` };
+	return { label: `L${startLine}-L${endLine}`, anchor: `#L${startLine}-L${endLine}` };
+}
+
 export function buildPrSummaryComment(opts: {
 	marker: string;
+	github: GitHubBlobContext;
 	workspacePath: string;
 	diagnostics: EngineDiagnostic[];
 	changedFiles: Set<string>;
@@ -170,7 +190,11 @@ export function buildPrSummaryComment(opts: {
 
 	const lines: string[] = [];
 	lines.push(opts.marker);
-	lines.push("## Telescope CI (PR delta)");
+	lines.push("## Telescope CI — PR delta (changed files)");
+	lines.push("");
+	lines.push(
+		"This report contains validation notes on all changed files in this PR.",
+	);
 	lines.push("");
 	lines.push(
 		`Changed files with diagnostics: **${byFile.size}** (errors: **${totalE}**, warnings: **${totalW}**)`,
@@ -193,12 +217,14 @@ export function buildPrSummaryComment(opts: {
 			if (d.severity === 1) e++;
 			else if (d.severity === 2) w++;
 		}
-		lines.push(`| [\`${f}\`](${f}) | ${e} | ${w} | ${diags.length} |`);
+		lines.push(
+			`| [\`${f}\`](${githubBlobUrl(opts.github, f)}) | ${e} | ${w} | ${diags.length} |`,
+		);
 	}
 	lines.push("");
 
 	for (const f of files) {
-		lines.push(`### \`${f}\``);
+		lines.push(`### [\`${f}\`](${githubBlobUrl(opts.github, f)})`);
 		lines.push("");
 		const diags = (byFile.get(f) ?? []).slice().sort((a, b) => {
 			return (
@@ -208,10 +234,11 @@ export function buildPrSummaryComment(opts: {
 		});
 		const limited = diags.slice(0, opts.maxPerFile);
 		for (const d of limited) {
-			const line = (d.range?.start?.line ?? 0) + 1;
 			const code = d.code?.toString() ?? "unknown";
 			const sev = d.severity === 1 ? "error" : d.severity === 2 ? "warning" : "notice";
-			lines.push(`- L${line} **${sev}** \`${code}\`: ${d.message ?? ""}`);
+			const r = diagRangeAnchor(d);
+			const url = githubBlobUrl(opts.github, f, r.anchor);
+			lines.push(`- [${r.label}](${url}) **${sev}** \`${code}\`: ${d.message ?? ""}`);
 		}
 		if (diags.length > limited.length) {
 			lines.push(`- …and ${diags.length - limited.length} more`);
@@ -229,36 +256,113 @@ export function splitCommentIntoParts(opts: {
 	maxChars: number;
 	marker: string;
 }): string[] {
+	// Keep the marker stable at the top for idempotent updates across runs.
+	// Add a visible part footer at the bottom for human readability.
 	if (opts.body.length <= opts.maxChars) return [opts.body];
 
-	const chunks: string[] = [];
-	const lines = opts.body.split("\n");
-	let cur: string[] = [];
-	let curLen = 0;
+	const now = new Date().toISOString();
+	const allLines = opts.body.split("\n");
+	const markerLineIdx = allLines.findIndex((l) => l.includes(opts.marker));
+	const markerLine = markerLineIdx >= 0 ? allLines[markerLineIdx] : opts.marker;
+	const restLines = allLines.slice(markerLineIdx >= 0 ? markerLineIdx + 1 : 0);
 
-	const pushCur = () => {
-		if (cur.length === 0) return;
-		chunks.push(cur.join("\n"));
-		cur = [];
-		curLen = 0;
+	// Split safely on <details> blocks (so we never cut a table/details in half).
+	const detailsBlocks: string[] = [];
+	let preamble = restLines.join("\n");
+
+	const firstDetailsIdx = restLines.findIndex((l) => l.trim() === "<details>");
+	if (firstDetailsIdx >= 0) {
+		const prefixLines = restLines.slice(0, firstDetailsIdx);
+		preamble = prefixLines.join("\n").trimEnd();
+
+		let i = firstDetailsIdx;
+		while (i < restLines.length) {
+			const line = restLines[i] ?? "";
+			if (line.trim() !== "<details>") {
+				i++;
+				continue;
+			}
+			const block: string[] = [line];
+			i++;
+			while (i < restLines.length) {
+				block.push(restLines[i] ?? "");
+				if ((restLines[i] ?? "").trim() === "</details>") {
+					i++;
+					// Attach any immediate blank line after </details> so spacing stays correct.
+					while (i < restLines.length && (restLines[i] ?? "").trim() === "") {
+						block.push(restLines[i] ?? "");
+						i++;
+					}
+					break;
+				}
+				i++;
+			}
+			detailsBlocks.push(block.join("\n").trimEnd());
+		}
+	}
+
+	// If there were no <details> blocks, fall back to paragraph splitting.
+	const blocks =
+		detailsBlocks.length > 0
+			? detailsBlocks
+			: restLines
+					.join("\n")
+					.split(/\n{2,}/)
+					.map((p) => p.trimEnd())
+					.filter(Boolean);
+
+	const headerFirst = `${markerLine}\n${preamble}\n`.trimEnd();
+	const headerContinued = `${markerLine}\n\n_Continued…_\n`;
+
+	const pages: string[] = [];
+	const footerFor = (n: number, m: number) =>
+		`\n---\n_Part ${n}/${m} • Updated ${now}_\n`;
+
+	// Conservative estimate; we’ll add the real footer after we know total parts.
+	const footerEstimateLen = footerFor(999, 999).length;
+	const maxBodyChars = Math.max(1000, opts.maxChars - footerEstimateLen);
+
+	const headerFirstTrim = headerFirst.trimEnd();
+	const headerContinuedTrim = headerContinued.trimEnd();
+
+	let cur = headerFirstTrim;
+
+	const flush = () => {
+		const trimmed = cur.trimEnd();
+		// Avoid emitting empty continuation-only pages.
+		if (trimmed.trim() && trimmed !== headerContinuedTrim) pages.push(trimmed);
+		cur = headerContinuedTrim;
 	};
 
-	for (const line of lines) {
-		const addLen = line.length + 1;
-		if (curLen + addLen > opts.maxChars && curLen > 0) pushCur();
-		cur.push(line);
-		curLen += addLen;
-	}
-	pushCur();
+	for (const b of blocks) {
+		const block = b.trimEnd();
+		const candidate = `${cur}\n\n${block}`.trimEnd();
 
-	// Re-write markers with part numbers.
-	const total = chunks.length;
-	return chunks.map((c, idx) => {
-		const partMarker = `${opts.marker} part:${idx + 1}/${total}`;
-		if (c.startsWith(opts.marker)) {
-			return `${partMarker}\n${c.slice(opts.marker.length).replace(/^\s*\n?/, "")}`;
+		// If it won't fit and we already have content beyond the header, start a new page.
+		if (candidate.length > maxBodyChars && cur !== headerFirstTrim) {
+			flush();
 		}
-		return `${partMarker}\n${c}`;
+
+		const candidate2 = `${cur}\n\n${block}`.trimEnd();
+		// Still too large (single block too big). Fall back to truncating this block.
+		if (candidate2.length > maxBodyChars) {
+			const available = Math.max(0, maxBodyChars - cur.length - 2);
+			const truncated = available > 0 ? `${block.slice(0, available)}\n\n_…truncated (see artifact for full output)._` : "_…truncated (see artifact for full output)._";
+			cur = `${cur}\n\n${truncated}`.trimEnd();
+			flush();
+			continue;
+		}
+
+		cur = candidate2;
+	}
+	if (cur.trimEnd().trim() && cur.trimEnd() !== headerContinuedTrim) pages.push(cur.trimEnd());
+
+	const total = pages.length;
+	return pages.map((p, idx) => {
+		const withFooter = `${p}${footerFor(idx + 1, total)}`;
+		// Hard cap safety: if we somehow exceed maxChars, slice the tail.
+		if (withFooter.length <= opts.maxChars) return withFooter;
+		return `${withFooter.slice(0, opts.maxChars - 100)}\n\n_…truncated._\n${footerFor(idx + 1, total)}`;
 	});
 }
 

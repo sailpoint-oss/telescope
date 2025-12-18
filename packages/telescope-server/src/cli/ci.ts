@@ -9,7 +9,6 @@ import { computeChangedLinesFromGitDiff } from "./diff.js";
 import { computeGates } from "./gating.js";
 import { writeMarkdownReport } from "./report.js";
 import {
-	buildInlineReviewComments,
 	buildPrSummaryComment,
 	GitHubClient,
 	readPullRequestContextFromEnv,
@@ -144,7 +143,7 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 	// Always emit annotations in CI mode (helps in Actions logs).
 	for (const d of result.diagnostics) console.log(toGithubAnnotation(d));
 
-	// Always write the full markdown artifact.
+	// Always write the full markdown artifact (repo-relative links are fine in artifacts).
 	await writeFile(args.reportMdPath, writeMarkdownReport(result), "utf8");
 
 	// Compute changed files/lines (either from explicit refs or GitHub PR event).
@@ -230,17 +229,17 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 
 		const gh = new GitHubClient({ token, owner: pr.owner, repo: pr.repo });
 
-		if (args.commentPr) {
-			// Full report goes into the PR conversation as a single (updated) comment.
-			const marker = "<!-- telescope-ci:full -->";
-			const body = `${marker}\n${writeMarkdownReport(result)}`;
+		const githubCtx = { owner: pr.owner, repo: pr.repo, sha: pr.headSha };
+		const list = await gh.listIssueComments(pr.pullNumber);
+
+		const upsertPaged = async (marker: string, body: string) => {
 			const parts = splitCommentIntoParts({
 				body,
 				maxChars: args.maxPrCommentChars,
 				marker,
 			});
 
-			const existing = (await gh.listIssueComments(pr.pullNumber))
+			const existing = list
 				.filter((c) => c.body.includes(marker))
 				.sort((a, b) => a.id - b.id);
 
@@ -255,31 +254,47 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 					`${marker}\n_Superseded by the latest Telescope CI run._\n`,
 				);
 			}
-		}
+		};
 
-		if (args.commentReview) {
+		// Delta FIRST (easier mental model for PR authors), then full.
+		if (args.commentPr) {
 			if (!changedFiles) {
 				console.warn(
-					"telescope ci: unable to compute changed files; skipping PR review summary.",
+					"telescope ci: unable to compute changed files; skipping delta PR comment.",
 				);
-				return;
+			} else {
+				const marker = "<!-- telescope-ci:delta -->";
+				const body = buildPrSummaryComment({
+					marker,
+					github: githubCtx,
+					workspacePath: result.workspacePath,
+					diagnostics: result.diagnostics,
+					changedFiles,
+					maxPerFile: args.maxSummaryPerFile,
+				});
+				await upsertPaged(marker, body);
 			}
 
-			// Delta (changed-files) report goes into a PR review summary (no inline comments).
-			const marker = "<!-- telescope-ci:delta -->";
-			const body = buildPrSummaryComment({
+			const marker = "<!-- telescope-ci:full -->";
+			const fullReport = writeMarkdownReport(result, {
+				github: githubCtx,
+				// Keep PR comments readable; the artifact contains the full, untruncated report.
+				maxDiagnosticsPerRule: 50,
+			});
+			const body = [
 				marker,
-				workspacePath: result.workspacePath,
-				diagnostics: result.diagnostics,
-				changedFiles,
-				maxPerFile: args.maxSummaryPerFile,
-			});
+				"## Telescope CI — Full workspace",
+				"",
+				"This report contains a full summary of the designated workspace.",
+				"",
+				fullReport,
+			].join("\n");
+			await upsertPaged(marker, body);
+		}
 
-			await gh.createReview({
-				pullNumber: pr.pullNumber,
-				commitId: pr.headSha,
-				body,
-			});
+		// Legacy flag: keep it non-blocking and non-spammy for now.
+		if (args.commentReview) {
+			// Intentionally no-op: review creation is not idempotent and can spam on every push.
 		}
 	}
 }
