@@ -34,7 +34,6 @@ export async function activate(context: ExtensionContext) {
 		outputChannel.appendLine(
 			formatSetupLog(`Telescope Language Server starting...`),
 		);
-		outputChannel.show(true);
 
 		// Get Node.js runtime path
 		const nodePath = findNodePath();
