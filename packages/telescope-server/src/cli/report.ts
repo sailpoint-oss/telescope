@@ -185,7 +185,7 @@ export function writeMarkdownReport(
 	if (Object.keys(result.byCode).length > 0) {
 		lines.push("## Rules");
 		lines.push("");
-		lines.push("| Rule | Total | E | W | I | H |");
+		lines.push("| Rule | Total | Errors | Warnings | Info | Hints |");
 		lines.push("| --- | ---: | ---: | ---: | ---: | ---: |");
 
 		const byRule = new Map<string, EngineDiagnostic[]>();
@@ -212,8 +212,6 @@ export function writeMarkdownReport(
 			);
 		}
 
-		lines.push("");
-		lines.push("_Legend: E=errors, W=warnings, I=info, H=hints._");
 		lines.push("");
 	}
 
