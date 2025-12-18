@@ -43,6 +43,7 @@ jobs:
           bun ./packages/telescope-server/src/cli/index.ts ci \
             --workspace packages/test-files \
             --comment-pr \
+            --max-pr-comment-chars 18000 \
             --report-md telescope-report.md
 
       - name: Upload Telescope report artifact

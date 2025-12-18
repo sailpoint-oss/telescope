@@ -84,7 +84,15 @@ export class GitHubClient {
 			const text = await res.text().catch(() => "");
 			throw new Error(`GitHub API ${method} ${path} failed: ${res.status} ${res.statusText} ${text}`);
 		}
-		return (await res.json()) as T;
+		// Some endpoints (DELETE) return 204 No Content.
+		if (res.status === 204) return undefined as T;
+		const text = await res.text().catch(() => "");
+		if (!text) return undefined as T;
+		try {
+			return JSON.parse(text) as T;
+		} catch {
+			return undefined as T;
+		}
 	}
 
 	async listIssueComments(pullNumber: number): Promise<
@@ -116,6 +124,13 @@ export class GitHubClient {
 		await this.request("PATCH", `/repos/${this.owner}/${this.repo}/issues/comments/${commentId}`, {
 			body,
 		});
+	}
+
+	async deleteIssueComment(commentId: number): Promise<void> {
+		await this.request(
+			"DELETE",
+			`/repos/${this.owner}/${this.repo}/issues/comments/${commentId}`,
+		);
 	}
 
 	async createReview(opts: {
@@ -316,7 +331,7 @@ export function splitCommentIntoParts(opts: {
 
 	const pages: string[] = [];
 	const footerFor = (n: number, m: number) =>
-		`\n---\n_Part ${n}/${m} • Updated ${now}_\n`;
+		`\n\n---\n\n_Part ${n}/${m} • Updated ${now}_\n`;
 
 	// Conservative estimate; we’ll add the real footer after we know total parts.
 	const footerEstimateLen = footerFor(999, 999).length;
@@ -344,11 +359,34 @@ export function splitCommentIntoParts(opts: {
 		}
 
 		const candidate2 = `${cur}\n\n${block}`.trimEnd();
-		// Still too large (single block too big). Fall back to truncating this block.
+		// Still too large (single block too big). Do NOT raw-slice (can corrupt markdown/HTML).
+		// Instead: if it's a <details> block, keep only its summary and a message.
 		if (candidate2.length > maxBodyChars) {
-			const available = Math.max(0, maxBodyChars - cur.length - 2);
-			const truncated = available > 0 ? `${block.slice(0, available)}\n\n_…truncated (see artifact for full output)._` : "_…truncated (see artifact for full output)._";
-			cur = `${cur}\n\n${truncated}`.trimEnd();
+			if (block.trimStart().startsWith("<details>")) {
+				const lines = block.split("\n");
+				const summaryIdx = lines.findIndex((l) => l.trimStart().startsWith("<summary"));
+				const summaryLine = summaryIdx >= 0 ? lines[summaryIdx] : "<summary>Details omitted</summary>";
+				const condensed = [
+					"<details>",
+					summaryLine,
+					"",
+					"_This section is too large to include in a PR comment page. See the workflow artifact for the complete report._",
+					"",
+					"</details>",
+				].join("\n");
+
+				const c = `${cur}\n\n${condensed}`.trimEnd();
+				if (c.length > maxBodyChars && cur !== headerFirstTrim) {
+					flush();
+					cur = `${cur}\n\n${condensed}`.trimEnd();
+				} else {
+					cur = c;
+				}
+				flush();
+				continue;
+			}
+
+			cur = `${cur}\n\n_This section is too large to include in a PR comment page. See the workflow artifact for the complete report._`.trimEnd();
 			flush();
 			continue;
 		}
@@ -359,10 +397,15 @@ export function splitCommentIntoParts(opts: {
 
 	const total = pages.length;
 	return pages.map((p, idx) => {
-		const withFooter = `${p}${footerFor(idx + 1, total)}`;
+		// Ensure a newline boundary before the footer so `---` is parsed as an HR
+		// (especially after HTML blocks like </details>).
+		const withFooter = `${p.trimEnd()}\n${footerFor(idx + 1, total).trimStart()}`;
 		// Hard cap safety: if we somehow exceed maxChars, slice the tail.
 		if (withFooter.length <= opts.maxChars) return withFooter;
-		return `${withFooter.slice(0, opts.maxChars - 100)}\n\n_…truncated._\n${footerFor(idx + 1, total)}`;
+		return `${opts.marker}\n\n_This page exceeded GitHub comment limits. Please see the workflow artifact for the complete report._${footerFor(
+			idx + 1,
+			total,
+		)}`;
 	});
 }
 

@@ -35,7 +35,8 @@ export function parseCiArgs(argv: string[]): CiCommandArgs {
 	let diffBase: string | undefined;
 	let diffHead: string | undefined;
 	let maxInline = 50;
-	let maxPrCommentChars = 60000;
+	// GitHub PR comments get hard to scan when too long; keep pages compact.
+	let maxPrCommentChars = 18000;
 	let maxSummaryPerFile = 20;
 
 	for (let i = 0; i < argv.length; i++) {
@@ -249,10 +250,8 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 				else await gh.createIssueComment(pr.pullNumber, p);
 			}
 			for (let i = parts.length; i < existing.length; i++) {
-				await gh.updateIssueComment(
-					existing[i]!.id,
-					`${marker}\n_Superseded by the latest Telescope CI run._\n`,
-				);
+				// Clean UX across reruns: delete old pages when the report shrinks.
+				await gh.deleteIssueComment(existing[i]!.id);
 			}
 		};
 
@@ -279,7 +278,7 @@ export async function runCiCommand(argv: string[]): Promise<void> {
 			const fullReport = writeMarkdownReport(result, {
 				github: githubCtx,
 				// Keep PR comments readable; the artifact contains the full, untruncated report.
-				maxDiagnosticsPerRule: 50,
+				maxDiagnosticsPerRule: 20,
 			});
 			const body = [
 				marker,
