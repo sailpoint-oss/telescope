@@ -207,6 +207,13 @@ describe("Pattern Matching", () => {
 		});
 	});
 
+	describe("Known non-OpenAPI file exclusions", () => {
+		it("should never match package.json even if patterns include **/*.json", () => {
+			const uri = URI.file(resolve(workspaceRoot, "package.json")).toString();
+			expect(matchesPattern(uri, ["**/*.json"], workspaceRoots)).toBe(false);
+		});
+	});
+
 	describe("Workspace root resolution", () => {
 		it("should resolve relative paths from workspace root", () => {
 			const uri = URI.file(

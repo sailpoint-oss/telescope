@@ -1,0 +1,13 @@
+openapi: 3.1.0
+info:
+  title: Ref Components
+  version: 1.0.0
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+
+

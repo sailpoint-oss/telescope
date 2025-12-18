@@ -233,4 +233,30 @@ paths:
 		expect(sliceRange(text, userIdDiag.range)).toBe("{userId}");
 		expect(sliceRange(text, postIdDiag.range)).toBe("{postId}");
 	});
+
+	it("should require parameters for embedded template expressions", async () => {
+		const project = await createTestProject(
+			`openapi: 3.1.0
+info:
+  title: Test API
+  version: 1.0.0
+paths:
+  /items{suffix}:
+    get:
+      summary: List items
+      operationId: listItems
+      responses:
+        "200":
+          description: OK`,
+			"file:///test.yaml",
+		);
+
+		const result = runEngine(project, ["file:///test.yaml"], {
+			rules: [pathParamsMatch],
+		});
+
+		expect(
+			hasDiagnostic(result.diagnostics, "path-params-match", "{suffix}"),
+		).toBe(true);
+	});
 });

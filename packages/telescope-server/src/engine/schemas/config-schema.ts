@@ -28,7 +28,7 @@ export type Severity = "off" | "error" | "warn" | "info" | "hint";
 
 // Schema for OpenAPI rule configuration
 export const OpenAPIRuleConfigSchema = z
-	.object({
+	.strictObject({
 		rule: z
 			.string()
 			.meta({ title: "rule" })
@@ -43,7 +43,7 @@ export const OpenAPIRuleConfigSchema = z
 			)
 			.optional(),
 	})
-	.strict()
+
 	.meta({ title: "OpenAPIRuleConfig" })
 	.describe(
 		"Custom OpenAPI rule. Requires rule (file path). Optional pattern (array of glob patterns). Invalid properties cause errors.",
@@ -53,7 +53,7 @@ export type OpenAPIRuleConfig = z.infer<typeof OpenAPIRuleConfigSchema>;
 
 // Schema for AdditionalValidation labeled group
 export const AdditionalValidationGroupSchema = z
-	.object({
+	.strictObject({
 		patterns: z
 			.array(z.string())
 			.meta({ title: "patterns" })
@@ -63,23 +63,21 @@ export const AdditionalValidationGroupSchema = z
 			.optional(),
 		schemas: z
 			.array(
-				z
-					.object({
-						schema: z
-							.string()
-							.meta({ title: "schema" })
-							.describe(
-								"Path to schema file. Supports JSON Schema (.json) and Zod Schema (.ts). Resolved from .telescope/schemas/ or workspace root.",
-							),
-						patterns: z
-							.array(z.string())
-							.meta({ title: "patterns" })
-							.describe(
-								"Glob patterns for files. If omitted, uses group patterns. Valid properties: schema (required), pattern (optional).",
-							)
-							.optional(),
-					})
-					.strict(),
+				z.strictObject({
+					schema: z
+						.string()
+						.meta({ title: "schema" })
+						.describe(
+							"Path to schema file. Supports JSON Schema (.json) and Zod Schema (.ts). Resolved from .telescope/schemas/ or workspace root.",
+						),
+					patterns: z
+						.array(z.string())
+						.meta({ title: "patterns" })
+						.describe(
+							"Glob patterns for files. If omitted, uses group patterns. Valid properties: schema (required), pattern (optional).",
+						)
+						.optional(),
+				}),
 			)
 			.meta({ title: "schemas" })
 			.describe(
@@ -88,23 +86,21 @@ export const AdditionalValidationGroupSchema = z
 			.optional(),
 		rules: z
 			.array(
-				z
-					.object({
-						rule: z
-							.string()
-							.meta({ title: "rule" })
-							.describe(
-								"Path to custom generic rule file. Resolved from .telescope/rules/ or workspace root.",
-							),
-						patterns: z
-							.array(z.string())
-							.meta({ title: "patterns" })
-							.describe(
-								"Glob patterns for files. If omitted, uses group patterns. Valid properties: rule (required), pattern (optional).",
-							)
-							.optional(),
-					})
-					.strict(),
+				z.strictObject({
+					rule: z
+						.string()
+						.meta({ title: "rule" })
+						.describe(
+							"Path to custom generic rule file. Resolved from .telescope/rules/ or workspace root.",
+						),
+					patterns: z
+						.array(z.string())
+						.meta({ title: "patterns" })
+						.describe(
+							"Glob patterns for files. If omitted, uses group patterns. Valid properties: rule (required), pattern (optional).",
+						)
+						.optional(),
+				}),
 			)
 			.meta({ title: "rules" })
 			.describe(
@@ -112,7 +108,7 @@ export const AdditionalValidationGroupSchema = z
 			)
 			.optional(),
 	})
-	.strict()
+
 	.meta({ title: "AdditionalValidationGroup" })
 	.describe(
 		"Additional validation group. Fields: patterns (glob array), schemas (schema array), rules (rule array). All optional.",
@@ -124,9 +120,9 @@ export type AdditionalValidationGroup = z.infer<
 
 // Telescope configuration schema
 export const TelescopeConfigSchema = z
-	.object({
+	.strictObject({
 		openapi: z
-			.object({
+			.strictObject({
 				patterns: z
 					.array(z.string())
 					.meta({ title: "patterns" })
@@ -156,7 +152,7 @@ export const TelescopeConfigSchema = z
 					)
 					.optional(),
 				extensions: z
-					.object({
+					.strictObject({
 						schemas: z
 							.array(z.string())
 							.meta({ title: "schemas" })
@@ -172,14 +168,14 @@ export const TelescopeConfigSchema = z
 							)
 							.optional(),
 					})
-					.strict()
+
 					.meta({ title: "extensions" })
 					.describe(
 						"OpenAPI extension configuration. schemas: custom extension files, required: extension names that must be present.",
 					)
 					.optional(),
 			})
-			.strict()
+
 			.meta({ title: "openapi" })
 			.describe(
 				"OpenAPI configuration. All fields are optional.\n\nFields: patterns, sailpoint, rules, rulesOverrides, extensions",
@@ -193,7 +189,7 @@ export const TelescopeConfigSchema = z
 			)
 			.optional(),
 	})
-	.strict()
+
 	.meta({ title: "TelescopeConfig" })
 	.describe(
 		"Telescope configuration file. Location: .telescope/config.yaml. Top-level keys: OpenAPI, AdditionalValidation. All optional.",

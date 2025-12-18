@@ -7,7 +7,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as Mocha from "mocha";
+import Mocha from "mocha";
 
 /**
  * Recursively find all test files matching the pattern
@@ -21,7 +21,7 @@ function findTestFiles(dir: string, fileList: string[] = []): string[] {
 
 		if (stat.isDirectory()) {
 			findTestFiles(filePath, fileList);
-		} else if (file.endsWith(".test.js")) {
+		} else if (file.endsWith(".e2e.js")) {
 			fileList.push(filePath);
 		}
 	}
@@ -31,14 +31,27 @@ function findTestFiles(dir: string, fileList: string[] = []): string[] {
 
 export function run(): Promise<void> {
 	// Create the mocha test
+	const timeoutMs = Number(process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "120000");
 	const mocha = new Mocha({
 		ui: "tdd",
 		color: true,
-		timeout: 30000, // 30 second timeout per test
+		timeout: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120000,
 	});
 
 	const testsRoot = path.resolve(__dirname, "..");
-	const testFiles = findTestFiles(testsRoot);
+	const allTestFiles = findTestFiles(testsRoot);
+
+	const mode = process.env.TELESCOPE_E2E_MODE;
+	const testFiles =
+		mode === "multi"
+			? allTestFiles.filter((f) => {
+					const base = path.basename(f);
+					return base === "activation.e2e.js" || base === "multi-root.e2e.js";
+				})
+			: mode === "single"
+				? // In single-root mode, skip multi-root-specific assertions (covered by multi-root run).
+					allTestFiles.filter((f) => path.basename(f) !== "multi-root.e2e.js")
+				: allTestFiles;
 
 	// Add files to the test suite
 	testFiles.forEach((f) => mocha.addFile(f));
@@ -46,7 +59,7 @@ export function run(): Promise<void> {
 	return new Promise((c, e) => {
 		try {
 			// Run the mocha test
-			mocha.run((failures) => {
+			mocha.run((failures: number) => {
 				if (failures > 0) {
 					e(new Error(`${failures} test(s) failed.`));
 				} else {

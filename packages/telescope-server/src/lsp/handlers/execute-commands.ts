@@ -48,15 +48,32 @@ export function registerExecuteCommandHandlers(
 
 			switch (command) {
 				case "telescope.sortTags":
-					return applyFullDocumentRewrite(doc, cached.format, sortTags(cached.parsedObject));
+					await applyFullDocumentRewrite(
+						connection,
+						doc,
+						cached.format,
+						sortTags(cached.parsedObject),
+						"Sort Tags",
+					);
+					return null;
 				case "telescope.sortPaths":
-					return applyFullDocumentRewrite(doc, cached.format, sortPaths(cached.parsedObject));
+					await applyFullDocumentRewrite(
+						connection,
+						doc,
+						cached.format,
+						sortPaths(cached.parsedObject),
+						"Sort Paths",
+					);
+					return null;
 				case "telescope.generateResponseSkeletons":
-					return applyFullDocumentRewrite(
+					await applyFullDocumentRewrite(
+						connection,
 						doc,
 						cached.format,
 						generateResponseSkeletons(cached.parsedObject),
+						"Generate Response Skeletons",
 					);
+					return null;
 				default:
 					return null;
 			}
@@ -69,11 +86,13 @@ export function registerExecuteCommandHandlers(
 	});
 }
 
-function applyFullDocumentRewrite(
+async function applyFullDocumentRewrite(
+	connection: Connection,
 	doc: TextDocument,
 	format: "yaml" | "json",
 	obj: unknown,
-): WorkspaceEdit {
+	label: string,
+): Promise<void> {
 	const newText =
 		format === "yaml"
 			? `${yaml.stringify(obj, { indent: 2 }).trimEnd()}\n`
@@ -85,7 +104,8 @@ function applyFullDocumentRewrite(
 		newText,
 	};
 
-	return { changes: { [doc.uri]: [edit] } };
+	const workspaceEdit: WorkspaceEdit = { changes: { [doc.uri]: [edit] } };
+	await connection.workspace.applyEdit({ label, edit: workspaceEdit });
 }
 
 function sortTags(root: unknown): unknown {

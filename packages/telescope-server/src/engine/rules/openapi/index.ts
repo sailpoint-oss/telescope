@@ -33,7 +33,9 @@ import operationIdUniqueInPath from "./paths/id-unique-in-path.js";
 import pathKebabCase from "./paths/kebab-case.js";
 import pathNoHttpVerbs from "./paths/no-http-verbs.js";
 import pathNoTrailingSlash from "./paths/no-trailing-slash.js";
+import pathParamValuesNoGenericSyntax from "./paths/path-param-values-no-generic-syntax.js";
 import pathParamsMatch from "./paths/params-match.js";
+import pathTemplateValid from "./paths/template-valid.js";
 // References rules
 import unresolvedRef from "./references/unresolved-ref.js";
 // Security rules
@@ -100,6 +102,8 @@ export const openapiRules: Rule[] = [
 	pathKebabCase,
 	pathNoHttpVerbs,
 	pathNoTrailingSlash,
+	pathParamValuesNoGenericSyntax,
+	pathTemplateValid,
 	pathParamsMatch,
 
 	// Document rules
@@ -149,6 +153,8 @@ export {
 	pathKebabCase,
 	pathNoHttpVerbs,
 	pathNoTrailingSlash,
+	pathParamValuesNoGenericSyntax,
+	pathTemplateValid,
 	pathParamsMatch,
 	// Document rules
 	documentAscii,

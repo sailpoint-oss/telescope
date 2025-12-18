@@ -12,6 +12,38 @@ import type { z } from "zod/v4";
 export interface SetOpenAPIFilesParams {
 	/** Array of file URIs classified as OpenAPI documents */
 	files: string[];
+	/**
+	 * Monotonic version counter for the client-side OpenAPI file list for this workspace.
+	 * Used to detect missed deltas and request a full resync.
+	 */
+	version?: number;
+}
+
+/**
+ * Parameters for the telescope/didChangeOpenApiFiles notification.
+ * Sent from client to server after initial `setOpenAPIFiles`.
+ */
+export interface DidChangeOpenApiFilesParams {
+	added: string[];
+	removed: string[];
+	/**
+	 * OpenAPI files that changed on disk (content changed but still OpenAPI).
+	 * This allows server-side caches/indexes to invalidate without changing membership.
+	 */
+	changed?: string[];
+	/** Monotonic version counter (must increment by 1 for each delta). */
+	version: number;
+}
+
+/**
+ * Server→client request asking the client to perform a full resync of OpenAPI files.
+ */
+export interface RequestOpenApiFilesResyncParams {
+	reason?: string;
+}
+
+export interface RequestOpenApiFilesResyncResult {
+	success: boolean;
 }
 
 /**

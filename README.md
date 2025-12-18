@@ -74,6 +74,20 @@ openapi:
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration reference.
 
+### OpenAPI detection (high-level)
+
+- Files are discovered repo-wide using your configured `openapi.patterns`.
+- Files are classified as OpenAPI using a lightweight check for the `openapi` (3.x) or `swagger` (2.0) root key.
+- When you open a classified file, the extension applies the custom language mode (`openapi-yaml` / `openapi-json`) for correct tokenization and grammars.
+
+### Multi-root workspaces
+
+Multi-root workspaces are supported. Telescope runs **one language server per workspace folder** to keep projects isolated.
+
+### Debug logging
+
+Use the `telescope.trace` setting to control LSP trace logging. Keep it `off` unless you’re actively debugging.
+
 ## Architecture
 
 Telescope uses a unified pipeline for consistent diagnostics:
@@ -167,11 +181,17 @@ See [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for the full custom rules guide
 # Install dependencies
 pnpm install
 
-# Run tests
+# Run unit tests
 bun test
 
 # Build all packages
 pnpm build
+
+# VS Code extension E2E (integration) tests
+# (downloads a VS Code build into packages/telescope-client/.vscode-test)
+pnpm --filter telescope-client test:e2e:compile
+pnpm --filter telescope-client test:e2e:run:single
+pnpm --filter telescope-client test:e2e:run:multi
 
 # Run the extension locally (VS Code)
 # Press F5 to launch Extension Development Host

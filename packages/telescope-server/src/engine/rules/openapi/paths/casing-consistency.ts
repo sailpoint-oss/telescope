@@ -1,4 +1,8 @@
 import { defineRule, type Rule } from "../../api.js";
+import {
+	segmentContainsTemplateExpression,
+	stripTemplateExpressions,
+} from "./path-template.js";
 
 /**
  * Casing patterns
@@ -11,11 +15,6 @@ const PATTERNS = {
 };
 
 type CasingStyle = keyof typeof PATTERNS;
-
-/**
- * Path parameter pattern.
- */
-const PATH_PARAM_PATTERN = /^\{[^}]+\}$/;
 
 /**
  * Path Casing Consistency Rule
@@ -55,7 +54,18 @@ const pathCasingConsistency: Rule = defineRule({
 				// Get all non-parameter segments
 				const segments = path
 					.split("/")
-					.filter((s) => s.length > 0 && !PATH_PARAM_PATTERN.test(s));
+					.map((s) => {
+						if (s.length === 0) return "";
+						const hasTemplate = segmentContainsTemplateExpression(s);
+						const literal = stripTemplateExpressions(s);
+						if (literal.length === 0) return "";
+						// Avoid false positives for mixed segments like `users-{id}` -> `users-`
+						if (hasTemplate && (literal.startsWith("-") || literal.endsWith("-"))) {
+							return "";
+						}
+						return literal;
+					})
+					.filter((s) => s.length > 0);
 
 				if (segments.length === 0) return;
 

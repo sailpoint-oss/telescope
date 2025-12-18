@@ -20,7 +20,7 @@ export const xScalarEnvironments: ExtensionSchemaMeta = defineExtension({
 	schema: (z) =>
 		z.record(
 			z.string(),
-			z.object({
+			z.strictObject({
 				description: z.string().optional(),
 				color: z.string().optional(),
 				variables: z
@@ -28,7 +28,7 @@ export const xScalarEnvironments: ExtensionSchemaMeta = defineExtension({
 						z.string(),
 						z.union([
 							z.string(),
-							z.object({
+							z.strictObject({
 								description: z.string().optional(),
 								default: z.string(),
 							}),
@@ -62,7 +62,7 @@ export const xScalarSdkInstallation: ExtensionSchemaMeta = defineExtension({
 	url: "https://github.com/scalar/scalar/blob/main/documentation/openapi.md",
 	schema: (z) =>
 		z.array(
-			z.object({
+			z.strictObject({
 				lang: z.string(),
 				description: z.string().optional(),
 				source: z.string().optional(),
@@ -112,7 +112,7 @@ export const xScalarCodeSamples: ExtensionSchemaMeta = defineExtension({
 	url: "https://github.com/scalar/scalar/blob/main/documentation/openapi.md",
 	schema: (z) =>
 		z.array(
-			z.object({
+			z.strictObject({
 				lang: z.string(),
 				label: z.string().optional(),
 				source: z.string(),

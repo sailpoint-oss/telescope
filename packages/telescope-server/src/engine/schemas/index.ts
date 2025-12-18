@@ -7,37 +7,7 @@
  * Supports OpenAPI 3.0, 3.1, and 3.2 specifications with version-specific schemas.
  */
 
-// =============================================================================
-// OpenAPI 2.0 (Swagger 2.0) Schemas
-// =============================================================================
-export {
-	type Contact2,
-	Contact2Schema,
-	type ExternalDocs2,
-	ExternalDocs2Schema,
-	type Info2,
-	Info2Schema,
-	type OpenAPI2,
-	OpenAPI2Schema,
-	type Operation2,
-	Operation2Schema,
-	type Parameter2,
-	Parameter2Schema,
-	type PathItem2,
-	PathItem2Schema,
-	type Paths2,
-	Paths2Schema,
-	type Reference2,
-	Reference2Schema,
-	type Response2,
-	Response2Schema,
-	type Responses2,
-	Responses2Schema,
-	type SchemaObject2,
-	SchemaObject2Schema,
-	type Tag2,
-	Tag2Schema,
-} from "./openapi-2.0-module.js";
+import type { z } from "zod";
 
 // =============================================================================
 // Telescope Configuration Schema
@@ -52,6 +22,58 @@ export {
 	type TelescopeConfig,
 	TelescopeConfigSchema,
 } from "./config-schema.js";
+// =============================================================================
+// OpenAPI 2.0 (Swagger 2.0) Schemas
+// =============================================================================
+export {
+	Contact2Schema,
+	ExternalDocs2Schema,
+	Info2Schema,
+	OpenAPI2Schema,
+	Operation2Schema,
+	Parameter2Schema,
+	PathItem2Schema,
+	Paths2Schema,
+	Response2Schema,
+	Responses2Schema,
+	SchemaObject2Schema,
+	Tag2Schema,
+} from "./openapi-2.0-module.js";
+
+export type Contact2 = z.infer<
+	typeof import("./openapi-2.0-module.js").Contact2Schema
+>;
+export type ExternalDocs2 = z.infer<
+	typeof import("./openapi-2.0-module.js").ExternalDocs2Schema
+>;
+export type Info2 = z.infer<
+	typeof import("./openapi-2.0-module.js").Info2Schema
+>;
+export type OpenAPI2 = z.infer<
+	typeof import("./openapi-2.0-module.js").OpenAPI2Schema
+>;
+export type Operation2 = z.infer<
+	typeof import("./openapi-2.0-module.js").Operation2Schema
+>;
+export type Parameter2 = z.infer<
+	typeof import("./openapi-2.0-module.js").Parameter2Schema
+>;
+export type PathItem2 = z.infer<
+	typeof import("./openapi-2.0-module.js").PathItem2Schema
+>;
+export type Paths2 = z.infer<
+	typeof import("./openapi-2.0-module.js").Paths2Schema
+>;
+export type Response2 = z.infer<
+	typeof import("./openapi-2.0-module.js").Response2Schema
+>;
+export type Responses2 = z.infer<
+	typeof import("./openapi-2.0-module.js").Responses2Schema
+>;
+export type SchemaObject2 = z.infer<
+	typeof import("./openapi-2.0-module.js").SchemaObject2Schema
+>;
+export type Tag2 = z.infer<typeof import("./openapi-2.0-module.js").Tag2Schema>;
 
 // =============================================================================
 // OpenAPI 3.0 Schemas
@@ -59,234 +81,289 @@ export {
 export {
 	ArraySchema30,
 	BooleanSchema30,
-	type Callback30,
 	Callback30Schema,
-	type Components30,
 	Components30Schema,
 	// Types
-	type Contact30,
 	// Individual schemas
 	Contact30Schema,
-	type Discriminator30,
 	Discriminator30Schema,
-	type Encoding30,
 	Encoding30Schema,
-	type Example30,
 	Example30Schema,
-	type ExternalDocumentation30,
 	ExternalDocumentation30Schema,
-	FileRef30Schema,
-	type Header30,
 	Header30Schema,
-	type Info30,
 	Info30Schema,
 	IntegerSchema30,
-	InternalRef30Schema,
-	type License30,
 	License30Schema,
-	type Link30,
 	Link30Schema,
-	type MediaType30,
 	MediaType30Schema,
 	NumberSchema30,
-	type OAuthFlow30,
 	OAuthFlow30Schema,
-	type OAuthFlows30,
 	OAuthFlows30Schema,
 	ObjectSchema30,
-	type OpenAPI30,
-	OpenAPI30Schema,
-	type OpenAPI3,
 	OpenAPI3Schema,
-	type Operation30,
+	OpenAPI30Schema,
 	Operation30Schema,
-	type Parameter30,
 	Parameter30Schema,
-	type PathItem30,
 	PathItem30Schema,
-	type Paths30,
 	Paths30Schema,
-	type Reference30,
-	Reference30Schema,
-	type RequestBody30,
 	RequestBody30Schema,
-	type Response30,
 	Response30Schema,
-	type Responses30,
 	Responses30Schema,
-	type SchemaObject30,
 	SchemaObject30Schema,
-	type SecurityRequirement30,
 	SecurityRequirement30Schema,
-	type SecurityScheme30,
 	SecurityScheme30Schema,
-	type Server30,
 	Server30Schema,
-	type ServerVariable30,
 	ServerVariable30Schema,
 	StringSchema30,
-	type Tag30,
 	Tag30Schema,
-	UrlRef30Schema,
-	type XML30,
 	XML30Schema,
 } from "./openapi-3.0-module.js";
 
+export type Callback30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Callback30Schema
+>;
+export type Components30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Components30Schema
+>;
+export type Contact30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Contact30Schema
+>;
+export type Discriminator30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Discriminator30Schema
+>;
+export type Encoding30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Encoding30Schema
+>;
+export type Example30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Example30Schema
+>;
+export type ExternalDocumentation30 = z.infer<
+	typeof import("./openapi-3.0-module.js").ExternalDocumentation30Schema
+>;
+export type Header30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Header30Schema
+>;
+export type Info30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Info30Schema
+>;
+export type License30 = z.infer<
+	typeof import("./openapi-3.0-module.js").License30Schema
+>;
+export type Link30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Link30Schema
+>;
+export type MediaType30 = z.infer<
+	typeof import("./openapi-3.0-module.js").MediaType30Schema
+>;
+export type OAuthFlow30 = z.infer<
+	typeof import("./openapi-3.0-module.js").OAuthFlow30Schema
+>;
+export type OAuthFlows30 = z.infer<
+	typeof import("./openapi-3.0-module.js").OAuthFlows30Schema
+>;
+export type OpenAPI3 = z.infer<
+	typeof import("./openapi-3.0-module.js").OpenAPI3Schema
+>;
+export type OpenAPI30 = z.infer<
+	typeof import("./openapi-3.0-module.js").OpenAPI30Schema
+>;
+export type Operation30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Operation30Schema
+>;
+export type Parameter30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Parameter30Schema
+>;
+export type PathItem30 = z.infer<
+	typeof import("./openapi-3.0-module.js").PathItem30Schema
+>;
+export type Paths30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Paths30Schema
+>;
+export type RequestBody30 = z.infer<
+	typeof import("./openapi-3.0-module.js").RequestBody30Schema
+>;
+export type Response30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Response30Schema
+>;
+export type Responses30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Responses30Schema
+>;
+export type SchemaObject30 = z.infer<
+	typeof import("./openapi-3.0-module.js").SchemaObject30Schema
+>;
+export type SecurityRequirement30 = z.infer<
+	typeof import("./openapi-3.0-module.js").SecurityRequirement30Schema
+>;
+export type SecurityScheme30 = z.infer<
+	typeof import("./openapi-3.0-module.js").SecurityScheme30Schema
+>;
+export type Server30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Server30Schema
+>;
+export type ServerVariable30 = z.infer<
+	typeof import("./openapi-3.0-module.js").ServerVariable30Schema
+>;
+export type Tag30 = z.infer<
+	typeof import("./openapi-3.0-module.js").Tag30Schema
+>;
+export type XML30 = z.infer<
+	typeof import("./openapi-3.0-module.js").XML30Schema
+>;
 // =============================================================================
 // OpenAPI 3.1 Schemas
 // =============================================================================
 export {
 	ArraySchema31,
 	BooleanSchema31,
-	type Callback31,
 	Callback31Schema,
-	type Components31,
 	Components31Schema,
 	// Types
-	type Contact31,
 	// Individual schemas
 	Contact31Schema,
-	type Discriminator31,
 	Discriminator31Schema,
-	type Encoding31,
 	Encoding31Schema,
-	type Example31,
 	Example31Schema,
-	type ExternalDocumentation31,
 	ExternalDocumentation31Schema,
-	FileRef31Schema,
-	type Header31,
 	Header31Schema,
-	type Info31,
 	Info31Schema,
 	IntegerSchema31,
-	InternalRef31Schema,
-	type License31,
 	License31Schema,
-	type Link31,
 	Link31Schema,
-	type MediaType31,
 	MediaType31Schema,
 	NullSchema31,
 	NumberSchema31,
-	type OAuthFlow31,
 	OAuthFlow31Schema,
-	type OAuthFlows31,
 	OAuthFlows31Schema,
 	ObjectSchema31,
-	type OpenAPI31,
 	OpenAPI31Schema,
-	type Operation31,
 	Operation31Schema,
-	type Parameter31,
 	Parameter31Schema,
-	type PathItem31,
 	PathItem31Schema,
-	type Paths31,
 	Paths31Schema,
-	type Reference31,
-	Reference31Schema,
-	type RequestBody31,
 	RequestBody31Schema,
-	type Response31,
 	Response31Schema,
-	type Responses31,
 	Responses31Schema,
-	type SchemaObject31,
 	SchemaObject31Schema,
-	type SecurityRequirement31,
 	SecurityRequirement31Schema,
-	type SecurityScheme31,
 	SecurityScheme31Schema,
-	type Server31,
 	Server31Schema,
-	type ServerVariable31,
 	ServerVariable31Schema,
 	StringSchema31,
-	type Tag31,
 	Tag31Schema,
-	UrlRef31Schema,
-	type XML31,
 	XML31Schema,
 } from "./openapi-3.1-module.js";
+
+export type Callback31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Callback31Schema
+>;
+export type Components31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Components31Schema
+>;
+export type Contact31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Contact31Schema
+>;
+export type Discriminator31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Discriminator31Schema
+>;
+export type Encoding31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Encoding31Schema
+>;
+export type Example31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Example31Schema
+>;
+export type ExternalDocumentation31 = z.infer<
+	typeof import("./openapi-3.1-module.js").ExternalDocumentation31Schema
+>;
+export type Header31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Header31Schema
+>;
+export type Info31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Info31Schema
+>;
+export type License31 = z.infer<
+	typeof import("./openapi-3.1-module.js").License31Schema
+>;
+export type Link31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Link31Schema
+>;
+export type MediaType31 = z.infer<
+	typeof import("./openapi-3.1-module.js").MediaType31Schema
+>;
+export type OAuthFlow31 = z.infer<
+	typeof import("./openapi-3.1-module.js").OAuthFlow31Schema
+>;
+export type OAuthFlows31 = z.infer<
+	typeof import("./openapi-3.1-module.js").OAuthFlows31Schema
+>;
+export type OpenAPI31 = z.infer<
+	typeof import("./openapi-3.1-module.js").OpenAPI31Schema
+>;
+export type Operation31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Operation31Schema
+>;
+export type Parameter31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Parameter31Schema
+>;
+export type PathItem31 = z.infer<
+	typeof import("./openapi-3.1-module.js").PathItem31Schema
+>;
+export type Paths31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Paths31Schema
+>;
+export type RequestBody31 = z.infer<
+	typeof import("./openapi-3.1-module.js").RequestBody31Schema
+>;
+export type Response31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Response31Schema
+>;
+export type Responses31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Responses31Schema
+>;
+export type SchemaObject31 = z.infer<
+	typeof import("./openapi-3.1-module.js").SchemaObject31Schema
+>;
+export type SecurityRequirement31 = z.infer<
+	typeof import("./openapi-3.1-module.js").SecurityRequirement31Schema
+>;
+export type SecurityScheme31 = z.infer<
+	typeof import("./openapi-3.1-module.js").SecurityScheme31Schema
+>;
+export type Server31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Server31Schema
+>;
+export type ServerVariable31 = z.infer<
+	typeof import("./openapi-3.1-module.js").ServerVariable31Schema
+>;
+export type Tag31 = z.infer<
+	typeof import("./openapi-3.1-module.js").Tag31Schema
+>;
+export type XML31 = z.infer<
+	typeof import("./openapi-3.1-module.js").XML31Schema
+>;
 
 // =============================================================================
 // OpenAPI 3.2 Schemas
 // =============================================================================
 export {
-	ArraySchema32,
-	BooleanSchema32,
-	type Callback32,
 	Callback32Schema,
-	type Components32,
 	Components32Schema,
-	// Types
-	type Contact32,
-	// Individual schemas
-	Contact32Schema,
-	type Discriminator32,
-	Discriminator32Schema,
-	type Encoding32,
-	Encoding32Schema,
-	type Example32,
 	Example32Schema,
-	type ExternalDocumentation32,
-	ExternalDocumentation32Schema,
-	FileRef32Schema,
-	type Header32,
 	Header32Schema,
-	type Info32,
-	Info32Schema,
-	IntegerSchema32,
-	InternalRef32Schema,
-	type License32,
-	License32Schema,
-	type Link32,
 	Link32Schema,
-	type MediaType32,
-	MediaType32Schema,
-	NullSchema32,
-	NumberSchema32,
-	type OAuthFlow32,
-	OAuthFlow32Schema,
-	type OAuthFlows32,
-	OAuthFlows32Schema,
-	ObjectSchema32,
-	type OpenAPI32,
 	OpenAPI32Schema,
-	type Operation32,
 	Operation32Schema,
-	type Parameter32,
 	Parameter32Schema,
-	type PathItem32,
 	PathItem32Schema,
-	type Paths32,
-	Paths32Schema,
-	type Reference32,
-	Reference32Schema,
-	type RequestBody32,
 	RequestBody32Schema,
-	type Response32,
 	Response32Schema,
-	type Responses32,
-	Responses32Schema,
-	type SchemaObject32,
 	SchemaObject32Schema,
-	type SecurityRequirement32,
-	SecurityRequirement32Schema,
-	type SecurityScheme32,
 	SecurityScheme32Schema,
-	type Server32,
-	Server32Schema,
-	type ServerVariable32,
-	ServerVariable32Schema,
-	StringSchema32,
-	type Tag32,
-	Tag32Schema,
-	UrlRef32Schema,
-	type XML32,
-	XML32Schema,
 } from "./openapi-3.2-module.js";
+
+export type OpenAPI32 = z.infer<
+	typeof import("./openapi-3.2-module.js").OpenAPI32Schema
+>;
+
 // =============================================================================
 // Base Schemas (shared primitives - Contact, License, etc.)
 // =============================================================================
@@ -304,6 +381,8 @@ export {
 	type OAuthFlow,
 	OAuthFlowSchema,
 	type Reference,
+	type ReferenceObject,
+	ReferenceObjectSchema,
 	ReferenceSchema,
 	type SecurityRequirement,
 	SecurityRequirementSchema,

@@ -76,6 +76,20 @@ interface ZodIssue {
 	note?: string;
 }
 
+function stripXExtensions(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(stripXExtensions);
+	}
+	if (!value || typeof value !== "object") return value;
+	const obj = value as Record<string, unknown>;
+	const out: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(obj)) {
+		if (k.startsWith("x-")) continue;
+		out[k] = stripXExtensions(v);
+	}
+	return out;
+}
+
 /**
  * Get the appropriate Zod schema for a document based on its version and type.
  */
@@ -397,7 +411,13 @@ function zodIssueToDiagnostic(
 	if (issue.code === "invalid_union") {
 		const bestError = extractBestUnionError(issue);
 		if (bestError) {
-			return zodIssueToDiagnostic(bestError, doc, rootSchema);
+			// Union branch errors are often reported with paths relative to the union input.
+			// Preserve the full location by prefixing the parent union path.
+			const merged: ZodIssue = {
+				...bestError,
+				path: [...issue.path, ...(bestError.path ?? [])],
+			};
+			return zodIssueToDiagnostic(merged, doc, rootSchema);
 		}
 	}
 
@@ -593,7 +613,7 @@ export function validateDocumentStructure(
 	}
 
 	// Validate the document AST against the schema
-	const result = schema.safeParse(doc.ast);
+	const result = schema.safeParse(stripXExtensions(doc.ast));
 	const diagnostics: EngineDiagnostic[] = [];
 
 	if (!result.success) {

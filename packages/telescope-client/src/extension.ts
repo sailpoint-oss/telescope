@@ -63,6 +63,7 @@ export async function activate(context: ExtensionContext) {
 			nodePath,
 			outputChannel,
 			statusBarItem,
+			extensionContext: context,
 		});
 
 		context.subscriptions.push(sessionManager);
@@ -201,6 +202,31 @@ export async function activate(context: ExtensionContext) {
 				window.showInformationMessage("Telescope language servers restarted");
 			}),
 		);
+
+		// --------------------------------------------------------------------
+		// Server refactor commands (multi-root safe)
+		// --------------------------------------------------------------------
+		// In multi-root workspaces, we run one language server per folder. The default
+		// vscode-languageclient ExecuteCommandFeature tries to register these command IDs
+		// once per client, which conflicts. We register them once here and route execution
+		// to the owning session instead.
+		const refactorCommands = [
+			"telescope.sortTags",
+			"telescope.sortPaths",
+			"telescope.generateResponseSkeletons",
+		] as const;
+		for (const cmd of refactorCommands) {
+			context.subscriptions.push(
+				commands.registerCommand(cmd, async (uri?: vscode.Uri) => {
+					if (!sessionManager) return;
+					const doc = await getDocument(uri);
+					if (!doc) return;
+					const session = sessionManager.getSessionForUri(doc.uri);
+					if (!session) return;
+					await session.executeServerCommand(cmd, [doc.uri.toString()]);
+				}),
+			);
+		}
 
 		// Bridge for server-provided CodeLens clicks:
 		// Convert LSP protocol args to VS Code objects and call the built-in references UI.
@@ -506,8 +532,19 @@ export async function activate(context: ExtensionContext) {
 					}
 					await new Promise((resolve) => setTimeout(resolve, 100));
 				}
+				const states = sessionManager
+					? sessionManager.getAllSessions().map((s) => ({
+							folder: s.workspaceFolder.name,
+							state: s.state,
+							error: s.lastStartError,
+						}))
+					: [];
+				const folderNames =
+					vscode.workspace.workspaceFolders?.map((f) => f.name) ?? [];
 				throw new Error(
-					`Timeout waiting for sessions to be running after ${timeoutMs}ms`,
+					`Timeout waiting for sessions to be running after ${timeoutMs}ms. workspaceFolders=${JSON.stringify(
+						folderNames,
+					)} sessionStates=${JSON.stringify(states)}`,
 				);
 			},
 
@@ -521,6 +558,7 @@ export async function activate(context: ExtensionContext) {
 				return sessionManager.getAllSessions().map((session) => ({
 					folder: session.workspaceFolder.name,
 					state: session.state,
+					error: session.lastStartError,
 				}));
 			},
 
@@ -554,6 +592,52 @@ export async function activate(context: ExtensionContext) {
 
 				return session.getProjectInfo();
 			},
+
+			/**
+			 * Test/debug: get client-side OpenAPI file count for the session that owns `uri`.
+			 */
+			getClientOpenApiFileCount(uri?: vscode.Uri): number {
+				if (!sessionManager) return 0;
+				const targetUri =
+					uri || vscode.window.activeTextEditor?.document.uri;
+				if (!targetUri) return 0;
+				const session = sessionManager.getSessionForUri(targetUri);
+				if (!session) return 0;
+				return session.getClientOpenApiFileCount();
+			},
+
+			/**
+			 * Test-only: ask the server to request a full OpenAPI file list resync.
+			 * This validates the server→client resync recovery path.
+			 */
+			async requestServerResync(uri?: vscode.Uri): Promise<void> {
+				if (!sessionManager) {
+					return;
+				}
+				const targetUri =
+					uri || vscode.window.activeTextEditor?.document.uri;
+				if (!targetUri) {
+					return;
+				}
+				const session = sessionManager.getSessionForUri(targetUri);
+				if (!session) {
+					return;
+				}
+				await session.requestServerResync();
+			},
+
+			/**
+			 * Test-only: trigger the server resync recovery path by sending a delta with a bad version.
+			 */
+			async sendBadDeltaVersionOnce(uri?: vscode.Uri): Promise<void> {
+				if (!sessionManager) return;
+				const targetUri =
+					uri || vscode.window.activeTextEditor?.document.uri;
+				if (!targetUri) return;
+				const session = sessionManager.getSessionForUri(targetUri);
+				if (!session) return;
+				session.sendBadDeltaVersionOnce();
+			},
 		};
 
 		// Attach test API to exports (preserving labsInfo.extensionExports)
@@ -574,7 +658,7 @@ export async function activate(context: ExtensionContext) {
 
 export async function deactivate(): Promise<void> {
 	if (sessionManager) {
-		sessionManager.dispose();
+		await sessionManager.disposeAsync();
 		sessionManager = null;
 	}
 }

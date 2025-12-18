@@ -28,6 +28,8 @@ import {
 	resolveRefTarget,
 } from "./shared.js";
 
+type OpenApiScope = Pick<TelescopeContext, "isOpenApiInScope">;
+
 /**
  * Register hover handler on the connection.
  */
@@ -46,17 +48,43 @@ export function registerHoverHandler(
 			const doc = documents.get(params.textDocument.uri);
 			if (!doc) return null;
 
-			// 1. Get YAML service hover (base - always try)
-			const yamlHover = await yamlService.getHover(doc, params.position);
+			const project = getProject ? getProject() : undefined;
+			const allowHover = await shouldAllowHoverForUri(
+				doc.uri,
+				ctx,
+				project,
+			);
+			if (!allowHover) {
+				// Per scoping: do not provide any hover for out-of-scope standalone/root docs.
+				return null;
+			}
 
-			// 2. Get OpenAPI-specific hover (if OpenAPI document)
 			const cached = cache.get(doc);
-			const openapiHover = isOpenAPIDocument(cached)
+			const openapiHoverAllowed =
+				isOpenAPIDocument(cached) ||
+				// If we're here and the file is out-of-scope, allow OpenAPI hover only when
+				// it is connected to an in-scope root (e.g., referenced fragment).
+				(!ctx.isOpenApiInScope(doc.uri) &&
+					(await isReferencedFromInScopeRoot(doc.uri, ctx, project)));
+
+			if (isOpenAPIDocument(cached)) {
+				// Ensure YAML service hover/completions are driven by the correct schema for this doc.
+				yamlService.configureForDocument(cached);
+			}
+
+			// 1. YAML service hover:
+			// - Only for in-scope OpenAPI docs (so out-of-scope files never get schema-driven hover).
+			const yamlHover = ctx.isOpenApiInScope(doc.uri)
+				? await yamlService.getHover(doc, params.position)
+				: null;
+
+			// 2. Get OpenAPI-specific hover (if OpenAPI doc or referenced from in-scope root)
+			const openapiHover = openapiHoverAllowed
 				? await provideOpenAPIHover(
 						cached,
 						params.position,
 						cache,
-						getProject ? getProject() : undefined,
+						project,
 					)
 				: null;
 
@@ -69,6 +97,35 @@ export function registerHoverHandler(
 			return null;
 		}
 	});
+}
+
+async function shouldAllowHoverForUri(
+	uri: string,
+	ctx: OpenApiScope,
+	project?: WorkspaceProject,
+): Promise<boolean> {
+	if (ctx.isOpenApiInScope(uri)) return true;
+	// Out-of-scope: only allow hover if it is connected to an in-scope root.
+	return await isReferencedFromInScopeRoot(uri, ctx, project);
+}
+
+async function isReferencedFromInScopeRoot(
+	uri: string,
+	ctx: OpenApiScope,
+	project?: WorkspaceProject,
+): Promise<boolean> {
+	if (!project) return false;
+	try {
+		const lintingContext = await project.resolveLintingContext(
+			uri,
+			project.getFileSystem(),
+			{ useProjectCache: true },
+		);
+		const roots = lintingContext.rootUris ?? [];
+		return roots.some((r) => ctx.isOpenApiInScope(r));
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -274,6 +331,18 @@ function resolveSpecLinkForKey(
 	if (key === "$ref") {
 		const { url } = specLink(version, "reference-object");
 		return { version, anchor: "reference-object", url, label: "Reference Object" };
+	}
+
+	// Value-aware: when hovering a map-entry key (like `components.schemas.Pet`),
+	// prefer identifying the type of the value at that path.
+	const valueAtPath = getValueAtPath(cached.parsedObject, keyPath);
+	const valueKind = identifyDocumentType(valueAtPath);
+	if (valueKind !== "root" && valueKind !== "unknown") {
+		const anchor = anchorForKindAndKey(valueKind, key, version);
+		if (anchor) {
+			const { url } = specLink(version, anchor);
+			return { version, anchor, url, label: labelForAnchor(anchor, version) };
+		}
 	}
 
 	for (let i = keyPath.length - 1; i >= 0; i--) {
@@ -629,4 +698,15 @@ export function __testProvideSpecLinkHover(
 		contents: { kind: "markdown", value: renderSpecLinkMarkdown(spec) },
 		range: keyAtPos.range,
 	};
+}
+
+// ---------------------------------------------------------------------------
+// Test-only exports
+// ---------------------------------------------------------------------------
+export async function __testShouldAllowHoverForUri(
+	uri: string,
+	ctx: OpenApiScope,
+	project?: WorkspaceProject,
+): Promise<boolean> {
+	return await shouldAllowHoverForUri(uri, ctx, project);
 }

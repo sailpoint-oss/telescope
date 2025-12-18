@@ -1,16 +1,15 @@
 import { findNodeByPointer } from "../../../ir/context.js";
 import { accessor, defineRule, type Rule } from "../../api.js";
+import {
+	segmentContainsTemplateExpression,
+	stripTemplateExpressions,
+} from "./path-template.js";
 
 /**
  * Kebab-case pattern for path segments.
  * Allows lowercase letters, numbers, and hyphens.
  */
 const KEBAB_CASE_PATTERN = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-
-/**
- * Path parameter pattern (e.g., {userId}, {id}).
- */
-const PATH_PARAM_PATTERN = /^\{[^}]+\}$/;
 
 /**
  * Path Kebab Case Rule
@@ -48,16 +47,22 @@ const pathKebabCase: Rule = defineRule({
 					const segments = path.split("/").filter((s) => s.length > 0);
 
 					for (const segment of segments) {
-						// Skip path parameters
-						if (PATH_PARAM_PATTERN.test(segment)) continue;
+						const hasTemplate = segmentContainsTemplateExpression(segment);
+						const literal = stripTemplateExpressions(segment);
+						// Skip segments that are purely templated (no literal content)
+						if (literal.length === 0) continue;
+						// Avoid false positives for mixed segments like `users-{id}` -> `users-`
+						if (hasTemplate && (literal.startsWith("-") || literal.endsWith("-"))) {
+							continue;
+						}
 
 						// Check if segment is kebab-case
-						if (!KEBAB_CASE_PATTERN.test(segment)) {
+						if (!KEBAB_CASE_PATTERN.test(literal)) {
 							// Provide specific feedback
 							let suggestion = "";
-							if (/[A-Z]/.test(segment)) {
-								suggestion = ` Consider using '${toKebabCase(segment)}' instead.`;
-							} else if (/_/.test(segment)) {
+							if (/[A-Z]/.test(literal)) {
+								suggestion = ` Consider using '${toKebabCase(literal)}' instead.`;
+							} else if (/_/.test(literal)) {
 								suggestion = ` Consider using hyphens instead of underscores.`;
 							}
 

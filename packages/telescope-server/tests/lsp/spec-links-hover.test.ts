@@ -74,6 +74,66 @@ test("hover spec link: YAML x- extension key lands on Specification Extensions",
 	expect(md).toContain("#specification-extensions");
 });
 
+test("hover spec link: YAML schema name key under components.schemas lands on Schema Object", () => {
+	const yamlText = [
+		'openapi: "3.1.0"',
+		"info:",
+		"  title: Test API",
+		'  version: "1.0.0"',
+		"components:",
+		"  schemas:",
+		"    Pet:",
+		"      type: object",
+		"paths: {}",
+	].join("\n");
+
+	const doc = TextDocument.create("file:///test.yaml", "yaml", 1, yamlText);
+	const ctx = makeCtx();
+	const cache = new DocumentCache(ctx);
+	const cached = cache.get(doc);
+
+	// Hover on the `Pet` key
+	const hover = __testProvideSpecLinkHover(
+		cached,
+		{ line: 6, character: 6 },
+		cache,
+	);
+	const md =
+		typeof hover?.contents === "object" && hover?.contents && "value" in hover.contents
+			? String((hover.contents as any).value)
+			: "";
+	expect(md).toContain("#schema-object");
+});
+
+test("hover spec link: YAML components.schemas key lands on Components Object", () => {
+	const yamlText = [
+		'openapi: "3.1.0"',
+		"info:",
+		"  title: Test API",
+		'  version: "1.0.0"',
+		"components:",
+		"  schemas: {}",
+		"paths: {}",
+	].join("\n");
+
+	const doc = TextDocument.create("file:///test.yaml", "yaml", 1, yamlText);
+	const ctx = makeCtx();
+	const cache = new DocumentCache(ctx);
+	const cached = cache.get(doc);
+
+	// Hover on the `schemas` key
+	const hover = __testProvideSpecLinkHover(
+		cached,
+		{ line: 5, character: 4 },
+		cache,
+	);
+	const md =
+		typeof hover?.contents === "object" && hover?.contents && "value" in hover.contents
+			? String((hover.contents as any).value)
+			: "";
+	expect(md).toContain("#components-object");
+});
+
 test("hover spec link: JSON root key lands on OpenAPI Object / Paths Object", () => {
 	const jsonText = JSON.stringify(
 		{

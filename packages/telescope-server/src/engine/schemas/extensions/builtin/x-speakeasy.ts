@@ -64,10 +64,10 @@ export const xSpeakeasyRetries: ExtensionSchemaMeta = defineExtension({
 	description: "Configure automatic retry behavior for failed requests",
 	url: "https://speakeasy.com/docs/customize-sdks/retries",
 	schema: (z) =>
-		z.object({
+		z.strictObject({
 			strategy: z.union([z.literal("backoff"), z.literal("none")]).optional(),
 			backoff: z
-				.object({
+				.strictObject({
 					initialInterval: z.number().positive().optional(),
 					maxInterval: z.number().positive().optional(),
 					maxElapsedTime: z.number().positive().optional(),
@@ -110,7 +110,7 @@ export const xSpeakeasyPagination: ExtensionSchemaMeta = defineExtension({
 	description: "Configure automatic pagination handling for list operations",
 	url: "https://speakeasy.com/docs/customize-sdks/pagination",
 	schema: (z) =>
-		z.object({
+		z.strictObject({
 			type: z.union([
 				z.literal("offsetLimit"),
 				z.literal("cursor"),
@@ -118,7 +118,7 @@ export const xSpeakeasyPagination: ExtensionSchemaMeta = defineExtension({
 			]),
 			inputs: z
 				.array(
-					z.object({
+					z.strictObject({
 						name: z.string(),
 						in: z.union([z.literal("parameters"), z.literal("requestBody")]),
 						type: z
@@ -134,7 +134,7 @@ export const xSpeakeasyPagination: ExtensionSchemaMeta = defineExtension({
 				.optional(),
 			outputs: z
 				.array(
-					z.object({
+					z.strictObject({
 						name: z.string(),
 						in: z.union([z.literal("body"), z.literal("headers")]),
 						type: z

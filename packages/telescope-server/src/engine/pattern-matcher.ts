@@ -50,18 +50,43 @@ export function matchesPattern(
 
 	// Normalize path separators for pattern matching
 	const normalizedPath = relativePath.replace(/\\/g, "/");
+	const lowerPath = normalizedPath.toLowerCase();
 
 	// Always exclude config files from OpenAPI linting
 	if (
-		normalizedPath.endsWith("/.telescope/config.yaml") ||
-		normalizedPath.includes("/.telescope/config.yaml")
+		lowerPath.endsWith("/.telescope/config.yaml") ||
+		lowerPath.includes("/.telescope/config.yaml")
 	) {
+		return false;
+	}
+
+	// Always exclude known non-OpenAPI files from OpenAPI linting, even if patterns would match.
+	// This prevents false positives like package.json being treated as OpenAPI just because it is JSON.
+	const knownNonOpenAPIFiles = [
+		"package.json",
+		"package-lock.json",
+		"pnpm-lock.yaml",
+		"yarn.lock",
+		"bun.lock",
+		"bun.lockb",
+		"tsconfig.json",
+		"jsconfig.json",
+		"biome.json",
+		".prettierrc",
+		".prettierrc.json",
+		".prettierrc.yaml",
+		".prettierrc.yml",
+		".eslintrc",
+		".eslintrc.json",
+		".eslintrc.yaml",
+		".eslintrc.yml",
+	];
+	if (knownNonOpenAPIFiles.some((file) => lowerPath.endsWith(file))) {
 		return false;
 	}
 
 	// Default: when no patterns provided, only match YAML/JSON files
 	if (!patterns || patterns.length === 0) {
-		const lowerPath = normalizedPath.toLowerCase();
 		return (
 			lowerPath.endsWith(".yaml") ||
 			lowerPath.endsWith(".yml") ||

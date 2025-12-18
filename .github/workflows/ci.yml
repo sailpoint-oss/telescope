@@ -54,11 +54,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
-          xvfb-run -a pnpm test:e2e
+          pnpm --filter telescope-client test:e2e:compile
+          xvfb-run -a pnpm --filter telescope-client test:e2e:run:single
+          xvfb-run -a pnpm --filter telescope-client test:e2e:run:multi
 
       - name: Run E2E tests (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
-        run: pnpm test:e2e
+        run: |
+          pnpm --filter telescope-client test:e2e:compile
+          pnpm --filter telescope-client test:e2e:run:single
+          pnpm --filter telescope-client test:e2e:run:multi
 
       - name: Cache VS Code test downloads
         if: always()

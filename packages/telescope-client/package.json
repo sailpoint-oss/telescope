@@ -374,6 +374,16 @@
 					"type": "boolean",
 					"default": false,
 					"description": "Automatically convert JSON OpenAPI files to YAML when detected"
+				},
+				"telescope.trace": {
+					"type": "string",
+					"enum": [
+						"off",
+						"messages",
+						"verbose"
+					],
+					"default": "off",
+					"description": "LSP trace logging level for Telescope language servers. Use 'verbose' only for debugging."
 				}
 			}
 		}
@@ -386,8 +396,14 @@
 		"watch": "bun scripts/build.ts --watch",
 		"typecheck": "tsc --noEmit",
 		"package": "pnpm run build:minify && bun scripts/package.ts --target openvsx && bun scripts/package.ts --target vscode",
-		"test": "bun test",
-		"test:e2e": "pnpm run build && tsc -p tsconfig.e2e.json && node out/test/runTest.js"
+		"test": "bun test test",
+		"test:e2e:compile": "pnpm run build && tsc -p tsconfig.e2e.json",
+		"test:e2e:run:single": "node out/test/runTest.js",
+		"test:e2e:run:multi": "node out/test/runTest.multiRoot.js",
+		"test:e2e:single": "pnpm run test:e2e:compile && pnpm run test:e2e:run:single",
+		"test:e2e:multi": "pnpm run test:e2e:compile && pnpm run test:e2e:run:multi",
+		"test:e2e:all": "pnpm run test:e2e:compile && pnpm run test:e2e:run:single && pnpm run test:e2e:run:multi",
+		"test:e2e": "pnpm run test:e2e:all"
 	},
 	"devDependencies": {
 		"@types/mocha": "^10.0.6",
@@ -397,7 +413,6 @@
 		"@vscode/vsce": "^3.2.2",
 		"esbuild": "^0.24.2",
 		"mocha": "^10.4.0",
-		"ovsx": "^0.10.1",
 		"typescript": "^5.6.3",
 		"vscode-oniguruma": "^2.0.1"
 	},
@@ -407,6 +422,7 @@
 	"dependencies": {
 		"@volar/vscode": "^2.4.23",
 		"telescope-server": "workspace:*",
+		"jsonc-parser": "^3.3.1",
 		"minimatch": "^10.1.1",
 		"vscode-languageclient": "^9.0.1",
 		"vscode-textmate": "^9.2.1",

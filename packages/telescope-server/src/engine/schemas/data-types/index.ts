@@ -4,5 +4,4 @@
  * @module engine/schemas/data-types
  */
 
-export * from "./format-schemas.js";
-
+export * from "./schema-formats.js";

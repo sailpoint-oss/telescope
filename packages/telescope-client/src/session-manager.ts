@@ -51,6 +51,9 @@ export class SessionManager implements vscode.Disposable {
 	/** Disposables for manager-level subscriptions */
 	private disposables: vscode.Disposable[] = [];
 
+	/** Extension context (for persistence) */
+	private extensionContext: vscode.ExtensionContext;
+
 	/** Current initialization state */
 	private _initState: InitializationState = InitializationState.Pending;
 
@@ -62,17 +65,30 @@ export class SessionManager implements vscode.Disposable {
 		nodePath: string;
 		outputChannel: vscode.OutputChannel;
 		statusBarItem: vscode.StatusBarItem;
+		extensionContext: vscode.ExtensionContext;
 	}) {
 		this.serverModule = options.serverModule;
 		this.nodePath = options.nodePath;
 		this.outputChannel = options.outputChannel;
 		this.statusBarItem = options.statusBarItem;
+		this.extensionContext = options.extensionContext;
 
 		// Listen for workspace folder changes
 		this.disposables.push(
 			vscode.workspace.onDidChangeWorkspaceFolders(
 				this.onDidChangeWorkspaceFolders.bind(this),
 			),
+		);
+
+		// Apply configuration changes to all sessions (no restart required).
+		this.disposables.push(
+			vscode.workspace.onDidChangeConfiguration((e) => {
+				if (e.affectsConfiguration("telescope.trace")) {
+					for (const session of this.sessions.values()) {
+						session.applyTraceSetting();
+					}
+				}
+			}),
 		);
 
 		this.log("SessionManager created");
@@ -101,13 +117,14 @@ export class SessionManager implements vscode.Disposable {
 	 */
 	private async doInitialize(): Promise<void> {
 		try {
-			const folders = vscode.workspace.workspaceFolders || [];
+			const folders = await this.waitForInitialWorkspaceFolders();
 			this.log(`Initializing sessions for ${folders.length} workspace folder(s)`);
 
-			// Start sessions in parallel
-			await Promise.all(
-				folders.map((folder) => this.createSession(folder)),
-			);
+			// Start sessions with limited concurrency to avoid spawning many Node processes at once.
+			// This matches the behavior of other workspace-level tooling (e.g. Biome) in large multi-root workspaces.
+			await runWithConcurrency(folders, 2, async (folder) => {
+				await this.createSession(folder);
+			});
 
 			this._initState = InitializationState.Ready;
 			this.updateStatusBar();
@@ -117,6 +134,51 @@ export class SessionManager implements vscode.Disposable {
 			this.updateStatusBar();
 			throw error;
 		}
+	}
+
+	/**
+	 * VS Code can activate extensions before `workspaceFolders` are populated.
+	 * In that case, no sessions would be created and E2E/real users could see a stuck state.
+	 *
+	 * This waits briefly for folders to be available, falling back to an empty list.
+	 */
+	private async waitForInitialWorkspaceFolders(
+		timeoutMs = 30000,
+	): Promise<readonly vscode.WorkspaceFolder[]> {
+		const existing = vscode.workspace.workspaceFolders;
+		if (existing && existing.length > 0) {
+			return existing;
+		}
+
+		return await new Promise((resolve) => {
+			const timer = setTimeout(() => {
+				sub.dispose();
+				clearInterval(poller);
+				resolve(vscode.workspace.workspaceFolders ?? []);
+			}, timeoutMs);
+
+			const sub = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+				const folders = vscode.workspace.workspaceFolders;
+				if (folders && folders.length > 0) {
+					clearTimeout(timer);
+					sub.dispose();
+					clearInterval(poller);
+					resolve(folders);
+				}
+			});
+
+			// Some VS Code launches (notably .code-workspace in tests) can populate `workspaceFolders`
+			// without firing an "added" event. Poll briefly to handle that.
+			const poller = setInterval(() => {
+				const folders = vscode.workspace.workspaceFolders;
+				if (folders && folders.length > 0) {
+					clearTimeout(timer);
+					sub.dispose();
+					clearInterval(poller);
+					resolve(folders);
+				}
+			}, 50);
+		});
 	}
 
 	/**
@@ -173,6 +235,7 @@ export class SessionManager implements vscode.Disposable {
 			nodePath: this.nodePath,
 			outputChannel: this.outputChannel,
 			statusBarItem: this.statusBarItem,
+			workspaceState: this.extensionContext.workspaceState,
 		});
 
 		this.sessions.set(id, session);
@@ -408,12 +471,20 @@ export class SessionManager implements vscode.Disposable {
 	 * Dispose of all sessions and resources.
 	 */
 	dispose(): void {
+		void this.disposeAsync();
+	}
+
+	/**
+	 * Async disposal for deterministic shutdown.
+	 * Prefer this from `deactivate()` to ensure server processes exit cleanly.
+	 */
+	async disposeAsync(): Promise<void> {
 		this.log("Disposing SessionManager");
 
-		// Stop all sessions
-		for (const session of this.sessions.values()) {
-			session.dispose();
-		}
+		// Stop all sessions (await so processes are torn down deterministically)
+		await Promise.all(
+			Array.from(this.sessions.values()).map((session) => session.disposeAsync()),
+		);
 		this.sessions.clear();
 
 		// Dispose subscriptions
@@ -422,5 +493,26 @@ export class SessionManager implements vscode.Disposable {
 		}
 		this.disposables = [];
 	}
+}
+
+async function runWithConcurrency<T>(
+	items: readonly T[],
+	concurrency: number,
+	fn: (item: T) => Promise<void>,
+): Promise<void> {
+	const limit = Math.max(1, concurrency);
+	let idx = 0;
+
+	const workers = Array.from({ length: Math.min(limit, items.length) }).map(
+		async () => {
+			for (;;) {
+				const i = idx++;
+				if (i >= items.length) return;
+				await fn(items[i] as T);
+			}
+		},
+	);
+
+	await Promise.all(workers);
 }
 

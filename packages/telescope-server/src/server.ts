@@ -43,7 +43,6 @@ import { registerDocumentLinkHandlers } from "./lsp/handlers/document-links.js";
 import { registerDocumentHighlightHandlers } from "./lsp/handlers/document-highlights.js";
 import {
 	registerExecuteCommandHandlers,
-	TELECOPE_EXEC_COMMANDS,
 } from "./lsp/handlers/execute-commands.js";
 import { registerFormattingHandlers } from "./lsp/handlers/formatting.js";
 import { registerFoldingRangeHandlers } from "./lsp/handlers/folding-ranges.js";
@@ -61,7 +60,13 @@ import { registerSymbolHandlers } from "./lsp/handlers/symbols.js";
 import { DiagnosticsScheduler } from "./lsp/services/diagnostics-scheduler.js";
 import { ReferencesIndex } from "./lsp/services/references-index.js";
 import { WorkspaceProject } from "./lsp/workspace/workspace-project.js";
-import type { NotifyFileChangeParams, SetOpenAPIFilesParams } from "./types.js";
+import type {
+	DidChangeOpenApiFilesParams,
+	NotifyFileChangeParams,
+	RequestOpenApiFilesResyncParams,
+	RequestOpenApiFilesResyncResult,
+	SetOpenAPIFilesParams,
+} from "./types.js";
 import { isConfigFile } from "./lsp/utils.js";
 import { supportsLinkedEditing } from "./lsp/utils/connection-features.js";
 
@@ -86,6 +91,7 @@ let referencesIndex: ReferencesIndex | undefined;
 
 let fallbackRecomputeTimer: ReturnType<typeof setTimeout> | undefined;
 let fallbackRecomputeInFlight = false;
+let clientFileListVersion: number | null = null;
 
 function scheduleRecomputeFallbackOpenApiFiles(): void {
 	// If the client provides an authoritative file list, we do nothing.
@@ -236,11 +242,6 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
 			// Linked editing ranges
 			linkedEditingRangeProvider: linkedEditingSupported,
-
-			// Execute commands (refactors)
-			executeCommandProvider: {
-				commands: [...TELECOPE_EXEC_COMMANDS],
-			},
 		},
 	};
 });
@@ -359,12 +360,29 @@ registerSelectionRangeHandlers(connection, documents, ctx);
 // ============================================================================
 
 documents.onDidChangeContent((change) => {
-	cache.invalidate(change.document.uri);
-	ctx.markAffected(change.document.uri);
-	workspaceProject?.notifyFileChange(change.document.uri);
-	diagnosticsScheduler.invalidateForDocument(change.document.uri);
-	referencesIndex?.invalidate(change.document.uri);
-	scheduleRecomputeFallbackOpenApiFiles();
+	const uri = change.document.uri;
+	const wasRoot = ctx.isRootDocument(uri);
+
+	cache.invalidate(uri);
+	// Recompute doc type so root tracking stays correct as the user edits.
+	const next = cache.get(change.document);
+	if (next.documentType === "root") {
+		ctx.addRootDocument(uri);
+	} else {
+		ctx.removeRootDocument(uri);
+	}
+
+	ctx.markAffected(uri);
+	workspaceProject?.notifyFileChange(uri);
+	diagnosticsScheduler.invalidateForDocument(uri);
+	referencesIndex?.invalidate(uri);
+
+	// Fallback recompute is expensive; only trigger it when root status can matter.
+	// If the client provides an authoritative list, this is a no-op anyway.
+	const isRoot = next.documentType === "root";
+	if (wasRoot || isRoot) {
+		scheduleRecomputeFallbackOpenApiFiles();
+	}
 });
 
 documents.onDidClose((event) => {
@@ -439,6 +457,7 @@ connection.onRequest(
 		});
 
 		ctx.setKnownOpenAPIFiles(filtered);
+		clientFileListVersion = params.version ?? clientFileListVersion ?? 0;
 		ctx.clearFallbackOpenAPIFiles();
 		workspaceProject?.setCandidateOpenApiFiles(filtered);
 		diagnosticsScheduler.clear();
@@ -451,6 +470,79 @@ connection.onRequest(
 
 		// Client list is authoritative now; no fallback recompute needed.
 		return { success: true, fileCount: filtered.length };
+	},
+);
+
+/**
+ * Handle telescope/didChangeOpenApiFiles notification from client.
+ * This is the incremental update stream after an initial full snapshot.
+ */
+connection.onNotification(
+	"telescope/didChangeOpenApiFiles",
+	(params: DidChangeOpenApiFilesParams) => {
+		const logger = ctx.getLogger("Main");
+
+		// If we haven't received a baseline, we can't safely apply deltas.
+		if (!ctx.hasClientFileList() || clientFileListVersion === null) {
+			logger.warn(
+				`Received OpenAPI file delta without baseline; requesting resync (v=${params.version})`,
+			);
+			void connection.sendRequest<
+				RequestOpenApiFilesResyncResult
+			>("telescope/requestOpenApiFilesResync", {
+				reason: "delta_without_baseline",
+			} satisfies RequestOpenApiFilesResyncParams);
+			return;
+		}
+
+		const expected = clientFileListVersion + 1;
+		if (params.version !== expected) {
+			logger.warn(
+				`OpenAPI file delta version mismatch: expected ${expected}, got ${params.version}; requesting resync`,
+			);
+			void connection.sendRequest<
+				RequestOpenApiFilesResyncResult
+			>("telescope/requestOpenApiFilesResync", {
+				reason: `version_mismatch:${expected}:${params.version}`,
+			} satisfies RequestOpenApiFilesResyncParams);
+			return;
+		}
+
+		const current = new Set(ctx.getKnownOpenAPIFiles());
+
+		for (const uri of params.added ?? []) {
+			current.add(uri);
+		}
+		for (const uri of params.removed ?? []) {
+			current.delete(uri);
+			ctx.removeRootDocument(uri);
+			cache.remove(uri);
+		}
+
+		// Persist updated membership and update project candidates.
+		ctx.setKnownOpenAPIFiles(Array.from(current));
+		ctx.clearFallbackOpenAPIFiles();
+		workspaceProject?.setCandidateOpenApiFiles(Array.from(current));
+
+		// Invalidate impacted URIs.
+		for (const uri of params.added ?? []) {
+			ctx.markAffected(uri);
+			diagnosticsScheduler.invalidateForDocument(uri);
+			referencesIndex?.invalidate(uri);
+		}
+		for (const uri of params.changed ?? []) {
+			cache.invalidate(uri);
+			ctx.markAffected(uri);
+			workspaceProject?.notifyFileChange(uri);
+			diagnosticsScheduler.invalidateForDocument(uri);
+			referencesIndex?.invalidate(uri);
+		}
+		for (const uri of params.removed ?? []) {
+			diagnosticsScheduler.invalidateForDocument(uri);
+			referencesIndex?.invalidate(uri);
+		}
+
+		clientFileListVersion = params.version;
 	},
 );
 
@@ -493,7 +585,11 @@ connection.onNotification(
 				workspaceProject?.notifyFileChange(params.uri);
 				diagnosticsScheduler.invalidateForDocument(params.uri);
 				referencesIndex?.invalidate(params.uri);
-				scheduleRecomputeFallbackOpenApiFiles();
+				// Only recompute fallback candidates if this change touches a known root.
+				// Content edits to non-roots are handled via incremental diagnostics invalidation.
+				if (ctx.isRootDocument(params.uri)) {
+					scheduleRecomputeFallbackOpenApiFiles();
+				}
 				break;
 		}
 	},

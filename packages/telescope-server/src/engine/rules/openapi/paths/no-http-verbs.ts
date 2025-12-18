@@ -1,4 +1,8 @@
 import { defineRule, type Rule } from "../../api.js";
+import {
+	segmentContainsTemplateExpression,
+	stripTemplateExpressions,
+} from "./path-template.js";
 
 /**
  * HTTP verbs that should not appear in path segments.
@@ -34,11 +38,6 @@ const ACTION_WORDS = [
 ];
 
 /**
- * Path parameter pattern.
- */
-const PATH_PARAM_PATTERN = /^\{[^}]+\}$/;
-
-/**
  * Path No HTTP Verbs Rule
  *
  * Validates that path segments do not contain HTTP verbs or action words.
@@ -66,10 +65,15 @@ const pathNoHttpVerbs: Rule = defineRule({
 				const segments = path.split("/").filter((s) => s.length > 0);
 
 				for (const segment of segments) {
-					// Skip path parameters
-					if (PATH_PARAM_PATTERN.test(segment)) continue;
+					const hasTemplate = segmentContainsTemplateExpression(segment);
+					const literal = stripTemplateExpressions(segment);
+					if (literal.length === 0) continue;
+					// Avoid false positives for mixed segments like `get-{id}` -> `get-`
+					if (hasTemplate && (literal.startsWith("-") || literal.endsWith("-"))) {
+						continue;
+					}
 
-					const lowerSegment = segment.toLowerCase();
+					const lowerSegment = literal.toLowerCase();
 
 					// Check for HTTP verbs
 					for (const verb of HTTP_VERBS) {

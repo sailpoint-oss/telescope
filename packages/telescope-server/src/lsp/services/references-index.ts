@@ -24,6 +24,20 @@ export interface InboundRefsOptions {
 	excludeSelf?: boolean;
 }
 
+interface RefHit {
+	sourceUri: string;
+	range: Location["range"];
+	isInternal: boolean;
+}
+
+interface SourceIndex {
+	hash: string;
+	hits: RefHit[];
+	// Also keep pointer-level hits for efficient removal.
+	byPointerKey: Map<string, RefHit[]>;
+	byFileKey: Map<string, RefHit[]>;
+}
+
 /**
  * FS-backed index of inbound $ref references.
  *
@@ -33,7 +47,16 @@ export interface InboundRefsOptions {
  * - actionable \"show references\" commands
  */
 export class ReferencesIndex {
+	// Result cache (derived from the index). Cleared on any invalidation.
 	private readonly cache = new Map<string, InboundRefsResult>();
+
+	// Incremental index state
+	private readonly sourceIndex = new Map<string, SourceIndex>();
+	private readonly dirtySources = new Set<string>();
+
+	// Reverse indexes
+	private readonly fileToHits = new Map<string, RefHit[]>();
+	private readonly pointerToHits = new Map<string, RefHit[]>();
 
 	constructor(
 		private readonly fileSystem: FileSystem,
@@ -43,10 +66,16 @@ export class ReferencesIndex {
 
 	clear(): void {
 		this.cache.clear();
+		this.sourceIndex.clear();
+		this.dirtySources.clear();
+		this.fileToHits.clear();
+		this.pointerToHits.clear();
 	}
 
-	invalidate(_uri: string): void {
-		// Conservative: changes can affect many targets, so we drop all.
+	invalidate(uri: string): void {
+		// Targeted: only re-index the changed source next time we need it.
+		this.dirtySources.add(normalizeUri(uri));
+		// Conservative for result cache: any query result could change.
 		this.cache.clear();
 	}
 
@@ -65,67 +94,17 @@ export class ReferencesIndex {
 		const cached = this.cache.get(key);
 		if (cached) return cached;
 
+		await this.ensureIndexed();
+
 		const normalizedTargetUri = normalizeUri(targetUri);
 		const normalizedTargetPointer = normalizePointerFragment(targetPointer);
 
 		const excludeSelf = options?.excludeSelf ?? false;
 
-		const byFile = new Map<string, number>();
-		const locations: Location[] = [];
-		const internalByFile = new Map<string, number>();
-		const internalLocations: Location[] = [];
-		const externalByFile = new Map<string, number>();
-		const externalLocations: Location[] = [];
+		const pointerKey = `${normalizedTargetUri}#${normalizedTargetPointer}`;
+		const hits = this.pointerToHits.get(pointerKey) ?? [];
+		const result = buildInboundRefsResult(hits, normalizedTargetUri, excludeSelf);
 
-		for (const sourceUri of this.getKnownOpenApiFiles()) {
-			const normalizedSource = normalizeUri(sourceUri);
-			if (excludeSelf && normalizedSource === normalizedTargetUri) {
-				continue;
-			}
-
-			const doc = await this.docCache.getDocument(sourceUri, this.fileSystem);
-			if (!doc) continue;
-
-			const refs = findAllRefNodesInIR(doc.ir.root);
-			for (const { ref, node } of refs) {
-				const resolved = resolveRefForMatch(sourceUri, ref);
-				if (!resolved) continue;
-
-				if (
-					resolved.targetUri === normalizedTargetUri &&
-					normalizePointerFragment(resolved.pointer) === normalizedTargetPointer
-				) {
-					const range = nodePtrToRange(doc, node.ptr);
-					if (!range) continue;
-
-					locations.push({ uri: normalizeUri(sourceUri), range });
-					byFile.set(sourceUri, (byFile.get(sourceUri) ?? 0) + 1);
-
-					if (normalizedSource === normalizedTargetUri) {
-						internalLocations.push({ uri: normalizeUri(sourceUri), range });
-						internalByFile.set(
-							sourceUri,
-							(internalByFile.get(sourceUri) ?? 0) + 1,
-						);
-					} else {
-						externalLocations.push({ uri: normalizeUri(sourceUri), range });
-						externalByFile.set(
-							sourceUri,
-							(externalByFile.get(sourceUri) ?? 0) + 1,
-						);
-					}
-				}
-			}
-		}
-
-		const result: InboundRefsResult = {
-			locations,
-			byFile,
-			internalLocations,
-			internalByFile,
-			externalLocations,
-			externalByFile,
-		};
 		this.cache.set(key, result);
 		return result;
 	}
@@ -146,65 +125,203 @@ export class ReferencesIndex {
 		const cached = this.cache.get(key);
 		if (cached) return cached;
 
+		await this.ensureIndexed();
+
 		const normalizedTargetUri = normalizeUri(targetUri);
 		const excludeSelf = options?.excludeSelf ?? false;
 
-		const byFile = new Map<string, number>();
-		const locations: Location[] = [];
-		const internalByFile = new Map<string, number>();
-		const internalLocations: Location[] = [];
-		const externalByFile = new Map<string, number>();
-		const externalLocations: Location[] = [];
-
-		for (const sourceUri of this.getKnownOpenApiFiles()) {
-			const normalizedSource = normalizeUri(sourceUri);
-			if (excludeSelf && normalizedSource === normalizedTargetUri) {
-				continue;
-			}
-
-			const doc = await this.docCache.getDocument(sourceUri, this.fileSystem);
-			if (!doc) continue;
-
-			const refs = findAllRefNodesInIR(doc.ir.root);
-			for (const { ref, node } of refs) {
-				const resolved = resolveRefForMatch(sourceUri, ref);
-				if (!resolved) continue;
-
-				if (resolved.targetUri === normalizedTargetUri) {
-					const range = nodePtrToRange(doc, node.ptr);
-					if (!range) continue;
-
-					locations.push({ uri: normalizeUri(sourceUri), range });
-					byFile.set(sourceUri, (byFile.get(sourceUri) ?? 0) + 1);
-
-					if (normalizedSource === normalizedTargetUri) {
-						internalLocations.push({ uri: normalizeUri(sourceUri), range });
-						internalByFile.set(
-							sourceUri,
-							(internalByFile.get(sourceUri) ?? 0) + 1,
-						);
-					} else {
-						externalLocations.push({ uri: normalizeUri(sourceUri), range });
-						externalByFile.set(
-							sourceUri,
-							(externalByFile.get(sourceUri) ?? 0) + 1,
-						);
-					}
-				}
-			}
-		}
-
-		const result: InboundRefsResult = {
-			locations,
-			byFile,
-			internalLocations,
-			internalByFile,
-			externalLocations,
-			externalByFile,
-		};
+		const hits = this.fileToHits.get(normalizedTargetUri) ?? [];
+		const result = buildInboundRefsResult(hits, normalizedTargetUri, excludeSelf);
 		this.cache.set(key, result);
 		return result;
 	}
+
+	// -------------------------------------------------------------------------
+	// Index maintenance
+	// -------------------------------------------------------------------------
+	private async ensureIndexed(): Promise<void> {
+		// Drop sources that no longer participate.
+		const known = this.getKnownOpenApiFiles().map((u) => normalizeUri(u));
+		const knownSet = new Set(known);
+
+		for (const sourceUri of Array.from(this.sourceIndex.keys())) {
+			if (!knownSet.has(sourceUri)) {
+				this.removeSource(sourceUri);
+			}
+		}
+		for (const sourceUri of Array.from(this.dirtySources)) {
+			if (!knownSet.has(sourceUri)) {
+				this.dirtySources.delete(sourceUri);
+			}
+		}
+
+		// Index dirty or missing sources.
+		// Concurrency-limited to avoid spiking IO on huge workspaces.
+		await runWithConcurrency(known, 4, async (sourceUri) => {
+			if (this.sourceIndex.has(sourceUri) && !this.dirtySources.has(sourceUri)) {
+				return;
+			}
+			await this.indexSource(sourceUri);
+		});
+	}
+
+	private async indexSource(sourceUri: string): Promise<void> {
+		const normalizedSource = normalizeUri(sourceUri);
+
+		const doc = await this.docCache.getDocument(normalizedSource, this.fileSystem);
+		const existing = this.sourceIndex.get(normalizedSource);
+		if (!doc) {
+			if (existing) {
+				this.removeSource(normalizedSource);
+			}
+			this.dirtySources.delete(normalizedSource);
+			return;
+		}
+
+		if (existing && existing.hash === doc.hash) {
+			this.dirtySources.delete(normalizedSource);
+			return;
+		}
+
+		// If we already had entries, remove them before rebuilding.
+		if (existing) {
+			this.removeSource(normalizedSource);
+		}
+
+		const hits: RefHit[] = [];
+		const byPointerKey = new Map<string, RefHit[]>();
+		const byFileKey = new Map<string, RefHit[]>();
+
+		const refs = findAllRefNodesInIR(doc.ir.root);
+		for (const { ref, node } of refs) {
+			const resolved = resolveRefForMatch(normalizedSource, ref);
+			if (!resolved) continue;
+
+			const range = nodePtrToRange(doc, node.ptr);
+			if (!range) continue;
+
+			const targetFile = resolved.targetUri;
+			const pointer = normalizePointerFragment(resolved.pointer);
+			const hit: RefHit = {
+				sourceUri: normalizedSource,
+				range,
+				isInternal: normalizedSource === targetFile,
+			};
+			hits.push(hit);
+
+			const fileKey = targetFile;
+			const ptrKey = `${targetFile}#${pointer}`;
+
+			const ptrList = byPointerKey.get(ptrKey) ?? [];
+			ptrList.push(hit);
+			byPointerKey.set(ptrKey, ptrList);
+
+			const fileList = byFileKey.get(fileKey) ?? [];
+			fileList.push(hit);
+			byFileKey.set(fileKey, fileList);
+		}
+
+		// Publish into reverse indexes.
+		for (const [fileKey, list] of byFileKey) {
+			const existingList = this.fileToHits.get(fileKey) ?? [];
+			existingList.push(...list);
+			this.fileToHits.set(fileKey, existingList);
+		}
+		for (const [ptrKey, list] of byPointerKey) {
+			const existingList = this.pointerToHits.get(ptrKey) ?? [];
+			existingList.push(...list);
+			this.pointerToHits.set(ptrKey, existingList);
+		}
+
+		this.sourceIndex.set(normalizedSource, {
+			hash: doc.hash,
+			hits,
+			byPointerKey,
+			byFileKey,
+		});
+		this.dirtySources.delete(normalizedSource);
+	}
+
+	private removeSource(sourceUri: string): void {
+		const existing = this.sourceIndex.get(sourceUri);
+		if (!existing) return;
+
+		// Remove pointer-level contributions
+		for (const [ptrKey, list] of existing.byPointerKey) {
+			const current = this.pointerToHits.get(ptrKey);
+			if (!current) continue;
+			const next = current.filter((h) => h.sourceUri !== sourceUri);
+			if (next.length === 0) this.pointerToHits.delete(ptrKey);
+			else this.pointerToHits.set(ptrKey, next);
+		}
+
+		// Remove file-level contributions
+		for (const [fileKey, list] of existing.byFileKey) {
+			const current = this.fileToHits.get(fileKey);
+			if (!current) continue;
+			const next = current.filter((h) => h.sourceUri !== sourceUri);
+			if (next.length === 0) this.fileToHits.delete(fileKey);
+			else this.fileToHits.set(fileKey, next);
+		}
+
+		this.sourceIndex.delete(sourceUri);
+	}
+}
+
+function buildInboundRefsResult(
+	hits: RefHit[],
+	normalizedTargetUri: string,
+	excludeSelf: boolean,
+): InboundRefsResult {
+	const byFile = new Map<string, number>();
+	const locations: Location[] = [];
+	const internalByFile = new Map<string, number>();
+	const internalLocations: Location[] = [];
+	const externalByFile = new Map<string, number>();
+	const externalLocations: Location[] = [];
+
+	for (const hit of hits) {
+		if (excludeSelf && hit.sourceUri === normalizedTargetUri) continue;
+		const loc: Location = { uri: hit.sourceUri, range: hit.range };
+		locations.push(loc);
+		byFile.set(hit.sourceUri, (byFile.get(hit.sourceUri) ?? 0) + 1);
+
+		if (hit.isInternal) {
+			internalLocations.push(loc);
+			internalByFile.set(hit.sourceUri, (internalByFile.get(hit.sourceUri) ?? 0) + 1);
+		} else {
+			externalLocations.push(loc);
+			externalByFile.set(hit.sourceUri, (externalByFile.get(hit.sourceUri) ?? 0) + 1);
+		}
+	}
+
+	return {
+		locations,
+		byFile,
+		internalLocations,
+		internalByFile,
+		externalLocations,
+		externalByFile,
+	};
+}
+
+async function runWithConcurrency<T>(
+	items: readonly T[],
+	concurrency: number,
+	fn: (item: T) => Promise<void>,
+): Promise<void> {
+	const limit = Math.max(1, concurrency);
+	let idx = 0;
+	const workers = Array.from({ length: Math.min(limit, items.length) }).map(
+		async () => {
+			for (;;) {
+				const i = idx++;
+				if (i >= items.length) return;
+				await fn(items[i] as T);
+			}
+		},
+	);
+	await Promise.all(workers);
 }
 
 function resolveRefForMatch(

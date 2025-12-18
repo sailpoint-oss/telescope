@@ -17,7 +17,7 @@ export const xStoplight: ExtensionSchemaMeta = defineExtension({
 	description: "Stoplight platform metadata for API design and documentation",
 	url: "https://stoplight.io/",
 	schema: (z) =>
-		z.object({
+		z.strictObject({
 			id: z.string().optional(),
 			name: z.string().optional(),
 			public: z.boolean().optional(),

@@ -46,11 +46,19 @@ export function registerCompletionHandlers(
 			const doc = documents.get(params.textDocument.uri);
 			if (!doc) return null;
 
+			// Cache doc first so we can scope YAML schema config appropriately.
+			const cached = cache.get(doc);
+
+			// If this is an OpenAPI doc (in-scope), configure yaml-language-server schema
+			// so base completions are schema-driven only for OpenAPI docs.
+			if (isOpenAPIDocument(cached)) {
+				yamlService.configureForDocument(cached);
+			}
+
 			// 1. Get YAML service completions (base)
 			const yamlCompletions = await yamlService.getCompletions(doc, params.position);
 
 			// 2. Get OpenAPI-specific completions
-			const cached = cache.get(doc);
 			const openapiItems = isOpenAPIDocument(cached)
 				? provideOpenAPICompletions(cached, params.position, cache, ctx)
 				: [];

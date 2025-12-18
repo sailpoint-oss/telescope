@@ -17,7 +17,7 @@ import { z } from "zod";
  * Identical across all OpenAPI 3.x versions.
  */
 export const ContactSchema = z
-	.object({
+	.strictObject({
 		name: z
 			.string()
 			.meta({
@@ -67,55 +67,60 @@ export type Contact = z.infer<typeof ContactSchema>;
 // License Object
 // ============================================================================
 
+export const LicenseIdentifierSchema = z.string().meta({
+	title: "License Identifier",
+	description: "An SPDX license expression for the API.",
+	examples: ["Apache-2.0", "MIT", "BSD-3-Clause", "GPL-3.0-only"],
+});
+
+export const LicenseUrlSchema = z.url().meta({
+	title: "License URL",
+	description: "A URL to the license used for the API.",
+	examples: [
+		"https://www.apache.org/licenses/LICENSE-2.0.html",
+		"https://opensource.org/licenses/MIT",
+	],
+});
+
+export const LicenseNameSchema = z.string().meta({
+	title: "License Name",
+	description: "The license name used for the API.",
+	examples: ["Apache 2.0", "MIT", "BSD-3-Clause", "GPL-3.0"],
+});
+
 /**
  * License Object - License information for the exposed API.
  * Identical across all OpenAPI 3.x versions.
  */
-export const LicenseSchema = z
-	.object({
-		name: z
-			.string()
-			.describe(
-				"REQUIRED. The license name used for the API (e.g., 'Apache 2.0', 'MIT').",
-			)
+export const LicenseObjectSchema = z
+	.strictObject({
+		name: LicenseNameSchema,
+	})
+	.and(
+		z
+			.xor([
+				z.strictObject({
+					url: LicenseUrlSchema.optional(),
+				}),
+				z.strictObject({
+					identifier: LicenseIdentifierSchema.optional(),
+				}),
+			])
 			.meta({
-				title: "name",
-				examples: ["Apache 2.0", "MIT", "BSD-3-Clause", "GPL-3.0"],
-			}),
-		identifier: z
-			.string()
-			.optional()
-			.meta({
-				title: "identifier",
-				description:
-					"An SPDX license expression for the API. Mutually exclusive with 'url'. See https://spdx.org/licenses/",
-				examples: ["Apache-2.0", "MIT", "BSD-3-Clause", "GPL-3.0-only"],
-			}),
-		url: z
-			.url()
-			.describe(
-				"A URL to the license used for the API. Mutually exclusive with 'identifier'.",
-			)
-			.optional()
-			.meta({
-				title: "url",
+				title: "License",
+				description: "License information for the exposed API.",
 				examples: [
-					"https://www.apache.org/licenses/LICENSE-2.0.html",
-					"https://opensource.org/licenses/MIT",
+					{ name: "Apache 2.0", identifier: "Apache-2.0" },
+					{ name: "MIT", url: "https://opensource.org/licenses/MIT" },
 				],
 			}),
-	})
-	.meta({
-		title: "License",
-		description:
-			"License information for the exposed API. Use either 'identifier' (SPDX) or 'url', not both.",
-		examples: [
-			{ name: "Apache 2.0", identifier: "Apache-2.0" },
-			{ name: "MIT", url: "https://opensource.org/licenses/MIT" },
-		],
-	});
+	);
 
-export type License = z.infer<typeof LicenseSchema>;
+export type LicenseObject = z.infer<typeof LicenseObjectSchema>;
+
+// Back-compat aliases (central schema index expects these names)
+export const LicenseSchema = LicenseObjectSchema;
+export type License = LicenseObject;
 
 // ============================================================================
 // External Documentation Object
@@ -126,7 +131,7 @@ export type License = z.infer<typeof LicenseSchema>;
  * Identical across all OpenAPI 3.x versions.
  */
 export const ExternalDocumentationSchema = z
-	.object({
+	.strictObject({
 		description: z
 			.string()
 			.describe(
@@ -164,177 +169,120 @@ export const ExternalDocumentationSchema = z
 
 export type ExternalDocumentation = z.infer<typeof ExternalDocumentationSchema>;
 
-// ============================================================================
+// ============================================
 // Reference Objects
-// ============================================================================
+// ============================================
 
-/**
- * Reference Object - Internal JSON Pointer reference.
- * Identical across all OpenAPI 3.x versions.
- */
 export const InternalRefSchema = z
-	.object({
-		$ref: z
-			.string()
-			.regex(/^#.*/)
-			.describe(
-				"REQUIRED. Internal JSON Pointer reference starting with '#'. Points to a reusable component within the same document.",
-			)
-			.meta({
-				title: "$ref",
-				examples: [
-					"#/components/schemas/Pet",
-					"#/components/schemas/Error",
-					"#/components/responses/NotFound",
-					"#/components/parameters/PageParam",
-					"#/components/requestBodies/UserInput",
-				],
-			}),
-		summary: z
-			.string()
-			.describe(
-				"A short summary which by default SHOULD override that of the referenced component.",
-			)
-			.optional()
-			.meta({
-				title: "summary",
-				examples: ["A pet in the store", "Standard error response"],
-			}),
-		description: z
-			.string()
-			.describe(
-				"A description which by default SHOULD override that of the referenced component. CommonMark syntax MAY be used.",
-			)
-			.optional()
-			.meta({
-				title: "description",
-				examples: ["Detailed description of the referenced component"],
-			}),
-	})
-	.strict()
+	.string()
+	.regex(/^#.*/)
 	.meta({
-		title: "InternalRef",
-		description:
-			"Internal reference using JSON Pointer syntax. Must start with '#' and point to a path within the same document.",
+		title: "Internal JSON Pointer Reference",
+		description: "Internal JSON Pointer reference",
 		examples: [
-			{ $ref: "#/components/schemas/Pet" },
-			{
-				$ref: "#/components/responses/NotFound",
-				summary: "Not found response",
-			},
+			"#/components/schemas/User",
+			"#/components/schemas/Error",
+			"#/components/responses/NotFound",
+			"#/components/parameters/PageParam",
+			"#/components/requestBodies/UserInput",
 		],
 	});
 
 export type InternalRef = z.infer<typeof InternalRefSchema>;
 
-/**
- * Reference Object - URL reference.
- * Identical across all OpenAPI 3.x versions.
- */
 export const UrlRefSchema = z
-	.object({
-		$ref: z
-			.string()
-			.regex(/^https?:\/\//)
-			.describe(
-				"REQUIRED. External URL reference starting with 'http://' or 'https://'. Can include a JSON Pointer fragment.",
-			)
-			.meta({
-				title: "$ref",
-				examples: [
-					"https://api.example.com/schemas/Pet.yaml",
-					"https://raw.githubusercontent.com/org/repo/main/common/Error.yaml",
-					"https://api.example.com/common.yaml#/components/schemas/Error",
-				],
-			}),
-		summary: z
-			.string()
-			.optional()
-			.meta({ title: "summary", examples: ["External pet schema"] }),
-		description: z
-			.string()
-			.optional()
-			.meta({
-				title: "description",
-				examples: ["Referenced from external API"],
-			}),
-	})
-	.strict()
+	.string()
+	.regex(/^https?:\/\//)
 	.meta({
-		title: "UrlRef",
-		description:
-			"External URL reference to a schema hosted at a remote location. Supports JSON Pointer fragments.",
+		title: "URL Reference",
+		description: "URL reference",
 		examples: [
-			{ $ref: "https://api.example.com/schemas/Pet.yaml" },
-			{ $ref: "https://api.example.com/common.yaml#/components/schemas/Error" },
+			"https://example.com/schemas/Pet.yaml",
+			"https://example.com/schemas/User.json",
+			"https://example.com/responses/Not-Found-Error.yaml",
+			"https://example.com/parameters.yaml#/PageParam",
+			"https://example.com/requestBodies.yaml#/requestBodies/UserInput",
 		],
 	});
 
 export type UrlRef = z.infer<typeof UrlRefSchema>;
 
-/**
- * Reference Object - File reference.
- * Identical across all OpenAPI 3.x versions.
- */
 export const FileRefSchema = z
-	.object({
-		$ref: z
-			.string()
-			.describe(
-				"REQUIRED. Relative file reference path. Can include JSON Pointer fragment after '#'.",
-			)
-			.meta({
-				title: "$ref",
-				examples: [
-					"./schemas/Pet.yaml",
-					"../common/Error.yaml",
-					"components/schemas/User.yaml",
-					"./paths/pets.yaml#/get",
-					"schemas/Order.yaml#/properties/id",
-				],
-			}),
-		summary: z
-			.string()
-			.optional()
-			.meta({
-				title: "summary",
-				examples: ["Pet schema from shared components"],
-			}),
-		description: z
-			.string()
-			.optional()
-			.meta({ title: "description", examples: ["Defined in external file"] }),
-	})
-	.strict()
+	.string()
+	.regex(/^[^#\s]+(\.ya?ml|\.json)(#\/.*)?$/i)
 	.meta({
-		title: "FileRef",
-		description:
-			"Relative file reference. Path is resolved relative to the current document. Supports JSON Pointer fragments.",
+		title: "Relative File Reference",
+		description: "Relative file reference",
 		examples: [
-			{ $ref: "./schemas/Pet.yaml" },
-			{ $ref: "../common/Error.yaml#/properties/message" },
+			"./schemas/Pet.yaml",
+			"../common/types.yaml",
+			"schemas/Pet.yaml",
+			"./v2/components/parameters.yaml#/components/parameters/LimitParam",
+			"../common/types.yaml#/properties/id",
+			"schemas/Pet.yaml#/properties/name",
 		],
 	});
 
 export type FileRef = z.infer<typeof FileRefSchema>;
 
-/**
- * Reference Object - Union of all reference types.
- * Identical across all OpenAPI 3.x versions.
- */
 export const ReferenceSchema = z
 	.union([InternalRefSchema, UrlRefSchema, FileRefSchema])
 	.meta({
 		title: "Reference",
-		description:
-			"Reference Object. Use $ref to reference other components. Supports internal (#/...), file (./...), and URL (https://...) references.",
+		description: "A reference to another component in the specification.",
 		examples: [
-			{ $ref: "#/components/schemas/Pet" },
-			{ $ref: "./schemas/User.yaml" },
+			"#/components/schemas/Pet",
+			"https://example.com/schemas/Pet.yaml",
+			"./schemas/Pet.yaml",
 		],
 	});
 
 export type Reference = z.infer<typeof ReferenceSchema>;
+
+export const ReferenceObjectSchema = z
+	.strictObject({
+		$ref: ReferenceSchema,
+		summary: z
+			.string()
+			.meta({
+				title: "summary",
+				description:
+					"A short summary which by default SHOULD override that of the referenced component.",
+			})
+			.optional(),
+		description: z
+			.string()
+			.meta({
+				title: "description",
+				description:
+					"A description which by default SHOULD override that of the referenced component.",
+			})
+			.optional(),
+	})
+	.meta({
+		title: "Reference Object",
+		description: "A reference to another component in the specification.",
+		examples: [
+			{ $ref: "#/components/schemas/Pet" },
+			{
+				$ref: "./schemas/User.yaml",
+				summary: "A user",
+				description: "A user is a type of person.",
+			},
+			{
+				$ref: "definitions.yaml#/Pet",
+				summary: "A pet",
+				description: "A pet is a type of animal.",
+			},
+			{
+				$ref: "https://example.com/schemas/Pet.yaml",
+				summary: "A pet",
+				description: "A pet is a type of animal.",
+			},
+		],
+	});
+
+export type ReferenceObject = z.infer<typeof ReferenceObjectSchema>;
 
 // ============================================================================
 // Security Requirement Object
@@ -369,7 +317,7 @@ export type SecurityRequirement = z.infer<typeof SecurityRequirementSchema>;
  * Identical across all OpenAPI 3.x versions.
  */
 export const XMLSchema = z
-	.object({
+	.strictObject({
 		name: z
 			.string()
 			.describe(
@@ -440,7 +388,7 @@ export type XML = z.infer<typeof XMLSchema>;
  * Identical across all OpenAPI 3.x versions.
  */
 export const OAuthFlowSchema = z
-	.object({
+	.strictObject({
 		authorizationUrl: z
 			.url()
 			.describe(

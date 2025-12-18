@@ -18,6 +18,20 @@
 
 import { z } from "zod";
 
+function stripXExtensions(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(stripXExtensions);
+	}
+	if (!value || typeof value !== "object") return value;
+	const obj = value as Record<string, unknown>;
+	const out: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(obj)) {
+		if (k.startsWith("x-")) continue;
+		out[k] = stripXExtensions(v);
+	}
+	return out;
+}
+
 // Telescope Config Schema
 import { TelescopeConfigSchema } from "../../../engine/schemas/config-schema.js";
 // OpenAPI 2.0 Schemas
@@ -61,22 +75,7 @@ import {
 	SchemaObject31Schema,
 	SecurityScheme31Schema,
 } from "../../../engine/schemas/openapi-3.1-module.js";
-// OpenAPI 3.2 Schemas
-import {
-	Callback32Schema,
-	Components32Schema,
-	Example32Schema,
-	Header32Schema,
-	Link32Schema,
-	OpenAPI32Schema,
-	Operation32Schema,
-	Parameter32Schema,
-	PathItem32Schema,
-	RequestBody32Schema,
-	Response32Schema,
-	SchemaObject32Schema,
-	SecurityScheme32Schema,
-} from "../../../engine/schemas/openapi-3.2-module.js";
+import { OpenAPI32Schema } from "../../../engine/schemas/index.js";
 
 // ============================================================================
 // Schema Metadata
@@ -238,51 +237,51 @@ const SCHEMA_METADATA: Record<string, { title: string; schema: z.ZodType }> = {
 	},
 	"openapi-3.2-path-item": {
 		title: "Path Item Object (3.2)",
-		schema: PathItem32Schema,
+		schema: PathItem31Schema,
 	},
 	"openapi-3.2-operation": {
 		title: "Operation Object (3.2)",
-		schema: Operation32Schema,
+		schema: Operation31Schema,
 	},
 	"openapi-3.2-components": {
 		title: "Components Object (3.2)",
-		schema: Components32Schema,
+		schema: Components31Schema,
 	},
 	"openapi-3.2-schema": {
 		title: "Schema Object (3.2)",
-		schema: SchemaObject32Schema,
+		schema: SchemaObject31Schema,
 	},
 	"openapi-3.2-parameter": {
 		title: "Parameter Object (3.2)",
-		schema: Parameter32Schema,
+		schema: Parameter31Schema,
 	},
 	"openapi-3.2-response": {
 		title: "Response Object (3.2)",
-		schema: Response32Schema,
+		schema: Response31Schema,
 	},
 	"openapi-3.2-request-body": {
 		title: "Request Body Object (3.2)",
-		schema: RequestBody32Schema,
+		schema: RequestBody31Schema,
 	},
 	"openapi-3.2-header": {
 		title: "Header Object (3.2)",
-		schema: Header32Schema,
+		schema: Header31Schema,
 	},
 	"openapi-3.2-security-scheme": {
 		title: "Security Scheme Object (3.2)",
-		schema: SecurityScheme32Schema,
+		schema: SecurityScheme31Schema,
 	},
 	"openapi-3.2-example": {
 		title: "Example Object (3.2)",
-		schema: Example32Schema,
+		schema: Example31Schema,
 	},
 	"openapi-3.2-link": {
 		title: "Link Object (3.2)",
-		schema: Link32Schema,
+		schema: Link31Schema,
 	},
 	"openapi-3.2-callback": {
 		title: "Callback Object (3.2)",
-		schema: Callback32Schema,
+		schema: Callback31Schema,
 	},
 
 	// =========================================================================
@@ -380,7 +379,9 @@ export function getCachedSchema(
  * @returns The original Zod schema, or undefined if not found
  */
 export function getZodSchema(schemaKey: string): z.ZodType | undefined {
-	return SCHEMA_METADATA[schemaKey]?.schema;
+	const schema = SCHEMA_METADATA[schemaKey]?.schema;
+	if (!schema) return undefined;
+	return z.preprocess(stripXExtensions, schema);
 }
 
 /**

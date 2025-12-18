@@ -55,6 +55,8 @@ export interface SessionOptions {
 	outputChannel: vscode.OutputChannel;
 	/** Shared status bar item (optional) */
 	statusBarItem?: vscode.StatusBarItem;
+	/** Workspace-scoped persistent storage (for scanner caches, etc.) */
+	workspaceState: vscode.Memento;
 }
 
 /**
@@ -76,6 +78,7 @@ export class Session implements vscode.Disposable {
 
 	/** Current session state */
 	private _state: SessionState = SessionState.Stopped;
+	private _lastStartError: string | null = null;
 
 	/** The language client for this session */
 	private client: BaseLanguageClient | null = null;
@@ -92,6 +95,16 @@ export class Session implements vscode.Disposable {
 	/** Track documents where the user has manually opted out */
 	private userOverrides = new Set<string>();
 
+	/** Authoritative OpenAPI file membership for this workspace (client-side) */
+	private openApiFiles = new Set<string>();
+	/** Monotonic version for full snapshot + deltas */
+	private openApiFilesVersion = 0;
+	/** Ensure full syncs don't overlap */
+	private fullSyncInFlight: Promise<void> | null = null;
+
+	/** Timer for delayed background scan */
+	private backgroundScanTimer: ReturnType<typeof setTimeout> | null = null;
+
 	/** Disposables for this session */
 	private disposables: vscode.Disposable[] = [];
 
@@ -100,6 +113,7 @@ export class Session implements vscode.Disposable {
 	private readonly nodePath: string;
 	private readonly outputChannel: vscode.OutputChannel;
 	private statusBarItem: vscode.StatusBarItem | null;
+	private readonly workspaceState: vscode.Memento;
 
 	constructor(options: SessionOptions) {
 		this.workspaceFolder = options.workspaceFolder;
@@ -108,6 +122,7 @@ export class Session implements vscode.Disposable {
 		this.nodePath = options.nodePath;
 		this.outputChannel = options.outputChannel;
 		this.statusBarItem = options.statusBarItem ?? null;
+		this.workspaceState = options.workspaceState;
 	}
 
 	/**
@@ -178,12 +193,21 @@ export class Session implements vscode.Disposable {
 			this.startBackgroundScan();
 
 			this._state = SessionState.Running;
+			this._lastStartError = null;
 			this.log(`Session started for ${this.workspaceFolder.name}`);
 		} catch (error) {
 			this._state = SessionState.Stopped;
+			this._lastStartError =
+				error instanceof Error
+					? error.stack || error.message
+					: String(error);
 			this.logError(`Failed to start session: ${error}`);
 			throw error;
 		}
+	}
+
+	get lastStartError(): string | null {
+		return this._lastStartError;
 	}
 
 	/**
@@ -198,6 +222,15 @@ export class Session implements vscode.Disposable {
 		this.log(`Stopping session for ${this.workspaceFolder.name}`);
 
 		try {
+			// Cancel any scheduled scan
+			if (this.backgroundScanTimer) {
+				clearTimeout(this.backgroundScanTimer);
+				this.backgroundScanTimer = null;
+			}
+
+			// Cancel any ongoing scan to avoid work continuing during shutdown
+			this.scanner?.cancelScan();
+
 			// Stop the language client
 			if (this.client) {
 				await this.client.stop();
@@ -330,12 +363,79 @@ export class Session implements vscode.Disposable {
 			clientOptions,
 		);
 
-		// Enable trace logging for debugging
-		this.client.setTrace(Trace.Verbose);
+		// Configure trace logging (default off; configurable via telescope.trace)
+		this.applyTraceSetting();
 
 		// Start the client
 		await this.client.start();
+
+		// Server can request a full resync if it detects missed deltas.
+		this.client.onRequest("telescope/requestOpenApiFilesResync", async () => {
+			await this.syncOpenApiFilesFull({ clearScannerCache: false });
+			return { success: true };
+		});
 		this.log(`Language client started`);
+	}
+
+	/**
+	 * Apply current Telescope configuration to the running language client.
+	 * Safe to call whether the client is started or not.
+	 */
+	applyTraceSetting(): void {
+		if (!this.client) return;
+		const cfg = vscode.workspace.getConfiguration("telescope", this.workspaceFolder.uri);
+		const traceLevel = cfg.get<"off" | "messages" | "verbose">("trace", "off");
+		switch (traceLevel) {
+			case "verbose":
+				this.client.setTrace(Trace.Verbose);
+				break;
+			case "messages":
+				this.client.setTrace(Trace.Messages);
+				break;
+			default:
+				this.client.setTrace(Trace.Off);
+				break;
+		}
+	}
+
+	/**
+	 * Test-only: ask the server to request a full OpenAPI file list resync.
+	 */
+	async requestServerResync(): Promise<void> {
+		if (!this.client || this._state !== SessionState.Running) return;
+		// This is intentionally implemented as a version-mismatch delta so the server
+		// will request a resync via its normal recovery mechanism.
+		this.sendBadDeltaVersionOnce();
+	}
+
+	/**
+	 * Test-only: send a delta with an intentionally wrong version to trigger the
+	 * server's resync request path.
+	 */
+	sendBadDeltaVersionOnce(): void {
+		if (!this.client || this._state !== SessionState.Running) return;
+		try {
+			this.client.sendNotification("telescope/didChangeOpenApiFiles", {
+				added: [],
+				removed: [],
+				changed: [],
+				version: this.openApiFilesVersion + 1000,
+			});
+		} catch {
+			// ignore
+		}
+	}
+
+	/**
+	 * Execute a server refactor command for this session.
+	 * The server applies the resulting WorkspaceEdit via `workspace/applyEdit`.
+	 */
+	async executeServerCommand(command: string, args: unknown[]): Promise<void> {
+		if (!this.client || this._state !== SessionState.Running) return;
+		await this.client.sendRequest("workspace/executeCommand", {
+			command,
+			arguments: args,
+		});
 	}
 
 	/**
@@ -343,7 +443,12 @@ export class Session implements vscode.Disposable {
 	 */
 	private initializeScanner(): void {
 		// Create scanner scoped to this workspace folder
-		this.scanner = new WorkspaceScanner(this.workspaceFolder);
+		this.scanner = new WorkspaceScanner(this.workspaceFolder, {
+			workspaceState: this.workspaceState,
+			storageKey: `telescope.scanCache:${this.id}`,
+		});
+		// Best-effort: use patterns to narrow enumeration; filter remains authoritative.
+		this.scanner.setDiscoveryPatterns(this.patterns);
 		this.scanner.setFileFilter((uri) => this.matchesOpenAPIPatterns(uri));
 
 		// Wire up status callback to centralize status bar updates
@@ -368,11 +473,28 @@ export class Session implements vscode.Disposable {
 			new vscode.RelativePattern(this.workspaceFolder, "**/*.{yaml,yml,json}"),
 		);
 
-		fileWatcher.onDidChange((uri) => {
+		fileWatcher.onDidChange(async (uri) => {
 			if (this.ownsUri(uri)) {
 				this.scanner?.invalidate(uri.toString());
-				// Notify server of file change
-				this.notifyServerFileChange(uri.toString(), "changed");
+				if (!this.matchesOpenAPIPatterns(uri)) return;
+
+				const uriString = uri.toString();
+				const wasOpenApi = this.openApiFiles.has(uriString);
+				const result = await this.scanner?.classifyFile(uri);
+				const isOpenApi = !!result?.isOpenAPI;
+
+				if (wasOpenApi && isOpenApi) {
+					this.sendOpenApiFilesDelta({ changed: [uriString] });
+					this.notifyServerFileChange(uriString, "changed");
+				} else if (wasOpenApi && !isOpenApi) {
+					this.openApiFiles.delete(uriString);
+					this.sendOpenApiFilesDelta({ removed: [uriString] });
+					this.notifyServerFileChange(uriString, "deleted");
+				} else if (!wasOpenApi && isOpenApi) {
+					this.openApiFiles.add(uriString);
+					this.sendOpenApiFilesDelta({ added: [uriString] });
+					this.notifyServerFileChange(uriString, "created");
+				}
 			}
 		});
 
@@ -380,17 +502,23 @@ export class Session implements vscode.Disposable {
 			if (this.ownsUri(uri)) {
 				this.scanner?.invalidate(uri.toString());
 				this.classifiedDocuments.delete(uri.toString());
-				// Notify server of file deletion
-				this.notifyServerFileChange(uri.toString(), "deleted");
+				const uriString = uri.toString();
+				if (this.openApiFiles.delete(uriString)) {
+					this.sendOpenApiFilesDelta({ removed: [uriString] });
+					this.notifyServerFileChange(uriString, "deleted");
+				}
 			}
 		});
 
 		fileWatcher.onDidCreate(async (uri) => {
 			if (this.ownsUri(uri) && this.matchesOpenAPIPatterns(uri)) {
 				const result = await this.scanner?.classifyFile(uri);
+				const uriString = uri.toString();
 				// Notify server if this is an OpenAPI file
 				if (result?.isOpenAPI) {
-					this.notifyServerFileChange(uri.toString(), "created");
+					this.openApiFiles.add(uriString);
+					this.sendOpenApiFilesDelta({ added: [uriString] });
+					this.notifyServerFileChange(uriString, "created");
 				}
 			}
 		});
@@ -410,6 +538,8 @@ export class Session implements vscode.Disposable {
 			this.classifiedDocuments.clear();
 			this.userOverrides.clear();
 			this.scanner?.clearCache();
+			this.openApiFiles.clear();
+			this.openApiFilesVersion = 0;
 
 			// Re-scan workspace
 			await this.runScan();
@@ -454,7 +584,7 @@ export class Session implements vscode.Disposable {
 	 */
 	private startBackgroundScan(): void {
 		// Delay to let extension fully activate
-		setTimeout(async () => {
+		this.backgroundScanTimer = setTimeout(async () => {
 			await this.runScan();
 		}, 1000);
 	}
@@ -466,32 +596,51 @@ export class Session implements vscode.Disposable {
 		this.log("Starting workspace scan...");
 
 		try {
-			const openAPIFiles = await this.scanner?.scanWorkspace();
-			this.log(
-				`Scan complete: ${openAPIFiles?.length || 0} OpenAPI files found`,
-			);
-
-			// Send discovered files to the server (client→server sync)
-			if (openAPIFiles && this.client) {
-				await this.sendOpenAPIFilesToServer(openAPIFiles);
-			}
-
-			// Apply classifications in background
-			if (openAPIFiles && openAPIFiles.length > 0) {
-				this.applyOpenAPIClassificationsAsync(openAPIFiles).catch((error) => {
-					this.logError(`Background classification error: ${error}`);
-				});
-			}
+			await this.syncOpenApiFilesFull({ clearScannerCache: false });
 		} catch (error) {
 			this.logError(`Workspace scan failed: ${error}`);
 		}
+	}
+
+	private async syncOpenApiFilesFull(options?: {
+		clearScannerCache?: boolean;
+	}): Promise<void> {
+		if (!this.scanner) return;
+		if (this.fullSyncInFlight) {
+			return await this.fullSyncInFlight;
+		}
+
+		this.fullSyncInFlight = (async () => {
+			if (options?.clearScannerCache) {
+				this.scanner?.clearCache();
+			}
+
+			const openAPIFiles = await this.scanner?.scanWorkspace();
+			const files = openAPIFiles ?? [];
+			this.log(`Scan complete: ${files.length} OpenAPI files found`);
+
+			this.openApiFiles = new Set(files);
+			this.openApiFilesVersion++;
+
+			// Send discovered files to the server (client→server sync)
+			if (this.client) {
+				await this.sendOpenAPIFilesToServer(files, this.openApiFilesVersion);
+			}
+		})().finally(() => {
+			this.fullSyncInFlight = null;
+		});
+
+		return await this.fullSyncInFlight;
 	}
 
 	/**
 	 * Send discovered OpenAPI files to the language server.
 	 * This is the client→server sync mechanism that provides the "project model".
 	 */
-	private async sendOpenAPIFilesToServer(files: string[]): Promise<void> {
+	private async sendOpenAPIFilesToServer(
+		files: string[],
+		version?: number,
+	): Promise<void> {
 		if (!this.client || this._state !== SessionState.Running) {
 			this.log("Client not ready, skipping file sync to server");
 			return;
@@ -502,6 +651,7 @@ export class Session implements vscode.Disposable {
 				"telescope/setOpenAPIFiles",
 				{
 					files,
+					version,
 				},
 			);
 			this.log(
@@ -509,6 +659,31 @@ export class Session implements vscode.Disposable {
 			);
 		} catch (error) {
 			this.logError(`Failed to send files to server: ${error}`);
+		}
+	}
+
+	private sendOpenApiFilesDelta(delta: {
+		added?: string[];
+		removed?: string[];
+		changed?: string[];
+	}): void {
+		if (!this.client || this._state !== SessionState.Running) return;
+
+		const added = delta.added ?? [];
+		const removed = delta.removed ?? [];
+		const changed = delta.changed ?? [];
+		if (added.length === 0 && removed.length === 0 && changed.length === 0) return;
+
+		this.openApiFilesVersion++;
+		try {
+			this.client.sendNotification("telescope/didChangeOpenApiFiles", {
+				added,
+				removed,
+				changed,
+				version: this.openApiFilesVersion,
+			});
+		} catch (error) {
+			console.debug(`Failed to send OpenAPI file delta: ${error}`);
 		}
 	}
 
@@ -539,43 +714,6 @@ export class Session implements vscode.Disposable {
 		const filePath = fileUri.fsPath;
 		const workspaceRoot = this.workspaceFolder.uri.fsPath;
 		return matchesPatternList(filePath, this.patterns, workspaceRoot);
-	}
-
-	/**
-	 * Apply OpenAPI classifications to files in the background.
-	 */
-	private async applyOpenAPIClassificationsAsync(
-		openAPIFiles: string[],
-		batchSize = 5,
-		delayMs = 50,
-	): Promise<void> {
-		for (let i = 0; i < openAPIFiles.length; i += batchSize) {
-			const batch = openAPIFiles.slice(i, i + batchSize);
-
-			await Promise.all(
-				batch.map(async (uriString) => {
-					try {
-						const uri = vscode.Uri.parse(uriString);
-						const doc = await vscode.workspace.openTextDocument(uri);
-						const targetLanguage = getOpenAPILanguageId(uri.fsPath);
-						if (!isOpenAPILanguage(doc.languageId)) {
-							await vscode.languages.setTextDocumentLanguage(
-								doc,
-								targetLanguage,
-							);
-							this.classifiedDocuments.set(uriString, targetLanguage);
-						}
-					} catch (error) {
-						console.debug(`Failed to classify ${uriString}:`, error);
-					}
-				}),
-			);
-
-			// Yield to event loop between batches
-			if (i + batchSize < openAPIFiles.length) {
-				await new Promise((resolve) => setTimeout(resolve, delayMs));
-			}
-		}
 	}
 
 	/**
@@ -669,6 +807,13 @@ export class Session implements vscode.Disposable {
 	}
 
 	/**
+	 * Test/debug: get current client-side OpenAPI membership size.
+	 */
+	getClientOpenApiFileCount(): number {
+		return this.openApiFiles.size;
+	}
+
+	/**
 	 * Get project info from the language server.
 	 * This is a test-only method for E2E testing.
 	 */
@@ -720,6 +865,14 @@ export class Session implements vscode.Disposable {
 	 * Dispose of this session.
 	 */
 	dispose(): void {
-		this.stop();
+		void this.disposeAsync();
+	}
+
+	/**
+	 * Async disposal for deterministic shutdown.
+	 * Prefer this from `deactivate()` to ensure the server process exits cleanly.
+	 */
+	async disposeAsync(): Promise<void> {
+		await this.stop();
 	}
 }

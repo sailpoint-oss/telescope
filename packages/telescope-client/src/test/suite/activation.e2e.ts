@@ -4,6 +4,7 @@
 
 import * as assert from "assert";
 import * as vscode from "vscode";
+import { activateExtension, getTestApi, isMultiRootWorkspace } from "./utils/e2e-helpers";
 
 suite("Extension Activation", () => {
 	test("Extension should activate", async () => {
@@ -49,25 +50,12 @@ suite("Extension Activation", () => {
 	});
 
 	test("Sessions should start running", async () => {
-		const extension = vscode.extensions.getExtension("sailpoint.telescope");
-		assert.ok(extension, "Extension should be available");
+		await activateExtension();
+		const testAPI = getTestApi();
 
-		if (!extension.isActive) {
-			await extension.activate();
-		}
-
-		const exports = extension.exports as {
-			__telescopeTest?: {
-				waitForSessionsRunning: (timeoutMs?: number) => Promise<void>;
-				getSessionStates: () => Array<{ folder: string; state: string }>;
-			};
-		};
-
-		const testAPI = exports.__telescopeTest;
-		assert.ok(testAPI, "Test API should be available");
-
-		// Wait for sessions to be running (with generous timeout for CI)
-		await testAPI.waitForSessionsRunning(60000);
+		// Multi-root workspace launches can be slower to materialize folders in test-electron.
+		const timeout = isMultiRootWorkspace() ? 180000 : 60000;
+		await testAPI.waitForSessionsRunning(timeout);
 
 		// Verify session states
 		const states = testAPI.getSessionStates();
@@ -78,4 +66,5 @@ suite("Extension Activation", () => {
 		);
 	});
 });
+
 

@@ -11,6 +11,14 @@
 		"types": ["node"]
 	},
 	"include": ["src/engine/**/*.ts"],
-	"exclude": ["**/*.test.ts", "tests", "node_modules", "dist", "out"]
+	"exclude": [
+		"**/*.test.ts",
+		"tests",
+		"node_modules",
+		"dist",
+		"out",
+		"src/engine/schemas/openapi-3.2-module.ts",
+		"src/engine/schemas/3.2/**"
+	]
 }
 

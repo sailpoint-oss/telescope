@@ -90,6 +90,8 @@ These rules suggest improvements for any OpenAPI specification. Most are warning
 | ID                        | Severity | Description                                                   |
 | ------------------------- | -------- | ------------------------------------------------------------- |
 | `path-params-match`       | error    | Path template params must be declared as in:'path' parameters |
+| `path-template-valid`     | error    | Paths Object keys must be valid OpenAPI path templates        |
+| `path-param-values-no-generic-syntax` | error | Path param examples/defaults must not contain unescaped / ? # |
 | `path-no-trailing-slash`  | warning  | Paths should not end with trailing slashes                    |
 | `path-kebab-case`         | info     | Path segments should use kebab-case                           |
 | `path-no-http-verbs`      | warning  | Path segments should not contain HTTP verbs                   |

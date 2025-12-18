@@ -17,9 +17,7 @@ import {
 	type RuleContext,
 	splitPointer,
 } from "../../api.js";
-
-/** Regex to extract template parameters from path strings */
-const TEMPLATE_PARAM_REGEX = /\{([^}]+)\}/g;
+import { validatePathTemplate } from "./path-template.js";
 
 /**
  * Find the precise range of a parameter placeholder (e.g., `{id}`) within a path string.
@@ -62,12 +60,11 @@ function findParamRangeInPath(
 function extractTemplateParams(paths: string[]): Set<string> {
 	const names = new Set<string>();
 	for (const path of paths) {
-		const matches = path.matchAll(TEMPLATE_PARAM_REGEX);
-		for (const match of matches) {
-			if (match[1]) {
-				names.add(match[1]);
-			}
-		}
+		const res = validatePathTemplate(path);
+		// Noise control: if the path template is invalid, let `path-template-valid`
+		// be the single source of truth for template syntax errors.
+		if (!res.ok) continue;
+		for (const name of res.templateParams) names.add(name);
 	}
 	return names;
 }

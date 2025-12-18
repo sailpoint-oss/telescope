@@ -32,6 +32,8 @@ import type {
 	FormattingOptions,
 } from "vscode-languageserver-protocol";
 import { getCachedSchema } from "./shared/schema-cache.js";
+import type { CachedDocument } from "../document-cache.js";
+import { getVersionedSchemaKey } from "./shared/schema-cache.js";
 
 /**
  * YAML Service configuration options.
@@ -88,14 +90,10 @@ export function createYAMLService(options: YAMLServiceOptions = {}): LanguageSer
 		hover: options.hover ?? true,
 		completion: options.completion ?? true,
 		format: options.format ?? true,
-		// Associate OpenAPI schemas with YAML/JSON files
-		// The yaml-language-server will use these for hover and completions
-		schemas: [
-			{
-				uri: "telescope://openapi-3.1-root",
-				fileMatch: ["*.yaml", "*.yml", "*.json"],
-			},
-		],
+		// IMPORTANT: Do NOT globally associate OpenAPI schemas with all YAML/JSON files.
+		// Telescope scopes OpenAPI features via `openapi.patterns`. We only attach schemas
+		// per-document (see `configureForDocument`) when a file is actually OpenAPI.
+		schemas: [],
 		customTags: [], // Add custom tags if needed
 		yamlVersion: "1.2",
 	};
@@ -110,9 +108,45 @@ export function createYAMLService(options: YAMLServiceOptions = {}): LanguageSer
  */
 export class YAMLService {
 	private service: LanguageService;
+	private lastConfigured?: { uri: string; schemaKey: string };
 
 	constructor(options: YAMLServiceOptions = {}) {
 		this.service = createYAMLService(options);
+	}
+
+	/**
+	 * Configure yaml-language-server schema association for a specific document.
+	 *
+	 * This ensures hover/completions are driven by the correct OpenAPI schema
+	 * (version + doc type) rather than a single global default.
+	 */
+	configureForDocument(cached: CachedDocument): void {
+		const schemaKey = getVersionedSchemaKey(cached.documentType, cached.openapiVersion);
+		if (
+			this.lastConfigured &&
+			this.lastConfigured.uri === cached.uri &&
+			this.lastConfigured.schemaKey === schemaKey
+		) {
+			return;
+		}
+
+		const settings: LanguageSettings = {
+			validate: false,
+			hover: true,
+			completion: true,
+			format: true,
+			schemas: [
+				{
+					uri: `telescope://${schemaKey}`,
+					fileMatch: [cached.uri],
+				},
+			],
+			customTags: [],
+			yamlVersion: "1.2",
+		};
+
+		this.service.configure(settings);
+		this.lastConfigured = { uri: cached.uri, schemaKey };
 	}
 
 	/**

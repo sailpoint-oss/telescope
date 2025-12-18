@@ -10,9 +10,7 @@
 openapi:
   # Glob patterns for OpenAPI files
   patterns:
-    - "openapi/**/*.yaml"
-    - "openapi/**/*.yml"
-    - "openapi/**/*.json"
+    - "openapi/**/*"
 
   # Register custom OpenAPI rules
   rules:

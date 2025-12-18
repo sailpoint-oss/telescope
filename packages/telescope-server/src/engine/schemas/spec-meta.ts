@@ -25,7 +25,7 @@ export function specLink(
 	};
 }
 
-export function withSpec<T extends z.ZodTypeAny>(
+export function withSpec<T extends z.ZodType>(
 	schema: T,
 	version: SpecVersion,
 	anchor: string,

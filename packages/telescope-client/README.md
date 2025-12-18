@@ -56,7 +56,7 @@ The extension automatically detects OpenAPI documents based on:
 1. File contains `openapi:` or `swagger:` root key
 2. File matches patterns configured in `.telescope/config.yaml`
 
-Once detected, files receive the OpenAPI language mode with full language server features.
+Once detected, Telescope treats the file as OpenAPI for language server features. When you open a detected file, Telescope applies the custom OpenAPI language mode (`openapi-yaml` / `openapi-json`) for correct tokenization and grammars.
 
 ## Configuration
 
@@ -110,11 +110,7 @@ patterns:
 
 ### Configuration Reload
 
-Configuration automatically reloads when:
-
-- `.telescope/config.yaml` is modified
-- Workspace folders change
-- VS Code window regains focus
+Configuration automatically reloads when `.telescope/config.yaml` is modified, and when relevant VS Code settings change.
 
 ## Commands
 
@@ -127,6 +123,7 @@ Available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 | `Telescope: Convert JSON to YAML (Copy)`    | Convert JSON file to YAML, keep original   |
 | `Telescope: Convert YAML to JSON (Replace)` | Convert YAML file to JSON, delete original |
 | `Telescope: Convert YAML to JSON (Copy)`    | Convert YAML file to JSON, keep original   |
+| `Telescope: Show References`                | Show references UI for a symbol (CodeLens) |
 
 Conversion commands are also available in the editor and file explorer context menus.
 
@@ -218,6 +215,21 @@ For full documentation on custom rules, see the [Custom Rules Guide](https://git
 | Setting                           | Description                                                    | Default |
 | --------------------------------- | -------------------------------------------------------------- | ------- |
 | `telescope.autoConvertJsonToYaml` | Automatically convert JSON OpenAPI files to YAML when detected | `false` |
+| `telescope.trace`                 | LSP trace logging level (`off`, `messages`, `verbose`)         | `off`   |
+
+## E2E (VS Code integration) tests
+
+For full end-to-end coverage (extension + language server), run:
+
+```bash
+pnpm --filter telescope-client test:e2e:compile
+pnpm --filter telescope-client test:e2e:run:single
+pnpm --filter telescope-client test:e2e:run:multi
+```
+
+Notes:
+- The multi-root run is intentionally minimal (multi-root isolation + startup smoke).
+- VS Code downloads/user-data are written under `packages/telescope-client/.vscode-test` and are ignored by git.
 
 ## Troubleshooting
 

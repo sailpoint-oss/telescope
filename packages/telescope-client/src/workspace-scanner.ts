@@ -8,13 +8,11 @@
  * scoped to a specific workspace folder.
  */
 
+import { open as fsOpen, stat as fsStat } from "node:fs/promises";
 import * as vscode from "vscode";
+import * as jsonc from "jsonc-parser";
 import { isOpenAPIDocument } from "./classifier";
-import {
-	extractJSONTopLevelKeys,
-	extractYAMLTopLevelKeys,
-	keysToRecord,
-} from "./utils";
+import { extractYAMLTopLevelKeys, keysToRecord } from "./utils";
 
 /**
  * Result of scanning a single file.
@@ -29,6 +27,22 @@ export interface ScanResult {
 }
 
 /**
+ * Persistent cache entry keyed by URI.
+ * Used to avoid re-reading/re-parsing unchanged files across extension restarts.
+ */
+interface PersistedScanEntry {
+	mtime: number;
+	size: number;
+	isOpenAPI: boolean;
+	scannedAt: number;
+}
+
+export interface WorkspaceScannerOptions {
+	workspaceState?: vscode.Memento;
+	storageKey?: string;
+}
+
+/**
  * Progress callback for scan operations.
  */
 export type ScanProgressCallback = (scanned: number, total: number) => void;
@@ -38,6 +52,10 @@ export type ScanProgressCallback = (scanned: number, total: number) => void;
  */
 function isJSONFile(filePath: string): boolean {
 	return filePath.toLowerCase().endsWith(".json");
+}
+
+function isJSONCFile(filePath: string): boolean {
+	return filePath.toLowerCase().endsWith(".jsonc");
 }
 
 /**
@@ -68,6 +86,13 @@ export class WorkspaceScanner {
 	/** Cache of scan results by URI */
 	private cache = new Map<string, ScanResult>();
 
+	/** Optional persistent cache (stored via VS Code Memento) */
+	private persisted: Record<string, PersistedScanEntry> = {};
+	private workspaceState: vscode.Memento | null = null;
+	private storageKey: string | null = null;
+	private persistTimer: ReturnType<typeof setTimeout> | null = null;
+	private persistDirty = false;
+
 	/** Whether a scan is currently in progress */
 	private scanning = false;
 
@@ -80,6 +105,9 @@ export class WorkspaceScanner {
 	/** Optional filter function to determine which files to scan */
 	private fileFilter: FileFilter | null = null;
 
+	/** Optional discovery patterns from config (used to narrow file enumeration) */
+	private discoveryPatterns: string[] | null = null;
+
 	/** Optional workspace folder to scope scanning to */
 	private workspaceFolder: vscode.WorkspaceFolder | null = null;
 
@@ -91,8 +119,16 @@ export class WorkspaceScanner {
 	 *
 	 * @param workspaceFolder - Optional workspace folder to scope scanning to
 	 */
-	constructor(workspaceFolder?: vscode.WorkspaceFolder) {
+	constructor(workspaceFolder?: vscode.WorkspaceFolder, options?: WorkspaceScannerOptions) {
 		this.workspaceFolder = workspaceFolder || null;
+		this.workspaceState = options?.workspaceState ?? null;
+		this.storageKey = options?.storageKey ?? null;
+
+		if (this.workspaceState && this.storageKey) {
+			this.persisted =
+				this.workspaceState.get<Record<string, PersistedScanEntry>>(this.storageKey) ??
+				{};
+		}
 	}
 
 	/**
@@ -118,6 +154,16 @@ export class WorkspaceScanner {
 	 */
 	setFileFilter(filter: FileFilter | null): void {
 		this.fileFilter = filter;
+	}
+
+	/**
+	 * Provide the configured OpenAPI patterns so the scanner can narrow file enumeration.
+	 *
+	 * Semantics: this is a best-effort performance optimization only.
+	 * We still apply the authoritative `fileFilter` after enumeration to preserve correctness.
+	 */
+	setDiscoveryPatterns(patterns: string[] | null): void {
+		this.discoveryPatterns = patterns && patterns.length > 0 ? patterns : null;
 	}
 
 	/**
@@ -179,21 +225,38 @@ export class WorkspaceScanner {
 		const token = this.cancellationSource.token;
 
 		try {
-			// Build the include pattern - scope to workspace folder if set
-			const includePattern = this.workspaceFolder
-				? new vscode.RelativePattern(
-						this.workspaceFolder,
-						"**/*.{yaml,yml,json,jsonc}",
-					)
-				: "**/*.{yaml,yml,json,jsonc}";
+			const excludePattern = "**/{node_modules,.git,dist,build,coverage,.telescope}/**";
 
-			// Find all YAML and JSON files
-			const allFiles = await vscode.workspace.findFiles(
-				includePattern,
-				"**/node_modules/**",
-				undefined,
-				token,
+			// Build include patterns:
+			// - If config patterns are simple (positive only), enumerate only those globs.
+			// - Otherwise, fall back to all YAML/JSON and rely on the authoritative fileFilter.
+			const includePatterns = getIncludePatternsForScan(
+				this.workspaceFolder,
+				this.discoveryPatterns,
 			);
+
+			let allFiles: vscode.Uri[] = [];
+			for (const includePattern of includePatterns) {
+				if (token.isCancellationRequested) return [];
+				const files = await vscode.workspace.findFiles(
+					includePattern,
+					excludePattern,
+					undefined,
+					token,
+				);
+				allFiles.push(...files);
+			}
+
+			// Deduplicate when multiple include patterns overlap
+			if (allFiles.length > 1) {
+				const seen = new Set<string>();
+				allFiles = allFiles.filter((u) => {
+					const key = u.toString();
+					if (seen.has(key)) return false;
+					seen.add(key);
+					return true;
+				});
+			}
 
 			if (token.isCancellationRequested) {
 				return [];
@@ -211,32 +274,31 @@ export class WorkspaceScanner {
 			// Update status via callback
 			this.reportStatus(`Scanning... 0/${total}`);
 
-			// Process files in batches
-			for (let i = 0; i < files.length; i += batchSize) {
-				if (token.isCancellationRequested) {
-					break;
-				}
+			// Concurrency-limited worker pool (batchSize == concurrency for back-compat)
+			const concurrency = Math.max(1, Math.min(batchSize, 32));
+			let scanned = 0;
+			let idx = 0;
 
-				const batch = files.slice(i, Math.min(i + batchSize, files.length));
-				const results = await Promise.all(
-					batch.map((uri) => this.classifyFile(uri, token)),
-				);
+			const workers = Array.from({ length: concurrency }).map(async () => {
+				for (;;) {
+					if (token.isCancellationRequested) return;
+					const myIdx = idx++;
+					if (myIdx >= files.length) return;
 
-				// Collect OpenAPI files
-				for (const result of results) {
+					const uri = files[myIdx];
+					if (!uri) return;
+					const result = await this.classifyFile(uri, token);
 					if (result?.isOpenAPI) {
 						openAPIFiles.push(result.uri);
 					}
+
+					scanned++;
+					onProgress?.(scanned, total);
+					this.reportStatus(`Scanning... ${scanned}/${total}`);
 				}
+			});
 
-				// Report progress
-				const scanned = Math.min(i + batchSize, total);
-				onProgress?.(scanned, total);
-				this.reportStatus(`Scanning... ${scanned}/${total}`);
-
-				// Yield to event loop to keep UI responsive
-				await new Promise((resolve) => setTimeout(resolve, 0));
-			}
+			await Promise.all(workers);
 
 			this.openAPICount = openAPIFiles.length;
 			this.reportStatus(`OpenAPI: ${this.openAPICount} files`);
@@ -245,6 +307,7 @@ export class WorkspaceScanner {
 		} finally {
 			this.scanning = false;
 			this.cancellationSource = null;
+			this.flushPersistedSoon();
 		}
 	}
 
@@ -267,17 +330,30 @@ export class WorkspaceScanner {
 		const filePath = uri.fsPath;
 
 		try {
-			// Read file content - more for JSON since we need valid JSON
-			const content = await vscode.workspace.fs.readFile(uri);
-			const isJSON = isJSONFile(filePath);
-			// JSON needs more content to parse properly, YAML uses regex
-			const maxBytes = isJSON ? 16384 : 4096;
-			const text = new TextDecoder().decode(content.slice(0, maxBytes));
+			// Fast path: unchanged file (mtime+size) => reuse persisted result
+			const stat = await this.getStat(uri);
+			const persisted = stat ? this.persisted[uriString] : undefined;
+			if (
+				stat &&
+				persisted &&
+				persisted.mtime === stat.mtime &&
+				persisted.size === stat.size
+			) {
+				const cached: ScanResult = {
+					uri: uriString,
+					isOpenAPI: persisted.isOpenAPI,
+					scannedAt: persisted.scannedAt,
+				};
+				this.cache.set(uriString, cached);
+				return cached;
+			}
 
-			// Extract keys based on file type
-			const keys = isJSON
-				? extractJSONTopLevelKeys(text)
-				: extractYAMLTopLevelKeys(text);
+			const isJSON = isJSONFile(filePath) || isJSONCFile(filePath);
+			const maxBytes = isJSON ? 256 * 1024 : 64 * 1024;
+			const text = await this.readFilePrefix(uri, maxBytes);
+
+			// Extract top-level keys in a bounded way (no full parse of huge files)
+			const keys = isJSON ? extractJSONCTopLevelKeys(text) : extractYAMLTopLevelKeys(text);
 			const root = keysToRecord(keys);
 			const isOpenAPI = root ? isOpenAPIDocument(root) : false;
 
@@ -288,6 +364,15 @@ export class WorkspaceScanner {
 			};
 
 			this.cache.set(uriString, result);
+			if (stat && this.workspaceState && this.storageKey) {
+				this.persisted[uriString] = {
+					mtime: stat.mtime,
+					size: stat.size,
+					isOpenAPI,
+					scannedAt: result.scannedAt,
+				};
+				this.persistDirty = true;
+			}
 			return result;
 		} catch (error) {
 			console.debug(`Failed to classify ${uriString}:`, error);
@@ -335,6 +420,11 @@ export class WorkspaceScanner {
 			this.openAPICount--;
 		}
 		this.cache.delete(uri);
+		if (this.persisted[uri]) {
+			delete this.persisted[uri];
+			this.persistDirty = true;
+			this.flushPersistedSoon();
+		}
 	}
 
 	/**
@@ -369,6 +459,131 @@ export class WorkspaceScanner {
 	dispose(): void {
 		this.cancelScan();
 		this.clearCache();
+		this.flushPersistedNow();
 		// Don't dispose status bar item - it's shared and managed by SessionManager
 	}
+
+	// -------------------------------------------------------------------------
+	// Persistence helpers
+	// -------------------------------------------------------------------------
+	private flushPersistedSoon(): void {
+		if (!this.workspaceState || !this.storageKey) return;
+		if (!this.persistDirty) return;
+		if (this.persistTimer) return;
+		this.persistTimer = setTimeout(() => {
+			this.persistTimer = null;
+			void this.flushPersistedNow();
+		}, 500);
+	}
+
+	private async flushPersistedNow(): Promise<void> {
+		if (!this.workspaceState || !this.storageKey) return;
+		if (!this.persistDirty) return;
+		this.persistDirty = false;
+		try {
+			await this.workspaceState.update(this.storageKey, this.persisted);
+		} catch {
+			// Best-effort only; never block scanning UX.
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// IO helpers
+	// -------------------------------------------------------------------------
+	private async getStat(
+		uri: vscode.Uri,
+	): Promise<{ mtime: number; size: number } | null> {
+		try {
+			if (uri.scheme === "file") {
+				const st = await fsStat(uri.fsPath);
+				return { mtime: st.mtimeMs, size: st.size };
+			}
+			const st = await vscode.workspace.fs.stat(uri);
+			return { mtime: st.mtime, size: st.size };
+		} catch {
+			return null;
+		}
+	}
+
+	private async readFilePrefix(uri: vscode.Uri, maxBytes: number): Promise<string> {
+		// For local workspaces, use Node FS to avoid reading whole files.
+		if (uri.scheme === "file") {
+			const st = await this.getStat(uri);
+			const toRead = Math.max(0, Math.min(maxBytes, st?.size ?? maxBytes));
+			const fh = await fsOpen(uri.fsPath, "r");
+			try {
+				const buffer = Buffer.alloc(toRead);
+				const { bytesRead } = await fh.read(buffer, 0, toRead, 0);
+				return new TextDecoder().decode(buffer.subarray(0, bytesRead));
+			} finally {
+				await fh.close();
+			}
+		}
+
+		// Fallback: VS Code FS API reads entire contents; still bound in-memory slice.
+		const content = await vscode.workspace.fs.readFile(uri);
+		const slice = content.slice(0, maxBytes);
+		return new TextDecoder().decode(slice);
+	}
+}
+
+function extractJSONCTopLevelKeys(text: string): Set<string> {
+	const keys = new Set<string>();
+	const errors: jsonc.ParseError[] = [];
+	const tree = jsonc.parseTree(text, errors);
+	if (!tree || tree.type !== "object" || !tree.children) {
+		return keys;
+	}
+	for (const prop of tree.children) {
+		if (prop.type !== "property" || !prop.children || !prop.children[0]) continue;
+		const keyNode = prop.children[0];
+		if (typeof keyNode.value === "string") {
+			keys.add(keyNode.value);
+			if (keys.size >= 20) break;
+		}
+	}
+	return keys;
+}
+
+function getIncludePatternsForScan(
+	workspaceFolder: vscode.WorkspaceFolder | null,
+	openapiPatterns: string[] | null,
+): Array<string | vscode.RelativePattern> {
+	const defaultPattern = workspaceFolder
+		? new vscode.RelativePattern(workspaceFolder, "**/*.{yaml,yml,json,jsonc}")
+		: "**/*.{yaml,yml,json,jsonc}";
+
+	if (!openapiPatterns || openapiPatterns.length === 0) {
+		return [defaultPattern];
+	}
+
+	// Only optimize when patterns are positive-only.
+	// If patterns contain negations, last-match-wins semantics can't be represented
+	// as include/exclude globs reliably, so we fall back to default enumeration
+	// and rely on the authoritative `fileFilter`.
+	if (openapiPatterns.some((p) => p.trim().startsWith("!"))) {
+		return [defaultPattern];
+	}
+
+	// Also ensure patterns look like file globs (not empty / nonsense).
+	const cleaned = openapiPatterns
+		.map((p) => p.trim())
+		.filter(Boolean);
+	if (cleaned.length === 0) return [defaultPattern];
+
+	// Only include patterns that plausibly target YAML/JSON files.
+	// If patterns are too broad, default enumeration is fine.
+	const fileLike = cleaned.filter((p) =>
+		/(\.ya?ml|\.jsonc?|\\{yaml,yml,json,jsonc\\})$/i.test(p) ||
+		p.includes("*.") ||
+		p.includes("{yaml") ||
+		p.includes("{json"),
+	);
+	if (fileLike.length === 0) {
+		return [defaultPattern];
+	}
+
+	return fileLike.map((p) =>
+		workspaceFolder ? new vscode.RelativePattern(workspaceFolder, p) : p,
+	);
 }

@@ -332,6 +332,24 @@ export function identifyDocumentType(obj: unknown): DocumentType {
 		return "callback";
 	}
 
+	// === Components Object Detection ===
+	// Components objects contain reusable component maps (schemas, responses, parameters, etc.).
+	// Run this AFTER operation/response detection, since operations also have `responses`.
+	const COMPONENT_SECTION_KEYS = [
+		"schemas",
+		"responses",
+		"parameters",
+		"requestBodies",
+		"headers",
+		"securitySchemes",
+		"examples",
+		"links",
+		"callbacks",
+	];
+	if (COMPONENT_SECTION_KEYS.some((k) => k in obj)) {
+		return "components";
+	}
+
 	// === Schema Detection ===
 	// Schema objects have type, properties, allOf, oneOf, anyOf, $ref, etc.
 	const schemaIndicators = [

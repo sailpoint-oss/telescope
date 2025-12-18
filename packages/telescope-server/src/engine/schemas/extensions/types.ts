@@ -83,7 +83,7 @@ export interface ExtensionSchemaMeta {
 	 *
 	 * @example
 	 * ```typescript
-	 * schema: (z) => z.object({
+	 * schema: (z) => z.strictObject({
 	 *   level: z.union([z.literal("public"), z.literal("private")]),
 	 *   roles: z.array(z.string()).optional()
 	 * })

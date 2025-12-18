@@ -19,7 +19,7 @@ export const xMetadata: ExtensionSchemaMeta = defineExtension({
 		"API lifecycle and ownership metadata for tracking API status and team ownership",
 	url: "https://redocly.com/docs/cli/custom-plugins/extended-types/",
 	schema: (z) =>
-		z.object({
+		z.strictObject({
 			lifecycle: z
 				.union([
 					z.literal("development"),
@@ -42,7 +42,7 @@ export const xLogo: ExtensionSchemaMeta = defineExtension({
 	description: "Custom logo configuration for API documentation rendering",
 	url: "https://redocly.com/docs/api-reference-docs/specification-extensions/",
 	schema: (z) =>
-		z.object({
+		z.strictObject({
 			url: z.string().url(),
 			altText: z.string().optional(),
 			backgroundColor: z.string().optional(),
@@ -60,7 +60,7 @@ export const xTagGroups: ExtensionSchemaMeta = defineExtension({
 	url: "https://redocly.com/docs/api-reference-docs/specification-extensions/x-tag-groups/",
 	schema: (z) =>
 		z.array(
-			z.object({
+			z.strictObject({
 				name: z.string(),
 				tags: z.array(z.string()),
 			}),
@@ -101,7 +101,7 @@ export const xCodeSamples: ExtensionSchemaMeta = defineExtension({
 	url: "https://redocly.com/docs/api-reference-docs/specification-extensions/x-code-samples/",
 	schema: (z) =>
 		z.array(
-			z.object({
+			z.strictObject({
 				lang: z.string(),
 				label: z.string().optional(),
 				source: z.string(),

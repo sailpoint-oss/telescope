@@ -30,6 +30,10 @@ import { isCancelledError } from "../services/diagnostics-scheduler.js";
 import { isConfigFile } from "../utils.js";
 import type { WorkspaceProject } from "../workspace/workspace-project.js";
 
+export interface OpenApiScope {
+	isOpenApiInScope(uri: string): boolean;
+}
+
 /**
  * Register diagnostic handlers on the connection.
  */
@@ -41,6 +45,21 @@ export function registerDiagnosticHandlers(
 	scheduler: DiagnosticsScheduler,
 ): void {
 	const logger = ctx.getLogger("Diagnostics");
+
+	// Maintain a stable map of open documents -> current text to avoid rebuilding it per request.
+	const openDocsMap = new Map<string, string>();
+	for (const d of documents.all()) {
+		openDocsMap.set(d.uri, d.getText());
+	}
+	documents.onDidOpen((e) => {
+		openDocsMap.set(e.document.uri, e.document.getText());
+	});
+	documents.onDidChangeContent((e) => {
+		openDocsMap.set(e.document.uri, e.document.getText());
+	});
+	documents.onDidClose((e) => {
+		openDocsMap.delete(e.document.uri);
+	});
 
 	// Pull-based diagnostics (LSP 3.17+)
 	connection.languages.diagnostics.on(async (params) => {
@@ -61,18 +80,17 @@ export function registerDiagnosticHandlers(
 				previousResultId: params.previousResultId,
 				content: openDoc?.getText(),
 				fileSystem:
-					documents.all().length > 0
-						? project.createOverlayFileSystem(
-								new Map(documents.all().map((d) => [d.uri, d.getText()])),
-							)
+					openDocsMap.size > 0
+						? project.createOverlayFileSystem(openDocsMap)
 						: project.getFileSystem(),
 				compute: async () =>
 					await computeDocumentDiagnostics(
 						uri,
 						openDoc,
-						documents.all(),
+						openDocsMap,
 						project,
 						rules,
+						ctx,
 					),
 			});
 
@@ -107,8 +125,6 @@ export function registerDiagnosticHandlers(
 
 		logger.log(`Workspace diagnostics for ${rootUris.length} root(s)`);
 
-		const openDocs = documents.all();
-		const openDocsMap = new Map(openDocs.map((d) => [d.uri, d.getText()]));
 		const fs =
 			openDocsMap.size > 0
 				? project.createOverlayFileSystem(openDocsMap)
@@ -169,22 +185,17 @@ export function registerDiagnosticHandlers(
 	});
 }
 
-async function computeDocumentDiagnostics(
+export async function computeDocumentDiagnostics(
 	uri: string,
 	openDoc: TextDocument | undefined,
-	allOpenDocs: TextDocument[],
+	openDocs: Map<string, string>,
 	project: WorkspaceProject,
 	rules: Rule[],
+	scope: OpenApiScope,
 ): Promise<Diagnostic[]> {
-	const openDocs = new Map<string, string>();
-
-	// Overlay ALL open buffers so cross-file diagnostics match the editor state.
-	for (const d of allOpenDocs) {
-		openDocs.set(d.uri, d.getText());
-	}
-	// Defensive fallback for callers that didn't pass allOpenDocs.
+	// Defensive fallback for callers that have no tracked open docs map.
 	if (openDocs.size === 0 && openDoc) {
-		openDocs.set(openDoc.uri, openDoc.getText());
+		openDocs = new Map([[openDoc.uri, openDoc.getText()]]);
 	}
 
 	const fs =
@@ -199,8 +210,26 @@ async function computeDocumentDiagnostics(
 		useProjectCache,
 	});
 
-	const engineDiags = await lintDocument(lintingContext, fs, rules);
+	// Scope gating:
+	// - Out-of-scope standalone files should not produce OpenAPI diagnostics.
+	// - Out-of-scope roots should not produce OpenAPI diagnostics (enforces openapi.patterns).
+	// - Out-of-scope fragments that are reached from an in-scope root via $ref are still allowed.
+	const inScope = scope.isOpenApiInScope(uri);
 	const normalizedTarget = normalizeUriString(uri);
+	if (!inScope) {
+		// Not connected to any root: treat as non-OpenAPI for diagnostics purposes.
+		if (lintingContext.mode === "fragment") {
+			return [];
+		}
+		// If the file is itself a root (linting context rootUris points at the target),
+		// enforce that roots must be in-scope.
+		const rootUris = (lintingContext.rootUris ?? []).map(normalizeUriString);
+		if (rootUris.includes(normalizedTarget)) {
+			return [];
+		}
+	}
+
+	const engineDiags = await lintDocument(lintingContext, fs, rules);
 
 	return engineDiags
 		.filter((d) => normalizeUriString(d.uri) === normalizedTarget)
