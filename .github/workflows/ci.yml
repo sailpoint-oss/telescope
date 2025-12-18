@@ -47,23 +47,23 @@ jobs:
       - name: Build extension
         run: |
           pnpm --filter telescope-server run build
-          pnpm --filter telescope-client run build
+          pnpm --filter ./packages/telescope-client run build
 
       - name: Run E2E tests (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
-          pnpm --filter telescope-client test:e2e:compile
-          xvfb-run -a pnpm --filter telescope-client test:e2e:run:single
-          xvfb-run -a pnpm --filter telescope-client test:e2e:run:multi
+          pnpm --filter ./packages/telescope-client test:e2e:compile
+          xvfb-run -a pnpm --filter ./packages/telescope-client test:e2e:run:single
+          xvfb-run -a pnpm --filter ./packages/telescope-client test:e2e:run:multi
 
       - name: Run E2E tests (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
         run: |
-          pnpm --filter telescope-client test:e2e:compile
-          pnpm --filter telescope-client test:e2e:run:single
-          pnpm --filter telescope-client test:e2e:run:multi
+          pnpm --filter ./packages/telescope-client test:e2e:compile
+          pnpm --filter ./packages/telescope-client test:e2e:run:single
+          pnpm --filter ./packages/telescope-client test:e2e:run:multi
 
       - name: Cache VS Code test downloads
         if: always()

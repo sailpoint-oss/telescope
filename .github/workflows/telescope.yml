@@ -18,14 +18,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install
 
       - name: Run Telescope (CI)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          bun run ./packages/telescope-server/src/cli ci \
+          bun ./packages/telescope-server/src/cli/index.ts ci \
             --workspace packages/test-files \
             --comment-pr \
             --comment-review \

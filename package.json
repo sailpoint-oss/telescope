@@ -5,7 +5,7 @@
 	"scripts": {
 		"build": "pnpm -r --if-present run build",
 		"test": "bun test packages/telescope-server",
-		"test:e2e": "pnpm --filter telescope-client run test:e2e --if-present",
+		"test:e2e": "pnpm --filter ./packages/telescope-client run test:e2e --if-present",
 		"test:no-coverage": "pnpm test --no-coverage packages/telescope-lsp packages/lens",
 		"typecheck:examples": "pnpm -C packages/telescope-server run build && pnpm -C packages/test-files exec tsc -p tsconfig.json",
 		"package": "pnpm --filter telescope-server run build && pnpm --filter telescope run build && pnpm --filter telescope run package",
