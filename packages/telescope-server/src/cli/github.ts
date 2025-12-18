@@ -327,7 +327,8 @@ export function splitCommentIntoParts(opts: {
 					.filter(Boolean);
 
 	const headerFirst = `${markerLine}\n${preamble}\n`.trimEnd();
-	const headerContinued = `${markerLine}\n\n_Continued…_\n`;
+	// No visible “continued” text; pages should flow naturally in the PR timeline.
+	const headerContinued = `${markerLine}\n`;
 
 	const pages: string[] = [];
 	const footerFor = (n: number, m: number) =>
@@ -399,7 +400,7 @@ export function splitCommentIntoParts(opts: {
 	return pages.map((p, idx) => {
 		// Ensure a newline boundary before the footer so `---` is parsed as an HR
 		// (especially after HTML blocks like </details>).
-		const withFooter = `${p.trimEnd()}\n${footerFor(idx + 1, total).trimStart()}`;
+		const withFooter = `${p.trimEnd()}${footerFor(idx + 1, total)}`;
 		// Hard cap safety: if we somehow exceed maxChars, slice the tail.
 		if (withFooter.length <= opts.maxChars) return withFooter;
 		return `${opts.marker}\n\n_This page exceeded GitHub comment limits. Please see the workflow artifact for the complete report._${footerFor(
