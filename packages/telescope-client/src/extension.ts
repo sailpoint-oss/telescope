@@ -22,6 +22,42 @@ import {
 let sessionManager: SessionManager | null = null;
 
 export async function activate(context: ExtensionContext) {
+	const activationFailedTestApi = (error: unknown) => {
+		const msg = error instanceof Error ? error.message : String(error);
+		const fail = async () => {
+			throw new Error(`Telescope activation failed: ${msg}`);
+		};
+		return {
+			async waitForSessionsRunning(): Promise<void> {
+				await fail();
+			},
+			getSessionStates(): Array<{
+				folder: string;
+				state: string;
+				error?: string;
+			}> {
+				return [];
+			},
+			async getProjectInfo(): Promise<unknown> {
+				await fail();
+				return null;
+			},
+			async getDiagnostics(): Promise<unknown> {
+				await fail();
+				return null;
+			},
+			getClientOpenApiFileCount(): number {
+				throw new Error(`Telescope activation failed: ${msg}`);
+			},
+			async requestServerResync(): Promise<void> {
+				await fail();
+			},
+			async sendBadDeltaVersionOnce(): Promise<void> {
+				await fail();
+			},
+		};
+	};
+
 	try {
 		// Create output channel
 		const outputChannel = window.createOutputChannel(
@@ -626,6 +662,25 @@ export async function activate(context: ExtensionContext) {
 				error instanceof Error ? error.message : String(error)
 			}`,
 		);
+
+		// Best-effort cleanup so a broken activation doesn't leave partially-initialized resources.
+		try {
+			if (sessionManager) {
+				await sessionManager.disposeAsync();
+			}
+		} catch (disposeError) {
+			console.error(
+				"❌ Failed to dispose sessionManager after activation failure:",
+				disposeError,
+			);
+		} finally {
+			sessionManager = null;
+		}
+
+		// Always return a stable exports object (tests rely on __telescopeTest existing).
+		return {
+			__telescopeTest: activationFailedTestApi(error),
+		};
 	}
 }
 
