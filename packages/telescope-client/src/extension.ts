@@ -7,7 +7,6 @@
  */
 
 import * as path from "node:path";
-import { createLabsInfo } from "@volar/vscode";
 import * as vscode from "vscode";
 import { commands, type ExtensionContext, window, workspace } from "vscode";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
@@ -67,28 +66,12 @@ export async function activate(context: ExtensionContext) {
 
 		context.subscriptions.push(sessionManager);
 
-		// Create Volar Labs info early so we can return its exports
-		// Clients will be registered after sessions initialize
-		const labsInfo = createLabsInfo();
-
 		// Initialize sessions asynchronously in the background to avoid blocking activation.
 		// This allows the extension to activate immediately while sessions start up.
 		// Commands and features gracefully handle cases where sessions aren't ready yet.
 		sessionManager.initialize().then(
 			() => {
 				outputChannel.appendLine(formatSetupLog("✅ All sessions initialized"));
-
-				// Register clients with Volar Labs after initialization completes
-				// This ensures all sessions have their clients started
-				const sm = sessionManager;
-				if (sm) {
-					for (const session of sm.getAllSessions()) {
-						const client = session.getClient();
-						if (client) {
-							labsInfo.addLanguageClient(client);
-						}
-					}
-				}
 			},
 			(error) => {
 				outputChannel.appendLine(
@@ -565,9 +548,7 @@ export async function activate(context: ExtensionContext) {
 			 * Get project info from the server for a given URI.
 			 * @param uri - Optional URI to get project info for (defaults to active document)
 			 */
-			async getProjectInfo(
-				uri?: vscode.Uri,
-			): Promise<{
+			async getProjectInfo(uri?: vscode.Uri): Promise<{
 				knownOpenAPIFiles: number;
 				rootDocuments: number;
 				hasClientFileList: boolean;
@@ -578,8 +559,7 @@ export async function activate(context: ExtensionContext) {
 					return null;
 				}
 
-				const targetUri =
-					uri || vscode.window.activeTextEditor?.document.uri;
+				const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
 				if (!targetUri) {
 					return null;
 				}
@@ -597,8 +577,7 @@ export async function activate(context: ExtensionContext) {
 			 */
 			getClientOpenApiFileCount(uri?: vscode.Uri): number {
 				if (!sessionManager) return 0;
-				const targetUri =
-					uri || vscode.window.activeTextEditor?.document.uri;
+				const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
 				if (!targetUri) return 0;
 				const session = sessionManager.getSessionForUri(targetUri);
 				if (!session) return 0;
@@ -613,8 +592,7 @@ export async function activate(context: ExtensionContext) {
 				if (!sessionManager) {
 					return;
 				}
-				const targetUri =
-					uri || vscode.window.activeTextEditor?.document.uri;
+				const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
 				if (!targetUri) {
 					return;
 				}
@@ -630,8 +608,7 @@ export async function activate(context: ExtensionContext) {
 			 */
 			async sendBadDeltaVersionOnce(uri?: vscode.Uri): Promise<void> {
 				if (!sessionManager) return;
-				const targetUri =
-					uri || vscode.window.activeTextEditor?.document.uri;
+				const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
 				if (!targetUri) return;
 				const session = sessionManager.getSessionForUri(targetUri);
 				if (!session) return;
@@ -639,10 +616,7 @@ export async function activate(context: ExtensionContext) {
 			},
 		};
 
-		// Attach test API to exports (preserving labsInfo.extensionExports)
-		const exports = labsInfo.extensionExports || {};
 		return {
-			...exports,
 			__telescopeTest: testAPI,
 		};
 	} catch (error: unknown) {
