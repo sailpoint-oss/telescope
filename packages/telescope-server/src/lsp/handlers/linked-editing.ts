@@ -13,7 +13,6 @@ import type { LinkedEditingRanges, Range } from "vscode-languageserver-protocol"
 
 import type { CachedDocument, DocumentCache } from "../document-cache.js";
 import type { TelescopeContext } from "../context.js";
-import { supportsLinkedEditing } from "../utils/connection-features.js";
 import { isOpenAPIDocument } from "./shared.js";
 
 export function registerLinkedEditingHandlers(
@@ -24,9 +23,12 @@ export function registerLinkedEditingHandlers(
 ): void {
 	const logger = ctx.getLogger("LinkedEditing");
 
-	// Cursor (and some older VS Code/LSP stacks) may not expose this API surface.
+	// Defensive: some runtimes may not expose this API surface.
 	// If we register unconditionally, the server can crash at startup.
-	if (!supportsLinkedEditing(connection)) {
+	const c = connection as unknown as {
+		languages?: { linkedEditingRange?: { on?: unknown } };
+	};
+	if (typeof c.languages?.linkedEditingRange?.on !== "function") {
 		logger.log("Linked editing not supported by runtime; feature disabled.");
 		return;
 	}

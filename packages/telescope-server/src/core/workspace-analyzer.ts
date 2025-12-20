@@ -26,6 +26,11 @@ export interface WorkspaceAnalyzerOptions {
 	 */
 	roots?: string[];
 	/**
+	 * Optional OpenAPI glob patterns (workspace-relative). When provided, root discovery
+	 * and context resolution will be scoped to these patterns (matching LSP behavior).
+	 */
+	openapiPatterns?: string[];
+	/**
 	 * Optional shared caches (recommended for long-lived processes like LSP).
 	 */
 	docTypeCache?: DocumentTypeCache;
@@ -71,6 +76,7 @@ export async function lintWorkspace(
 					[options.workspaceFolderUri],
 					options.fileSystem,
 					docTypeCache,
+					options.openapiPatterns,
 				);
 
 	const diagnostics: EngineDiagnostic[] = [];
@@ -82,6 +88,7 @@ export async function lintWorkspace(
 			[options.workspaceFolderUri],
 			docTypeCache,
 			projectCache,
+			{ openapiPatterns: options.openapiPatterns },
 		);
 		const diags = await lintDocument(ctx, options.fileSystem, options.rules);
 		diagnostics.push(...diags);

@@ -26,7 +26,7 @@
 	"icon": "./icons/Extension-Logo-256.png",
 	"main": "./dist/client.js",
 	"engines": {
-		"vscode": "^1.99.3"
+		"vscode": "^1.105.0"
 	},
 	"activationEvents": [
 		"onLanguage:yaml",
@@ -408,7 +408,7 @@
 	"devDependencies": {
 		"@types/mocha": "^10.0.6",
 		"@types/node": "^20.19.25",
-		"@types/vscode": "^1.99.3",
+		"@types/vscode": "^1.105.0",
 		"@vscode/test-electron": "^2.4.1",
 		"@vscode/vsce": "^3.2.2",
 		"esbuild": "^0.24.2",
@@ -420,11 +420,11 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"@volar/vscode": "^2.4.23",
 		"telescope-server": "workspace:*",
 		"jsonc-parser": "^3.3.1",
 		"minimatch": "^10.1.1",
 		"vscode-languageclient": "^9.0.1",
+		"vscode-languageserver-protocol": "^3.17.5",
 		"vscode-textmate": "^9.2.1",
 		"yaml": "^2.8.1"
 	}

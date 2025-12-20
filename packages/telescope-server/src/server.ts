@@ -160,8 +160,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 		() => ctx.getKnownOpenAPIFiles(),
 	);
 
-	// Some runtimes (e.g. Cursor on older VS Code/LSP stacks) don't expose the
-	// linked editing API surface. Only advertise and register what we can serve.
+	// Some runtimes may not expose the linked editing API surface. Only advertise
+	// and register what we can serve without crashing at startup.
 	const linkedEditingSupported = supportsLinkedEditing(connection);
 
 	return {
@@ -622,6 +622,16 @@ connection.onDidChangeConfiguration(() => {
 		ctx.clearAffectedUris();
 		diagnosticsScheduler.clear();
 		referencesIndex?.clear();
+
+		// Mark roots dirty so discovery will re-run with new patterns
+		workspaceProject?.notifyConfigChange();
+		workspaceProject?.setOpenApiPatterns(ctx.getConfig().openapi?.patterns);
+
+		// Trigger diagnostics refresh: mark all known OpenAPI files affected
+		for (const u of ctx.getKnownOpenAPIFiles()) {
+			ctx.markAffected(u);
+		}
+
 		scheduleRecomputeFallbackOpenApiFiles();
 	}
 });

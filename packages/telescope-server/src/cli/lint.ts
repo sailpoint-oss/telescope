@@ -136,6 +136,7 @@ export async function runLint(args: LintCommandArgs): Promise<LintRunResult> {
 		workspacePath,
 		fileSystem,
 		rules,
+		openapiPatterns: config.openapi?.patterns,
 		roots: args.roots.length > 0 ? args.roots : undefined,
 		docTypeCache: docCache,
 		projectCache,
