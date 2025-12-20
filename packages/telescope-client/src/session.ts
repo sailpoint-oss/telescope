@@ -7,7 +7,6 @@
  */
 
 import * as path from "node:path";
-import { Trace } from "@volar/vscode";
 import * as vscode from "vscode";
 import {
 	type BaseLanguageClient,
@@ -16,6 +15,7 @@ import {
 	type ServerOptions,
 	TransportKind,
 } from "vscode-languageclient/node";
+import { Trace } from "vscode-languageserver-protocol";
 import { parse as yamlParse } from "yaml";
 import {
 	classifyDocument,
@@ -101,6 +101,24 @@ export class Session implements vscode.Disposable {
 	private openApiFilesVersion = 0;
 	/** Ensure full syncs don't overlap */
 	private fullSyncInFlight: Promise<void> | null = null;
+	/** Tracks whether the server has received an initial full snapshot. */
+	private hasSentBaseline = false;
+
+	/** Batch OpenAPI membership deltas to reduce notification churn. */
+	private pendingDelta: {
+		added: Set<string>;
+		removed: Set<string>;
+		changed: Set<string>;
+	} = {
+		added: new Set<string>(),
+		removed: new Set<string>(),
+		changed: new Set<string>(),
+	};
+	private deltaFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/** Ensure start/stop are idempotent and safe under concurrency. */
+	private startPromise: Promise<void> | null = null;
+	private stopPromise: Promise<void> | null = null;
 
 	/** Timer for delayed background scan */
 	private backgroundScanTimer: ReturnType<typeof setTimeout> | null = null;
@@ -165,45 +183,62 @@ export class Session implements vscode.Disposable {
 	 * Start the session - loads config, starts LSP client, begins scanning.
 	 */
 	async start(): Promise<void> {
-		if (this._state !== SessionState.Stopped) {
-			this.log(`Session already ${this._state}, skipping start`);
-			return;
-		}
+		if (this._state === SessionState.Running) return;
+		if (this.startPromise) return await this.startPromise;
 
-		this._state = SessionState.Starting;
-		this.log(`Starting session for ${this.workspaceFolder.name}`);
+		this.startPromise = (async () => {
+			// If a stop is in-flight, let it finish first so we don't race processes.
+			if (this.stopPromise) {
+				await this.stopPromise;
+			}
 
-		try {
-			// Load workspace-specific config
-			await this.loadConfig();
+			if (this._state !== SessionState.Stopped) {
+				this.log(`Session already ${this._state}, skipping start`);
+				return;
+			}
 
-			// Create and start the language client
-			await this.startClient();
+			this._state = SessionState.Starting;
+			this.log(`Starting session for ${this.workspaceFolder.name}`);
 
-			// Initialize workspace scanner
-			this.initializeScanner();
+			try {
+				this.hasSentBaseline = false;
 
-			// Set up file watchers
-			this.setupFileWatchers();
+				// Load workspace-specific config
+				await this.loadConfig();
 
-			// Set up document handlers
-			this.setupDocumentHandlers();
+				// Create and start the language client
+				await this.startClient();
 
-			// Start background scan
-			this.startBackgroundScan();
+				// Initialize workspace scanner
+				this.initializeScanner();
 
-			this._state = SessionState.Running;
-			this._lastStartError = null;
-			this.log(`Session started for ${this.workspaceFolder.name}`);
-		} catch (error) {
-			this._state = SessionState.Stopped;
-			this._lastStartError =
-				error instanceof Error
-					? error.stack || error.message
-					: String(error);
-			this.logError(`Failed to start session: ${error}`);
-			throw error;
-		}
+				// Set up file watchers
+				this.setupFileWatchers();
+
+				// Set up document handlers
+				this.setupDocumentHandlers();
+
+				// Now considered running; background work (scan) can proceed and talk to server.
+				this._state = SessionState.Running;
+				this._lastStartError = null;
+				this.log(`Session started for ${this.workspaceFolder.name}`);
+
+				// Kick off an initial full snapshot quickly so the server doesn't see deltas-without-baseline.
+				this.startBackgroundScan();
+			} catch (error) {
+				this._state = SessionState.Stopped;
+				this._lastStartError =
+					error instanceof Error
+						? error.stack || error.message
+						: String(error);
+				this.logError(`Failed to start session: ${error}`);
+				throw error;
+			}
+		})().finally(() => {
+			this.startPromise = null;
+		});
+
+		return await this.startPromise;
 	}
 
 	get lastStartError(): string | null {
@@ -214,51 +249,78 @@ export class Session implements vscode.Disposable {
 	 * Stop the session - stops LSP client and cleans up resources.
 	 */
 	async stop(): Promise<void> {
-		if (this._state === SessionState.Stopped) {
-			return;
-		}
+		if (this._state === SessionState.Stopped) return;
+		if (this.stopPromise) return await this.stopPromise;
 
-		this._state = SessionState.Stopping;
-		this.log(`Stopping session for ${this.workspaceFolder.name}`);
-
-		try {
-			// Cancel any scheduled scan
-			if (this.backgroundScanTimer) {
-				clearTimeout(this.backgroundScanTimer);
-				this.backgroundScanTimer = null;
+		this.stopPromise = (async () => {
+			// If we are mid-start, wait for it (best-effort) so we can stop cleanly.
+			if (this.startPromise) {
+				try {
+					await this.startPromise;
+				} catch {
+					// ignore; we're stopping anyway
+				}
 			}
 
-			// Cancel any ongoing scan to avoid work continuing during shutdown
-			this.scanner?.cancelScan();
+			if (this._state === SessionState.Stopped) return;
 
-			// Stop the language client
-			if (this.client) {
-				await this.client.stop();
-				this.client = null;
+			this._state = SessionState.Stopping;
+			this.log(`Stopping session for ${this.workspaceFolder.name}`);
+
+			try {
+				// Cancel any scheduled scan
+				if (this.backgroundScanTimer) {
+					clearTimeout(this.backgroundScanTimer);
+					this.backgroundScanTimer = null;
+				}
+
+				// Cancel any ongoing scan to avoid work continuing during shutdown
+				this.scanner?.cancelScan();
+
+				// Stop the language client
+				if (this.client) {
+					await this.client.stop();
+					this.client = null;
+				}
+
+				// Clean up scanner
+				if (this.scanner) {
+					this.scanner.dispose();
+					this.scanner = null;
+				}
+
+				// Dispose all subscriptions
+				for (const disposable of this.disposables) {
+					disposable.dispose();
+				}
+				this.disposables = [];
+
+				// Clear state
+				this.classifiedDocuments.clear();
+				this.userOverrides.clear();
+				this.openApiFiles.clear();
+				this.openApiFilesVersion = 0;
+				this.hasSentBaseline = false;
+				this.fullSyncInFlight = null;
+				this.pendingDelta.added.clear();
+				this.pendingDelta.removed.clear();
+				this.pendingDelta.changed.clear();
+				if (this.deltaFlushTimer) {
+					clearTimeout(this.deltaFlushTimer);
+					this.deltaFlushTimer = null;
+				}
+
+				this._state = SessionState.Stopped;
+				this.log(`Session stopped for ${this.workspaceFolder.name}`);
+			} catch (error) {
+				this._state = SessionState.Stopped;
+				this.logError(`Error stopping session: ${error}`);
 			}
+		})().finally(() => {
+			this.stopPromise = null;
+		});
 
-			// Clean up scanner
-			if (this.scanner) {
-				this.scanner.dispose();
-				this.scanner = null;
-			}
-
-			// Dispose all subscriptions
-			for (const disposable of this.disposables) {
-				disposable.dispose();
-			}
-			this.disposables = [];
-
-			// Clear state
-			this.classifiedDocuments.clear();
-			this.userOverrides.clear();
-
-			this._state = SessionState.Stopped;
-			this.log(`Session stopped for ${this.workspaceFolder.name}`);
-		} catch (error) {
-			this._state = SessionState.Stopped;
-			this.logError(`Error stopping session: ${error}`);
-		}
+		return await this.stopPromise;
 	}
 
 	/**
@@ -349,6 +411,11 @@ export class Session implements vscode.Disposable {
 			markdown: {
 				isTrusted: true,
 				supportHtml: true,
+			},
+			// Ensure server receives `workspace/didChangeConfiguration` when Telescope
+			// settings change (Cursor/VS Code 1.105.1 baseline).
+			synchronize: {
+				configurationSection: ["telescope"],
 			},
 		};
 
@@ -583,10 +650,10 @@ export class Session implements vscode.Disposable {
 	 * Start the background workspace scan.
 	 */
 	private startBackgroundScan(): void {
-		// Delay to let extension fully activate
+		// Small delay to avoid thrashing on activation while still establishing a baseline quickly.
 		this.backgroundScanTimer = setTimeout(async () => {
 			await this.runScan();
-		}, 1000);
+		}, 250);
 	}
 
 	/**
@@ -657,6 +724,7 @@ export class Session implements vscode.Disposable {
 			this.log(
 				`Sent ${files.length} files to server: ${JSON.stringify(result)}`,
 			);
+			this.hasSentBaseline = true;
 		} catch (error) {
 			this.logError(`Failed to send files to server: ${error}`);
 		}
@@ -668,11 +736,61 @@ export class Session implements vscode.Disposable {
 		changed?: string[];
 	}): void {
 		if (!this.client || this._state !== SessionState.Running) return;
+		if (!this.hasSentBaseline) {
+			// Avoid sending deltas before the server has a baseline snapshot; that just triggers resync churn.
+			void this.syncOpenApiFilesFull({ clearScannerCache: false });
+			return;
+		}
 
 		const added = delta.added ?? [];
 		const removed = delta.removed ?? [];
 		const changed = delta.changed ?? [];
 		if (added.length === 0 && removed.length === 0 && changed.length === 0) return;
+
+		// Merge into pending sets (last action wins semantics).
+		for (const u of added) {
+			this.pendingDelta.removed.delete(u);
+			this.pendingDelta.changed.delete(u);
+			this.pendingDelta.added.add(u);
+		}
+		for (const u of removed) {
+			this.pendingDelta.added.delete(u);
+			this.pendingDelta.changed.delete(u);
+			this.pendingDelta.removed.add(u);
+		}
+		for (const u of changed) {
+			// If it was newly added in this batch, a separate "changed" entry is redundant.
+			if (this.pendingDelta.added.has(u)) continue;
+			if (this.pendingDelta.removed.has(u)) continue;
+			this.pendingDelta.changed.add(u);
+		}
+
+		if (this.deltaFlushTimer) return;
+		this.deltaFlushTimer = setTimeout(() => {
+			this.deltaFlushTimer = null;
+			this.flushOpenApiFilesDelta();
+		}, 75);
+	}
+
+	private flushOpenApiFilesDelta(): void {
+		if (!this.client || this._state !== SessionState.Running) {
+			// Keep pending; we’ll flush when running again.
+			return;
+		}
+		if (!this.hasSentBaseline) {
+			void this.syncOpenApiFilesFull({ clearScannerCache: false });
+			return;
+		}
+
+		const added = Array.from(this.pendingDelta.added);
+		const removed = Array.from(this.pendingDelta.removed);
+		const changed = Array.from(this.pendingDelta.changed);
+		if (added.length === 0 && removed.length === 0 && changed.length === 0) return;
+
+		// Clear first to avoid duplication if sendNotification throws.
+		this.pendingDelta.added.clear();
+		this.pendingDelta.removed.clear();
+		this.pendingDelta.changed.clear();
 
 		this.openApiFilesVersion++;
 		try {
