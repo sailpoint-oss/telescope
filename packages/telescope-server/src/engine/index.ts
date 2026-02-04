@@ -42,7 +42,11 @@ import type { FileSystem } from "./fs-types.js";
 import { buildIndex } from "./indexes/project-index.js";
 import { buildRefGraph } from "./indexes/ref-graph.js";
 import { builtinRules } from "./rules/index.js";
-import type { Diagnostic as EngineDiagnostic, Rule } from "./rules/types.js";
+import type {
+	ConfiguredSeverity,
+	Diagnostic as EngineDiagnostic,
+	Rule,
+} from "./rules/types.js";
 import { identifyDocumentType as identifyDocType } from "./utils/document-type-utils.js";
 import { validateProjectStructure } from "./validation/zod-structural.js";
 
@@ -122,12 +126,14 @@ function toLspDiagnostic(diag: EngineDiagnostic): Diagnostic {
  * @param context - The resolved linting context
  * @param fileSystem - The Volar FileSystem for reading files
  * @param rules - Optional array of rules to use. If not provided, uses all registered rules
+ * @param severityOverrides - Optional map of rule IDs to configured severities
  * @returns Array of engine diagnostics
  */
 export async function lintDocument(
 	context: LintingContext,
 	fileSystem: FileSystem,
 	rules?: Rule[],
+	severityOverrides?: Map<string, ConfiguredSeverity>,
 ): Promise<EngineDiagnostic[]> {
 	const parseErrors: EngineDiagnostic[] = [];
 	const allDiagnostics: EngineDiagnostic[] = [];
@@ -187,6 +193,7 @@ export async function lintDocument(
 				multiRootContext.uris,
 				{
 					rules: filteredRules,
+					severityOverrides,
 				},
 			);
 			allDiagnostics.push(...result.diagnostics);
@@ -246,7 +253,10 @@ export async function lintDocument(
 		const filteredRules = filterRules(rulesToUse, project);
 
 		// Run engine with filtered rules
-		const result = runEngine(project, context.uris, { rules: filteredRules });
+		const result = runEngine(project, context.uris, {
+			rules: filteredRules,
+			severityOverrides,
+		});
 		allDiagnostics.push(...result.diagnostics);
 	} else {
 		// Project-aware mode: use the provided context
@@ -305,6 +315,7 @@ export async function lintDocument(
 		// Run engine
 		const result = runEngine(context.context, context.uris, {
 			rules: filteredRules,
+			severityOverrides,
 		});
 		allDiagnostics.push(...result.diagnostics);
 	}
@@ -376,6 +387,9 @@ export {
 	type Severity,
 } from "./config/index.js";
 export {
+	type CancellationToken,
+	CancellationError,
+	isCancellationError,
 	type LintingContext,
 	type LintingMode,
 	resolveLintingContext,
@@ -503,6 +517,7 @@ export { buildIRFromJson, buildIRFromYaml } from "./ir/index.js";
 export type { IRDocument, IRNode, IRNodeKind, Loc } from "./ir/types.js";
 // Types
 export type {
+	ConfiguredSeverity,
 	Diagnostic,
 	DiagnosticInput,
 	EngineRunOptions,

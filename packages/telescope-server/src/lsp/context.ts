@@ -259,6 +259,22 @@ export class TelescopeContext {
 	}
 
 	/**
+	 * Get a map of rule IDs to their configured severities.
+	 * Used to override rule-reported severities based on configuration.
+	 */
+	getSeverityOverrides(): Map<string, "error" | "warn" | "warning" | "info" | "hint"> {
+		const overrides = new Map<string, "error" | "warn" | "warning" | "info" | "hint">();
+		for (const resolved of this.resolvedRules) {
+			// Map Severity type to ConfiguredSeverity
+			const severity = resolved.severity;
+			if (severity !== "off") {
+				overrides.set(resolved.id, severity);
+			}
+		}
+		return overrides;
+	}
+
+	/**
 	 * Get rule implementations for a specific URI.
 	 */
 	getRulesForUri(_uri: string): ResolvedRule["rule"][] {

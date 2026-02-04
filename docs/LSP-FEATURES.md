@@ -272,8 +272,8 @@ Color picker for color values in JSON documents.
 
 Validation sources:
 
-1. **OpenAPI Rules**: 38 built-in rules covering best practices
-2. **Schema Validation**: Zod/JSON Schema structural validation
+1. **OpenAPI Rules**: 30 built-in rules covering best practices (52 with SailPoint rules enabled)
+2. **Schema Validation**: TypeBox schemas for structural validation
 3. **Custom Rules**: Your `.telescope/rules/` TypeScript rules
 4. **Reference Validation**: `$ref` resolution and cycle detection
 
@@ -293,6 +293,45 @@ Validates all OpenAPI files in your workspace:
 - Incremental updates for changed files
 - Cross-file reference validation
 - operationId uniqueness checking
+- Progress reporting for large workspaces (3+ root documents)
+
+### Parse Error Diagnostics
+
+YAML and JSON parse errors are surfaced as diagnostics with precise locations:
+
+- Syntax errors (missing colons, invalid indentation)
+- Invalid YAML/JSON structure
+- Encoding issues
+
+Parse errors appear immediately, even before OpenAPI rule validation runs.
+
+### Progress Reporting
+
+For workspaces with multiple OpenAPI root documents, Telescope shows progress in the VS Code status bar:
+
+- "Analyzing OpenAPI workspace" with percentage
+- Individual root progress (e.g., "Analyzing root 2/5")
+- Automatic completion when all roots are processed
+
+### Partial Results
+
+Workspace symbol search (`Ctrl+T`) returns results incrementally:
+
+- Results appear as they're found across files
+- No need to wait for complete workspace scan
+- Responsive even in large API projects
+
+## Editing Support (Extended)
+
+### Linked Editing Ranges
+
+**Trigger**: Automatic when editing matching text (if supported by client)
+
+Synchronized editing for related text spans:
+
+- Edit multiple occurrences simultaneously
+- Useful for renaming within a single document
+- Client must support `textDocument/linkedEditingRange`
 
 ## Embedded Language Support
 
@@ -363,5 +402,3 @@ Context menu commands are also available when right-clicking on files in Explore
 - [Custom Rules Guide](CUSTOM-RULES.md) - Create custom validation rules
 - [Architecture](../ARCHITECTURE.md) - Technical implementation details
 - [Built-in Rules](../packages/telescope-server/src/engine/rules/RULES.md) - Rule reference
-
-```

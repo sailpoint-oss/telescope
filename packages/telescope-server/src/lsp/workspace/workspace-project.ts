@@ -2,7 +2,7 @@ import { URI } from "vscode-uri";
 
 import type { FileSystem } from "../../engine/fs-types.js";
 import { FileType } from "../../engine/fs-types.js";
-import type { LintingContext } from "../../engine/index.js";
+import type { CancellationToken, LintingContext } from "../../engine/index.js";
 import {
 	DocumentTypeCache,
 	discoverWorkspaceRoots,
@@ -138,6 +138,10 @@ export class WorkspaceProject {
 			 * This is important when analyzing in-memory (unsaved) document content.
 			 */
 			useProjectCache?: boolean;
+			/**
+			 * Optional cancellation token for early termination.
+			 */
+			token?: CancellationToken;
 		},
 	): Promise<LintingContext> {
 		const fs = fileSystemOverride ?? this.fs;
@@ -151,7 +155,7 @@ export class WorkspaceProject {
 			[this.workspaceFolderUri],
 			docTypeCache,
 			useProjectCache ? this.projectCache : undefined,
-			{ openapiPatterns: this.openapiPatterns ?? undefined },
+			{ openapiPatterns: this.openapiPatterns ?? undefined, token: options?.token },
 		);
 	}
 

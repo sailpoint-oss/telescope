@@ -37,7 +37,7 @@ export function registerSymbolHandlers(
 	getProject: () => WorkspaceProject,
 ): void {
 	const logger = ctx.getLogger("Symbols");
-	const yamlService = getYAMLService();
+	const yamlService = getYAMLService(logger);
 
 	// Document symbols
 	connection.onDocumentSymbol((params): DocumentSymbol[] => {
@@ -65,7 +65,7 @@ export function registerSymbolHandlers(
 		}
 	});
 
-	// Workspace symbols
+	// Workspace symbols with partial result support
 	connection.onWorkspaceSymbol(async (params): Promise<WorkspaceSymbol[]> => {
 		try {
 			const provider = createDocumentProvider({
@@ -73,7 +73,29 @@ export function registerSymbolHandlers(
 				cache,
 				project: getProject(),
 			});
-			return await provideWorkspaceSymbols(params.query, ctx, provider);
+
+			// Create a partial result reporter if the client supports it
+			const partialResultToken = params.partialResultToken;
+			let partialReporter: ((symbols: WorkspaceSymbol[]) => void) | undefined;
+
+			if (partialResultToken) {
+				partialReporter = (symbols: WorkspaceSymbol[]) => {
+					// Send partial results to the client
+					connection.sendProgress(
+						// Use the native type - any string/number token is valid
+						{ method: "workspace/symbol" } as any,
+						partialResultToken,
+						symbols,
+					);
+				};
+			}
+
+			return await provideWorkspaceSymbols(
+				params.query,
+				ctx,
+				provider,
+				partialReporter,
+			);
 		} catch (error) {
 			logger.error(
 				`Workspace symbols failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -129,7 +151,7 @@ function getSelectionRange(
 function provideOpenAPIDocumentSymbols(
 	cached: CachedDocument,
 	cache: DocumentCache,
-	ctx: TelescopeContext,
+	_ctx: TelescopeContext,
 ): DocumentSymbol[] {
 	const symbols: DocumentSymbol[] = [];
 	const ast = cached.parsedObject as Record<string, unknown>;
@@ -306,98 +328,130 @@ function provideOpenAPIDocumentSymbols(
 
 /**
  * Provide workspace symbols matching a query.
+ *
+ * @param query - Search query to filter symbols
+ * @param ctx - Telescope context for accessing known OpenAPI files
+ * @param provider - Document provider for fetching and parsing documents
+ * @param reportPartial - Optional callback to report partial results incrementally
  */
-function provideWorkspaceSymbols(
+async function provideWorkspaceSymbols(
 	query: string,
 	ctx: TelescopeContext,
 	provider: DocumentProvider,
+	reportPartial?: (symbols: WorkspaceSymbol[]) => void,
 ): Promise<WorkspaceSymbol[]> {
-	const symbols: WorkspaceSymbol[] = [];
+	const allSymbols: WorkspaceSymbol[] = [];
 	const lowerQuery = query.toLowerCase();
 
-	return (async () => {
-		for (const uri of ctx.getKnownOpenAPIFiles()) {
-			const doc = await provider.get(uri);
-			if (!doc) continue;
+	// Batch size for partial result reporting (symbols per batch)
+	const PARTIAL_BATCH_SIZE = 50;
+	let pendingSymbols: WorkspaceSymbol[] = [];
 
-			const ast = getAstForProvided(doc);
-			if (!ast || typeof ast !== "object") continue;
+	const flushPartial = () => {
+		if (reportPartial && pendingSymbols.length > 0) {
+			reportPartial(pendingSymbols);
+			pendingSymbols = [];
+		}
+	};
 
-			// Search operations
-			const paths = (ast as any).paths as Record<string, unknown> | undefined;
-			if (paths) {
-				const methods = [
-					"get",
-					"post",
-					"put",
-					"patch",
-					"delete",
-					"options",
-					"head",
-				];
-
-				for (const [path, pathItem] of Object.entries(paths)) {
-					if (!pathItem || typeof pathItem !== "object") continue;
-
-					for (const method of methods) {
-						const operation = (pathItem as Record<string, unknown>)[method] as
-							| Record<string, unknown>
-							| undefined;
-						if (!operation) continue;
-
-						const opId = operation.operationId
-							? String(operation.operationId)
-							: `${method.toUpperCase()} ${path}`;
-
-						if (opId.toLowerCase().includes(lowerQuery)) {
-							const pointer = joinPointer(["paths", path, method]);
-							const range = provider.pointerToRange(doc, pointer);
-							if (range) {
-								symbols.push({
-									name: opId,
-									kind: SymbolKind.Method,
-									location: { uri, range },
-									containerName: path,
-								});
-							}
-						}
-					}
-				}
+	const addSymbol = (symbol: WorkspaceSymbol) => {
+		allSymbols.push(symbol);
+		if (reportPartial) {
+			pendingSymbols.push(symbol);
+			if (pendingSymbols.length >= PARTIAL_BATCH_SIZE) {
+				flushPartial();
 			}
+		}
+	};
 
-			// Search components
-			const components = (ast as any).components as Record<string, unknown> | undefined;
-			if (components) {
-				const sections = [
-					{ key: "schemas", kind: SymbolKind.Class },
-					{ key: "parameters", kind: SymbolKind.Property },
-					{ key: "responses", kind: SymbolKind.Event },
-				] as const;
+	for (const uri of ctx.getKnownOpenAPIFiles()) {
+		const doc = await provider.get(uri);
+		if (!doc) continue;
 
-				for (const { key, kind } of sections) {
-					const section = components[key] as Record<string, unknown> | undefined;
-					if (!section) continue;
+		const ast = getAstForProvided(doc);
+		if (!ast || typeof ast !== "object") continue;
 
-					for (const name of Object.keys(section)) {
-						if (name.toLowerCase().includes(lowerQuery)) {
-							const pointer = joinPointer(["components", key, name]);
-							const range = provider.pointerToRange(doc, pointer);
-							if (range) {
-								symbols.push({
-									name,
-									kind,
-									location: { uri, range },
-									containerName: `components/${key}`,
-								});
-							}
+		// Search operations
+		const paths = (ast as any).paths as Record<string, unknown> | undefined;
+		if (paths) {
+			const methods = [
+				"get",
+				"post",
+				"put",
+				"patch",
+				"delete",
+				"options",
+				"head",
+			];
+
+			for (const [path, pathItem] of Object.entries(paths)) {
+				if (!pathItem || typeof pathItem !== "object") continue;
+
+				for (const method of methods) {
+					const operation = (pathItem as Record<string, unknown>)[method] as
+						| Record<string, unknown>
+						| undefined;
+					if (!operation) continue;
+
+					const opId = operation.operationId
+						? String(operation.operationId)
+						: `${method.toUpperCase()} ${path}`;
+
+					if (opId.toLowerCase().includes(lowerQuery)) {
+						const pointer = joinPointer(["paths", path, method]);
+						const range = provider.pointerToRange(doc, pointer);
+						if (range) {
+							addSymbol({
+								name: opId,
+								kind: SymbolKind.Method,
+								location: { uri, range },
+								containerName: path,
+							});
 						}
 					}
 				}
 			}
 		}
 
-		return symbols;
-	})();
+		// Search components
+		const components = (ast as any).components as Record<string, unknown> | undefined;
+		if (components) {
+			const sections = [
+				{ key: "schemas", kind: SymbolKind.Class },
+				{ key: "parameters", kind: SymbolKind.Property },
+				{ key: "responses", kind: SymbolKind.Event },
+			] as const;
+
+			for (const { key, kind } of sections) {
+				const section = components[key] as Record<string, unknown> | undefined;
+				if (!section) continue;
+
+				for (const name of Object.keys(section)) {
+					if (name.toLowerCase().includes(lowerQuery)) {
+						const pointer = joinPointer(["components", key, name]);
+						const range = provider.pointerToRange(doc, pointer);
+						if (range) {
+							addSymbol({
+								name,
+								kind,
+								location: { uri, range },
+								containerName: `components/${key}`,
+							});
+						}
+					}
+				}
+			}
+		}
+
+		// After processing each file, flush any pending partial results
+		// This ensures responsive updates even for large files
+		flushPartial();
+	}
+
+	// Final flush for any remaining symbols
+	flushPartial();
+
+	return allSymbols;
 }
 
 function getAstForProvided(doc: ProvidedDocument): unknown {

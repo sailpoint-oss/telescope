@@ -39,6 +39,24 @@ interface SourceIndex {
 }
 
 /**
+ * Result of indexing a single source file.
+ * Used to batch updates to shared maps after concurrent indexing.
+ */
+type SourceIndexResult =
+	| {
+			type: "add";
+			sourceUri: string;
+			hash: string;
+			hits: RefHit[];
+			byPointerKey: Map<string, RefHit[]>;
+			byFileKey: Map<string, RefHit[]>;
+	  }
+	| {
+			type: "remove";
+			sourceUri: string;
+	  };
+
+/**
  * FS-backed index of inbound $ref references.
  *
  * Designed for LSP features like:
@@ -155,37 +173,49 @@ export class ReferencesIndex {
 			}
 		}
 
-		// Index dirty or missing sources.
-		// Concurrency-limited to avoid spiking IO on huge workspaces.
-		await runWithConcurrency(known, 4, async (sourceUri) => {
-			if (this.sourceIndex.has(sourceUri) && !this.dirtySources.has(sourceUri)) {
-				return;
-			}
-			await this.indexSource(sourceUri);
+		// Determine which sources need indexing
+		const toIndex = known.filter(
+			(sourceUri) =>
+				!this.sourceIndex.has(sourceUri) || this.dirtySources.has(sourceUri),
+		);
+
+		if (toIndex.length === 0) return;
+
+		// Index dirty or missing sources concurrently, collecting results.
+		// Each worker returns its index result; we merge into shared maps afterwards
+		// to avoid concurrent modification of shared state.
+		const results = await runWithConcurrencyCollect(toIndex, 4, async (sourceUri) => {
+			return await this.indexSourceCollect(sourceUri);
 		});
+
+		// Merge all results into shared indexes (single-threaded, no race)
+		for (const result of results) {
+			if (!result) continue;
+			this.applyIndexResult(result);
+		}
 	}
 
-	private async indexSource(sourceUri: string): Promise<void> {
+	/**
+	 * Index a single source file and return the result without modifying shared state.
+	 * This allows concurrent indexing without race conditions on shared maps.
+	 */
+	private async indexSourceCollect(sourceUri: string): Promise<SourceIndexResult | null> {
 		const normalizedSource = normalizeUri(sourceUri);
 
 		const doc = await this.docCache.getDocument(normalizedSource, this.fileSystem);
 		const existing = this.sourceIndex.get(normalizedSource);
 		if (!doc) {
 			if (existing) {
-				this.removeSource(normalizedSource);
+				// Mark for removal - will be handled in applyIndexResult
+				return { type: "remove", sourceUri: normalizedSource };
 			}
 			this.dirtySources.delete(normalizedSource);
-			return;
+			return null;
 		}
 
 		if (existing && existing.hash === doc.hash) {
 			this.dirtySources.delete(normalizedSource);
-			return;
-		}
-
-		// If we already had entries, remove them before rebuilding.
-		if (existing) {
-			this.removeSource(normalizedSource);
+			return null;
 		}
 
 		const hits: RefHit[] = [];
@@ -221,25 +251,52 @@ export class ReferencesIndex {
 			byFileKey.set(fileKey, fileList);
 		}
 
+		return {
+			type: "add",
+			sourceUri: normalizedSource,
+			hash: doc.hash,
+			hits,
+			byPointerKey,
+			byFileKey,
+		};
+	}
+
+	/**
+	 * Apply a collected index result to the shared indexes.
+	 * Called single-threaded after all concurrent indexing completes.
+	 */
+	private applyIndexResult(result: SourceIndexResult): void {
+		if (result.type === "remove") {
+			this.removeSource(result.sourceUri);
+			this.dirtySources.delete(result.sourceUri);
+			return;
+		}
+
+		// If we already had entries, remove them before rebuilding.
+		const existing = this.sourceIndex.get(result.sourceUri);
+		if (existing) {
+			this.removeSource(result.sourceUri);
+		}
+
 		// Publish into reverse indexes.
-		for (const [fileKey, list] of byFileKey) {
+		for (const [fileKey, list] of result.byFileKey) {
 			const existingList = this.fileToHits.get(fileKey) ?? [];
 			existingList.push(...list);
 			this.fileToHits.set(fileKey, existingList);
 		}
-		for (const [ptrKey, list] of byPointerKey) {
+		for (const [ptrKey, list] of result.byPointerKey) {
 			const existingList = this.pointerToHits.get(ptrKey) ?? [];
 			existingList.push(...list);
 			this.pointerToHits.set(ptrKey, existingList);
 		}
 
-		this.sourceIndex.set(normalizedSource, {
-			hash: doc.hash,
-			hits,
-			byPointerKey,
-			byFileKey,
+		this.sourceIndex.set(result.sourceUri, {
+			hash: result.hash,
+			hits: result.hits,
+			byPointerKey: result.byPointerKey,
+			byFileKey: result.byFileKey,
 		});
-		this.dirtySources.delete(normalizedSource);
+		this.dirtySources.delete(result.sourceUri);
 	}
 
 	private removeSource(sourceUri: string): void {
@@ -247,7 +304,7 @@ export class ReferencesIndex {
 		if (!existing) return;
 
 		// Remove pointer-level contributions
-		for (const [ptrKey, list] of existing.byPointerKey) {
+		for (const ptrKey of existing.byPointerKey.keys()) {
 			const current = this.pointerToHits.get(ptrKey);
 			if (!current) continue;
 			const next = current.filter((h) => h.sourceUri !== sourceUri);
@@ -256,7 +313,7 @@ export class ReferencesIndex {
 		}
 
 		// Remove file-level contributions
-		for (const [fileKey, list] of existing.byFileKey) {
+		for (const fileKey of existing.byFileKey.keys()) {
 			const current = this.fileToHits.get(fileKey);
 			if (!current) continue;
 			const next = current.filter((h) => h.sourceUri !== sourceUri);
@@ -322,6 +379,32 @@ async function runWithConcurrency<T>(
 		},
 	);
 	await Promise.all(workers);
+}
+
+/**
+ * Like runWithConcurrency but collects and returns results from each item.
+ * Results are returned in arbitrary order (not necessarily matching input order).
+ */
+async function runWithConcurrencyCollect<T, R>(
+	items: readonly T[],
+	concurrency: number,
+	fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const limit = Math.max(1, concurrency);
+	let idx = 0;
+	const results: R[] = [];
+	const workers = Array.from({ length: Math.min(limit, items.length) }).map(
+		async () => {
+			for (;;) {
+				const i = idx++;
+				if (i >= items.length) return;
+				const result = await fn(items[i] as T);
+				results.push(result);
+			}
+		},
+	);
+	await Promise.all(workers);
+	return results;
 }
 
 function resolveRefForMatch(

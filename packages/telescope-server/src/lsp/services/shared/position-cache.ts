@@ -17,6 +17,7 @@ import {
 	buildLineOffsets,
 	getLineCol,
 } from "../../../engine/utils/line-offset-utils.js";
+import type { Logger } from "../../context.js";
 
 /**
  * Cached entry for a parsed file.
@@ -66,9 +67,18 @@ function simpleHash(content: string): string {
 export class PositionCache {
 	private readonly cache = new Map<string, CachedParsedFile>();
 	private readonly maxSize: number;
+	private logger?: Logger;
 
 	constructor(maxSize = 100) {
 		this.maxSize = maxSize;
+	}
+
+	/**
+	 * Set the logger for debug-level error reporting.
+	 * Useful for diagnosing parse failures during position lookups.
+	 */
+	setLogger(logger: Logger): void {
+		this.logger = logger;
 	}
 
 	/**
@@ -116,8 +126,11 @@ export class PositionCache {
 			} else {
 				entry.jsonTree = jsonc.parseTree(content) ?? undefined;
 			}
-		} catch {
+		} catch (error) {
 			// Parse failed - still cache line offsets for partial functionality
+			this.logger?.log(
+				`[DEBUG] Position cache parse failed for ${uri}: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 
 		// Store in cache

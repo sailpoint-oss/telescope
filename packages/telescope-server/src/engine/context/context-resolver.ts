@@ -20,6 +20,39 @@ import {
 	findRootDocumentsForPartial,
 } from "./root-discovery.js";
 
+/**
+ * Minimal cancellation token interface compatible with LSP's CancellationToken.
+ */
+export interface CancellationToken {
+	isCancellationRequested: boolean;
+}
+
+/**
+ * Check if cancellation was requested and throw if so.
+ */
+function checkCancellation(token?: CancellationToken): void {
+	if (token?.isCancellationRequested) {
+		throw new CancellationError();
+	}
+}
+
+/**
+ * Error thrown when an operation is cancelled.
+ */
+export class CancellationError extends Error {
+	constructor() {
+		super("Cancelled");
+		this.name = "CancellationError";
+	}
+}
+
+/**
+ * Check if an error is a CancellationError.
+ */
+export function isCancellationError(err: unknown): boolean {
+	return err instanceof CancellationError || (err instanceof Error && err.message === "Cancelled");
+}
+
 export type LintingMode = "project-aware" | "fragment" | "multi-root";
 
 export interface LintingContext {
@@ -46,13 +79,17 @@ export async function resolveLintingContext(
 	workspaceFolders: string[] = [],
 	cache?: DocumentTypeCache,
 	projectCache?: ProjectContextCache,
-	options?: { openapiPatterns?: string[] },
+	options?: { openapiPatterns?: string[]; token?: CancellationToken },
 ): Promise<LintingContext> {
+	const token = options?.token;
+
 	// Normalize input URI for consistent storage and lookup
 	const normalizedUri = normalizeUri(uri);
 
 	// Use provided cache or create a new one
 	const docCache = cache || new DocumentTypeCache();
+
+	checkCancellation(token);
 
 	// Load the document to determine its type (using cache)
 	const doc = await docCache.getDocument(normalizedUri, fileSystem);
@@ -63,6 +100,8 @@ export async function resolveLintingContext(
 			mode: "fragment",
 		};
 	}
+
+	checkCancellation(token);
 
 	const docType = identifyDocumentType(doc.ast);
 
@@ -76,6 +115,7 @@ export async function resolveLintingContext(
 
 	// Case 1: Root document
 	if (isRootDocument(doc.ast)) {
+		checkCancellation(token);
 		const context = projectCache
 			? await projectCache.getOrBuild(
 					normalizedUri,
@@ -93,6 +133,8 @@ export async function resolveLintingContext(
 
 	// Case 2: Partial document - try to find root(s)
 	if (isPartialDocument(doc.ast)) {
+		checkCancellation(token);
+
 		// Discover workspace roots by crawling and checking content
 		const workspaceRoots = await discoverWorkspaceRoots(
 			workspaceFolders,
@@ -100,6 +142,8 @@ export async function resolveLintingContext(
 			docCache,
 			options?.openapiPatterns,
 		);
+
+		checkCancellation(token);
 
 		const allRoots = new Set<string>(workspaceRoots);
 
@@ -113,6 +157,8 @@ export async function resolveLintingContext(
 				docCache.getDocument(rootUri, fileSystem).then((doc) => ({ rootUri, doc })),
 			),
 		);
+
+		checkCancellation(token);
 
 		// Collect all referenced URIs from loaded roots
 		const refsToLoad = new Set<string>();
@@ -137,6 +183,8 @@ export async function resolveLintingContext(
 			),
 		);
 
+		checkCancellation(token);
+
 		for (const { refUri, doc: refDoc } of refDocs) {
 			if (refDoc) {
 				initialDocs.set(refUri, refDoc);
@@ -154,6 +202,8 @@ export async function resolveLintingContext(
 			initialDocs,
 			graph,
 		);
+
+		checkCancellation(token);
 
 		if (foundRoots.length === 0) {
 			// No root found - fragment mode
@@ -193,6 +243,7 @@ export async function resolveLintingContext(
 			};
 		} else {
 			// Multiple roots found - multi-root mode
+			checkCancellation(token);
 			const multiRootContexts = await resolveMultipleRoots(
 				foundRoots,
 				fileSystem,

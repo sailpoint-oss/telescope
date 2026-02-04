@@ -110,7 +110,7 @@ flowchart LR
     end
 
     subgraph Server["Language Server"]
-        LSP[Volar LSP]
+        LSP[LSP Server]
         Engine[Linting Engine]
     end
 
@@ -130,7 +130,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | Package                                         | Description                            |
 | ----------------------------------------------- | -------------------------------------- |
 | [`telescope-client`](packages/telescope-client) | VS Code extension client               |
-| [`telescope-server`](packages/telescope-server) | Volar language server + linting engine |
+| [`telescope-server`](packages/telescope-server) | Language server + linting engine       |
 | [`test-files`](packages/test-files)             | Test fixtures and custom rule examples |
 
 ## Built-in Rules

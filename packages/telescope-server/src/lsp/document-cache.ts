@@ -36,6 +36,22 @@ import {
 import type { TelescopeContext } from "./context.js";
 
 /**
+ * Represents a parse error that occurred during document parsing.
+ */
+export interface ParseError {
+	/** Error message */
+	message: string;
+	/** Line number (0-indexed), if available */
+	line?: number;
+	/** Column number (0-indexed), if available */
+	column?: number;
+	/** End line number (0-indexed), if available */
+	endLine?: number;
+	/** End column number (0-indexed), if available */
+	endColumn?: number;
+}
+
+/**
  * Represents a cached document with all parsed data.
  */
 export interface CachedDocument {
@@ -71,6 +87,10 @@ export interface CachedDocument {
 	// Position helpers
 	/** Line offset array for position calculations */
 	lineOffsets: number[];
+
+	// Error tracking
+	/** Parse errors that occurred during document parsing */
+	parseErrors: ParseError[];
 }
 
 /**
@@ -89,7 +109,12 @@ export interface CachedDocument {
  */
 export class DocumentCache {
 	private cache = new Map<string, CachedDocument>();
-	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: reserved for future logging/telemetry hooks
+	/**
+	 * Track URIs currently being built to detect reentrant calls.
+	 * While JavaScript is single-threaded, this helps with debugging
+	 * and ensures we don't accidentally overwrite a newer build.
+	 */
+	private building = new Set<string>();
 	private ctx: TelescopeContext;
 
 	constructor(ctx: TelescopeContext) {
@@ -171,79 +196,155 @@ export class DocumentCache {
 
 	/**
 	 * Build and cache a document.
+	 *
+	 * Note: While JavaScript is single-threaded, we add defensive checks to:
+	 * 1. Avoid overwriting a newer version that was cached during our build
+	 * 2. Detect potential reentrant calls (for debugging)
 	 */
 	private build(doc: TextDocument): CachedDocument {
-		const content = doc.getText();
-		const format = this.detectFormat(doc);
-		const hash = computeDocumentHash(content);
-		const lineOffsets = buildLineOffsets(content);
+		// Track that we're building this URI (for debugging reentrant calls)
+		this.building.add(doc.uri);
 
-		// Parse AST
-		let ast: yaml.Document | jsonc.Node;
-		let parsedObject: unknown;
+		try {
+			const content = doc.getText();
+			const format = this.detectFormat(doc);
+			const hash = computeDocumentHash(content);
+			const lineOffsets = buildLineOffsets(content);
+			const parseErrors: ParseError[] = [];
 
-		if (format === "yaml") {
-			const yamlDoc = yaml.parseDocument(content);
-			ast = yamlDoc;
-			parsedObject = yamlDoc.toJSON();
-		} else {
-			ast = jsonc.parseTree(content) ?? {
-				type: "object",
-				offset: 0,
-				length: 0,
+			// Parse AST
+			let ast: yaml.Document | jsonc.Node;
+			let parsedObject: unknown;
+
+			if (format === "yaml") {
+				const yamlDoc = yaml.parseDocument(content);
+				ast = yamlDoc;
+
+				// Collect YAML parse errors
+				for (const error of yamlDoc.errors) {
+					const pos = error.linePos;
+					parseErrors.push({
+						message: error.message,
+						line: pos?.[0]?.line ? pos[0].line - 1 : 0,
+						column: pos?.[0]?.col ? pos[0].col - 1 : 0,
+						endLine: pos?.[1]?.line ? pos[1].line - 1 : undefined,
+						endColumn: pos?.[1]?.col ? pos[1].col - 1 : undefined,
+					});
+				}
+
+				// Also collect YAML warnings as parse errors
+				for (const warning of yamlDoc.warnings) {
+					const pos = warning.linePos;
+					parseErrors.push({
+						message: warning.message,
+						line: pos?.[0]?.line ? pos[0].line - 1 : 0,
+						column: pos?.[0]?.col ? pos[0].col - 1 : 0,
+						endLine: pos?.[1]?.line ? pos[1].line - 1 : undefined,
+						endColumn: pos?.[1]?.col ? pos[1].col - 1 : undefined,
+					});
+				}
+
+				try {
+					parsedObject = yamlDoc.toJSON();
+				} catch (e) {
+					// toJSON can throw on severely malformed documents
+					parsedObject = null;
+					if (
+						!parseErrors.some((err) =>
+							err.message.includes(
+								e instanceof Error ? e.message : String(e),
+							),
+						)
+					) {
+						parseErrors.push({
+							message: `Failed to parse YAML: ${e instanceof Error ? e.message : String(e)}`,
+							line: 0,
+							column: 0,
+						});
+					}
+				}
+			} else {
+				// JSON parsing
+				const jsonErrors: jsonc.ParseError[] = [];
+				parsedObject = jsonc.parse(content, jsonErrors);
+
+				// Collect JSON parse errors
+				for (const error of jsonErrors) {
+					const pos = getLineCol(error.offset, lineOffsets);
+					parseErrors.push({
+						message: jsonc.printParseErrorCode(error.error),
+						line: pos ? pos.line - 1 : 0,
+						column: pos ? pos.col - 1 : 0,
+					});
+				}
+
+				ast = jsonc.parseTree(content) ?? {
+					type: "object",
+					offset: 0,
+					length: 0,
+				};
+			}
+
+			// Detect document type
+			const documentType = identifyDocumentType(parsedObject);
+			const openapiVersion = this.detectVersion(parsedObject);
+
+			// Config-aware scoping: only treat in-scope files as OpenAPI in the LSP.
+			const openapiScoped = this.ctx.isOpenApiInScope(doc.uri);
+
+			// Build IR
+			const ir =
+				format === "yaml"
+					? buildIRFromYaml(
+							doc.uri,
+							ast as yaml.Document.Parsed,
+							content,
+							hash,
+							Date.now(),
+							openapiVersion,
+						)
+					: buildIRFromJson(
+							doc.uri,
+							parsedObject,
+							ast as jsonc.Node,
+							content,
+							hash,
+							Date.now(),
+							openapiVersion,
+						);
+
+			// Extract atoms
+			const atoms = extractAtoms(ir);
+
+			const newCached: CachedDocument = {
+				uri: doc.uri,
+				version: doc.version,
+				format,
+				content,
+				hash,
+				ast,
+				parsedObject,
+				ir,
+				atoms,
+				documentType,
+				openapiVersion,
+				openapiScoped,
+				lineOffsets,
+				parseErrors,
 			};
-			parsedObject = jsonc.parse(content);
+
+			// Final check: don't overwrite if a newer version was cached during our build
+			const existing = this.cache.get(doc.uri);
+			if (existing && existing.version > doc.version) {
+				// Another caller cached a newer version; return that instead
+				return existing;
+			}
+
+			this.cache.set(doc.uri, newCached);
+			return newCached;
+		} finally {
+			this.building.delete(doc.uri);
 		}
-
-		// Detect document type
-		const documentType = identifyDocumentType(parsedObject);
-		const openapiVersion = this.detectVersion(parsedObject);
-
-		// Config-aware scoping: only treat in-scope files as OpenAPI in the LSP.
-		const openapiScoped = this.ctx.isOpenApiInScope(doc.uri);
-
-		// Build IR
-		const ir =
-			format === "yaml"
-				? buildIRFromYaml(
-						doc.uri,
-						ast as yaml.Document.Parsed,
-						content,
-						hash,
-						Date.now(),
-						openapiVersion,
-					)
-				: buildIRFromJson(
-						doc.uri,
-						parsedObject,
-						ast as jsonc.Node,
-						content,
-						hash,
-						Date.now(),
-						openapiVersion,
-					);
-
-		// Extract atoms
-		const atoms = extractAtoms(ir);
-
-		const cached: CachedDocument = {
-			uri: doc.uri,
-			version: doc.version,
-			format,
-			content,
-			hash,
-			ast,
-			parsedObject,
-			ir,
-			atoms,
-			documentType,
-			openapiVersion,
-			openapiScoped,
-			lineOffsets,
-		};
-
-		this.cache.set(doc.uri, cached);
-		return cached;
 	}
 
 	/**

@@ -851,6 +851,12 @@ export interface Rule<S = unknown> {
 }
 
 /**
+ * Severity levels for diagnostic overrides.
+ * Maps to LSP DiagnosticSeverity values.
+ */
+export type ConfiguredSeverity = "error" | "warn" | "warning" | "info" | "hint";
+
+/**
  * Options for running the rule engine.
  *
  * @see {@link runEngine} - Function that accepts these options
@@ -858,6 +864,12 @@ export interface Rule<S = unknown> {
 export interface EngineRunOptions {
 	/** Array of rules to run */
 	rules: Rule[];
+	/**
+	 * Optional severity overrides per rule ID.
+	 * Allows configuration to override the severity reported by rules.
+	 * Rule IDs not in this map use their default severity.
+	 */
+	severityOverrides?: Map<string, ConfiguredSeverity>;
 }
 
 /**

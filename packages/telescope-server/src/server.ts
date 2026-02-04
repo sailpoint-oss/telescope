@@ -109,6 +109,8 @@ async function recomputeFallbackOpenApiFiles(): Promise<void> {
 	if (fallbackRecomputeInFlight) return;
 	fallbackRecomputeInFlight = true;
 
+	const logger = ctx.getLogger("FallbackDiscovery");
+
 	try {
 		const roots = await workspaceProject.getRootUris();
 		const fs = workspaceProject.getFileSystem();
@@ -126,8 +128,11 @@ async function recomputeFallbackOpenApiFiles(): Promise<void> {
 		}
 
 		ctx.setFallbackOpenAPIFiles(Array.from(all));
-	} catch {
-		// Best-effort fallback only; avoid surfacing to client.
+	} catch (error) {
+		// Best-effort fallback only; log for debugging but don't surface to client.
+		logger.warn(
+			`Fallback OpenAPI file discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+		);
 	} finally {
 		fallbackRecomputeInFlight = false;
 	}
@@ -289,6 +294,7 @@ registerDiagnosticHandlers(
 		return workspaceProject;
 	},
 	diagnosticsScheduler,
+	cache,
 );
 registerNavigationHandlers(connection, documents, cache, ctx, () => {
 	if (!workspaceProject) {
@@ -508,6 +514,10 @@ connection.onNotification(
 			return;
 		}
 
+		// Update version immediately after validation to prevent race conditions
+		// where a second delta arrives during state mutations.
+		clientFileListVersion = params.version;
+
 		const current = new Set(ctx.getKnownOpenAPIFiles());
 
 		for (const uri of params.added ?? []) {
@@ -541,8 +551,6 @@ connection.onNotification(
 			diagnosticsScheduler.invalidateForDocument(uri);
 			referencesIndex?.invalidate(uri);
 		}
-
-		clientFileListVersion = params.version;
 	},
 );
 
@@ -634,6 +642,52 @@ connection.onDidChangeConfiguration(() => {
 
 		scheduleRecomputeFallbackOpenApiFiles();
 	}
+});
+
+// ============================================================================
+// Connection Error Handling
+// ============================================================================
+
+/**
+ * Handle protocol-level errors on the connection.
+ * These may indicate communication issues or malformed messages.
+ */
+connection.onError((error) => {
+	const logger = ctx.getLogger("Connection");
+	logger.error(
+		`Protocol error: ${error.message}${error.name ? ` (${error.name})` : ""}`,
+	);
+});
+
+// ============================================================================
+// Shutdown and Exit Handling
+// ============================================================================
+
+/**
+ * Handle shutdown request - clean up resources before exit.
+ * Per LSP spec, servers SHOULD handle this gracefully.
+ */
+connection.onShutdown(() => {
+	const logger = ctx.getLogger("Main");
+	logger.log("Shutting down Telescope Language Server");
+
+	// Clear pending timers
+	if (fallbackRecomputeTimer) {
+		clearTimeout(fallbackRecomputeTimer);
+		fallbackRecomputeTimer = undefined;
+	}
+
+	// Clear all caches and indexes
+	diagnosticsScheduler.clear();
+	referencesIndex?.clear();
+	cache.clear();
+});
+
+/**
+ * Handle exit notification - terminate the process.
+ */
+connection.onExit(() => {
+	process.exit(0);
 });
 
 // ============================================================================
