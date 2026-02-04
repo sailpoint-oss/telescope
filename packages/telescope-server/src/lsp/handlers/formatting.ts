@@ -20,7 +20,7 @@ export function registerFormattingHandlers(
 	ctx: TelescopeContext,
 ): void {
 	const logger = ctx.getLogger("Formatting");
-	const yamlService = getYAMLService();
+	const yamlService = getYAMLService(logger);
 
 	connection.onDocumentFormatting(async (params): Promise<TextEdit[]> => {
 		try {

@@ -23,7 +23,7 @@ export function registerSelectionRangeHandlers(
 	ctx: TelescopeContext,
 ): void {
 	const logger = ctx.getLogger("SelectionRanges");
-	const yamlService = getYAMLService();
+	const yamlService = getYAMLService(logger);
 
 	connection.onSelectionRanges(async (params): Promise<SelectionRange[]> => {
 		try {

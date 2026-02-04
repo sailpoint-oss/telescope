@@ -4,6 +4,7 @@ import type { Diagnostic } from "vscode-languageserver-protocol";
 import { URI } from "vscode-uri";
 import type { FileSystem } from "../../engine/fs-types.js";
 import type {
+	ConfiguredSeverity,
 	Diagnostic as EngineDiagnostic,
 	LintingContext,
 	ProjectContext,
@@ -139,6 +140,7 @@ export class DiagnosticsScheduler {
 		resolveContext: () => Promise<LintingContext>;
 		token?: CancellationToken;
 		rules: Rule[];
+		severityOverrides?: Map<string, ConfiguredSeverity>;
 		toLspDiagnostic: (d: EngineDiagnostic) => Diagnostic;
 		compareDiagnostics: (a: Diagnostic, b: Diagnostic) => number;
 	}): Promise<RootDiagnosticsSnapshot> {
@@ -147,16 +149,25 @@ export class DiagnosticsScheduler {
 			return cached;
 		}
 
+		// Atomic check-and-set: if another request already started computing,
+		// join that computation instead of starting a new one.
 		const existingInFlight = this.inFlightRoots.get(args.rootUri);
 		if (existingInFlight) {
 			return await existingInFlight;
 		}
 
-		const promise = this.computeRootDiagnostics(args).finally(() => {
-			this.inFlightRoots.delete(args.rootUri);
-		});
+		// Create and store the promise synchronously before any async work
+		// to prevent race conditions where two requests could both pass the
+		// existingInFlight check before either sets the promise.
+		const promise = this.computeRootDiagnostics(args);
 		this.inFlightRoots.set(args.rootUri, promise);
-		return await promise;
+
+		try {
+			return await promise;
+		} finally {
+			// Clean up in-flight tracking after completion (success or failure)
+			this.inFlightRoots.delete(args.rootUri);
+		}
 	}
 
 	private async computeRootDiagnostics(args: {
@@ -166,6 +177,7 @@ export class DiagnosticsScheduler {
 		resolveContext: () => Promise<LintingContext>;
 		token?: CancellationToken;
 		rules: Rule[];
+		severityOverrides?: Map<string, ConfiguredSeverity>;
 		toLspDiagnostic: (d: EngineDiagnostic) => Diagnostic;
 		compareDiagnostics: (a: Diagnostic, b: Diagnostic) => number;
 	}): Promise<RootDiagnosticsSnapshot> {
@@ -186,6 +198,7 @@ export class DiagnosticsScheduler {
 				lintingContext,
 				args.fileSystem,
 				args.rules,
+				args.severityOverrides,
 			);
 			args.token?.isCancellationRequested && throwCancelled();
 

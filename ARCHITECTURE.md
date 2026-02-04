@@ -316,6 +316,7 @@ interface CachedDocument {
   documentType: DocumentType;
   openapiVersion: string;
   lineOffsets: number[];
+  parseErrors: ParseError[];  // YAML/JSON parse errors
 }
 ```
 

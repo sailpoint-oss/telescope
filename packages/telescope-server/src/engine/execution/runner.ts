@@ -60,6 +60,7 @@ import type {
 import { findNodeByPointer } from "../ir/context.js";
 import type { Loc } from "../ir/types.js";
 import type {
+	ConfiguredSeverity,
 	Diagnostic,
 	EngineRunOptions,
 	EngineRunResult,
@@ -263,18 +264,19 @@ function locToRange(
 /**
  * Convert string severity to LSP DiagnosticSeverity enum.
  *
- * @param severity - String severity ("error", "warning", "info", "hint")
+ * @param severity - String severity ("error", "warning", "warn", "info", "hint")
  * @returns LSP DiagnosticSeverity enum value
  *
  * @internal
  */
 function severityToEnum(
-	severity: "error" | "warning" | "info" | "hint" | undefined,
+	severity: "error" | "warning" | "warn" | "info" | "hint" | undefined,
 ): DiagnosticSeverity {
 	switch (severity) {
 		case "error":
 			return DiagnosticSeverity.Error;
 		case "warning":
+		case "warn":
 			return DiagnosticSeverity.Warning;
 		case "info":
 			return DiagnosticSeverity.Information;
@@ -283,6 +285,29 @@ function severityToEnum(
 		default:
 			return DiagnosticSeverity.Error;
 	}
+}
+
+/**
+ * Get the effective severity for a rule, applying any configured override.
+ *
+ * @param ruleSeverity - The rule's reported severity
+ * @param ruleId - The rule ID
+ * @param overrides - Optional severity overrides map
+ * @returns The effective severity to use
+ *
+ * @internal
+ */
+function getEffectiveSeverity(
+	ruleSeverity: "error" | "warning" | "info" | "hint" | undefined,
+	ruleId: string | undefined,
+	overrides: Map<string, ConfiguredSeverity> | undefined,
+): "error" | "warning" | "info" | "hint" | undefined {
+	if (!ruleId || !overrides) return ruleSeverity;
+	const override = overrides.get(ruleId);
+	if (!override) return ruleSeverity;
+	// Normalize "warn" to "warning" for consistency
+	if (override === "warn") return "warning";
+	return override;
 }
 
 /**
@@ -525,6 +550,7 @@ export function runEngine(
 					diagnostics,
 					fixes,
 					rule,
+					options.severityOverrides,
 				);
 				const state = ruleStates[index];
 
@@ -797,6 +823,7 @@ export function createRuleContext(
 	diagnostics: Diagnostic[],
 	fixes: FilePatch[],
 	rule?: Rule,
+	severityOverrides?: Map<string, ConfiguredSeverity>,
 ): RuleContext {
 	const document = project.docs.get(fileUri);
 	if (!document) {
@@ -827,11 +854,17 @@ export function createRuleContext(
 			const codeDescription =
 				diag.codeDescription ??
 				(rule?.meta.url ? { href: rule.meta.url } : undefined);
+			// Apply configured severity override if present
+			const effectiveSeverity = getEffectiveSeverity(
+				diag.severity,
+				rule?.meta.id,
+				severityOverrides,
+			);
 			diagnostics.push({
 				...diag,
 				code: compositeCode,
 				source: diag.source ?? "telescope",
-				severity: severityToEnum(diag.severity),
+				severity: severityToEnum(effectiveSeverity),
 				codeDescription,
 			});
 		},
@@ -960,13 +993,19 @@ export function createRuleContext(
 			const codeDescription = rule?.meta.url
 				? { href: rule.meta.url }
 				: undefined;
+			// Apply configured severity override if present
+			const effectiveSeverity = getEffectiveSeverity(
+				opts.severity,
+				rule?.meta.id,
+				severityOverrides,
+			);
 			diagnostics.push({
 				code: compositeCode,
 				source: "telescope",
 				message: opts.message,
 				uri,
 				range,
-				severity: severityToEnum(opts.severity),
+				severity: severityToEnum(effectiveSeverity),
 				codeDescription,
 				rangePrecision: precision,
 			});
@@ -1014,13 +1053,19 @@ export function createRuleContext(
 			const codeDescription = rule?.meta.url
 				? { href: rule.meta.url }
 				: undefined;
+			// Apply configured severity override if present
+			const effectiveSeverity = getEffectiveSeverity(
+				opts.severity,
+				rule?.meta.id,
+				severityOverrides,
+			);
 			diagnostics.push({
 				code: compositeCode,
 				source: "telescope",
 				message: opts.message,
 				uri,
 				range,
-				severity: severityToEnum(opts.severity),
+				severity: severityToEnum(effectiveSeverity),
 				codeDescription,
 				rangePrecision: precision,
 			});

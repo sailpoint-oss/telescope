@@ -23,7 +23,7 @@ export function registerFoldingRangeHandlers(
 	ctx: TelescopeContext,
 ): void {
 	const logger = ctx.getLogger("FoldingRanges");
-	const yamlService = getYAMLService();
+	const yamlService = getYAMLService(logger);
 
 	connection.onFoldingRanges((params): FoldingRange[] => {
 		try {

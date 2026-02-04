@@ -57,6 +57,13 @@ openapi:
       patterns:
         - "**/api/**/*.yaml"
 
+  # OpenAPI extension configuration
+  extensions:
+    schemas:
+      - x-custom-extension.ts
+    required:
+      - x-company-auth
+
 # Non-OpenAPI file validation
 additionalValidation:
   # Named validation group
@@ -137,6 +144,7 @@ openapi:
 - `error` - Must be fixed
 - `warn` / `warning` - Should be addressed
 - `info` - Informational
+- `hint` - Style recommendations
 - `off` - Disable the rule
 
 ### `openapi.rules`
@@ -157,6 +165,50 @@ openapi:
 ```
 
 Rule paths are relative to `.telescope/rules/`.
+
+### `openapi.extensions`
+
+Configure OpenAPI extension validation.
+
+```yaml
+openapi:
+  extensions:
+    # Custom extension schemas (loaded from .telescope/extensions/)
+    schemas:
+      - x-custom-extension.ts
+
+    # Required extensions (both built-in and custom)
+    required:
+      - x-company-auth
+      - x-speakeasy-entity
+```
+
+**Built-in extension support:**
+
+Telescope includes built-in schemas for popular OpenAPI extensions:
+
+- Redocly extensions (`x-logo`, `x-tagGroups`, etc.)
+- Scalar extensions (`x-scalar-*`)
+- Speakeasy extensions (`x-speakeasy-*`)
+- Stoplight extensions (`x-stoplight-*`)
+
+**Custom extension schemas:**
+
+Create TypeBox schema files in `.telescope/extensions/`:
+
+```typescript
+// .telescope/extensions/x-custom-extension.ts
+import { Type } from "@sinclair/typebox";
+
+export default Type.Object({
+  name: Type.String(),
+  enabled: Type.Boolean(),
+});
+```
+
+**Required extensions:**
+
+The `required` array lists extension names that must be present in your OpenAPI documents. Violations are reported as errors.
 
 ## Additional Validation Section
 

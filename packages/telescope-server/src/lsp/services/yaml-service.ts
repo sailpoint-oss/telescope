@@ -34,6 +34,7 @@ import type {
 import { getCachedSchema } from "./shared/schema-cache.js";
 import type { CachedDocument } from "../document-cache.js";
 import { getVersionedSchemaKey } from "./shared/schema-cache.js";
+import type { Logger } from "../context.js";
 
 /**
  * YAML Service configuration options.
@@ -109,9 +110,18 @@ export function createYAMLService(options: YAMLServiceOptions = {}): LanguageSer
 export class YAMLService {
 	private service: LanguageService;
 	private lastConfigured?: { uri: string; schemaKey: string };
+	private logger?: Logger;
 
 	constructor(options: YAMLServiceOptions = {}) {
 		this.service = createYAMLService(options);
+	}
+
+	/**
+	 * Set the logger for debug-level error reporting.
+	 * Useful for diagnosing issues with the underlying YAML service.
+	 */
+	setLogger(logger: Logger): void {
+		this.logger = logger;
 	}
 
 	/**
@@ -158,6 +168,9 @@ export class YAMLService {
 			return hover ?? null;
 		} catch (error) {
 			// YAML service can throw on malformed documents
+			this.logger?.log(
+				`[DEBUG] getHover failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return null;
 		}
 	}
@@ -172,6 +185,9 @@ export class YAMLService {
 			});
 			return ranges ?? [];
 		} catch (error) {
+			this.logger?.log(
+				`[DEBUG] getFoldingRanges failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return [];
 		}
 	}
@@ -187,6 +203,9 @@ export class YAMLService {
 			const ranges = await this.service.getSelectionRanges(document, positions);
 			return ranges ?? [];
 		} catch (error) {
+			this.logger?.log(
+				`[DEBUG] getSelectionRanges failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return [];
 		}
 	}
@@ -202,6 +221,9 @@ export class YAMLService {
 			const completions = await this.service.doComplete(document, position, false);
 			return completions ?? null;
 		} catch (error) {
+			this.logger?.log(
+				`[DEBUG] getCompletions failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return null;
 		}
 	}
@@ -215,6 +237,9 @@ export class YAMLService {
 			const symbols = this.service.findDocumentSymbols2(document);
 			return symbols ?? [];
 		} catch (error) {
+			this.logger?.log(
+				`[DEBUG] getDocumentSymbols failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return [];
 		}
 	}
@@ -235,6 +260,9 @@ export class YAMLService {
 			});
 			return edits ?? [];
 		} catch (error) {
+			this.logger?.log(
+				`[DEBUG] format failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 			return [];
 		}
 	}
@@ -254,8 +282,11 @@ let yamlServiceInstance: YAMLService | null = null;
 
 /**
  * Get the shared YAML service instance.
+ *
+ * @param logger - Optional logger to set for debug-level error reporting.
+ *                 If provided, will update the logger on the service.
  */
-export function getYAMLService(): YAMLService {
+export function getYAMLService(logger?: Logger): YAMLService {
 	if (!yamlServiceInstance) {
 		yamlServiceInstance = new YAMLService({
 			hover: true,
@@ -263,6 +294,9 @@ export function getYAMLService(): YAMLService {
 			format: true,
 			validate: false, // We use Zod for OpenAPI validation
 		});
+	}
+	if (logger) {
+		yamlServiceInstance.setLogger(logger);
 	}
 	return yamlServiceInstance;
 }

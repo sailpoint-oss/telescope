@@ -40,6 +40,9 @@ export default defineRule({
     description: "API must include contact information",
     type: "problem", // "problem" or "suggestion"
     fileFormats: ["yaml", "yml", "json"],
+    defaultSeverity: "error", // Default when not overridden
+    scope: "single-file", // "single-file" or "cross-file"
+    fixable: false, // Whether rule provides auto-fixes
   },
   check(ctx) {
     return {
@@ -62,6 +65,25 @@ export default defineRule({
   },
 });
 ```
+
+### Meta Options Reference
+
+| Option            | Type                              | Required | Description                                                                 |
+| ----------------- | --------------------------------- | -------- | --------------------------------------------------------------------------- |
+| `id`              | `string`                          | Yes      | Unique identifier for the rule (used in config and diagnostics)             |
+| `number`          | `number`                          | Yes      | Unique numeric code for the rule                                            |
+| `description`     | `string`                          | Yes      | Human-readable description of what the rule checks                          |
+| `type`            | `"problem" \| "suggestion"`       | Yes      | Whether the rule detects problems or suggests improvements                  |
+| `fileFormats`     | `string[]`                        | Yes      | File extensions this rule applies to (e.g., `["yaml", "yml", "json"]`)      |
+| `defaultSeverity` | `"error" \| "warning" \| "info" \| "hint"` | No | Default severity when not overridden in config (defaults to `"error"`)      |
+| `scope`           | `"single-file" \| "cross-file"`   | No       | Execution scope - `single-file` runs per document, `cross-file` runs once   |
+| `fixable`         | `boolean`                         | No       | Whether the rule provides automatic fixes via `ctx.fix()`                   |
+| `url`             | `string`                          | No       | URL to documentation about this rule                                        |
+
+**Scope behavior:**
+
+- `single-file` (default): Rule runs once per document. Most rules use this.
+- `cross-file`: Rule runs once after all documents are processed. Use for aggregate checks like "all operationIds must be unique across the workspace".
 
 ### Available Visitors
 
@@ -101,12 +123,24 @@ check(ctx) {
       // Get source location for a JSON pointer
       const range = ctx.locate(op.uri, op.pointer);
 
-      // Report a diagnostic
+      // Report a diagnostic (full control)
       ctx.report({
         message: "Issue description",
-        severity: "error",   // "error", "warning", or "info"
+        severity: "error",   // "error", "warning", "info", or "hint"
         uri: op.uri,
         range,
+      });
+
+      // Report at a specific field (convenience method)
+      ctx.reportAt(op, "summary", {
+        message: "Summary is required",
+        severity: "error",
+      });
+
+      // Report at the current ref location (convenience method)
+      ctx.reportHere(op, {
+        message: "Operation has issues",
+        severity: "warning",
       });
 
       // Optional: register a fix (separately from reporting)
@@ -118,6 +152,17 @@ check(ctx) {
   };
 }
 ```
+
+**Context methods:**
+
+| Method                           | Description                                                           |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `ctx.report(diagnostic)`         | Report a diagnostic with full control over location                   |
+| `ctx.reportAt(ref, field, opts)` | Report at a specific field within the ref (auto-locates the field)    |
+| `ctx.reportHere(ref, opts)`      | Report at the ref's location (uses the ref's pointer for location)    |
+| `ctx.locate(uri, pointer)`       | Get the source range for a JSON pointer                               |
+| `ctx.fix(patch)`                 | Register an auto-fix (JSON Patch operations)                          |
+| `ctx.project`                    | Access the project context (docs, indexes, etc.)                      |
 
 ### Utility Functions
 

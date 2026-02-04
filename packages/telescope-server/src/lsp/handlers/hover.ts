@@ -41,7 +41,7 @@ export function registerHoverHandler(
 	getProject?: () => WorkspaceProject,
 ): void {
 	const logger = ctx.getLogger("Hover");
-	const yamlService = getYAMLService();
+	const yamlService = getYAMLService(logger);
 
 	connection.onHover(async (params): Promise<Hover | null> => {
 		try {

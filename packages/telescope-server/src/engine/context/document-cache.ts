@@ -11,14 +11,19 @@ import {
  * Cache that tracks document types as we discover them.
  * This avoids re-checking files and allows us to build up knowledge
  * about the workspace structure.
- * Uses LRU eviction to limit memory usage.
+ * Uses LRU eviction to limit memory usage with O(1) operations.
  */
 export class DocumentTypeCache {
 	private typeCache = new Map<string, DocumentType>();
 	private rootCache = new Set<string>();
 	private loadedDocs = new Map<string, ParsedDocument>();
 	private readonly maxSize: number;
-	private readonly accessOrder: string[] = []; // Track access order for LRU
+	/**
+	 * LRU tracking using Map's built-in insertion order.
+	 * Values are timestamps for debugging; key order determines LRU.
+	 * Delete + re-set moves a key to the end (most recently used).
+	 */
+	private readonly accessOrder = new Map<string, number>();
 
 	constructor(maxSize: number = 500) {
 		this.maxSize = maxSize;
@@ -158,11 +163,7 @@ export class DocumentTypeCache {
 		this.typeCache.delete(uri);
 		this.rootCache.delete(uri);
 		this.loadedDocs.delete(uri);
-		// Remove from access order
-		const index = this.accessOrder.indexOf(uri);
-		if (index !== -1) {
-			this.accessOrder.splice(index, 1);
-		}
+		this.accessOrder.delete(uri);
 	}
 
 	/**
@@ -172,27 +173,28 @@ export class DocumentTypeCache {
 		this.typeCache.clear();
 		this.rootCache.clear();
 		this.loadedDocs.clear();
-		this.accessOrder.length = 0;
+		this.accessOrder.clear();
 	}
 
 	/**
 	 * Update access order for LRU eviction.
+	 * Uses Map's insertion order: delete + re-set moves key to end.
+	 * O(1) operation.
 	 */
 	private updateAccessOrder(uri: string): void {
-		const index = this.accessOrder.indexOf(uri);
-		if (index !== -1) {
-			// Move to end (most recently used)
-			this.accessOrder.splice(index, 1);
-		}
-		this.accessOrder.push(uri);
+		// Delete and re-add to move to end of Map (most recently used)
+		this.accessOrder.delete(uri);
+		this.accessOrder.set(uri, Date.now());
 	}
 
 	/**
 	 * Evict least recently used entry if cache is full.
+	 * O(1) operation using Map's iteration order.
 	 */
 	private evictIfNeeded(): void {
-		if (this.typeCache.size >= this.maxSize && this.accessOrder.length > 0) {
-			const lruUri = this.accessOrder[0];
+		if (this.typeCache.size >= this.maxSize && this.accessOrder.size > 0) {
+			// Map iterates in insertion order; first key is LRU
+			const lruUri = this.accessOrder.keys().next().value;
 			if (lruUri) {
 				this.invalidate(lruUri);
 			}

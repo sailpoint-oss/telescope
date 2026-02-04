@@ -39,7 +39,7 @@ export function registerCompletionHandlers(
 	ctx: TelescopeContext,
 ): void {
 	const logger = ctx.getLogger("Completions");
-	const yamlService = getYAMLService();
+	const yamlService = getYAMLService(logger);
 
 	connection.onCompletion(async (params): Promise<CompletionList | null> => {
 		try {
