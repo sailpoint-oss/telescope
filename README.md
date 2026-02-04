@@ -10,9 +10,9 @@
 ### Validation & Diagnostics
 
 - **Real-time Diagnostics** - See linting issues as you type in VS Code
-- **52 Built-in Rules** - Covering OpenAPI best practices and SailPoint standards
+- **30 Built-in OpenAPI Rules** - Best practices (and **52 total** when SailPoint rules are enabled)
 - **Multi-file Support** - Full `$ref` resolution across your API project
-- **Custom Rules** - Extend with your own TypeScript rules and TypeBox schemas
+- **Custom Rules** - Extend with your own TypeScript rules and Zod schemas
 - **Pattern Matching** - Glob-based file inclusion/exclusion
 
 ### Code Intelligence
@@ -80,6 +80,13 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration re
 - Files are classified as OpenAPI using a lightweight check for the `openapi` (3.x) or `swagger` (2.0) root key.
 - When you open a classified file, the extension applies the custom language mode (`openapi-yaml` / `openapi-json`) for correct tokenization and grammars.
 
+### Supported specifications
+
+- Swagger 2.0
+- OpenAPI 3.0.x
+- OpenAPI 3.1.x
+- OpenAPI 3.2.x
+
 ### Multi-root workspaces
 
 Multi-root workspaces are supported. Telescope runs **one language server per workspace folder** to keep projects isolated.
@@ -128,7 +135,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Built-in Rules
 
-Telescope includes 30 OpenAPI best practice rules and 22 SailPoint-specific rules:
+Telescope includes **30** built-in OpenAPI best practice rules. If you enable `openapi.sailpoint: true`, it also enables **22** additional SailPoint-specific rules (**52 total**):
 
 | Category   | Rules                                                  |
 | ---------- | ------------------------------------------------------ |
@@ -139,6 +146,25 @@ Telescope includes 30 OpenAPI best practice rules and 22 SailPoint-specific rule
 | Components | naming conventions                                     |
 
 See [RULES.md](packages/telescope-server/src/engine/rules/RULES.md) for the complete rule reference.
+
+## CLI (CI / local linting)
+
+The `telescope-server` package also ships a small CLI (used by CI) with three subcommands:
+
+- `telescope lint` - Lint a workspace/root document and print results (supports `--format json|github`)
+- `telescope ci` - CI-oriented mode (report files, PR comments, diff modes)
+- `telescope lsp` - Start the language server over stdio
+
+From this repo (without installing globally), you can run it directly:
+
+```bash
+# Back-compat: running without a subcommand behaves like `telescope lint`
+bun packages/telescope-server/src/cli/index.ts --workspace . --format github
+
+# Explicit subcommands
+bun packages/telescope-server/src/cli/index.ts lint --workspace . --format json
+bun packages/telescope-server/src/cli/index.ts ci --workspace . --report-md telescope-report.md
+```
 
 ## Custom Rules
 
@@ -212,4 +238,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ## License
 
-[MIT](LICENSE) - Copyright (c) 2024 SailPoint Technologies
+[MIT](LICENSE) - Copyright (c) 2026 SailPoint Technologies
