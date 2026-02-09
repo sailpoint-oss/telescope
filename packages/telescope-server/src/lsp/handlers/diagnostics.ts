@@ -102,11 +102,20 @@ export function registerDiagnosticHandlers(
 			const project = getProject();
 			const openDoc = documents.get(uri);
 
-			// Get parse errors from the document cache if available
+			// Get parse errors from the document cache if available,
+			// but only for in-scope OpenAPI documents.
 			let parseErrorDiags: Diagnostic[] = [];
 			if (cache && openDoc) {
 				const cached = cache.get(openDoc);
-				if (cached.parseErrors.length > 0) {
+
+				// Early exit: if the document is both unknown type and out of scope,
+				// skip all diagnostics entirely — this file is not OpenAPI.
+				if (cached.documentType === "unknown" && !cached.openapiScoped) {
+					return { kind: "full", items: [] } as DocumentDiagnosticReport;
+				}
+
+				// Only report parse errors for in-scope OpenAPI documents.
+				if (cached.openapiScoped && cached.parseErrors.length > 0) {
 					parseErrorDiags = parseErrorsToDiagnostics(cached.parseErrors);
 				}
 			}
@@ -133,6 +142,7 @@ export function registerDiagnosticHandlers(
 						fs, // Pass pre-created FS to avoid duplicate creation
 						undefined, // token
 						severityOverrides,
+						cache, // Pass cache for early scope + type checks
 					),
 			});
 
@@ -283,7 +293,21 @@ export async function computeDocumentDiagnostics(
 	token?: import("../../engine/index.js").CancellationToken,
 	/** Optional severity overrides from configuration. */
 	severityOverrides?: Map<string, ConfiguredSeverity>,
+	/** Optional document cache for early scope + type checks. */
+	documentCache?: DocumentCache,
 ): Promise<Diagnostic[]> {
+	// Early scope check: avoid expensive linting context resolution for files
+	// that are clearly not OpenAPI. If the file is out of scope and the cached
+	// document type is "unknown", we can skip immediately without resolving
+	// the linting context (which involves $ref graph traversal).
+	const inScope = scope.isOpenApiInScope(uri);
+	if (!inScope && documentCache && openDoc) {
+		const cached = documentCache.get(openDoc);
+		if (cached.documentType === "unknown") {
+			return [];
+		}
+	}
+
 	// Defensive fallback for callers that have no tracked open docs map.
 	if (openDocs.size === 0 && openDoc) {
 		openDocs = new Map([[openDoc.uri, openDoc.getText()]]);
@@ -308,7 +332,6 @@ export async function computeDocumentDiagnostics(
 	// - Out-of-scope standalone files should not produce OpenAPI diagnostics.
 	// - Out-of-scope roots should not produce OpenAPI diagnostics (enforces openapi.patterns).
 	// - Out-of-scope fragments that are reached from an in-scope root via $ref are still allowed.
-	const inScope = scope.isOpenApiInScope(uri);
 	const normalizedTarget = normalizeUriString(uri);
 	if (!inScope) {
 		// Not connected to any root: treat as non-OpenAPI for diagnostics purposes.

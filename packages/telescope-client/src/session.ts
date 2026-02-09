@@ -417,6 +417,19 @@ export class Session implements vscode.Disposable {
 			synchronize: {
 				configurationSection: ["telescope"],
 			},
+			// Filter diagnostic pulls for documents that are clearly not OpenAPI.
+			// Documents with an OpenAPI language ID always pass through; plain
+			// yaml/json/jsonc documents are checked against the configured
+			// openapi.patterns so that non-OpenAPI files never trigger a
+			// diagnostic pull to the server.
+			diagnosticPullOptions: {
+				// Return true to FILTER OUT (skip) the document.
+				filter: (doc) => !this.isDocumentInOpenAPIScope(doc.uri),
+				// Allow diagnostics to be pulled for non-instantiated tabs when
+				// the URI matches our OpenAPI patterns.
+				onTabs: true,
+				match: (_selector, resource) => this.isDocumentInOpenAPIScope(resource),
+			},
 		};
 
 		// Create unique client ID for this workspace
@@ -832,6 +845,32 @@ export class Session implements vscode.Disposable {
 		const filePath = fileUri.fsPath;
 		const workspaceRoot = this.workspaceFolder.uri.fsPath;
 		return matchesPatternList(filePath, this.patterns, workspaceRoot);
+	}
+
+	/**
+	 * Check if a document URI is in OpenAPI scope (for middleware filtering).
+	 *
+	 * Documents with an OpenAPI language ID always pass through.
+	 * Plain yaml/json/jsonc documents are checked against the configured
+	 * openapi.patterns to avoid sending non-OpenAPI files to the server.
+	 */
+	private isDocumentInOpenAPIScope(uri: vscode.Uri): boolean {
+		// Check if the file is already classified as OpenAPI via language ID
+		const doc = vscode.workspace.textDocuments.find(
+			(d) => d.uri.toString() === uri.toString(),
+		);
+		if (doc && isOpenAPILanguage(doc.languageId)) {
+			return true;
+		}
+
+		// Check if this file is a known OpenAPI file from the scanner
+		if (this.openApiFiles.has(uri.toString())) {
+			return true;
+		}
+
+		// Fallback: check if the file matches the configured OpenAPI patterns.
+		// This is a lightweight check that mirrors the server-side isOpenApiInScope().
+		return this.matchesOpenAPIPatterns(uri);
 	}
 
 	/**

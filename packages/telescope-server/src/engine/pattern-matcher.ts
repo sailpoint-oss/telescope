@@ -63,15 +63,22 @@ export function matchesPattern(
 	// Always exclude known non-OpenAPI files from OpenAPI linting, even if patterns would match.
 	// This prevents false positives like package.json being treated as OpenAPI just because it is JSON.
 	const knownNonOpenAPIFiles = [
+		// Node.js / JavaScript / TypeScript
 		"package.json",
 		"package-lock.json",
+		"tsconfig.json",
+		"jsconfig.json",
+		".npmrc",
+		// Package managers / lock files
 		"pnpm-lock.yaml",
 		"yarn.lock",
 		"bun.lock",
 		"bun.lockb",
-		"tsconfig.json",
-		"jsconfig.json",
+		"composer.json",
+		"composer.lock",
+		// Linters / formatters
 		"biome.json",
+		"biome.jsonc",
 		".prettierrc",
 		".prettierrc.json",
 		".prettierrc.yaml",
@@ -80,8 +87,49 @@ export function matchesPattern(
 		".eslintrc.json",
 		".eslintrc.yaml",
 		".eslintrc.yml",
+		"eslint.config.json",
+		".swcrc",
+		// Bundlers / build tools
+		"turbo.json",
+		"nx.json",
+		"lerna.json",
+		".babelrc",
+		".babelrc.json",
+		// Testing
+		"jest.config.json",
+		"vitest.config.json",
+		// CI / CD / DevOps
+		"renovate.json",
+		"docker-compose.yml",
+		"docker-compose.yaml",
+		// Hosting / deployment
+		"vercel.json",
+		"firebase.json",
+		"netlify.json",
+		// Spell checking
+		"cspell.json",
+		".cspell.json",
+		// VS Code / Editor
+		"settings.json",
+		"launch.json",
+		"tasks.json",
+		"extensions.json",
+		"devcontainer.json",
 	];
 	if (knownNonOpenAPIFiles.some((file) => lowerPath.endsWith(file))) {
+		return false;
+	}
+
+	// Exclude well-known non-OpenAPI directory patterns.
+	// Files inside these directories are never OpenAPI specs.
+	const knownNonOpenAPIDirs = [
+		".github/",
+		".vscode/",
+		".devcontainer/",
+		"node_modules/",
+		".git/",
+	];
+	if (knownNonOpenAPIDirs.some((dir) => lowerPath.includes(dir))) {
 		return false;
 	}
 
