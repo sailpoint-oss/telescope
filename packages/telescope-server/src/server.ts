@@ -645,21 +645,6 @@ connection.onDidChangeConfiguration(() => {
 });
 
 // ============================================================================
-// Connection Error Handling
-// ============================================================================
-
-/**
- * Handle protocol-level errors on the connection.
- * These may indicate communication issues or malformed messages.
- */
-connection.onError((error) => {
-	const logger = ctx.getLogger("Connection");
-	logger.error(
-		`Protocol error: ${error.message}${error.name ? ` (${error.name})` : ""}`,
-	);
-});
-
-// ============================================================================
 // Shutdown and Exit Handling
 // ============================================================================
 
