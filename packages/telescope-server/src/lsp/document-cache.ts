@@ -292,6 +292,50 @@ export class DocumentCache {
 			// Config-aware scoping: only treat in-scope files as OpenAPI in the LSP.
 			const openapiScoped = this.ctx.isOpenApiInScope(doc.uri);
 
+			// Lightweight early exit: if the file is out of scope and not detected as
+			// any OpenAPI document type, skip the expensive IR building and atom extraction.
+			// This avoids unnecessary work for non-OpenAPI files like package.json, tsconfig.json, etc.
+			if (!openapiScoped && documentType === "unknown") {
+				const emptyIr: IRDocument = {
+					root: { ptr: "#", kind: "object", loc: { start: 0, end: content.length }, uri: doc.uri },
+					uri: doc.uri,
+					format,
+					version: openapiVersion,
+					rawText: content,
+					hash,
+					mtimeMs: Date.now(),
+				};
+				const emptyAtoms: AtomIndex = {
+					operations: [],
+					components: [],
+					schemas: [],
+					securitySchemes: [],
+				};
+				const minimalCached: CachedDocument = {
+					uri: doc.uri,
+					version: doc.version,
+					format,
+					content,
+					hash,
+					ast,
+					parsedObject,
+					ir: emptyIr,
+					atoms: emptyAtoms,
+					documentType,
+					openapiVersion,
+					openapiScoped,
+					lineOffsets,
+					parseErrors,
+				};
+
+				const existing = this.cache.get(doc.uri);
+				if (existing && existing.version > doc.version) {
+					return existing;
+				}
+				this.cache.set(doc.uri, minimalCached);
+				return minimalCached;
+			}
+
 			// Build IR
 			const ir =
 				format === "yaml"
