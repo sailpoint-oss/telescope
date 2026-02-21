@@ -402,7 +402,7 @@
 	"dependencies": {
 		"@volar/vscode": "^2.4.23",
 		"telescope-server": "workspace:*",
-		"minimatch": "^10.1.1",
+		"minimatch": "^10.2.1",
 		"vscode-languageclient": "^9.0.1",
 		"vscode-textmate": "^9.2.1",
 		"yaml": "^2.8.1"
