@@ -1,0 +1,273 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional version override (X.Y.Z)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-extension
+  cancel-in-progress: false
+
+jobs:
+  build-binaries:
+    name: Build ${{ matrix.vscode_target }}
+    if: ${{ !contains(github.event.head_commit.message || '', '[skip publish]') }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - vscode_target: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            runner: macos-latest
+            binary: telescope
+          - vscode_target: darwin-x64
+            goos: darwin
+            goarch: amd64
+            runner: macos-latest
+            binary: telescope
+          - vscode_target: linux-x64
+            goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+            binary: telescope
+          - vscode_target: win32-x64
+            goos: windows
+            goarch: amd64
+            runner: windows-latest
+            binary: telescope.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "1"
+        run: >-
+          go build
+          -trimpath
+          -ldflags "-s -w"
+          -o ${{ matrix.binary }}
+          .
+        working-directory: server
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.vscode_target }}
+          path: server/${{ matrix.binary }}
+          retention-days: 1
+
+  package-and-publish:
+    name: Package & Publish
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message || '', '[skip publish]') }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build TS packages
+        run: |
+          pnpm --filter telescope-server run build
+          pnpm --filter telescope run build
+
+      - name: Resolve publish version
+        id: version
+        run: |
+          PACKAGE_JSON="packages/telescope-client/package.json"
+
+          parse_version() {
+            local v="$1"
+            local major=0 minor=0 patch=0 build=0
+            IFS='.' read -r major minor patch build <<< "$v"
+            major=${major:-0}; minor=${minor:-0}; patch=${patch:-0}; build=${build:-0}
+            echo "$major $minor $patch $build"
+          }
+
+          compare_versions() {
+            local seg1=($(parse_version "$1"))
+            local seg2=($(parse_version "$2"))
+            for i in 0 1 2 3; do
+              if [ "${seg1[$i]}" -gt "${seg2[$i]}" ]; then echo 1; return; fi
+              if [ "${seg1[$i]}" -lt "${seg2[$i]}" ]; then echo -1; return; fi
+            done
+            echo 0
+          }
+
+          bump_minor() {
+            local seg=($(parse_version "$1"))
+            local orig_segments=$(echo "$1" | tr -cd '.' | wc -c)
+            orig_segments=$((orig_segments + 1))
+            local major=${seg[0]} minor=$(( ${seg[1]} + 1 ))
+            if [ "$orig_segments" -le 2 ]; then echo "$major.$minor"
+            elif [ "$orig_segments" -eq 3 ]; then echo "$major.$minor.0"
+            else echo "$major.$minor.0.0"; fi
+          }
+
+          ORIGINAL_VERSION=$(node -e "console.log(require('./$PACKAGE_JSON').version)")
+          echo "Original local version: $ORIGINAL_VERSION"
+
+          MANUAL_SET="false"
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            MANUAL_VERSION="${{ github.event.inputs.version }}"
+            if ! echo "$MANUAL_VERSION" | grep -qE '^[0-9]+(\.[0-9]+){0,3}$'; then
+              echo "Error: Invalid version format"; exit 1
+            fi
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('$PACKAGE_JSON', 'utf8'));
+              pkg.version = '$MANUAL_VERSION';
+              fs.writeFileSync('$PACKAGE_JSON', JSON.stringify(pkg, null, '\t') + '\n');
+            "
+            MANUAL_SET="true"
+          fi
+
+          LOCAL_VERSION=$(node -e "console.log(require('./$PACKAGE_JSON').version)")
+
+          VSCE_VERSION="0.0.0"
+          if npx @vscode/vsce show "SailPointTechnologies.telescope-openapi" --json 2>/dev/null | jq -r '.version' 2>/dev/null | grep -qE '^[0-9]'; then
+            VSCE_VERSION=$(npx @vscode/vsce show "SailPointTechnologies.telescope-openapi" --json 2>/dev/null | jq -r '.version' 2>/dev/null || echo "0.0.0")
+          fi
+
+          OPENVSX_VERSION="0.0.0"
+          OPENVSX_RESPONSE=$(curl -s "https://open-vsx.org/api/sailpoint/telescope/latest" 2>/dev/null || echo "")
+          if echo "$OPENVSX_RESPONSE" | jq -r '.version' 2>/dev/null | grep -qE '^[0-9]'; then
+            OPENVSX_VERSION=$(echo "$OPENVSX_RESPONSE" | jq -r '.version' 2>/dev/null || echo "0.0.0")
+          fi
+
+          PUBLISHED_MAX="$VSCE_VERSION"
+          if [ "$(compare_versions "$OPENVSX_VERSION" "$PUBLISHED_MAX")" -eq 1 ]; then
+            PUBLISHED_MAX="$OPENVSX_VERSION"
+          fi
+
+          RESOLVED_VERSION="$LOCAL_VERSION"
+          CHANGED="false"
+          BUMPED="false"
+
+          if [ "$(compare_versions "$LOCAL_VERSION" "$PUBLISHED_MAX")" -le 0 ]; then
+            RESOLVED_VERSION=$(bump_minor "$PUBLISHED_MAX")
+            CHANGED="true"
+            BUMPED="true"
+          else
+            if [ "$MANUAL_SET" = "true" ] || [ "$LOCAL_VERSION" != "$ORIGINAL_VERSION" ]; then
+              CHANGED="true"
+            fi
+          fi
+
+          if [ "$RESOLVED_VERSION" != "$LOCAL_VERSION" ]; then
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('$PACKAGE_JSON', 'utf8'));
+              pkg.version = '$RESOLVED_VERSION';
+              fs.writeFileSync('$PACKAGE_JSON', JSON.stringify(pkg, null, '\t') + '\n');
+            "
+            CHANGED="true"
+          fi
+
+          echo "version=$RESOLVED_VERSION" >> $GITHUB_OUTPUT
+          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+          echo "Resolved version: $RESOLVED_VERSION (changed: $CHANGED, bumped: $BUMPED)"
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: /tmp/binaries
+
+      - name: Package platform VSIXs
+        working-directory: packages/telescope-client
+        run: |
+          PLATFORMS="darwin-arm64 darwin-x64 linux-x64 win32-x64"
+          for PLATFORM in $PLATFORMS; do
+            echo "=== Packaging $PLATFORM ==="
+            rm -rf bin && mkdir -p bin
+
+            if [ "$PLATFORM" = "win32-x64" ]; then
+              cp "/tmp/binaries/binary-${PLATFORM}/telescope.exe" bin/telescope.exe
+            else
+              cp "/tmp/binaries/binary-${PLATFORM}/telescope" bin/telescope
+              chmod +x bin/telescope
+            fi
+
+            bun scripts/package.ts --target openvsx --platform "$PLATFORM"
+            bun scripts/package.ts --target vscode --platform "$PLATFORM"
+          done
+
+          echo "=== Packaging universal (no binary) ==="
+          rm -rf bin
+          bun scripts/package.ts --target openvsx --platform universal
+          bun scripts/package.ts --target vscode --platform universal
+
+      - name: List VSIXs
+        id: vsix
+        run: |
+          echo "Generated VSIXs:"
+          ls -lh packages/telescope-client/telescope-*.vsix
+          echo "vsix_dir=packages/telescope-client" >> $GITHUB_OUTPUT
+
+      - name: Upload VSIX artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: telescope-vsix
+          path: packages/telescope-client/telescope-*.vsix
+          retention-days: 90
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          for VSIX in packages/telescope-client/telescope-vscode-*.vsix; do
+            echo "Publishing $VSIX to VS Code Marketplace..."
+            pnpm dlx @vscode/vsce publish --packagePath "$VSIX" --no-git-tag-version -p ${{ secrets.VSCE_PAT }}
+          done
+
+      - name: Publish to OpenVSX
+        run: |
+          for VSIX in packages/telescope-client/telescope-openvsx-*.vsix; do
+            echo "Publishing $VSIX to OpenVSX..."
+            pnpm dlx ovsx publish "$VSIX" -p ${{ secrets.OPEN_VSX_TOKEN }}
+          done
+
+      - name: Commit version change
+        if: steps.version.outputs.changed == 'true' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/telescope-client/package.json
+          git commit -m "chore(release): bump extension version to ${{ steps.version.outputs.version }} [skip publish]"
+          git push

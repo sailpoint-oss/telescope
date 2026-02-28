@@ -42,11 +42,10 @@ suite("Multi-Root Workspace", () => {
 				`All sessions should be running. States: ${JSON.stringify(states)}`,
 			);
 
-			// Test project info for each folder
 			for (const folder of workspaceFolders) {
 				const projectInfo = await waitForProjectInfo(
 					testAPI,
-					(i) => i.hasClientFileList,
+					(i) => i.knownOpenAPIFiles >= 0,
 					{ timeoutMs: 60000, uri: folder.uri },
 				);
 				assert.ok(
@@ -108,12 +107,11 @@ suite("Multi-Root Workspace", () => {
 		const folderB = folders.find((f) => f.name === "folderB");
 		assert.ok(folderA && folderB, "Expected folderA and folderB");
 
-		// Ensure both sides have baseline sync
-		const infoA0 = await waitForProjectInfo(api, (i) => i.hasClientFileList, {
+		const infoA0 = await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles >= 0, {
 			timeoutMs: 60000,
 			uri: folderA.uri,
 		});
-		const infoB0 = await waitForProjectInfo(api, (i) => i.hasClientFileList, {
+		const infoB0 = await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles >= 0, {
 			timeoutMs: 60000,
 			uri: folderB.uri,
 		});
@@ -148,7 +146,7 @@ suite("Multi-Root Workspace", () => {
 			{ timeoutMs: 60000, uri: folderA.uri },
 		);
 		await delay(500);
-		const infoB1 = await api.getProjectInfo(folderB.uri);
+		const infoB1 = api.getProjectInfo(folderB.uri);
 		assert.ok(infoB1, "Expected project info for folderB");
 		assert.strictEqual(
 			infoB1.knownOpenAPIFiles,

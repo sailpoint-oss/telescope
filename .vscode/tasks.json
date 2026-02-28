@@ -4,8 +4,16 @@
 		{
 			"label": "build:server",
 			"type": "shell",
-			"command": "bun",
-			"args": ["run", "--cwd", "packages/telescope-server", "build"],
+			"command": "go",
+			"args": [
+				"build",
+				"-o",
+				"${workspaceFolder}/packages/telescope-client/bin/telescope",
+				"."
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/server"
+			},
 			"group": {
 				"kind": "build",
 				"isDefault": false

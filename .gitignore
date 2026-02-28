@@ -6,6 +6,16 @@ out
 dist
 *.tgz
 
+# Built Go binary
+packages/telescope-client/bin/
+
+# Go workspace (local development with gossip)
+go.work
+go.work.sum
+
+# VSIX build artifacts
+*.vsix
+
 # code coverage
 coverage
 *.lcov

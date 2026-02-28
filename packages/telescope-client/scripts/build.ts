@@ -37,13 +37,11 @@ console.log(`  Sourcemap: ${isSourcemap}`);
 const ctx = await esbuild.context({
 	entryPoints: {
 		client: "./src/extension.ts",
-		server: "../telescope-server/src/server.ts",
 	},
 	bundle: true,
 	outdir: "./dist",
 	external: [
 		"vscode", // VS Code API - provided by runtime
-		"esbuild", // Used for runtime TS rule loading
 	],
 	format: "cjs",
 	platform: "node",
@@ -67,5 +65,5 @@ if (isWatch) {
 		console.log(analysis);
 	}
 
-	console.log("✅ Built client and server to dist/");
+	console.log("✅ Built client to dist/");
 }

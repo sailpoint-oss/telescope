@@ -16,9 +16,6 @@ importers:
       minimatch:
         specifier: ^10.1.1
         version: 10.1.1
-      telescope-server:
-        specifier: workspace:*
-        version: link:../telescope-server
       vscode-languageclient:
         specifier: ^9.0.1
         version: 9.0.1

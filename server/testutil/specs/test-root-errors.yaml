@@ -1,0 +1,11 @@
+openapi: 3.2.0
+x-sailpoint-api:
+  version: v2025
+  audience: external-public
+# ERROR: Missing required 'info' section
+# All OpenAPI documents must have an 'info' object with 'title' and 'version' fields
+# This should trigger a validation error for missing root-info
+tags:
+  - name: animals
+    description: Animals operations
+paths: {}

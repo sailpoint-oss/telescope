@@ -9,7 +9,10 @@
 				"--extensionDevelopmentPath=${workspaceFolder}/packages/telescope-client",
 				"${workspaceFolder}/packages/test-files"
 			],
-			"outFiles": ["${workspaceFolder}/packages/telescope-client/out/**/*.js"],
+			"outFiles": ["${workspaceFolder}/packages/telescope-client/dist/**/*.js"],
+			"env": {
+				"TELESCOPE_SERVER_PATH": "${workspaceFolder}/packages/telescope-client/bin/telescope"
+			},
 			"preLaunchTask": "build:all",
 			"presentation": {
 				"hidden": false,

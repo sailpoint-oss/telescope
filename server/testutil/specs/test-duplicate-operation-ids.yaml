@@ -1,0 +1,22 @@
+openapi: 3.1.0
+info:
+  title: Test
+  version: 1.0.0
+tags: []
+paths:
+  /test1:
+    get:
+      operationId: duplicateId
+      tags:
+        - Tests
+      responses:
+        "200":
+          description: OK
+  /test2:
+    get:
+      operationId: duplicateId
+      tags:
+        - Tests
+      responses:
+        "200":
+          description: OK

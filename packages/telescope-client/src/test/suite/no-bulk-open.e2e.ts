@@ -28,8 +28,7 @@ suite("No Bulk Open", () => {
 		if (isMultiRootWorkspace()) return;
 		const before = vscode.workspace.textDocuments.length;
 
-		// Wait for full sync to arrive (ensures scan has completed)
-		await waitForProjectInfo(api, (info) => info.hasClientFileList, {
+		await waitForProjectInfo(api, (info) => info.knownOpenAPIFiles >= 0, {
 			timeoutMs: 60000,
 		});
 
