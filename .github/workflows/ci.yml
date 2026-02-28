@@ -6,12 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test (${{ matrix.os }})
+  go:
+    name: Go (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -19,24 +23,53 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Build
+        run: go build ./...
+        working-directory: server
+
+      - name: Vet
+        run: go vet ./...
+        working-directory: server
+
+      - name: Test
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./... -timeout 10m
+        working-directory: server
+
+      - name: Coverage summary
+        if: matrix.os == 'ubuntu-latest'
+        run: go tool cover -func=coverage.out | tail -1
+        working-directory: server
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: server/coverage.out
+
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "pnpm"
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: pnpm install
@@ -49,19 +82,50 @@ jobs:
           pnpm --filter telescope-server run build
           pnpm --filter ./packages/telescope-client run build
 
+  e2e:
+    name: E2E (${{ matrix.os }})
+    needs: [go, typescript]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build and compile E2E
+        run: pnpm --filter ./packages/telescope-client test:e2e:compile
+
       - name: Run E2E tests (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
-          pnpm --filter ./packages/telescope-client test:e2e:compile
           xvfb-run -a pnpm --filter ./packages/telescope-client test:e2e:run:single
           xvfb-run -a pnpm --filter ./packages/telescope-client test:e2e:run:multi
 
       - name: Run E2E tests (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
         run: |
-          pnpm --filter ./packages/telescope-client test:e2e:compile
           pnpm --filter ./packages/telescope-client test:e2e:run:single
           pnpm --filter ./packages/telescope-client test:e2e:run:multi
 
@@ -75,4 +139,3 @@ jobs:
           key: vscode-test-${{ matrix.os }}-${{ hashFiles('**/package.json') }}
           restore-keys: |
             vscode-test-${{ matrix.os }}-
-

@@ -6,20 +6,58 @@
  * folder gets its own language server instance for true isolation.
  */
 
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { commands, type ExtensionContext, window, workspace } from "vscode";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { SessionManager } from "./session-manager";
-import {
-	classifyDocument,
-	findNodePath,
-	formatSetupLog,
-	getNodeVersion,
-} from "./utils";
+import { classifyDocument, formatSetupLog } from "./utils";
 
 /** Global session manager instance */
 let sessionManager: SessionManager | null = null;
+
+/**
+ * Resolve the path to the Telescope Go language server binary.
+ *
+ * Checks in order:
+ *  1. TELESCOPE_SERVER_PATH env var (for dev/test)
+ *  2. telescope.serverPath VS Code setting (user override)
+ *  3. "telescope" on PATH (system install via `go install`)
+ *  4. Bundled binary at context.asAbsolutePath("bin/telescope")
+ */
+function resolveServerPath(context: ExtensionContext): string {
+	const envPath = process.env.TELESCOPE_SERVER_PATH;
+	if (envPath && fs.existsSync(envPath)) {
+		return envPath;
+	}
+
+	const settingPath = vscode.workspace
+		.getConfiguration("telescope")
+		.get<string>("serverPath", "");
+	if (settingPath && fs.existsSync(settingPath)) {
+		return settingPath;
+	}
+
+	const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
+	for (const dir of pathDirs) {
+		const candidate = path.join(dir, "telescope");
+		if (fs.existsSync(candidate)) {
+			return candidate;
+		}
+	}
+
+	const bundled = context.asAbsolutePath(path.join("bin", "telescope"));
+	if (fs.existsSync(bundled)) {
+		return bundled;
+	}
+
+	throw new Error(
+		"Could not find the Telescope language server binary. " +
+			"Set the TELESCOPE_SERVER_PATH environment variable, the telescope.serverPath setting, " +
+			"install it on your PATH, or ensure the bundled binary exists at bin/telescope.",
+	);
+}
 
 export async function activate(context: ExtensionContext) {
 	const activationFailedTestApi = (error: unknown) => {
@@ -38,8 +76,9 @@ export async function activate(context: ExtensionContext) {
 			}> {
 				return [];
 			},
-			async getProjectInfo(): Promise<unknown> {
-				await fail();
+			getProjectInfo(
+				_uri?: vscode.Uri,
+			): { knownOpenAPIFiles: number; workspacePath: string | null } | null {
 				return null;
 			},
 			async getDiagnostics(): Promise<unknown> {
@@ -49,41 +88,24 @@ export async function activate(context: ExtensionContext) {
 			getClientOpenApiFileCount(): number {
 				throw new Error(`Telescope activation failed: ${msg}`);
 			},
-			async requestServerResync(): Promise<void> {
-				await fail();
-			},
-			async sendBadDeltaVersionOnce(): Promise<void> {
-				await fail();
-			},
 		};
 	};
 
 	try {
-		// Create output channel
 		const outputChannel = window.createOutputChannel(
 			"Telescope Language Server",
 			{ log: true },
 		);
 
-		// Write initial messages to make channel visible
 		outputChannel.appendLine(
 			formatSetupLog(`Telescope Language Server starting...`),
 		);
 
-		// Get Node.js runtime path
-		const nodePath = findNodePath();
+		const serverPath = resolveServerPath(context);
 		outputChannel.appendLine(
-			formatSetupLog(`✅ Using Node.js runtime: ${nodePath}`),
-		);
-		outputChannel.appendLine(
-			formatSetupLog(`Node.js version: ${getNodeVersion()}`),
+			formatSetupLog(`Server binary: ${serverPath}`),
 		);
 
-		// Resolve server path (bundled with the extension)
-		const serverModule = context.asAbsolutePath(path.join("dist", "server.js"));
-		outputChannel.appendLine(formatSetupLog(`Server module: ${serverModule}`));
-
-		// Create status bar item for scanner progress
 		const statusBarItem = window.createStatusBarItem(
 			vscode.StatusBarAlignment.Right,
 			100,
@@ -91,10 +113,8 @@ export async function activate(context: ExtensionContext) {
 		statusBarItem.command = "telescope.showOpenAPIFiles";
 		context.subscriptions.push(statusBarItem);
 
-		// Create the session manager
 		sessionManager = new SessionManager({
-			serverModule,
-			nodePath,
+			serverPath,
 			outputChannel,
 			statusBarItem,
 			extensionContext: context,
@@ -102,29 +122,25 @@ export async function activate(context: ExtensionContext) {
 
 		context.subscriptions.push(sessionManager);
 
-		// Initialize sessions asynchronously in the background to avoid blocking activation.
-		// This allows the extension to activate immediately while sessions start up.
-		// Commands and features gracefully handle cases where sessions aren't ready yet.
 		sessionManager.initialize().then(
 			() => {
-				outputChannel.appendLine(formatSetupLog("✅ All sessions initialized"));
+				outputChannel.appendLine(formatSetupLog("All sessions initialized"));
 			},
 			(error) => {
 				outputChannel.appendLine(
-					formatSetupLog(`⚠️ Session initialization had errors: ${error}`),
+					formatSetupLog(`Session initialization had errors: ${error}`),
 				);
 			},
 		);
 
 		outputChannel.appendLine(
-			formatSetupLog("✅ Telescope extension activated"),
+			formatSetupLog("Telescope extension activated"),
 		);
 
 		// ====================================================================
 		// Commands
 		// ====================================================================
 
-		// Register command to manually trigger classification
 		context.subscriptions.push(
 			commands.registerCommand("openapi-grammar.classifyDocument", async () => {
 				const editor = window.activeTextEditor;
@@ -153,7 +169,6 @@ export async function activate(context: ExtensionContext) {
 			}),
 		);
 
-		// Register command to clear user override and re-classify
 		context.subscriptions.push(
 			commands.registerCommand("telescope.reclassifyDocument", async () => {
 				const editor = window.activeTextEditor;
@@ -172,7 +187,6 @@ export async function activate(context: ExtensionContext) {
 			}),
 		);
 
-		// Register command to show list of OpenAPI files
 		context.subscriptions.push(
 			commands.registerCommand("telescope.showOpenAPIFiles", async () => {
 				const files = sessionManager?.getAllOpenAPIFiles() || [];
@@ -181,7 +195,6 @@ export async function activate(context: ExtensionContext) {
 					return;
 				}
 
-				// Show quick pick with OpenAPI files
 				const items = files.map((uri) => {
 					const parsedUri = vscode.Uri.parse(uri);
 					return {
@@ -203,7 +216,6 @@ export async function activate(context: ExtensionContext) {
 			}),
 		);
 
-		// Register command to rescan workspace
 		context.subscriptions.push(
 			commands.registerCommand("telescope.rescanWorkspace", async () => {
 				const totalFiles = await sessionManager?.rescanAll();
@@ -213,7 +225,6 @@ export async function activate(context: ExtensionContext) {
 			}),
 		);
 
-		// Register command to restart all sessions
 		context.subscriptions.push(
 			commands.registerCommand("telescope.restartServer", async () => {
 				await sessionManager?.restartAllSessions();
@@ -224,10 +235,6 @@ export async function activate(context: ExtensionContext) {
 		// --------------------------------------------------------------------
 		// Server refactor commands (multi-root safe)
 		// --------------------------------------------------------------------
-		// In multi-root workspaces, we run one language server per folder. The default
-		// vscode-languageclient ExecuteCommandFeature tries to register these command IDs
-		// once per client, which conflicts. We register them once here and route execution
-		// to the owning session instead.
 		const refactorCommands = [
 			"telescope.sortTags",
 			"telescope.sortPaths",
@@ -246,8 +253,6 @@ export async function activate(context: ExtensionContext) {
 			);
 		}
 
-		// Bridge for server-provided CodeLens clicks:
-		// Convert LSP protocol args to VS Code objects and call the built-in references UI.
 		context.subscriptions.push(
 			commands.registerCommand(
 				"telescope.showReferences",
@@ -316,9 +321,6 @@ export async function activate(context: ExtensionContext) {
 		// Format Conversion Commands
 		// ====================================================================
 
-		/**
-		 * Helper to get a document from URI or active editor
-		 */
 		async function getDocument(
 			uri?: vscode.Uri,
 		): Promise<vscode.TextDocument | undefined> {
@@ -333,9 +335,6 @@ export async function activate(context: ExtensionContext) {
 			return editor.document;
 		}
 
-		/**
-		 * Check if a file exists at the given URI
-		 */
 		async function fileExists(uri: vscode.Uri): Promise<boolean> {
 			try {
 				await workspace.fs.stat(uri);
@@ -345,9 +344,6 @@ export async function activate(context: ExtensionContext) {
 			}
 		}
 
-		/**
-		 * Generate a non-colliding filename following VS Code's copy naming convention.
-		 */
 		async function getNonCollidingPath(
 			basePath: string,
 			ext: string,
@@ -369,9 +365,6 @@ export async function activate(context: ExtensionContext) {
 			return `${basePath} copy ${Date.now()}${ext}`;
 		}
 
-		/**
-		 * Convert JSON to YAML
-		 */
 		async function convertJsonToYaml(
 			uri: vscode.Uri | undefined,
 			deleteOriginal: boolean,
@@ -439,9 +432,6 @@ export async function activate(context: ExtensionContext) {
 			}
 		}
 
-		/**
-		 * Convert YAML to JSON
-		 */
 		async function convertYamlToJson(
 			uri: vscode.Uri | undefined,
 			deleteOriginal: boolean,
@@ -508,7 +498,6 @@ export async function activate(context: ExtensionContext) {
 			}
 		}
 
-		// Register all conversion commands
 		context.subscriptions.push(
 			commands.registerCommand(
 				"telescope.convertJsonToYaml",
@@ -528,12 +517,8 @@ export async function activate(context: ExtensionContext) {
 			),
 		);
 
-		// Create test API for E2E tests (only available in test environment)
+		// Test API for E2E tests
 		const testAPI = {
-			/**
-			 * Wait for all sessions to be running.
-			 * @param timeoutMs - Maximum time to wait in milliseconds (default: 30000)
-			 */
 			async waitForSessionsRunning(timeoutMs = 30000): Promise<void> {
 				const startTime = Date.now();
 				while (Date.now() - startTime < timeoutMs) {
@@ -566,9 +551,6 @@ export async function activate(context: ExtensionContext) {
 				);
 			},
 
-			/**
-			 * Get session states for debugging.
-			 */
 			getSessionStates(): Array<{ folder: string; state: string }> {
 				if (!sessionManager) {
 					return [];
@@ -580,17 +562,10 @@ export async function activate(context: ExtensionContext) {
 				}));
 			},
 
-			/**
-			 * Get project info from the server for a given URI.
-			 * @param uri - Optional URI to get project info for (defaults to active document)
-			 */
-			async getProjectInfo(uri?: vscode.Uri): Promise<{
+			getProjectInfo(uri?: vscode.Uri): {
 				knownOpenAPIFiles: number;
-				rootDocuments: number;
-				hasClientFileList: boolean;
 				workspacePath: string | null;
-				cachedDocuments: number;
-			} | null> {
+			} | null {
 				if (!sessionManager) {
 					return null;
 				}
@@ -608,9 +583,6 @@ export async function activate(context: ExtensionContext) {
 				return session.getProjectInfo();
 			},
 
-			/**
-			 * Test/debug: get client-side OpenAPI file count for the session that owns `uri`.
-			 */
 			getClientOpenApiFileCount(uri?: vscode.Uri): number {
 				if (!sessionManager) return 0;
 				const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
@@ -619,65 +591,32 @@ export async function activate(context: ExtensionContext) {
 				if (!session) return 0;
 				return session.getClientOpenApiFileCount();
 			},
-
-			/**
-			 * Test-only: ask the server to request a full OpenAPI file list resync.
-			 * This validates the server→client resync recovery path.
-			 */
-			async requestServerResync(uri?: vscode.Uri): Promise<void> {
-				if (!sessionManager) {
-					return;
-				}
-				const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
-				if (!targetUri) {
-					return;
-				}
-				const session = sessionManager.getSessionForUri(targetUri);
-				if (!session) {
-					return;
-				}
-				await session.requestServerResync();
-			},
-
-			/**
-			 * Test-only: trigger the server resync recovery path by sending a delta with a bad version.
-			 */
-			async sendBadDeltaVersionOnce(uri?: vscode.Uri): Promise<void> {
-				if (!sessionManager) return;
-				const targetUri = uri || vscode.window.activeTextEditor?.document.uri;
-				if (!targetUri) return;
-				const session = sessionManager.getSessionForUri(targetUri);
-				if (!session) return;
-				session.sendBadDeltaVersionOnce();
-			},
 		};
 
 		return {
 			__telescopeTest: testAPI,
 		};
 	} catch (error: unknown) {
-		console.error("❌ Failed to activate Telescope extension:", error);
+		console.error("Failed to activate Telescope extension:", error);
 		window.showErrorMessage(
 			`Telescope activation failed: ${
 				error instanceof Error ? error.message : String(error)
 			}`,
 		);
 
-		// Best-effort cleanup so a broken activation doesn't leave partially-initialized resources.
 		try {
 			if (sessionManager) {
 				await sessionManager.disposeAsync();
 			}
 		} catch (disposeError) {
 			console.error(
-				"❌ Failed to dispose sessionManager after activation failure:",
+				"Failed to dispose sessionManager after activation failure:",
 				disposeError,
 			);
 		} finally {
 			sessionManager = null;
 		}
 
-		// Always return a stable exports object (tests rely on __telescopeTest existing).
 		return {
 			__telescopeTest: activationFailedTestApi(error),
 		};

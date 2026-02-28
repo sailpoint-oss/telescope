@@ -4,13 +4,11 @@ import * as vscode from "vscode";
 export interface TelescopeTestApi {
 	waitForSessionsRunning: (timeoutMs?: number) => Promise<void>;
 	getSessionStates: () => Array<{ folder: string; state: string }>;
-	getProjectInfo: (uri?: vscode.Uri) => Promise<{
+	getProjectInfo: (uri?: vscode.Uri) => {
 		knownOpenAPIFiles: number;
-		rootDocuments: number;
-		hasClientFileList: boolean;
 		workspacePath: string | null;
-		cachedDocuments: number;
-	} | null>;
+	} | null;
+	getClientOpenApiFileCount: (uri?: vscode.Uri) => number;
 }
 
 export function getTestApi(): TelescopeTestApi {
@@ -29,18 +27,22 @@ export async function activateExtension(): Promise<void> {
 	}
 }
 
+/**
+ * Poll getProjectInfo until the predicate is satisfied.
+ * Unlike the old version, getProjectInfo is now synchronous (client-side data).
+ */
 export async function waitForProjectInfo(
 	api: TelescopeTestApi,
-	predicate: (info: NonNullable<Awaited<ReturnType<TelescopeTestApi["getProjectInfo"]>>>) => boolean,
+	predicate: (info: NonNullable<ReturnType<TelescopeTestApi["getProjectInfo"]>>) => boolean,
 	options?: { timeoutMs?: number; intervalMs?: number; uri?: vscode.Uri },
-): Promise<NonNullable<Awaited<ReturnType<TelescopeTestApi["getProjectInfo"]>>>> {
+): Promise<NonNullable<ReturnType<TelescopeTestApi["getProjectInfo"]>>> {
 	const timeoutMs = options?.timeoutMs ?? 60000;
 	const intervalMs = options?.intervalMs ?? 200;
 	const defaultUri = vscode.workspace.workspaceFolders?.[0]?.uri;
 	const uri = options?.uri ?? defaultUri;
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
-		const info = await withTimeout(api.getProjectInfo(uri), 5000).catch(() => null);
+		const info = api.getProjectInfo(uri);
 		if (info && predicate(info)) return info;
 		await delay(intervalMs);
 	}
@@ -107,7 +109,6 @@ export async function deleteWorkspaceFile(relativePath: string): Promise<void> {
 }
 
 export function isMultiRootWorkspace(): boolean {
-	// Prefer explicit runner mode (reliable in @vscode/test-electron), then fall back to folder count.
 	if (process.env.TELESCOPE_E2E_MODE === "multi") return true;
 	return (vscode.workspace.workspaceFolders?.length ?? 0) > 1;
 }
@@ -116,25 +117,9 @@ export async function delay(ms: number): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function withTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | null = null;
-	try {
-		return await Promise.race([
-			p,
-			new Promise<T>((_, reject) => {
-				timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-			}),
-		]);
-	} finally {
-		if (timer) clearTimeout(timer);
-	}
-}
-
 function pathDir(p: string): string {
 	const idx = p.lastIndexOf("/");
 	if (idx === -1) return ".";
 	const dir = p.slice(0, idx);
 	return dir.length ? dir : ".";
 }
-
-

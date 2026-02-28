@@ -31,26 +31,6 @@ export function formatSetupLog(message: any, ...args: any[]): string {
 }
 
 // ============================================================================
-// Node.js Runtime Detection
-// ============================================================================
-
-/**
- * Find the Node.js executable path.
- * VS Code extensions run in a Node.js environment, so we can use process.execPath.
- */
-export function findNodePath(): string {
-	// Use the Node.js executable that VS Code is running on
-	return process.execPath;
-}
-
-/**
- * Get Node.js version string.
- */
-export function getNodeVersion(): string {
-	return process.version;
-}
-
-// ============================================================================
 // Pattern Matching
 // ============================================================================
 

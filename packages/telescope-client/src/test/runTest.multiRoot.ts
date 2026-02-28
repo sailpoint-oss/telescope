@@ -9,7 +9,6 @@ import { runTests } from "@vscode/test-electron";
 
 async function main() {
 	try {
-		// Propagate E2E mode to the extension host tests.
 		process.env.TELESCOPE_E2E_MODE = "multi";
 		process.env.TELESCOPE_E2E_TIMEOUT_MS = process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "600000";
 
@@ -21,6 +20,13 @@ async function main() {
 			"test-fixtures/workspace-multi/telescope-multi.code-workspace",
 		);
 
+		if (!process.env.TELESCOPE_SERVER_PATH) {
+			process.env.TELESCOPE_SERVER_PATH = path.resolve(
+				extensionDevelopmentPath,
+				"bin/telescope",
+			);
+		}
+
 		await runTests({
 			extensionDevelopmentPath,
 			extensionTestsPath,
@@ -29,6 +35,11 @@ async function main() {
 				"--disable-extensions",
 				"--disable-workspace-trust",
 			],
+			extensionTestsEnv: {
+				TELESCOPE_SERVER_PATH: process.env.TELESCOPE_SERVER_PATH,
+				TELESCOPE_E2E_MODE: process.env.TELESCOPE_E2E_MODE,
+				TELESCOPE_E2E_TIMEOUT_MS: process.env.TELESCOPE_E2E_TIMEOUT_MS,
+			},
 			version: "stable",
 		});
 	} catch (err) {
@@ -39,5 +50,3 @@ async function main() {
 }
 
 main();
-
-

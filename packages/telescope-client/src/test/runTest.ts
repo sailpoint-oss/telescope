@@ -10,33 +10,40 @@ import { runTests } from "@vscode/test-electron";
 
 async function main() {
 	try {
-		// Propagate E2E mode to the extension host tests.
 		process.env.TELESCOPE_E2E_MODE = "single";
 		process.env.TELESCOPE_E2E_TIMEOUT_MS = process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "120000";
 
-		// The folder containing the Extension Manifest package.json
-		// When compiled, __dirname points to out/test, so we go up two levels to package root
 		const extensionDevelopmentPath = path.resolve(__dirname, "../..");
-
-		// The path to test runner (compiled to out/test/suite/index.js)
 		const extensionTestsPath = path.resolve(__dirname, "./suite/index");
 
-		// Path to workspace folder or .code-workspace file
 		const workspacePath = path.resolve(
 			extensionDevelopmentPath,
 			"test-fixtures/workspace-basic",
 		);
 
-		// Download VS Code, unzip it and run the integration test
+		// Point to the Go binary built by `build:server` task.
+		// The binary lives at packages/telescope-client/bin/telescope after `go build`.
+		if (!process.env.TELESCOPE_SERVER_PATH) {
+			process.env.TELESCOPE_SERVER_PATH = path.resolve(
+				extensionDevelopmentPath,
+				"bin/telescope",
+			);
+		}
+
 		await runTests({
 			extensionDevelopmentPath,
 			extensionTestsPath,
 			launchArgs: [
 				workspacePath,
-				"--disable-extensions", // Disable all other extensions
-				"--disable-workspace-trust", // Disable workspace trust prompts
+				"--disable-extensions",
+				"--disable-workspace-trust",
 			],
-			version: "stable", // Use stable VS Code version
+			extensionTestsEnv: {
+				TELESCOPE_SERVER_PATH: process.env.TELESCOPE_SERVER_PATH,
+				TELESCOPE_E2E_MODE: process.env.TELESCOPE_E2E_MODE,
+				TELESCOPE_E2E_TIMEOUT_MS: process.env.TELESCOPE_E2E_TIMEOUT_MS,
+			},
+			version: "stable",
 		});
 	} catch (err) {
 		console.error("Failed to run tests");
@@ -46,4 +53,3 @@ async function main() {
 }
 
 main();
-

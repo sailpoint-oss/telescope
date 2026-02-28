@@ -18,18 +18,9 @@
 
 import { z } from "zod";
 
+/** @deprecated No longer needed -- Zod schemas now natively allow x-* extensions via looseObject */
 function stripXExtensions(value: unknown): unknown {
-	if (Array.isArray(value)) {
-		return value.map(stripXExtensions);
-	}
-	if (!value || typeof value !== "object") return value;
-	const obj = value as Record<string, unknown>;
-	const out: Record<string, unknown> = {};
-	for (const [k, v] of Object.entries(obj)) {
-		if (k.startsWith("x-")) continue;
-		out[k] = stripXExtensions(v);
-	}
-	return out;
+	return value;
 }
 
 // Telescope Config Schema
@@ -379,9 +370,7 @@ export function getCachedSchema(
  * @returns The original Zod schema, or undefined if not found
  */
 export function getZodSchema(schemaKey: string): z.ZodType | undefined {
-	const schema = SCHEMA_METADATA[schemaKey]?.schema;
-	if (!schema) return undefined;
-	return z.preprocess(stripXExtensions, schema);
+	return SCHEMA_METADATA[schemaKey]?.schema;
 }
 
 /**

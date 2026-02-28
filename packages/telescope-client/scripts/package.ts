@@ -14,29 +14,44 @@ const __dirname = dirname(__filename);
 
 const packageJsonPath = join(__dirname, "..", "package.json");
 
-// Parse target argument
-let target: string | undefined;
-const targetArgIndex = process.argv.findIndex((arg) =>
-	arg.startsWith("--target"),
-);
-
-if (targetArgIndex !== -1) {
-	const targetArg = process.argv[targetArgIndex];
-	// Handle --target=value format
-	if (targetArg.includes("=")) {
-		target = targetArg.split("=")[1];
-	} else {
-		// Handle --target value format (value is next argument)
-		target = process.argv[targetArgIndex + 1];
-	}
+function parseArg(flag: string): string | undefined {
+	const idx = process.argv.findIndex((arg) => arg.startsWith(flag));
+	if (idx === -1) return undefined;
+	const arg = process.argv[idx];
+	if (arg.includes("=")) return arg.split("=")[1];
+	return process.argv[idx + 1];
 }
 
-if (!target || (target !== "vscode" && target !== "openvsx")) {
-	console.error("Usage: bun scripts/package.ts --target <vscode|openvsx>");
+const target = parseArg("--target");
+const platform = parseArg("--platform");
+
+const validTargets = ["vscode", "openvsx"] as const;
+const validPlatforms = [
+	"darwin-arm64",
+	"darwin-x64",
+	"linux-x64",
+	"linux-arm64",
+	"win32-x64",
+	"win32-arm64",
+	"alpine-x64",
+	"alpine-arm64",
+	"universal",
+] as const;
+
+if (!target || !validTargets.includes(target as (typeof validTargets)[number])) {
+	console.error(
+		"Usage: bun scripts/package.ts --target <vscode|openvsx> [--platform <platform|universal>]",
+	);
+	console.error(`  Platforms: ${validPlatforms.join(", ")}`);
 	process.exit(1);
 }
 
-// Marketplace configurations
+if (platform && !validPlatforms.includes(platform as (typeof validPlatforms)[number])) {
+	console.error(`Invalid platform: ${platform}`);
+	console.error(`  Valid platforms: ${validPlatforms.join(", ")}`);
+	process.exit(1);
+}
+
 const configs = {
 	vscode: {
 		publisher: "SailPointTechnologies",
@@ -48,16 +63,16 @@ const configs = {
 	},
 };
 
-console.log(`📦 Packaging for ${target.toUpperCase()} marketplace...`);
+const platformLabel = platform ?? "universal";
+console.log(
+	`Packaging for ${target.toUpperCase()} marketplace (${platformLabel})...`,
+);
 
-// Read current package.json
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
 
-// Store original values
 const originalPublisher = packageJson.publisher;
 const originalName = packageJson.name;
 
-// Modify package.json for target marketplace
 const config = configs[target as keyof typeof configs];
 packageJson.publisher = config.publisher;
 packageJson.name = config.name;
@@ -65,22 +80,23 @@ packageJson.name = config.name;
 console.log(`  Publisher: ${config.publisher}`);
 console.log(`  Name: ${config.name}`);
 
-// Write modified package.json
 writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, "\t") + "\n");
 
 try {
-	// Get timestamp before packaging to find the newly created file
 	const packageDir = join(__dirname, "..");
 	const beforeTime = Date.now();
 
-	// Run vsce package
-	console.log("  Running vsce package...");
-	execSync("vsce package --no-dependencies", {
+	const vsceArgs = ["vsce", "package", "--no-dependencies"];
+	if (platform && platform !== "universal") {
+		vsceArgs.push("--target", platform);
+	}
+
+	console.log(`  Running ${vsceArgs.join(" ")}...`);
+	execSync(vsceArgs.join(" "), {
 		cwd: packageDir,
 		stdio: "inherit",
 	});
 
-	// Find the generated VSIX file (most recently created .vsix file)
 	const version = packageJson.version;
 	const files = readdirSync(packageDir);
 	const vsixFiles = files
@@ -90,7 +106,7 @@ try {
 			path: join(packageDir, f),
 			mtime: statSync(join(packageDir, f)).mtimeMs,
 		}))
-		.filter((f) => f.mtime >= beforeTime - 1000) // Allow 1 second buffer
+		.filter((f) => f.mtime >= beforeTime - 1000)
 		.sort((a, b) => b.mtime - a.mtime);
 
 	if (vsixFiles.length === 0) {
@@ -98,15 +114,14 @@ try {
 	}
 
 	const generatedVsix = vsixFiles[0];
-	const renamedVsixName = `telescope-${target}-${version}.vsix`;
+	const suffix = platform && platform !== "universal" ? `-${platform}` : "";
+	const renamedVsixName = `telescope-${target}${suffix}-${version}.vsix`;
 	const renamedVsixPath = join(packageDir, renamedVsixName);
 
-	// Rename using Node.js fs operations (cross-platform)
 	renameSync(generatedVsix.path, renamedVsixPath);
 
-	console.log(`✅ Created ${renamedVsixName}`);
+	console.log(`Created ${renamedVsixName}`);
 } finally {
-	// Always restore original package.json
 	packageJson.publisher = originalPublisher;
 	packageJson.name = originalName;
 	writeFileSync(

@@ -375,6 +375,11 @@
 					"default": false,
 					"description": "Automatically convert JSON OpenAPI files to YAML when detected"
 				},
+				"telescope.serverPath": {
+					"type": "string",
+					"default": "",
+					"description": "Path to the Telescope language server binary. Leave empty to use the bundled binary or the one found on PATH."
+				},
 				"telescope.trace": {
 					"type": "string",
 					"enum": [
@@ -397,7 +402,8 @@
 		"typecheck": "tsc --noEmit",
 		"package": "pnpm run build:minify && bun scripts/package.ts --target openvsx && bun scripts/package.ts --target vscode",
 		"test": "bun test test",
-		"test:e2e:compile": "pnpm run build && tsc -p tsconfig.e2e.json",
+		"test:e2e:build-server": "mkdir -p ./bin && cd ../../server && go build -o ../packages/telescope-client/bin/telescope .",
+		"test:e2e:compile": "pnpm run test:e2e:build-server && pnpm run build && tsc -p tsconfig.e2e.json",
 		"test:e2e:run:single": "node out/test/runTest.js",
 		"test:e2e:run:multi": "node out/test/runTest.multiRoot.js",
 		"test:e2e:single": "pnpm run test:e2e:compile && pnpm run test:e2e:run:single",
@@ -420,7 +426,6 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
-		"telescope-server": "workspace:*",
 		"jsonc-parser": "^3.3.1",
 		"minimatch": "^10.1.1",
 		"vscode-languageclient": "^9.0.1",

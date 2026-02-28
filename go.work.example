@@ -1,0 +1,14 @@
+// Copy this file to go.work (which is gitignored) for local development
+// with a local gossip checkout. Adjust the replace path to match your setup.
+//
+// Usage:
+//   cp go.work.example go.work
+//
+go 1.25.0
+
+use (
+	./server
+	./server/examples/custom-plugin
+)
+
+replace github.com/LukasParke/gossip => ../gossip

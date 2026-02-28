@@ -42,11 +42,8 @@ export class SessionManager implements vscode.Disposable {
 	/** Shared status bar item */
 	private statusBarItem: vscode.StatusBarItem;
 
-	/** Path to the server module */
-	private serverModule: string;
-
-	/** Path to Node.js runtime */
-	private nodePath: string;
+	/** Path to the Go language server binary */
+	private serverPath: string;
 
 	/** Disposables for manager-level subscriptions */
 	private disposables: vscode.Disposable[] = [];
@@ -61,14 +58,12 @@ export class SessionManager implements vscode.Disposable {
 	private _initPromise: Promise<void> | null = null;
 
 	constructor(options: {
-		serverModule: string;
-		nodePath: string;
+		serverPath: string;
 		outputChannel: vscode.OutputChannel;
 		statusBarItem: vscode.StatusBarItem;
 		extensionContext: vscode.ExtensionContext;
 	}) {
-		this.serverModule = options.serverModule;
-		this.nodePath = options.nodePath;
+		this.serverPath = options.serverPath;
 		this.outputChannel = options.outputChannel;
 		this.statusBarItem = options.statusBarItem;
 		this.extensionContext = options.extensionContext;
@@ -231,8 +226,7 @@ export class SessionManager implements vscode.Disposable {
 
 		const session = new Session({
 			workspaceFolder: folder,
-			serverModule: this.serverModule,
-			nodePath: this.nodePath,
+			serverPath: this.serverPath,
 			outputChannel: this.outputChannel,
 			statusBarItem: this.statusBarItem,
 			workspaceState: this.extensionContext.workspaceState,

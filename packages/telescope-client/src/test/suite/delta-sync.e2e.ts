@@ -1,5 +1,8 @@
 /**
- * E2E Tests: Delta sync (create/change/remove)
+ * E2E Tests: File create/change/remove triggers diagnostic updates
+ *
+ * Validates that creating, modifying, and deleting OpenAPI files
+ * produces the expected diagnostic changes via standard LSP.
  */
 
 import * as assert from "assert";
@@ -12,26 +15,14 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
-	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
-suite("Delta Sync", () => {
-	test("Create/change/remove should update server project model", async () => {
+suite("File Change Diagnostics", () => {
+	test("Create/change/remove should update diagnostics", async () => {
 		if (isMultiRootWorkspace()) return;
 		await activateExtension();
 		const api = getTestApi();
 		await api.waitForSessionsRunning(60000);
-
-		const clientCount0 = (api as any).getClientOpenApiFileCount?.() as number | undefined;
-		if (typeof clientCount0 === "number") {
-			console.log(`[delta-sync] baseline clientOpenApi=${clientCount0}`);
-		}
-
-		const baseline = await waitForProjectInfo(api, (i) => i.hasClientFileList, {
-			timeoutMs: 60000,
-		});
-		const baselineCount = baseline.knownOpenAPIFiles;
-		console.log(`[delta-sync] baseline serverKnown=${baselineCount}`);
 
 		const rel = `tmp-e2e/delta-${Date.now()}.yaml`;
 		const folder = vscode.workspace.workspaceFolders?.[0];
@@ -39,8 +30,6 @@ suite("Delta Sync", () => {
 		const absPath = path.join(folder.uri.fsPath, ...rel.split("/"));
 		await mkdir(path.dirname(absPath), { recursive: true });
 
-		// Create: valid OpenAPI root
-		console.log("[delta-sync] writing file");
 		await writeFile(
 			absPath,
 			[
@@ -54,15 +43,10 @@ suite("Delta Sync", () => {
 			"utf-8",
 		);
 		const createdUri = vscode.Uri.file(absPath);
-		console.log(`[delta-sync] wrote file ${createdUri.toString()}`);
 
-		// Open the created document to ensure VS Code requests diagnostics.
 		await openAndShow(createdUri);
-
-		// If deltas worked, the server should treat this as OpenAPI and produce diagnostics (rule set may vary).
 		await waitForDiagnostics(createdUri, (d) => d.length > 0, { timeoutMs: 60000 });
 
-		// Change: still OpenAPI (membership should stay the same)
 		await writeFile(
 			absPath,
 			[
@@ -83,7 +67,6 @@ suite("Delta Sync", () => {
 		);
 		await waitForDiagnostics(createdUri, (d) => d.length > 0, { timeoutMs: 60000 });
 
-		// Change: remove root key -> no longer OpenAPI (membership should decrement)
 		await writeFile(
 			absPath,
 			[
@@ -94,12 +77,8 @@ suite("Delta Sync", () => {
 			].join("\n"),
 			"utf-8",
 		);
-		// After removing the OpenAPI root key, diagnostics should eventually clear.
 		await waitForDiagnostics(createdUri, (d) => d.length === 0, { timeoutMs: 60000 });
 
-		// Delete should not crash.
 		await rm(absPath, { force: true });
 	});
 });
-
-

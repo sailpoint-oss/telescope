@@ -1,0 +1,17 @@
+openapi: 3.2.0
+x-sailpoint-api:
+  version: v2025
+  audience: external-public
+info:
+  title: Pet Store API
+  version: 1.0.0
+  description: API with info section present
+tags:
+  - name: Authentication
+    description: Authentication and authorization related operations for managing user access and security tokens
+  - name: Pets
+    description: Operations for managing pet resources including creation, retrieval, and updates
+  - name: Users
+    description: User management operations for creating, updating, and retrieving user information
+paths: {}
+

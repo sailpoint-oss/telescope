@@ -1,0 +1,15 @@
+{
+  "name": "@telescope/schemas",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "export": "tsx scripts/export.ts"
+  },
+  "dependencies": {
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

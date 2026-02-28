@@ -1,0 +1,29 @@
+openapi: 3.2.0
+x-sailpoint-api:
+  version: v5
+  audience: external-public
+info:
+  title: Test API v5
+  version: 1.0.0
+tags:
+  - name: pets
+    description: Pet operations
+paths:
+  /pets/{petId}/owners/{ownerId}:
+    get:
+      summary: Get pet owner
+      operationId: getPetOwner
+      description: Get pet owner by petId and ownerId
+      tags:
+        - pets
+      x-sailpoint-userLevels:
+        - ADMIN
+      security:
+        - userAuth: []
+      # ERROR: Missing required path parameters
+      # Path contains {petId} and {ownerId} template variables, but no corresponding parameter definitions
+      # ERROR: All path template variables must have a corresponding parameter with 'in: path' and 'required: true'
+      # This should trigger a validation error for missing path-parameter
+      responses:
+        "200":
+          description: Pet owner information
