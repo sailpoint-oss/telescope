@@ -32,21 +32,25 @@ jobs:
             goarch: arm64
             runner: macos-latest
             binary: telescope
+            cc: ""
           - vscode_target: darwin-x64
             goos: darwin
             goarch: amd64
             runner: macos-latest
             binary: telescope
+            cc: "clang -arch x86_64"
           - vscode_target: linux-x64
             goos: linux
             goarch: amd64
             runner: ubuntu-latest
             binary: telescope
+            cc: ""
           - vscode_target: win32-x64
             goos: windows
             goarch: amd64
             runner: windows-latest
             binary: telescope.exe
+            cc: ""
 
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +64,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
+          CC: ${{ matrix.cc || env.CC }}
         run: >-
           go build
           -trimpath
@@ -67,6 +72,17 @@ jobs:
           -o ${{ matrix.binary }}
           .
         working-directory: server
+
+      - name: Verify binary architecture
+        if: runner.os != 'Windows'
+        run: |
+          FILE_OUTPUT=$(file server/${{ matrix.binary }})
+          echo "$FILE_OUTPUT"
+          case "${{ matrix.vscode_target }}" in
+            darwin-arm64) echo "$FILE_OUTPUT" | grep -q "arm64" ;;
+            darwin-x64)   echo "$FILE_OUTPUT" | grep -q "x86_64" ;;
+            linux-x64)    echo "$FILE_OUTPUT" | grep -q "x86-64" ;;
+          esac
 
       - name: Upload binary
         uses: actions/upload-artifact@v4

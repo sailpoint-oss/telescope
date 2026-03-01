@@ -109,6 +109,16 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - name: Restore VS Code test downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.vscode-test
+            ${{ runner.temp }}/.vscode-test
+          key: vscode-test-${{ matrix.os }}-${{ hashFiles('**/package.json') }}
+          restore-keys: |
+            vscode-test-${{ matrix.os }}-
+
       - name: Install dependencies
         run: pnpm install
 
@@ -128,14 +138,3 @@ jobs:
         run: |
           pnpm --filter ./packages/telescope-client test:e2e:run:single
           pnpm --filter ./packages/telescope-client test:e2e:run:multi
-
-      - name: Cache VS Code test downloads
-        if: always()
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.vscode-test
-            ${{ runner.temp }}/.vscode-test
-          key: vscode-test-${{ matrix.os }}-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            vscode-test-${{ matrix.os }}-
