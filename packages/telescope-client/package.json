@@ -402,7 +402,7 @@
 		"typecheck": "tsc --noEmit",
 		"package": "pnpm run build:minify && bun scripts/package.ts --target openvsx && bun scripts/package.ts --target vscode",
 		"test": "bun test test",
-		"test:e2e:build-server": "mkdir -p ./bin && cd ../../server && go build -o ../packages/telescope-client/bin/telescope .",
+		"test:e2e:build-server": "node -e \"const fs=require('fs'),cp=require('child_process');fs.mkdirSync('bin',{recursive:true});const b='telescope'+(process.platform==='win32'?'.exe':'');cp.execSync('go build -o ../packages/telescope-client/bin/'+b+' .',{cwd:'../../server',stdio:'inherit'})\"",
 		"test:e2e:compile": "pnpm run test:e2e:build-server && pnpm run build && tsc -p tsconfig.e2e.json",
 		"test:e2e:run:single": "node out/test/runTest.js",
 		"test:e2e:run:multi": "node out/test/runTest.multiRoot.js",

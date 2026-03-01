@@ -22,11 +22,13 @@ async function main() {
 		);
 
 		// Point to the Go binary built by `build:server` task.
-		// The binary lives at packages/telescope-client/bin/telescope after `go build`.
+		// The binary lives at packages/telescope-client/bin/telescope[.exe] after `go build`.
 		if (!process.env.TELESCOPE_SERVER_PATH) {
+			const binaryName = process.platform === "win32" ? "telescope.exe" : "telescope";
 			process.env.TELESCOPE_SERVER_PATH = path.resolve(
 				extensionDevelopmentPath,
-				"bin/telescope",
+				"bin",
+				binaryName,
 			);
 		}
 

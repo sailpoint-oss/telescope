@@ -27,6 +27,9 @@ let sessionManager: SessionManager | null = null;
  *  4. Bundled binary at context.asAbsolutePath("bin/telescope")
  */
 function resolveServerPath(context: ExtensionContext): string {
+	const isWindows = process.platform === "win32";
+	const binaryName = isWindows ? "telescope.exe" : "telescope";
+
 	const envPath = process.env.TELESCOPE_SERVER_PATH;
 	if (envPath && fs.existsSync(envPath)) {
 		return envPath;
@@ -41,13 +44,13 @@ function resolveServerPath(context: ExtensionContext): string {
 
 	const pathDirs = (process.env.PATH ?? "").split(path.delimiter);
 	for (const dir of pathDirs) {
-		const candidate = path.join(dir, "telescope");
+		const candidate = path.join(dir, binaryName);
 		if (fs.existsSync(candidate)) {
 			return candidate;
 		}
 	}
 
-	const bundled = context.asAbsolutePath(path.join("bin", "telescope"));
+	const bundled = context.asAbsolutePath(path.join("bin", binaryName));
 	if (fs.existsSync(bundled)) {
 		return bundled;
 	}
@@ -55,7 +58,7 @@ function resolveServerPath(context: ExtensionContext): string {
 	throw new Error(
 		"Could not find the Telescope language server binary. " +
 			"Set the TELESCOPE_SERVER_PATH environment variable, the telescope.serverPath setting, " +
-			"install it on your PATH, or ensure the bundled binary exists at bin/telescope.",
+			`install it on your PATH, or ensure the bundled binary exists at bin/${binaryName}.`,
 	);
 }
 

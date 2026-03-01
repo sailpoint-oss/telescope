@@ -21,9 +21,11 @@ async function main() {
 		);
 
 		if (!process.env.TELESCOPE_SERVER_PATH) {
+			const binaryName = process.platform === "win32" ? "telescope.exe" : "telescope";
 			process.env.TELESCOPE_SERVER_PATH = path.resolve(
 				extensionDevelopmentPath,
-				"bin/telescope",
+				"bin",
+				binaryName,
 			);
 		}
 
