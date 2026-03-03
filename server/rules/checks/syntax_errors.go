@@ -21,10 +21,11 @@ var syntaxErrorMeta = rules.RuleMeta{
 
 func registerSyntaxErrors(s *gossip.Server) {
 	s.Check("syntax-error", treesitter.Check{
-		Pattern:  "(ERROR) @error",
-		Severity: protocol.SeverityError,
-		Source:   rules.Source,
-		Code:     "syntax-error",
+		Pattern:           "(ERROR) @error",
+		Severity:          protocol.SeverityError,
+		DeduplicateNested: true,
+		Source:            rules.Source,
+		Code:              "syntax-error",
 		CodeDescription: &protocol.CodeDescription{
 			Href: protocol.URI(syntaxErrorMeta.DocURL),
 		},

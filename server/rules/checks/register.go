@@ -17,6 +17,7 @@ func RegisterAll(s *gossip.Server) {
 		meta     rules.RuleMeta
 	}{
 		{registerSyntaxErrors, syntaxErrorMeta},
+		{registerMissingTokens, missingTokenMeta},
 		{registerDuplicateKeys, duplicateKeysMeta},
 		{registerASCII, asciiMeta},
 	}

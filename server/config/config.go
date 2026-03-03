@@ -34,7 +34,7 @@ type ExtensionsConfig struct {
 // ValidationGroup defines file patterns and schemas for additional validation.
 type ValidationGroup struct {
 	Patterns []string               `yaml:"patterns" json:"patterns"`
-	Schemas  []SchemaPatternMapping `yaml:"schemas" json:"schemas"`
+	Schemas  []SchemaPatternMapping `yaml:"schemas,omitempty" json:"schemas,omitempty"`
 }
 
 // SchemaPatternMapping maps a JSON Schema to file patterns.

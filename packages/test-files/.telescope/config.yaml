@@ -2,8 +2,8 @@
 #
 # This is an example configuration file showing how to:
 # - Override built-in rule severities
-# - Register custom OpenAPI rules
-# - Register custom generic rules with pattern matching
+# - Validate non-OpenAPI files with JSON Schema
+# - Use Go plugin rules (auto-discovered from .telescope/plugins/)
 #
 # File location: .telescope/config.yaml
 
@@ -12,22 +12,14 @@ openapi:
   patterns:
     - "openapi/**/*"
 
-  # Register custom OpenAPI rules
-  rules:
-    - rule: example-custom-openapi-rule.ts
+# Go plugin binaries in .telescope/plugins/ are auto-discovered.
+# You can also reference plugins explicitly by path:
+# plugins:
+#   - .telescope/plugins/example-rules
+#   - /absolute/path/to/another-plugin
 
 # Additional validation for non-OpenAPI files
 additionalValidation:
-  generic-rule:
-    patterns:
-      - "custom/custom-generic-*.yaml"
-    rules:
-      - rule: example-generic-rule.ts
-  zod-schema-validation:
-    patterns:
-      - "custom/custom-zod-schema-*.yaml"
-    schemas:
-      - schema: example-zod-schema.ts
   json-schema-validation:
     patterns:
       - custom/custom-json-schema-*.yaml

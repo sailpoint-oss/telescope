@@ -1,8 +1,6 @@
 package sdk
 
-import (
-	"github.com/sailpoint-oss/telescope/server/rules"
-)
+import "github.com/sailpoint-oss/telescope/server/rules"
 
 // PluginRuleBuilder wraps rules.RuleBuilder to register rules on a
 // PluginInstance instead of a gossip.Server.
@@ -17,6 +15,7 @@ func Rule(id string, meta Meta) *PluginRuleBuilder {
 
 // Register registers the rule on the given plugin instance.
 func (b *PluginRuleBuilder) Register(p *PluginInstance) {
+	rules.DefaultRegistry.Register(b.inner.Meta())
 	id, analyzer := b.inner.Build()
 	p.addRule(id, analyzer)
 }

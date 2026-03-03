@@ -5,14 +5,20 @@
 	"patterns": [
 		{ "include": "#openapi-version-key" },
 		{ "include": "#openapi-top-level-keys" },
+		{ "include": "#openapi-path-keys" },
+		{ "include": "#openapi-operationid-values" },
 		{ "include": "#openapi-operation-keys" },
 		{ "include": "#openapi-component-section-keys" },
 		{ "include": "#openapi-type-values" },
+		{ "include": "#openapi-format-values" },
+		{ "include": "#openapi-boolean-values" },
+		{ "include": "#openapi-security-type-values" },
 		{ "include": "#openapi-status-code-keys" },
 		{ "include": "#openapi-schema-keys" },
 		{ "include": "#openapi-parameter-location-values" },
 		{ "include": "#openapi-parameter-keys" },
 		{ "include": "#openapi-media-type-keys" },
+		{ "include": "#openapi-info-keys" },
 		{ "include": "#openapi-reference-key" },
 		{ "include": "#openapi-extension-keys" },
 		{ "include": "#markdown-block-scalars" },
@@ -43,6 +49,18 @@
 				}
 			]
 		},
+		"openapi-path-keys": {
+			"comment": "API path keys like /pets, /users/{userId}, /pets/{petId}/toys",
+			"patterns": [
+				{
+					"match": "^(\\s*)(['\"]?)(/[^'\":\\s]*)\\2\\s*:",
+					"captures": {
+						"2": { "name": "punctuation.definition.string.yaml" },
+						"3": { "name": "entity.name.tag.openapi.path.yaml" }
+					}
+				}
+			]
+		},
 		"openapi-operation-keys": {
 			"patterns": [
 				{
@@ -53,10 +71,23 @@
 						}
 					}
 				},
+			{
+				"match": "^(\\s*)(operationId|requestBody|responses|parameters|callbacks|security|servers|tags)\\s*:",
+				"captures": {
+					"2": { "name": "support.type.property-name.openapi.operation.yaml" }
+				}
+			}
+			]
+		},
+		"openapi-operationid-values": {
+			"comment": "operationId key and its value as a function-like identifier",
+			"patterns": [
 				{
-					"match": "^(\\s*)(operationId|requestBody|responses|parameters|callbacks|deprecated|security|servers|tags)\\s*:",
+					"match": "^(\\s*)(operationId)(\\s*:\\s*)(\\S+)\\s*$",
 					"captures": {
-						"2": { "name": "support.type.property-name.openapi.operation.yaml" }
+						"2": { "name": "support.type.property-name.openapi.operation.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "entity.name.function.openapi.operation-id.yaml" }
 					}
 				}
 			]
@@ -76,7 +107,7 @@
 		"openapi-schema-keys": {
 			"patterns": [
 				{
-					"match": "^(\\s*)(type|format|items|properties|additionalProperties|required|enum|default|nullable|readOnly|writeOnly|xml|externalDocs|example|deprecated)\\s*:",
+					"match": "^(\\s*)(type|format|items|properties|additionalProperties|required|enum|default|nullable|readOnly|writeOnly|xml|externalDocs|example|examples|deprecated|schema)\\s*:",
 					"captures": {
 						"2": { "name": "support.type.property-name.openapi.schema.yaml" }
 					}
@@ -100,9 +131,10 @@
 			]
 		},
 		"openapi-parameter-keys": {
+			"comment": "Parameter-specific keys (deduplicated: schema/required/deprecated/example live in schema-keys)",
 			"patterns": [
 				{
-					"match": "^(\\s*)(name|in|required|schema|style|explode|allowReserved|allowEmptyValue)\\s*:",
+					"match": "^(\\s*)(name|in|style|explode|allowReserved|allowEmptyValue)\\s*:",
 					"captures": {
 						"2": { "name": "support.type.property-name.openapi.parameter.yaml" }
 					}
@@ -110,9 +142,10 @@
 			]
 		},
 		"openapi-media-type-keys": {
+			"comment": "Media type keys (deduplicated: schema/example/examples live in schema-keys)",
 			"patterns": [
 				{
-					"match": "^(\\s*)(content|encoding|schema|example|examples)\\s*:",
+					"match": "^(\\s*)(content|encoding)\\s*:",
 					"captures": {
 						"2": {
 							"name": "support.type.property-name.openapi.media-type.yaml"
@@ -123,6 +156,23 @@
 					"match": "^(\\s*)(application/json|application/xml|application/x-www-form-urlencoded|multipart/form-data|text/plain|text/html|\\*/\\*)\\s*:",
 					"captures": {
 						"2": { "name": "string.other.openapi.content-type.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-info-keys": {
+			"comment": "Info, contact, license, and other structural keys",
+			"patterns": [
+				{
+					"match": "^(\\s*)(title|version|termsOfService|contact|license|identifier)\\s*:",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.info.yaml" }
+					}
+				},
+				{
+					"match": "^(\\s*)(url|email|name)\\s*:",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.general.yaml" }
 					}
 				}
 			]
@@ -207,7 +257,7 @@
 			"comment": "Schema type values: type: string, integer, boolean, etc.",
 			"patterns": [
 				{
-					"match": "^(\\s*)(type)(\\s*:\\s*)(string|integer|number|boolean|array|object|null)\\s*$",
+					"match": "^(\\s*)(type)(\\s*:\\s*)(string|integer|number|boolean|array|object|null)(?=\\s*(?:#.*)?$)",
 					"captures": {
 						"2": { "name": "support.type.property-name.openapi.schema.yaml" },
 						"3": { "name": "punctuation.separator.key-value.yaml" },
@@ -216,11 +266,64 @@
 				}
 			]
 		},
+		"openapi-format-values": {
+			"comment": "Schema format values: format: int32, date-time, uuid, etc.",
+			"patterns": [
+				{
+					"match": "^(\\s*)(format)(\\s*:\\s*)(int32|int64|float|double|byte|binary|date|date-time|password|email|uri|uri-reference|uuid|hostname|ipv4|ipv6)(?=\\s*(?:#.*)?$)",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.schema.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "constant.language.openapi.format.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-boolean-values": {
+			"comment": "Boolean values for known OpenAPI boolean keys",
+			"patterns": [
+				{
+					"match": "^(\\s*)(required|deprecated|nullable|readOnly|writeOnly|explode|allowReserved|allowEmptyValue|uniqueItems|exclusiveMinimum|exclusiveMaximum)(\\s*:\\s*)(true|false)(?=\\s*(?:#.*)?$)",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.schema.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "constant.language.openapi.boolean.yaml" }
+					}
+				}
+			]
+		},
+		"openapi-security-type-values": {
+			"comment": "Security scheme type and auth flow type values",
+			"patterns": [
+				{
+					"match": "^(\\s*)(type)(\\s*:\\s*)(apiKey|http|oauth2|openIdConnect)(?=\\s*(?:#.*)?$)",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.schema.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "constant.language.openapi.security-type.yaml" }
+					}
+				},
+				{
+					"match": "^(\\s*)(scheme)(\\s*:\\s*)(bearer|basic|digest|hoba|mutual|negotiate|oauth|scram-sha-1|scram-sha-256|vapid)(?=\\s*(?:#.*)?$)",
+					"captures": {
+						"2": { "name": "support.type.property-name.openapi.general.yaml" },
+						"3": { "name": "punctuation.separator.key-value.yaml" },
+						"4": { "name": "constant.language.openapi.security-scheme.yaml" }
+					}
+				},
+				{
+					"match": "^(\\s*)(implicit|password|clientCredentials|authorizationCode)\\s*:",
+					"captures": {
+						"2": { "name": "constant.language.openapi.auth-flow.yaml" }
+					}
+				}
+			]
+		},
 		"openapi-parameter-location-values": {
 			"comment": "Parameter location values: in: query, header, path, cookie",
 			"patterns": [
 				{
-					"match": "^(\\s*)(in)(\\s*:\\s*)(query|header|path|cookie)\\s*$",
+					"match": "^(\\s*)(in)(\\s*:\\s*)(query|header|path|cookie)(?=\\s*(?:#.*)?$)",
 					"captures": {
 						"2": {
 							"name": "support.type.property-name.openapi.parameter.yaml"
@@ -232,10 +335,10 @@
 			]
 		},
 		"openapi-status-code-keys": {
-			"comment": "HTTP status codes as keys: '200', '201', '400', '404', '500', etc. Note: 'default' is handled by schema-keys since it's ambiguous",
+			"comment": "HTTP status codes as keys: '200', '201', '400', '404', '500', etc.",
 			"patterns": [
 				{
-					"match": "^(\\s*)(['\"]?)([1-5][0-9]{2}|[1-5]XX)\\2\\s*:",
+					"match": "^(\\s*)(['\"]?)([1-5][0-9]{2}|[1-5]XX|default)\\2\\s*:",
 					"captures": {
 						"2": { "name": "punctuation.definition.string.yaml" },
 						"3": { "name": "constant.numeric.openapi.status-code.yaml" }

@@ -22,7 +22,8 @@ import (
 	"github.com/sailpoint-oss/telescope/server/extensions"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/plugin"
-	"github.com/sailpoint-oss/telescope/server/plugin/script"
+	"github.com/sailpoint-oss/telescope/server/project"
+	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
 	"github.com/sailpoint-oss/telescope/server/rules/checks"
 	"github.com/sailpoint-oss/telescope/server/validation"
@@ -33,13 +34,18 @@ var Version = "dev"
 
 // telescopeSetup is a gossip Option that wires the OpenAPI index and rules
 // after the tree-sitter manager has been initialized by WithTreeSitter.
-func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, pluginHost *plugin.Host, scriptLoader *script.Loader, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator) gossip.Option {
+func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, pluginHost *plugin.Host, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager) gossip.Option {
 	return func(s *gossip.Server) {
-		// Wire UserData so Analyzers receive the OpenAPI index. The provider
-		// builds/caches the index on demand. This is critical because the
-		// DiagnosticEngine's OnTreeUpdate callback fires before any
-		// additional OnTreeUpdate callbacks registered by telescopeSetup,
-		// so we cannot rely on a separate OnTreeUpdate to pre-populate the cache.
+		// Bind the DiagnosticEngine now that WithTreeSitter has been applied.
+		// This must happen here (inside an Option) because gossip.NewServer
+		// stores options without applying them -- Serve() applies them later.
+		rsMgr.engine = s.DiagnosticEngine()
+
+		// Wire the project manager's publish function to use PublishDirect.
+		projMgr.SetPublish(s.DiagnosticEngine().PublishDirect)
+
+		// Wire UserData so Analyzers receive the OpenAPI index and an
+		// optional cross-file resolver from the project manager.
 		s.DiagnosticEngine().SetUserDataProvider(func(uri protocol.DocumentURI) interface{} {
 			doc := s.Documents().Get(uri)
 			if doc == nil {
@@ -51,7 +57,15 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 			}
 			idx := openapi.BuildIndex(tree, doc)
 			indexCache.Set(uri, idx)
-			return idx
+
+			data := &rules.AnalysisData{
+				Index:  idx,
+				DocURI: string(uri),
+			}
+			if resolver := projMgr.ResolverForFile(string(uri)); resolver != nil {
+				data.Resolver = resolver
+			}
+			return data
 		})
 
 		// Clean up index on document close
@@ -71,9 +85,6 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		// Register the external plugin host analyzer
 		s.DiagnosticEngine().RegisterAnalyzer("external-plugins", pluginHost.Analyzer())
 
-		// Register the JS script rule analyzer
-		s.DiagnosticEngine().RegisterAnalyzer("js-scripts", scriptLoader.Analyzer())
-
 		// Register the extension validation analyzer
 		s.DiagnosticEngine().RegisterAnalyzer("extension-validation", extensions.Analyzer(extRegistry))
 
@@ -84,7 +95,7 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		rsMgr.SetTelescopeConfig(cfg)
 
 		// Register file watchers for ruleset hot-reload
-		s.OnDidChangeWatchedFiles(NewWatchedFilesHandler(rsMgr, s.Logger()))
+		s.OnDidChangeWatchedFiles(NewWatchedFilesHandler(rsMgr, projMgr, s.Logger()))
 	}
 }
 
@@ -99,9 +110,9 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 	// telescopeSetup once gossip has initialized the DiagnosticEngine.
 	rsMgr := &RulesetManager{logger: logger}
 	pluginHost := plugin.NewHost(logger)
-	scriptLoader := script.NewLoader(logger)
 	extRegistry := extensions.NewRegistry()
 	addlValidator := validation.NewAdditionalValidator(logger)
+	projMgr := project.NewManager(indexCache, logger)
 
 	s := gossip.NewServer("telescope", Version,
 		gossip.WithTreeSitter(treesitter.Config{
@@ -121,17 +132,9 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		gossip.WithLogger(logger),
 		gossip.WithMiddleware(middleware.Logging(logger), middleware.Recovery()),
 		gossip.WithCompletionTriggerCharacters("$", "/", "#", ":"),
-		gossip.WithExecuteCommands(
-			"telescope.sortTags",
-			"telescope.sortPaths",
-			"telescope.generateResponseSkeletons",
-		),
 		gossip.WithSemanticTokensLegend(semanticTokensLegend),
-		telescopeSetup(cfg, indexCache, rsMgr, pluginHost, scriptLoader, extRegistry, addlValidator),
+		telescopeSetup(cfg, indexCache, rsMgr, pluginHost, extRegistry, addlValidator, projMgr),
 	)
-
-	// Now that the server is created, bind the actual DiagnosticEngine
-	rsMgr.engine = s.DiagnosticEngine()
 
 	// Register an initialization hook that loads rulesets from the workspace
 	// and registers dynamic file watchers for hot-reload.
@@ -147,12 +150,6 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 			pluginDir := filepath.Join(rootPath, ".telescope", "plugins")
 			if err := pluginHost.Discover(pluginDir); err != nil {
 				logger.Warn("failed to discover plugins", "dir", pluginDir, "error", err)
-			}
-
-			// Load JS script rules from .telescope/rules/
-			rulesDir := filepath.Join(rootPath, ".telescope", "rules")
-			if err := scriptLoader.LoadDir(rulesDir); err != nil {
-				logger.Warn("failed to load JS rules", "dir", rulesDir, "error", err)
 			}
 
 			// Load built-in vendor extensions and user extension schemas
@@ -198,6 +195,11 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 					logger.Warn("failed to load configured plugin", "path", p, "error", err)
 				}
 			}
+
+			// Start background workspace scan and project building.
+			// This runs in a goroutine to avoid blocking the initialized
+			// response while scanning large workspaces.
+			go projMgr.Initialize(rootPath, cfg.Exclude)
 		}
 		registerFileWatchers(ctx)
 	})

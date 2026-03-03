@@ -2,23 +2,21 @@ package cli
 
 import (
 	"fmt"
+	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"log/slog"
-
-	"github.com/spf13/cobra"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/spf13/cobra"
+
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/plugin"
-	"github.com/sailpoint-oss/telescope/server/plugin/script"
+	"github.com/sailpoint-oss/telescope/server/project"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
-	"github.com/sailpoint-oss/telescope/server/rules/checks"
-
-	"github.com/LukasParke/gossip"
 )
 
 var (
@@ -26,6 +24,8 @@ var (
 	minSeverity  string
 	failOn       string
 	noColor      bool
+	reportMDPath string
+	reportJSONPath string
 )
 
 func newLintCmd() *cobra.Command {
@@ -40,6 +40,8 @@ func newLintCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&minSeverity, "severity", "s", "", "Minimum severity: error, warn, info, hint")
 	cmd.Flags().StringVar(&failOn, "fail-on", "error", "Exit 1 on: error, warn")
 	cmd.Flags().BoolVar(&noColor, "no-color", false, "Disable color output")
+	cmd.Flags().StringVar(&reportMDPath, "report-md", "", "Write Markdown report to file")
+	cmd.Flags().StringVar(&reportJSONPath, "report-json", "", "Write JSON report to file")
 
 	return cmd
 }
@@ -66,10 +68,8 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	// Register all rules
-	dummyServer := gossip.NewServer("telescope-lint", "0.0.0")
-	checks.RegisterAll(dummyServer)
-	analyzers.RegisterAll(dummyServer)
+	// Build all analyzers for CLI use via the collection mechanism
+	allAnalyzers := rules.CollectAnalyzers(analyzers.RegisterAll)
 
 	// Discover external plugins
 	pluginHost := plugin.NewHost(logger)
@@ -89,12 +89,9 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 	defer pluginHost.Shutdown()
 
-	// Discover JS script rules
-	jsLoader := script.NewLoader(logger)
-	jsDir := filepath.Join(wd, ".telescope", "rules")
-	if err := jsLoader.LoadDir(jsDir); err != nil {
-		logger.Warn("failed to load JS rules", "error", err)
-	}
+	// Build project contexts for multi-file $ref resolution.
+	// Discover roots among the files, build transitive project contexts.
+	projectContexts := buildProjectContexts(files, logger)
 
 	var allDiags []fileDiagnostics
 	exitCode := 0
@@ -106,18 +103,12 @@ func runLint(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		diags := lintFile(file, content, cfg)
+		diags := lintFile(file, content, cfg, allAnalyzers, projectContexts)
 
 		// Run external plugin rules
 		if pluginHost.PluginCount() > 0 {
 			pluginResp := pluginHost.AnalyzeDirect(file, content)
 			diags = append(diags, pluginResp...)
-		}
-
-		// Run JS script rules
-		if jsLoader.ScriptCount() > 0 {
-			jsDiags := jsLoader.AnalyzeDirect(content)
-			diags = append(diags, jsDiags...)
 		}
 
 		if len(diags) > 0 {
@@ -132,6 +123,21 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	outputResults(allDiags, outputFormat)
 
+	// Write reports if requested
+	if reportJSONPath != "" || reportMDPath != "" {
+		report := buildLintReport(wd, files, allDiags)
+		if reportJSONPath != "" {
+			if err := writeJSONReport(reportJSONPath, report); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing JSON report: %v\n", err)
+			}
+		}
+		if reportMDPath != "" {
+			if err := writeMDReport(reportMDPath, report); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing Markdown report: %v\n", err)
+			}
+		}
+	}
+
 	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
@@ -143,18 +149,105 @@ type fileDiagnostics struct {
 	Diagnostics []protocol.Diagnostic
 }
 
-func lintFile(path string, content []byte, cfg *config.Config) []protocol.Diagnostic {
+func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []rules.NamedAnalyzer, projectContexts map[string]*project.ProjectContext) []protocol.Diagnostic {
 	format := openapi.FormatFromURI(path)
 	if format == openapi.FormatUnknown {
 		return nil
 	}
 
-	// For CLI mode, we check against the rule registry metadata
-	var diags []protocol.Diagnostic
-	for _, meta := range rules.DefaultRegistry.All() {
-		_ = meta
+	idx := openapi.ParseAndIndex(content)
+	if idx == nil || idx.Document == nil {
+		return nil
 	}
 
+	uri := pathToFileURI(path)
+
+	// Run all semantic analyzers against the parsed index
+	diags := rules.RunAnalyzers(allAnalyzers, idx, uri)
+
+	// Run cross-file unresolved-ref diagnostics if a project context exists
+	if pctx := findProjectContext(uri, projectContexts); pctx != nil {
+		diags = append(diags, diagnoseUnresolvedRefs(uri, idx, pctx)...)
+	}
+
+	return diags
+}
+
+// buildProjectContexts creates ProjectContexts for root files among the
+// collected files, enabling cross-file $ref resolution.
+func buildProjectContexts(files []string, logger *slog.Logger) map[string]*project.ProjectContext {
+	contexts := make(map[string]*project.ProjectContext)
+
+	for _, file := range files {
+		abs, _ := filepath.Abs(file)
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			continue
+		}
+		idx := openapi.ParseAndIndex(data)
+		if idx == nil || idx.Document == nil || idx.Document.DocType != openapi.DocTypeRoot {
+			continue
+		}
+		uri := pathToFileURI(abs)
+		pctx, err := project.BuildProjectContext(uri, nil, logger)
+		if err != nil {
+			logger.Warn("failed to build project context", "root", uri, "error", err)
+			continue
+		}
+		contexts[uri] = pctx
+	}
+
+	return contexts
+}
+
+// findProjectContext returns the ProjectContext that contains the given URI.
+func findProjectContext(uri string, contexts map[string]*project.ProjectContext) *project.ProjectContext {
+	// Direct match for root files
+	if pctx, ok := contexts[uri]; ok {
+		return pctx
+	}
+	// Search all projects for the URI
+	for _, pctx := range contexts {
+		if pctx.ContainsFile(uri) {
+			return pctx
+		}
+	}
+	return nil
+}
+
+// diagnoseUnresolvedRefs checks for $ref values that cannot be resolved within
+// the project context.
+func diagnoseUnresolvedRefs(uri string, idx *openapi.Index, pctx *project.ProjectContext) []protocol.Diagnostic {
+	var diags []protocol.Diagnostic
+	for target, usages := range idx.Refs {
+		if _, err := idx.Resolve(target); err == nil {
+			continue
+		}
+		if strings.HasPrefix(target, "#") {
+			for _, usage := range usages {
+				diags = append(diags, protocol.Diagnostic{
+					Range:    usage.Loc.Range,
+					Severity: protocol.SeverityError,
+					Source:   "unresolved-ref",
+					Message:  "Cannot resolve $ref: " + target,
+					Code:     "unresolved-ref",
+				})
+			}
+			continue
+		}
+		if pctx.Resolver.CanResolve(uri, target) {
+			continue
+		}
+		for _, usage := range usages {
+			diags = append(diags, protocol.Diagnostic{
+				Range:    usage.Loc.Range,
+				Severity: protocol.SeverityError,
+				Source:   "unresolved-ref",
+				Message:  "Cannot resolve $ref: " + target,
+				Code:     "unresolved-ref",
+			})
+		}
+	}
 	return diags
 }
 
@@ -217,4 +310,13 @@ func collectFiles(args []string, cfg *config.Config) ([]string, error) {
 func isOpenAPIExtension(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".yaml" || ext == ".yml" || ext == ".json"
+}
+
+func pathToFileURI(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	u := &url.URL{Scheme: "file", Path: abs}
+	return u.String()
 }

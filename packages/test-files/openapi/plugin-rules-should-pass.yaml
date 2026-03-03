@@ -1,0 +1,190 @@
+# This file should produce ZERO diagnostics from the example Go plugin rules.
+# Each section is annotated with the rule(s) it validates.
+#
+# Plugin rules exercised:
+#   require-security, operation-summary-required, schema-pascal-case,
+#   request-body-required, no-trailing-slash, server-url-https,
+#   parameter-description-required, response-description-required,
+#   tag-description-required, security-scheme-description
+
+openapi: "3.1.0"
+info:
+  title: Plugin Rules - All Passing
+  version: 1.0.0
+  description: Every element in this spec satisfies all example plugin rules.
+
+servers:
+  # server-url-https: HTTPS URL
+  - url: https://api.example.com/v1
+    description: Production server
+
+tags:
+  # tag-description-required: descriptions present
+  - name: Users
+    description: User management operations
+  - name: Pets
+    description: Pet store operations
+
+paths:
+  # no-trailing-slash: no trailing slashes
+  /users:
+    get:
+      # require-security: security present
+      # operation-summary-required: summary present
+      operationId: listUsers
+      summary: List all users
+      description: Returns a paginated list of users
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        # parameter-description-required: description present
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of users to return
+          schema:
+            type: integer
+            format: int32
+            example: 20
+      responses:
+        # response-description-required: descriptions present
+        "200":
+          description: A list of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "401":
+          description: Authentication required
+
+  /users/{userId}:
+    get:
+      operationId: getUserById
+      summary: Get a user
+      description: Retrieve a single user by their ID
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: Unique identifier of the user
+          schema:
+            type: string
+            example: "usr-123"
+      responses:
+        "200":
+          description: The requested user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+
+  /pets:
+    get:
+      operationId: listPets
+      summary: List all pets
+      description: Returns all pets in the store
+      tags:
+        - Pets
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: A list of pets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+
+    post:
+      operationId: createPet
+      summary: Create a pet
+      description: Add a new pet to the store
+      tags:
+        - Pets
+      security:
+        - bearerAuth: []
+      # request-body-required: required is true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PetCreate"
+      responses:
+        "201":
+          description: Pet created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+        "400":
+          description: Invalid input
+
+components:
+  schemas:
+    # schema-pascal-case: PascalCase names
+    User:
+      type: object
+      description: A registered user
+      properties:
+        id:
+          type: string
+          description: Unique identifier
+          example: "usr-123"
+        name:
+          type: string
+          description: Full name
+          example: Jane Doe
+
+    Pet:
+      type: object
+      description: A pet in the store
+      properties:
+        id:
+          type: string
+          description: Unique identifier
+          example: "pet-456"
+        name:
+          type: string
+          description: Pet name
+          example: Fido
+        species:
+          type: string
+          description: Animal species
+          example: dog
+
+    PetCreate:
+      type: object
+      description: Payload for creating a pet
+      required:
+        - name
+        - species
+      properties:
+        name:
+          type: string
+          description: Pet name
+          example: Fido
+        species:
+          type: string
+          description: Animal species
+          example: dog
+
+  securitySchemes:
+    # security-scheme-description: description present
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT bearer token authentication

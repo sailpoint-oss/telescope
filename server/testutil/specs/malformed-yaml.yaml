@@ -1,0 +1,40 @@
+# Deliberately malformed YAML for syntax error testing.
+# This file should trigger syntax-error and missing-token diagnostics.
+openapi: "3.1.0"
+info:
+  title: Malformed Test
+  version: "1.0.0"
+
+  # Bad indentation — this key looks like it belongs to info but shouldn't
+    bad_indent: true
+
+paths:
+  /test:
+    get:
+      summary: A test operation
+      responses:
+        "200":
+          description: OK
+
+  # Unterminated string
+  /broken:
+    get:
+      summary: "unterminated string value
+      responses:
+        "200":
+          description: OK
+
+  # Missing colon after key
+  /missing-colon
+    get:
+      summary: Should have a colon
+      responses:
+        "200":
+          description: OK
+
+  # Duplicate key (also tested by duplicate-keys rule)
+  /duplicate:
+    get:
+      summary: First
+    get:
+      summary: Second

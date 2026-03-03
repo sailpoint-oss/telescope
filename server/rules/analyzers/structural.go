@@ -55,6 +55,12 @@ func getSchema(ver openapi.Version) *jsonschema.CompiledSchema {
 	return compiledCache[ver]
 }
 
+// GetSchemaForVersion returns the compiled JSON Schema for the given OpenAPI
+// version, or nil if no schema is available. Intended for use in tests.
+func GetSchemaForVersion(ver openapi.Version) *jsonschema.CompiledSchema {
+	return getSchema(ver)
+}
+
 func registerStructuralValidation(s *gossip.Server) {
 	rules.DefaultRegistry.Register(structuralMeta)
 
