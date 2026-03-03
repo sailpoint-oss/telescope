@@ -19,7 +19,7 @@ import (
 // for validating non-OpenAPI files.
 type ValidationGroup struct {
 	Patterns []string               `yaml:"patterns" json:"patterns"`
-	Schemas  []SchemaPatternMapping `yaml:"schemas" json:"schemas"`
+	Schemas  []SchemaPatternMapping `yaml:"schemas,omitempty" json:"schemas,omitempty"`
 }
 
 // SchemaPatternMapping pairs a JSON Schema file with optional pattern overrides.
@@ -80,7 +80,6 @@ func (v *AdditionalValidator) loadSchema(filename string) (*jsonschema.CompiledS
 	if err != nil {
 		return nil, fmt.Errorf("read schema %s: %w", path, err)
 	}
-
 	compiled, err := jsonschema.Load(data)
 	if err != nil {
 		return nil, fmt.Errorf("compile schema %s: %w", path, err)

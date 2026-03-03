@@ -76,8 +76,23 @@ interface ZodIssue {
 	note?: string;
 }
 
-/** @deprecated No longer needed -- Zod schemas now natively allow x-* extensions via looseObject */
-function stripXExtensions(value: unknown): unknown {
+/**
+ * Recursively strip x-* extension keys from an object before Zod validation.
+ * OpenAPI allows x-* extensions on virtually every object, but our Zod schemas
+ * use strictObject for unrecognized-key detection, so we strip them first.
+ */
+export function stripXExtensions(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(stripXExtensions);
+	}
+	if (value !== null && typeof value === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+			if (k.startsWith("x-")) continue;
+			out[k] = stripXExtensions(v);
+		}
+		return out;
+	}
 	return value;
 }
 
@@ -333,6 +348,7 @@ function zodIssueToDiagnostic(
 	// Handle unrecognized_keys: create one diagnostic per key
 	if (issue.code === "unrecognized_keys" && issue.keys) {
 		for (const key of issue.keys) {
+			if (key.startsWith("x-")) continue;
 			const keyPath = [...issue.path, key];
 			const range = pathToRange(doc, keyPath, true); // preferKey = true to highlight just the key
 

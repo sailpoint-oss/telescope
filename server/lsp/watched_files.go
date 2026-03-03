@@ -3,14 +3,17 @@ package lsp
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/project"
 )
 
 // NewWatchedFilesHandler returns a handler that triggers ruleset reload when
-// Spectral or Telescope config files change on disk.
-func NewWatchedFilesHandler(rsMgr *RulesetManager, logger *slog.Logger) gossip.DidChangeWatchedFilesHandler {
+// Spectral or Telescope config files change on disk, and propagates changes
+// to the project manager for cross-file diagnostic updates.
+func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, logger *slog.Logger) gossip.DidChangeWatchedFilesHandler {
 	return func(ctx *gossip.Context, params *protocol.DidChangeWatchedFilesParams) error {
 		needsReload := false
 		for _, change := range params.Changes {
@@ -26,8 +29,35 @@ func NewWatchedFilesHandler(rsMgr *RulesetManager, logger *slog.Logger) gossip.D
 				logger.Warn("failed to reload rulesets", "error", err)
 			}
 		}
+
+		// Propagate file changes to the project manager for cross-file
+		// dependency invalidation and re-indexing.
+		for _, change := range params.Changes {
+			uri := string(change.URI)
+			if !isOpenAPIFileURI(uri) {
+				continue
+			}
+			path := uriToFSPath(uri)
+
+			switch change.Type {
+			case protocol.FileCreated:
+				go projMgr.OnFileCreated(path)
+			case protocol.FileChanged:
+				go projMgr.OnFileChanged(uri)
+			case protocol.FileDeleted:
+				go projMgr.OnFileDeleted(path)
+			}
+		}
+
 		return nil
 	}
+}
+
+func isOpenAPIFileURI(uri string) bool {
+	lower := strings.ToLower(uri)
+	return strings.HasSuffix(lower, ".yaml") ||
+		strings.HasSuffix(lower, ".yml") ||
+		strings.HasSuffix(lower, ".json")
 }
 
 type fileSystemWatcher struct {
@@ -38,8 +68,8 @@ type watchedFilesRegOpts struct {
 	Watchers []fileSystemWatcher `json:"watchers"`
 }
 
-// registerFileWatchers dynamically registers file watchers for Spectral and
-// Telescope config files via client/registerCapability.
+// registerFileWatchers dynamically registers file watchers for config files
+// and OpenAPI document files (YAML/JSON) via client/registerCapability.
 func registerFileWatchers(ctx *gossip.Context) {
 	if ctx.Client == nil {
 		return
@@ -47,6 +77,11 @@ func registerFileWatchers(ctx *gossip.Context) {
 
 	var watchers []fileSystemWatcher
 	for _, pattern := range WatchPatterns() {
+		watchers = append(watchers, fileSystemWatcher{GlobPattern: pattern})
+	}
+
+	// Watch OpenAPI-relevant files for cross-file dependency tracking
+	for _, pattern := range []string{"**/*.yaml", "**/*.yml", "**/*.json"} {
 		watchers = append(watchers, fileSystemWatcher{GlobPattern: pattern})
 	}
 

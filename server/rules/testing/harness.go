@@ -109,27 +109,6 @@ func RunCustom(t *testing.T, analyzer treesitter.Analyzer, cases ...Case) {
 	}
 }
 
-// RunJS executes a JS script rule source against test cases using the
-// standalone YAML parser (no tree-sitter required).
-func RunJS(t *testing.T, jsSource string, cases ...Case) {
-	t.Helper()
-
-	for _, tc := range cases {
-		t.Run(tc.Name, func(t *testing.T) {
-			t.Helper()
-			idx := openapi.ParseAndIndex([]byte(tc.Spec))
-			if idx == nil || idx.Document == nil {
-				t.Fatal("failed to parse spec")
-			}
-
-			// Import is deferred to avoid circular dependencies;
-			// callers should use plugin/script directly for JS tests
-			_ = idx
-			t.Skip("JS rule testing requires plugin/script package")
-		})
-	}
-}
-
 func buildTestIndex(t *testing.T, spec string) *openapi.Index {
 	t.Helper()
 	store := document.NewStore()

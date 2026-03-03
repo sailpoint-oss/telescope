@@ -18,8 +18,22 @@
 
 import { z } from "zod";
 
-/** @deprecated No longer needed -- Zod schemas now natively allow x-* extensions via looseObject */
+/**
+ * Recursively strip x-* extension keys before Zod validation.
+ * Mirrors the implementation in engine/validation/zod-structural.ts.
+ */
 function stripXExtensions(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(stripXExtensions);
+	}
+	if (value !== null && typeof value === "object") {
+		const out: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+			if (k.startsWith("x-")) continue;
+			out[k] = stripXExtensions(v);
+		}
+		return out;
+	}
 	return value;
 }
 
@@ -361,16 +375,20 @@ export function getCachedSchema(
 }
 
 /**
- * Get the original Zod schema by its key.
+ * Get the Zod schema by its key, wrapped to accept x-* extension keys.
  *
- * Use this for Zod validation (safeParse, parse).
- * The original schema is not transformed.
+ * OpenAPI allows x-* extensions on virtually every object, but the underlying
+ * Zod schemas use strictObject for unrecognized-key detection. This wrapper
+ * preprocesses input to strip x-* keys before validation so that callers
+ * using safeParse/parse see extensions as valid.
  *
  * @param schemaKey - The schema key (e.g., "openapi-3.1-root", "telescope-config")
- * @returns The original Zod schema, or undefined if not found
+ * @returns The Zod schema (with x-* preprocessing), or undefined if not found
  */
 export function getZodSchema(schemaKey: string): z.ZodType | undefined {
-	return SCHEMA_METADATA[schemaKey]?.schema;
+	const schema = SCHEMA_METADATA[schemaKey]?.schema;
+	if (!schema) return undefined;
+	return z.preprocess(stripXExtensions, schema);
 }
 
 /**

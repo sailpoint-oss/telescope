@@ -6,8 +6,10 @@ out
 dist
 *.tgz
 
-# Built Go binary
+# Built Go binaries
 packages/telescope-client/bin/
+server/telescope
+server/telescope.exe
 
 # Go workspace (local development with gossip)
 go.work

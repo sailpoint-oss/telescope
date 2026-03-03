@@ -109,11 +109,22 @@ func (b *RuleBuilder) Custom(fn func(idx *openapi.Index, r *Reporter)) *RuleBuil
 }
 
 // Register registers the rule's metadata in DefaultRegistry and registers
-// the generated Analyzer with the gossip server.
+// the generated Analyzer with the gossip server. When called inside
+// CollectAnalyzers, the built analyzer is also captured for CLI use.
 func (b *RuleBuilder) Register(s *gossip.Server) {
 	DefaultRegistry.Register(b.meta)
 	id, analyzer := b.Build()
 	s.Analyze(id, analyzer)
+	if analyzerCollector != nil {
+		*analyzerCollector = append(*analyzerCollector, NamedAnalyzer{
+			ID: id, Meta: b.meta, Analyzer: analyzer,
+		})
+	}
+}
+
+// Meta returns the rule metadata. Useful for registering in external registries.
+func (b *RuleBuilder) Meta() RuleMeta {
+	return b.meta
 }
 
 // Build returns the rule ID and a treesitter.Analyzer ready for registration.

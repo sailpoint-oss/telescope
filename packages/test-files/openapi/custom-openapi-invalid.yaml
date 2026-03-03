@@ -1,18 +1,49 @@
-openapi: 3.0.0
+# Invalid spec for Go plugin rule testing.
+# This file should trigger diagnostics from several example-rules plugin rules:
+#   - operation-summary-required  (GET /pets missing summary)
+#   - require-security            (GET /pets missing security)
+#   - response-description-required (200 response missing description)
+openapi: "3.0.0"
 info:
-  title: Test API
+  title: Custom Plugin Test - Invalid
   version: 1.0.0
+  description: A minimal spec with deliberate plugin rule violations
+
 paths:
   /pets:
     get:
-      # Missing summary - should trigger custom rule error
       operationId: getPets
+      description: Retrieve pets but missing summary and security
       responses:
         "200":
-          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
     post:
       summary: Create a pet
       operationId: createPet
+      description: Create operation with an unrequired body
+      security:
+        - apiKey: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
       responses:
         "201":
           description: Created
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key

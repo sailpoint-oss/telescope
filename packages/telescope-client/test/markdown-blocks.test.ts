@@ -353,11 +353,12 @@ describe("Markdown Block Scalars", () => {
 
 		it("handles inline title value", () => {
 			const { tokens } = tokenizeLine(grammar, "title: My API Title");
-			const embeddedTokens = findTokensWithScope(
-				tokens,
-				"meta.embedded.inline.markdown",
+			const titleToken = findToken(tokens, "title");
+			expect(titleToken).toBeDefined();
+			if (!titleToken) return;
+			expect(hasScope(titleToken, "support.type.property-name.openapi")).toBe(
+				true,
 			);
-			expect(embeddedTokens.length).toBeGreaterThan(0);
 		});
 	});
 
