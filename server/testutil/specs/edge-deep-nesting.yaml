@@ -1,0 +1,52 @@
+openapi: "3.1.0"
+info:
+  title: Deep Nesting Test
+  version: "1.0.0"
+paths:
+  /nested:
+    get:
+      operationId: getNested
+      summary: Deeply nested response schema
+      description: Tests that deeply nested schemas are handled correctly
+      tags:
+        - nested
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  level1:
+                    type: object
+                    properties:
+                      level2:
+                        type: object
+                        properties:
+                          level3:
+                            type: object
+                            properties:
+                              level4:
+                                type: object
+                                properties:
+                                  level5:
+                                    type: object
+                                    properties:
+                                      level6:
+                                        type: object
+                                        properties:
+                                          level7:
+                                            type: object
+                                            properties:
+                                              level8:
+                                                type: object
+                                                properties:
+                                                  level9:
+                                                    type: object
+                                                    properties:
+                                                      level10:
+                                                        type: string
+tags:
+  - name: nested
+    description: Deeply nested schemas

@@ -123,6 +123,13 @@ export const TelescopeConfigSchema = z
 	.looseObject({
 		openapi: z
 			.looseObject({
+				targetVersion: z
+					.union([z.literal("3.0"), z.literal("3.1"), z.literal("3.2")])
+					.optional()
+					.meta({ title: "targetVersion" })
+					.describe(
+						"OpenAPI version to use for fragment file validation. When set, standalone files (schemas, path items, etc.) are validated against the specified version's rules. Defaults to 3.1.",
+					),
 				patterns: z
 					.array(z.string())
 					.meta({ title: "patterns" })

@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -39,6 +40,20 @@ func NewCodeLensHandler(cache *openapi.IndexCache) gossip.CodeLensHandler {
 				Title: fmt.Sprintf("%s %s", docType, versionStr),
 			},
 		})
+
+		// API Health Score lens
+		if idx.Document.DocType == openapi.DocTypeRoot {
+			score := computeHealthScore(idx)
+			lenses = append(lenses, protocol.CodeLens{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: 0, Character: 0},
+					End:   protocol.Position{Line: 0, Character: 0},
+				},
+				Command: &protocol.Command{
+					Title: formatHealthSummary(score),
+				},
+			})
+		}
 
 		// Component schemas
 		uri := params.TextDocument.URI
@@ -79,6 +94,46 @@ func NewCodeLensHandler(cache *openapi.IndexCache) gossip.CodeLensHandler {
 						},
 					})
 				}
+			}
+		}
+
+		// Fragment file lenses: show what references this fragment from other files
+		if idx.Document.DocType == openapi.DocTypeFragment || idx.Document.DocType == openapi.DocTypeUnknown {
+			// Count references from other documents
+			var refFiles []string
+			refCount := 0
+			allIndexes := cache.All()
+			for otherURI, otherIdx := range allIndexes {
+				if otherURI == uri {
+					continue
+				}
+				for _, ref := range otherIdx.AllRefs {
+					// Check if this ref points to our file
+					if strings.Contains(ref.Target, uriToFilename(string(uri))) {
+						refCount++
+						fname := uriToFilename(string(otherURI))
+						found := false
+						for _, f := range refFiles {
+							if f == fname {
+								found = true
+								break
+							}
+						}
+						if !found {
+							refFiles = append(refFiles, fname)
+						}
+					}
+				}
+			}
+			if refCount > 0 {
+				title := fmt.Sprintf("Referenced by: %s (%d references)", strings.Join(refFiles, ", "), refCount)
+				lenses = append(lenses, protocol.CodeLens{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: 0, Character: 0},
+						End:   protocol.Position{Line: 0, Character: 0},
+					},
+					Command: &protocol.Command{Title: title},
+				})
 			}
 		}
 
@@ -156,4 +211,10 @@ func sortedKeys(m map[string]*openapi.Response) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// uriToFilename extracts just the filename from a file URI or path.
+func uriToFilename(uri string) string {
+	path := strings.TrimPrefix(uri, "file://")
+	return filepath.Base(path)
 }

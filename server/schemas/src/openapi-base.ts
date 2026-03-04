@@ -351,7 +351,6 @@ export const XMLSchema = z
 		attribute: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe(
 				"When true, the property is serialized as an XML attribute instead of an element. Default: false.",
 			)
@@ -362,7 +361,6 @@ export const XMLSchema = z
 		wrapped: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe(
 				"Only for arrays. When true, wraps the array in an outer element. Default: false.",
 			)

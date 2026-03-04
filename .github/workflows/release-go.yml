@@ -1,0 +1,183 @@
+name: Release Go Module
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (X.Y.Z, without 'v' prefix)"
+        required: false
+        type: string
+      bump:
+        description: "Version bump type (if no explicit version)"
+        required: false
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-go
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - name: Build
+        run: go build ./...
+        working-directory: server
+
+      - name: Vet
+        run: go vet ./...
+        working-directory: server
+
+      - name: Test
+        run: go test -race ./... -timeout 10m
+        working-directory: server
+
+  release:
+    name: Tag & Release
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          # Find the latest server/v* tag
+          LATEST_TAG=$(git tag -l 'server/v*' --sort=-v:refname | head -1)
+
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_VERSION="0.0.0"
+          else
+            LATEST_VERSION="${LATEST_TAG#server/v}"
+          fi
+          echo "Latest version: $LATEST_VERSION"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+          MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            # Manual version override
+            NEW_VERSION="${{ github.event.inputs.version }}"
+            if ! echo "$NEW_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Error: Version must be in X.Y.Z format"
+              exit 1
+            fi
+          else
+            # Auto-bump based on input or default to patch
+            BUMP="${{ github.event.inputs.bump || 'patch' }}"
+            case "$BUMP" in
+              major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
+              minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
+              patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+            esac
+          fi
+
+          # Check if there are actual changes since last tag
+          if [ -n "$LATEST_TAG" ]; then
+            CHANGES=$(git diff "$LATEST_TAG"..HEAD -- server/ | head -1)
+            if [ -z "$CHANGES" ] && [ -z "${{ github.event.inputs.version }}" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              echo "No changes in server/ since $LATEST_TAG — skipping release"
+              exit 0
+            fi
+          fi
+
+          TAG="server/v${NEW_VERSION}"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "Will release: $TAG"
+
+      - name: Check tag doesn't exist
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Error: Tag $TAG already exists"
+            exit 1
+          fi
+
+      - name: Create tag
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release Go module ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Generate release notes
+        if: steps.version.outputs.skip != 'true'
+        id: notes
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          PREV_TAG=$(git tag -l 'server/v*' --sort=-v:refname | grep -v "^${TAG}$" | head -1)
+
+          {
+            echo "notes<<NOTES_EOF"
+            echo "## Go Module Release"
+            echo ""
+            echo '```bash'
+            echo "go get github.com/sailpoint-oss/telescope/server@v${{ steps.version.outputs.version }}"
+            echo '```'
+            echo ""
+            echo "### Importable Packages"
+            echo ""
+            echo "| Package | Description |"
+            echo "|---------|-------------|"
+            echo "| \`openapi\` | Typed OpenAPI 3.x model with tree-sitter parsing |"
+            echo "| \`rules\` | Rule builder framework with fluent API |"
+            echo "| \`sdk\` | Plugin SDK for custom rule binaries |"
+            echo "| \`spectral\` | Spectral-compatible rule engine |"
+            echo "| \`rulesets\` | Ruleset loading and merging |"
+            echo "| \`config\` | Configuration file loading |"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "### Changes since ${PREV_TAG}"
+              echo ""
+              git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" -- server/
+              echo ""
+            else
+              echo "### Initial Release"
+            fi
+            echo "NOTES_EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        if: steps.version.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Go Module ${{ steps.version.outputs.tag }}"
+          body: ${{ steps.notes.outputs.notes }}
+          draft: false
+          prerelease: false
+
+      - name: Trigger Go module proxy
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          # Request the module at the new version to warm the Go proxy cache
+          curl -fsS "https://proxy.golang.org/github.com/sailpoint-oss/telescope/server/@v/v${{ steps.version.outputs.version }}.info" || true
+          echo "Go proxy will index the module on first fetch"

@@ -103,7 +103,16 @@ func (e *Engine) evaluateRule(rule Rule, root *yaml.Node) []protocol.Diagnostic 
 					continue
 				}
 
-				issues := fn(matchNode, then.Field, then.FunctionOptions)
+				funcOpts := then.FunctionOptions
+			if then.Function == "unreferencedReusableObject" {
+				funcOpts = make(map[string]interface{})
+				for k, v := range then.FunctionOptions {
+					funcOpts[k] = v
+				}
+				funcOpts["__root__"] = root
+			}
+
+			issues := fn(matchNode, then.Field, funcOpts)
 				for _, iss := range issues {
 					reportNode := iss.Node
 					if reportNode == nil {

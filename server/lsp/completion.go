@@ -48,6 +48,21 @@ func NewCompletionHandler(cache *openapi.IndexCache) gossip.CompletionHandler {
 			items = append(items, tagCompletions(idx)...)
 		}
 
+		// Schema property completions
+		if isPropertyContext(line) {
+			items = append(items, propertyPatternCompletions()...)
+		}
+
+		// HTTP method / operation template completions
+		if isHTTPMethodContext(line) {
+			items = append(items, operationTemplateCompletions()...)
+		}
+
+		// Header completions
+		if isHeaderContext(line) {
+			items = append(items, headerCompletions()...)
+		}
+
 		return &protocol.CompletionList{
 			IsIncomplete: false,
 			Items:        items,
@@ -224,4 +239,127 @@ func isResponseContext(line string) bool {
 func isContentContext(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	return strings.HasPrefix(trimmed, "content:")
+}
+
+func isPropertyContext(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "properties:")
+}
+
+func isHTTPMethodContext(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	// User is likely adding a new HTTP method under a path
+	for _, method := range []string{"get:", "post:", "put:", "patch:", "delete:", "options:", "head:", "trace:"} {
+		if strings.HasPrefix(trimmed, method) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHeaderContext(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "headers:")
+}
+
+// propertyPatternCompletions offers common schema property patterns.
+func propertyPatternCompletions() []protocol.CompletionItem {
+	patterns := []struct {
+		name, typ, format, desc string
+	}{
+		{"id", "integer", "int64", "Unique identifier"},
+		{"uuid", "string", "uuid", "UUID identifier"},
+		{"name", "string", "", "Display name"},
+		{"email", "string", "email", "Email address"},
+		{"phone", "string", "", "Phone number"},
+		{"description", "string", "", "Description text"},
+		{"created_at", "string", "date-time", "Creation timestamp"},
+		{"updated_at", "string", "date-time", "Last update timestamp"},
+		{"status", "string", "", "Current status"},
+		{"url", "string", "uri", "URL reference"},
+		{"is_active", "boolean", "", "Whether item is active"},
+		{"count", "integer", "int32", "Count value"},
+		{"amount", "number", "double", "Monetary or measured amount"},
+	}
+
+	items := make([]protocol.CompletionItem, 0, len(patterns))
+	for _, p := range patterns {
+		var insertText string
+		if p.format != "" {
+			insertText = fmt.Sprintf("%s:\n  type: %s\n  format: %s\n  description: ${1:%s}", p.name, p.typ, p.format, snippetEscaper.Replace(p.desc))
+		} else {
+			insertText = fmt.Sprintf("%s:\n  type: %s\n  description: ${1:%s}", p.name, p.typ, snippetEscaper.Replace(p.desc))
+		}
+		items = append(items, protocol.CompletionItem{
+			Label:            p.name,
+			Kind:             protocol.CompletionKindProperty,
+			Detail:           fmt.Sprintf("%s property (%s)", p.typ, p.desc),
+			InsertText:       insertText,
+			InsertTextFormat: &snippetFmt,
+			SortText:         "property_" + p.name,
+		})
+	}
+	return items
+}
+
+// operationTemplateCompletions offers full operation skeleton snippets.
+func operationTemplateCompletions() []protocol.CompletionItem {
+	methods := []struct {
+		method, desc string
+	}{
+		{"get", "GET operation"},
+		{"post", "POST operation with request body"},
+		{"put", "PUT operation with request body"},
+		{"patch", "PATCH operation with request body"},
+		{"delete", "DELETE operation"},
+	}
+
+	items := make([]protocol.CompletionItem, 0, len(methods))
+	for _, m := range methods {
+		var insertText string
+		if m.method == "get" || m.method == "delete" {
+			insertText = fmt.Sprintf("%s:\n  summary: ${1:Summary}\n  operationId: ${2:operationId}\n  description: ${3:Description}\n  responses:\n    '200':\n      description: ${4:Success}\n    '404':\n      description: Not Found", m.method)
+		} else {
+			insertText = fmt.Sprintf("%s:\n  summary: ${1:Summary}\n  operationId: ${2:operationId}\n  description: ${3:Description}\n  requestBody:\n    required: true\n    content:\n      application/json:\n        schema:\n          $$ref: ${4:'#/components/schemas/Model'}\n  responses:\n    '200':\n      description: ${5:Success}\n    '400':\n      description: Bad Request", m.method)
+		}
+		items = append(items, protocol.CompletionItem{
+			Label:            m.method + " (template)",
+			Kind:             protocol.CompletionKindSnippet,
+			Detail:           m.desc,
+			InsertText:       insertText,
+			InsertTextFormat: &snippetFmt,
+			SortText:         "zz_template_" + m.method,
+		})
+	}
+	return items
+}
+
+// headerCompletions offers standard HTTP header completions.
+func headerCompletions() []protocol.CompletionItem {
+	headers := []struct {
+		name, desc, typ string
+	}{
+		{"X-Request-ID", "Unique request identifier", "string"},
+		{"X-Rate-Limit-Limit", "Rate limit ceiling", "integer"},
+		{"X-Rate-Limit-Remaining", "Rate limit remaining", "integer"},
+		{"X-Rate-Limit-Reset", "Rate limit reset time", "integer"},
+		{"X-Total-Count", "Total number of items", "integer"},
+		{"ETag", "Entity tag for caching", "string"},
+		{"X-Correlation-ID", "Correlation identifier for tracing", "string"},
+		{"Retry-After", "Seconds to wait before retrying", "integer"},
+	}
+
+	items := make([]protocol.CompletionItem, 0, len(headers))
+	for _, h := range headers {
+		insertText := fmt.Sprintf("%s:\n  description: ${1:%s}\n  schema:\n    type: %s", h.name, snippetEscaper.Replace(h.desc), h.typ)
+		items = append(items, protocol.CompletionItem{
+			Label:            h.name,
+			Kind:             protocol.CompletionKindField,
+			Detail:           h.desc,
+			InsertText:       insertText,
+			InsertTextFormat: &snippetFmt,
+			SortText:         "header_" + h.name,
+		})
+	}
+	return items
 }

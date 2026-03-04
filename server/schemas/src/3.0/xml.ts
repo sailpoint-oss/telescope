@@ -22,7 +22,6 @@ export const XMLObjectSchema = z
 		attribute: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe(
 				"Declares whether the property definition translates to an attribute instead of an element.",
 			)
@@ -30,7 +29,6 @@ export const XMLObjectSchema = z
 		wrapped: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe(
 				"May be used only for an array definition. Signifies whether the array is wrapped or not.",
 			)

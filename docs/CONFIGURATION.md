@@ -1,30 +1,40 @@
 # Configuration Reference
 
-Telescope is configured via `.telescope/config.yaml` in your workspace root. This document provides a complete reference for all configuration options.
+Telescope is configured via `.telescope.yaml` (or `.telescope.yml`) in your workspace root. This document provides a complete reference for all configuration options.
 
 ## Quick Start
 
-Create `.telescope/config.yaml`:
+Create `.telescope.yaml`:
 
 ```yaml
-openapi:
-  patterns:
-    - "**/*.yaml"
-    - "**/*.yml"
-    - "**/*.json"
-    - "!**/node_modules/**"
+extends: telescope:recommended
+
+include:
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.json"
+
+exclude:
+  - "node_modules/**"
 ```
 
 ## File Location
 
+Telescope searches for configuration files in this priority order:
+
+1. `.telescope.yaml`
+2. `.telescope.yml`
+3. `.telescope/config.yaml`
+4. `.telescope/config.yml`
+
+If no config file is found, sensible defaults are used.
+
 ```
 your-project/
+├── .telescope.yaml              # Configuration file (preferred location)
 ├── .telescope/
-│   ├── config.yaml           # Main configuration file
-│   ├── rules/                # Custom rules directory
-│   │   └── my-custom-rule.ts
-│   └── schemas/              # Custom schemas directory
-│       └── my-schema.ts
+│   └── plugins/                 # Plugin binaries directory
+│       └── my-custom-rules
 └── api/
     └── openapi.yaml
 ```
@@ -32,155 +42,170 @@ your-project/
 ## Configuration Schema
 
 ```yaml
-# OpenAPI validation configuration
+# Base ruleset to extend
+extends: telescope:recommended
+
+# Override individual rule severities
+rules:
+  operation-summary: warn
+  parameter-description: error
+  ascii-only: off
+
+# Spectral-compatible YAML rulesets to load
+plugins:
+  - .telescope/spectral-rules.yaml
+  - ./more-rules.yaml
+
+# Glob patterns for files to include
+include:
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.json"
+
+# Glob patterns for files to exclude
+exclude:
+  - "node_modules/**"
+  - "vendor/**"
+  - ".git/**"
+
+# OpenAPI-specific configuration
 openapi:
-  # Glob patterns for OpenAPI files
-  patterns:
-    - "**/*.yaml"
-    - "**/*.yml"
-    - "**/*.json"
-    - "!**/node_modules/**"
-
-  # Enable SailPoint-specific rules (default: false)
-  sailpoint: true
-
-  # Override built-in rule severities
-  rulesOverrides:
-    operation-summary: warn
-    parameter-description: error
-    ascii-only: off
-
-  # Register custom OpenAPI rules
-  rules:
-    - rule: my-custom-rule.ts
-    - rule: another-rule.ts
-      patterns:
-        - "**/api/**/*.yaml"
-
-  # OpenAPI extension configuration
+  targetVersion: "3.1"         # Target spec version: "3.0", "3.1", or "3.2"
   extensions:
     schemas:
-      - x-custom-extension.ts
+      - x-custom-extension.json
     required:
       - x-company-auth
 
 # Non-OpenAPI file validation
 additionalValidation:
-  # Named validation group
-  my-configs:
+  config-files:
     patterns:
-      - "configs/**/*.yaml"
-
-    # Custom TypeBox schemas for validation
+      - "config/**/*.yaml"
     schemas:
-      - schema: my-schema.ts
-        patterns:
-          - "configs/app-*.yaml"
+      - schema: app-config.json
 
-    # Custom generic rules
-    rules:
-      - rule: validate-config.ts
+# CLI output configuration
+output:
+  format: text                  # text, json, sarif, github
+  color: auto                   # auto, always, never
+
+# LSP server behavior
+lsp:
+  debounce: 300ms               # Diagnostic debounce delay
+  maxFileSize: 5242880          # Max file size in bytes (5MB)
 ```
 
-## OpenAPI Section
+## Top-Level Fields
 
-### `openapi.patterns`
+### `extends`
 
-Glob patterns that determine which files are treated as OpenAPI documents.
+Specifies a base ruleset to extend. All rules from the base are enabled at their default severities, then the `rules` section applies overrides.
 
 ```yaml
-openapi:
-  patterns:
-    - "**/*.yaml" # Include all YAML files
-    - "**/*.yml" # Include all YML files
-    - "**/*.json" # Include all JSON files
-    - "!**/node_modules/**" # Exclude node_modules
-    - "!**/dist/**" # Exclude dist directory
+extends: telescope:recommended
 ```
 
-**Default patterns** (when not specified):
+**Built-in rulesets:**
+
+| Name | Description |
+| ---- | ----------- |
+| `telescope:recommended` | ~35 curated rules for most projects (default) |
+| `telescope:all` | All ~65 rules enabled (excludes OWASP) |
+| `telescope:owasp` | 15 OWASP API security rules |
+| `telescope:strict` | Recommended + OWASP with stricter severities |
+
+### `rules`
+
+Override severity levels for any rule (built-in, plugin, or Spectral).
 
 ```yaml
-patterns:
-  - "**/*.yaml"
-  - "**/*.yml"
-  - "**/*.json"
-  - "**/*.jsonc"
-```
+rules:
+  # Change to warning
+  operation-summary: warn
 
-### `openapi.sailpoint`
+  # Change to error
+  parameter-description: error
 
-Enable SailPoint-specific rules for enterprise API standards.
-
-```yaml
-openapi:
-  sailpoint: true # Adds 22 additional rules
-```
-
-| Value             | Rules Loaded                         |
-| ----------------- | ------------------------------------ |
-| `false` (default) | 30 OpenAPI best practice rules       |
-| `true`            | 52 rules (30 OpenAPI + 22 SailPoint) |
-
-### `openapi.rulesOverrides`
-
-Override severity levels for built-in rules.
-
-```yaml
-openapi:
-  rulesOverrides:
-    # Change to warning
-    operation-summary: warn
-
-    # Change to error
-    parameter-description: error
-
-    # Disable entirely
-    ascii-only: off
+  # Disable entirely
+  ascii-only: off
 ```
 
 **Valid severity values:**
 
-- `error` - Must be fixed
-- `warn` / `warning` - Should be addressed
-- `info` - Informational
-- `hint` - Style recommendations
-- `off` - Disable the rule
+| Value | Description |
+| ----- | ----------- |
+| `error` | Must be fixed |
+| `warn` / `warning` | Should be addressed |
+| `info` / `information` | Informational |
+| `hint` | Style recommendations |
+| `off` | Disable the rule |
 
-### `openapi.rules`
+### `plugins`
 
-Register custom OpenAPI rules.
+Load Spectral-compatible YAML rulesets. Paths are relative to the config file location.
+
+```yaml
+plugins:
+  - .telescope/spectral-rules.yaml
+  - ./company-rules.yaml
+```
+
+These rulesets use JSONPath and built-in functions for declarative validation. See [Custom Rules Guide](CUSTOM-RULES.md) for the Spectral rule format.
+
+### `include`
+
+Glob patterns for files Telescope should process.
+
+```yaml
+include:
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.json"
+```
+
+**Default** (when not specified): `["**/*.yaml", "**/*.yml", "**/*.json"]`
+
+### `exclude`
+
+Glob patterns for files to exclude from processing.
+
+```yaml
+exclude:
+  - "node_modules/**"
+  - "vendor/**"
+  - ".git/**"
+  - "**/test-fixtures/**"
+```
+
+**Default** (when not specified): `["node_modules/**", "vendor/**", ".git/**"]`
+
+## OpenAPI Section
+
+### `openapi.targetVersion`
+
+Set the target OpenAPI specification version for version-specific validation.
 
 ```yaml
 openapi:
-  rules:
-    # Simple rule registration
-    - rule: require-contact.ts
-
-    # Rule with pattern override
-    - rule: strict-descriptions.ts
-      patterns:
-        - "**/public-api/**/*.yaml"
-      severity: error
+  targetVersion: "3.1"   # "3.0", "3.1", or "3.2"
 ```
-
-Rule paths are relative to `.telescope/rules/`.
 
 ### `openapi.extensions`
 
-Configure OpenAPI extension validation.
+Configure OpenAPI extension (`x-*`) validation.
 
 ```yaml
 openapi:
   extensions:
-    # Custom extension schemas (loaded from .telescope/extensions/)
+    # JSON Schema files for custom extensions (from .telescope/extensions/)
     schemas:
-      - x-custom-extension.ts
+      - x-custom-extension.json
 
-    # Required extensions (both built-in and custom)
+    # Extension names that must be present in documents
     required:
       - x-company-auth
-      - x-speakeasy-entity
+      - x-api-version
 ```
 
 **Built-in extension support:**
@@ -192,27 +217,9 @@ Telescope includes built-in schemas for popular OpenAPI extensions:
 - Speakeasy extensions (`x-speakeasy-*`)
 - Stoplight extensions (`x-stoplight-*`)
 
-**Custom extension schemas:**
+## Additional Validation
 
-Create TypeBox schema files in `.telescope/extensions/`:
-
-```typescript
-// .telescope/extensions/x-custom-extension.ts
-import { Type } from "@sinclair/typebox";
-
-export default Type.Object({
-  name: Type.String(),
-  enabled: Type.Boolean(),
-});
-```
-
-**Required extensions:**
-
-The `required` array lists extension names that must be present in your OpenAPI documents. Violations are reported as errors.
-
-## Additional Validation Section
-
-Configure validation for non-OpenAPI files (config files, custom YAML/JSON formats).
+Configure validation for non-OpenAPI files using JSON Schema.
 
 ### Basic Structure
 
@@ -222,14 +229,12 @@ additionalValidation:
     patterns:
       - "path/to/files/**/*.yaml"
     schemas:
-      - schema: schema-file.ts
-    rules:
-      - rule: rule-file.ts
+      - schema: schema-file.json
 ```
 
 ### Named Groups
 
-Each group defines a set of patterns, schemas, and rules:
+Each group defines a set of patterns and schemas:
 
 ```yaml
 additionalValidation:
@@ -238,21 +243,17 @@ additionalValidation:
     patterns:
       - "config/**/*.yaml"
     schemas:
-      - schema: app-config-schema.ts
-    rules:
-      - rule: validate-env-vars.ts
+      - schema: app-config-schema.json
 
   # CI/CD file validation
   ci-files:
     patterns:
       - ".github/workflows/**/*.yaml"
-    rules:
-      - rule: validate-workflow.ts
+    schemas:
+      - schema: workflow-schema.json
 ```
 
-### Schema Validation
-
-Register TypeBox schemas for structural validation:
+### Schema with Pattern Overrides
 
 ```yaml
 additionalValidation:
@@ -261,109 +262,118 @@ additionalValidation:
       - "configs/**/*.yaml"
     schemas:
       # Schema with inherited patterns
-      - schema: base-config.ts
+      - schema: base-config.json
 
       # Schema with specific patterns
-      - schema: app-config.ts
+      - schema: app-config.json
         patterns:
           - "configs/app-*.yaml"
 ```
 
-### Generic Rules
+## Output Section
 
-Register rules for non-OpenAPI validation:
+Controls CLI output formatting.
 
 ```yaml
-additionalValidation:
-  my-group:
-    patterns:
-      - "**/*.yaml"
-    rules:
-      # Rule with inherited patterns
-      - rule: check-version.ts
+output:
+  format: text    # text, json, sarif, github
+  color: auto     # auto, always, never
+```
 
-      # Rule with specific patterns
-      - rule: check-naming.ts
-        patterns:
-          - "**/components/**/*.yaml"
+| Format | Description |
+| ------ | ----------- |
+| `text` | Human-readable terminal output (default) |
+| `json` | Machine-readable JSON |
+| `sarif` | SARIF format for code analysis tools |
+| `github` | GitHub Actions annotations |
+
+## LSP Section
+
+Controls LSP server behavior.
+
+```yaml
+lsp:
+  debounce: 300ms        # Diagnostic debounce delay (default: 300ms)
+  maxFileSize: 5242880   # Max file size in bytes (default: 5MB)
 ```
 
 ## Pattern Matching
 
-Telescope uses Prettier-style glob patterns.
+Telescope uses glob patterns for file matching.
 
 ### Syntax
 
-| Pattern    | Description                       |
-| ---------- | --------------------------------- |
-| `*`        | Matches any characters except `/` |
-| `**`       | Matches any number of directories |
-| `?`        | Matches a single character        |
-| `[abc]`    | Character class                   |
-| `{a,b}`    | Brace expansion                   |
-| `!` prefix | Exclusion pattern                 |
+| Pattern | Description |
+| ------- | ----------- |
+| `*` | Matches any characters except `/` |
+| `**` | Matches any number of directories |
+| `?` | Matches a single character |
+| `[abc]` | Character class |
+| `{a,b}` | Brace expansion |
 
 ### Examples
 
 ```yaml
-patterns:
+include:
   # All YAML files in api directory
   - "api/**/*.yaml"
 
   # YAML or JSON files
   - "**/*.{yaml,json}"
 
-  # Exclude test files
-  - "**/*.yaml"
-  - "!**/*.test.yaml"
-  - "!**/test/**"
+exclude:
+  # Test files
+  - "**/*.test.yaml"
+  - "**/test/**"
 
-  # Specific version directories
-  - "api/v[1-3]/**/*.yaml"
+  # Specific directories
+  - "vendor/**"
+  - "dist/**"
 ```
-
-### Pattern Evaluation
-
-1. Files must match at least one positive pattern
-2. Files are excluded if they match a negation pattern
-3. Patterns are evaluated in order; last match wins
-4. `.telescope/config.yaml` is always excluded from OpenAPI linting
 
 ## Environment Variables
 
-| Variable                | Description                                         |
-| ----------------------- | --------------------------------------------------- |
-| `TELESCOPE_LOG_LEVEL`   | Logging verbosity: `debug`, `info`, `warn`, `error` |
-| `TELESCOPE_CONFIG_PATH` | Override config file location                       |
+| Variable | Description |
+| -------- | ----------- |
+| `TELESCOPE_LOG_LEVEL` | Logging verbosity: `debug`, `info`, `warn`, `error` |
+| `TELESCOPE_CONFIG_PATH` | Override config file location |
 
 ```bash
 # Enable debug logging
-TELESCOPE_LOG_LEVEL=debug code .
+TELESCOPE_LOG_LEVEL=debug telescope lint api.yaml
 ```
 
 ## Default Configuration
 
-When no `.telescope/config.yaml` exists:
+When no config file is found, these defaults are used:
 
 ```yaml
-openapi:
-  patterns:
-    - "**/*.yaml"
-    - "**/*.yml"
-    - "**/*.json"
-    - "**/*.jsonc"
-  sailpoint: false
-  rulesOverrides: {}
-  rules: []
+extends: telescope:recommended
 
-additionalValidation: {}
+include:
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.json"
+
+exclude:
+  - "node_modules/**"
+  - "vendor/**"
+  - ".git/**"
+
+output:
+  format: text
+  color: auto
+
+lsp:
+  debounce: 300ms
+  maxFileSize: 5242880
 ```
 
 ## Configuration Reload
 
 Configuration is automatically reloaded when:
 
-- `.telescope/config.yaml` is modified
+- `.telescope.yaml` is modified
 - Workspace folders change
 - VS Code window regains focus
 
@@ -372,70 +382,72 @@ The server computes a configuration signature to detect changes and only reloads
 ## Complete Example
 
 ```yaml
-# .telescope/config.yaml
+# .telescope.yaml
+
+extends: telescope:recommended
+
+rules:
+  operation-summary: warn
+  parameter-description: warn
+  ascii-only: off
+  # Custom plugin rules can be overridden too
+  require-security: error
+
+plugins:
+  - .telescope/spectral-rules.yaml
+
+include:
+  - "api/**/*.yaml"
+  - "api/**/*.yml"
+  - "schemas/**/*.json"
+
+exclude:
+  - "node_modules/**"
+  - "**/examples/**"
 
 openapi:
-  patterns:
-    - "api/**/*.yaml"
-    - "api/**/*.yml"
-    - "schemas/**/*.json"
-    - "!**/node_modules/**"
-    - "!**/examples/**"
-
-  sailpoint: true
-
-  rulesOverrides:
-    operation-summary: warn
-    parameter-description: warn
-    ascii-only: off
-
-  rules:
-    - rule: require-contact-info.ts
-    - rule: enforce-versioning.ts
-      patterns:
-        - "api/v*/**/*.yaml"
+  targetVersion: "3.1"
+  extensions:
+    required:
+      - x-company-auth
 
 additionalValidation:
   config-files:
     patterns:
       - "config/**/*.yaml"
     schemas:
-      - schema: app-config-schema.ts
-    rules:
-      - rule: validate-secrets.ts
+      - schema: app-config-schema.json
 
-  github-workflows:
-    patterns:
-      - ".github/workflows/**/*.yaml"
-    rules:
-      - rule: validate-actions.ts
+output:
+  format: text
+  color: auto
+
+lsp:
+  debounce: 500ms
 ```
 
 ## Troubleshooting
 
 ### Config Not Loading
 
-1. Verify file location: `.telescope/config.yaml`
-2. Check YAML syntax: `bun -e "console.log(require('yaml').parse(require('fs').readFileSync('.telescope/config.yaml', 'utf8')))"`
-3. Check the **telescope Language Server** output channel for errors
+1. Verify file location: `.telescope.yaml` in workspace root
+2. Check YAML syntax is valid
+3. Check the **Telescope Language Server** output channel in VS Code for errors
 
 ### Patterns Not Matching
 
 1. Use `**` for recursive matching
-2. Ensure exclusions come after inclusions
-3. Test patterns with `ls` or `find`:
-   ```bash
-   find . -name "*.yaml" -not -path "*/node_modules/*"
-   ```
+2. Ensure patterns don't conflict between `include` and `exclude`
+3. Check that file extensions match your patterns
 
 ### Rules Not Running
 
-1. Verify rule file exists in `.telescope/rules/`
-2. Check for TypeScript compilation errors
-3. Ensure the rule exports a default function
+1. Verify the rule is enabled in your `extends` ruleset or explicitly in `rules`
+2. Check that plugin binaries exist in `.telescope/plugins/` and are executable
+3. Check that Spectral YAML rulesets are referenced in `plugins`
 
 ## Related Documentation
 
 - [Custom Rules Guide](CUSTOM-RULES.md)
-- [Built-in Rules](../packages/telescope-server/src/engine/rules/RULES.md)
 - [Architecture](../ARCHITECTURE.md)
+- [Contributing](../CONTRIBUTING.md)

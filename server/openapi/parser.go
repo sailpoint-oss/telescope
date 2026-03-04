@@ -368,6 +368,8 @@ func (p *Parser) parseParameter(node *tree_sitter.Node) *Parameter {
 			param.Schema = p.parseSchema(value, "")
 		case "example":
 			param.Example = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+		case "examples":
+			param.Examples = p.parseExampleMap(value)
 		case "$ref":
 			param.Ref = unquote(p.nodeText(value))
 		default:
@@ -416,6 +418,8 @@ func (p *Parser) parseContent(node *tree_sitter.Node) map[string]*MediaType {
 					mt.Schema = p.parseSchema(v, "")
 				case "example":
 					mt.Example = &Node{Value: p.nodeText(v), RawNode: v, Loc: LocFromNode(v)}
+				case "examples":
+					mt.Examples = p.parseExampleMap(v)
 				}
 			})
 		}
@@ -495,14 +499,22 @@ func (p *Parser) parseHeaders(node *tree_sitter.Node) map[string]*Header {
 	return headers
 }
 
+// maxSchemaDepth limits recursive schema parsing to prevent stack overflow
+// on deeply nested or circular schema definitions.
+const maxSchemaDepth = 64
+
 func (p *Parser) parseSchema(node *tree_sitter.Node, name string) *Schema {
+	return p.parseSchemaDepth(node, name, 0)
+}
+
+func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int) *Schema {
 	node = p.unwrapValue(node)
 	s := &Schema{
 		Properties: make(map[string]*Schema),
 		Extensions: make(map[string]*Node),
 		Loc:        LocFromNode(node),
 	}
-	if node == nil {
+	if node == nil || depth > maxSchemaDepth {
 		return s
 	}
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
@@ -528,22 +540,22 @@ func (p *Parser) parseSchema(node *tree_sitter.Node, name string) *Schema {
 				s.Required = append(s.Required, unquote(p.nodeText(item)))
 			})
 		case "properties":
-			s.Properties = p.parseSchemaMap(value)
+			s.Properties = p.parseSchemaMapDepth(value, depth+1)
 		case "additionalProperties":
 			t := p.nodeText(value)
 			if t != "true" && t != "false" {
-				s.AdditionalProperties = p.parseSchema(value, "")
+				s.AdditionalProperties = p.parseSchemaDepth(value, "", depth+1)
 			}
 		case "allOf":
-			s.AllOf = p.parseSchemaList(value)
+			s.AllOf = p.parseSchemaListDepth(value, depth+1)
 		case "anyOf":
-			s.AnyOf = p.parseSchemaList(value)
+			s.AnyOf = p.parseSchemaListDepth(value, depth+1)
 		case "oneOf":
-			s.OneOf = p.parseSchemaList(value)
+			s.OneOf = p.parseSchemaListDepth(value, depth+1)
 		case "not":
-			s.Not = p.parseSchema(value, "")
+			s.Not = p.parseSchemaDepth(value, "", depth+1)
 		case "items":
-			s.Items = p.parseSchema(value, "")
+			s.Items = p.parseSchemaDepth(value, "", depth+1)
 		case "minLength":
 			if v := parseInt(p.nodeText(value)); v >= 0 {
 				s.MinLength = &v
@@ -596,6 +608,10 @@ func (p *Parser) parseSchema(node *tree_sitter.Node, name string) *Schema {
 }
 
 func (p *Parser) parseSchemaMap(node *tree_sitter.Node) map[string]*Schema {
+	return p.parseSchemaMapDepth(node, 0)
+}
+
+func (p *Parser) parseSchemaMapDepth(node *tree_sitter.Node, depth int) map[string]*Schema {
 	node = p.unwrapValue(node)
 	if node == nil {
 		return nil
@@ -603,7 +619,7 @@ func (p *Parser) parseSchemaMap(node *tree_sitter.Node) map[string]*Schema {
 	schemas := make(map[string]*Schema)
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
 		name := unquote(p.nodeText(key))
-		s := p.parseSchema(value, name)
+		s := p.parseSchemaDepth(value, name, depth)
 		s.NameLoc = LocFromNode(key)
 		schemas[name] = s
 	})
@@ -611,13 +627,17 @@ func (p *Parser) parseSchemaMap(node *tree_sitter.Node) map[string]*Schema {
 }
 
 func (p *Parser) parseSchemaList(node *tree_sitter.Node) []*Schema {
+	return p.parseSchemaListDepth(node, 0)
+}
+
+func (p *Parser) parseSchemaListDepth(node *tree_sitter.Node, depth int) []*Schema {
 	node = p.unwrapValue(node)
 	if node == nil {
 		return nil
 	}
 	var schemas []*Schema
 	p.walkSequence(node, func(item *tree_sitter.Node) {
-		schemas = append(schemas, p.parseSchema(item, ""))
+		schemas = append(schemas, p.parseSchemaDepth(item, "", depth))
 	})
 	return schemas
 }
@@ -653,6 +673,7 @@ func (p *Parser) parseComponents(node *tree_sitter.Node) *Components {
 		Headers:         make(map[string]*Header),
 		SecuritySchemes: make(map[string]*SecurityScheme),
 		Links:           make(map[string]*Link),
+		Callbacks:       make(map[string]*Callback),
 		PathItems:       make(map[string]*PathItem),
 		Loc:             LocFromNode(node),
 	}
@@ -713,6 +734,20 @@ func (p *Parser) parseComponents(node *tree_sitter.Node) *Components {
 			if value != nil {
 				p.walkMapping(value, func(k, v *tree_sitter.Node) {
 					c.Links[unquote(p.nodeText(k))] = p.parseLink(v)
+				})
+			}
+		case "callbacks":
+			value = p.unwrapValue(value)
+			if value != nil {
+				p.walkMapping(value, func(k, v *tree_sitter.Node) {
+					cb := make(Callback)
+					vv := p.unwrapValue(v)
+					if vv != nil {
+						p.walkMapping(vv, func(ek, ev *tree_sitter.Node) {
+							cb[unquote(p.nodeText(ek))] = p.parsePathItem(ev)
+						})
+					}
+					c.Callbacks[unquote(p.nodeText(k))] = &cb
 				})
 			}
 		case "pathItems":
@@ -885,6 +920,18 @@ func (p *Parser) parseExternalDocs(node *tree_sitter.Node) *ExternalDocs {
 	return ed
 }
 
+func (p *Parser) parseExampleMap(node *tree_sitter.Node) map[string]*Example {
+	node = p.unwrapValue(node)
+	if node == nil {
+		return nil
+	}
+	examples := make(map[string]*Example)
+	p.walkMapping(node, func(key, value *tree_sitter.Node) {
+		examples[unquote(p.nodeText(key))] = p.parseExample(value)
+	})
+	return examples
+}
+
 func (p *Parser) parseExample(node *tree_sitter.Node) *Example {
 	node = p.unwrapValue(node)
 	ex := &Example{Loc: LocFromNode(node)}
@@ -947,7 +994,7 @@ func (p *Parser) walkMapping(node *tree_sitter.Node, fn func(key, value *tree_si
 			if ck == "block_mapping_pair" || ck == "flow_pair" {
 				keyNode := child.ChildByFieldName("key")
 				valueNode := child.ChildByFieldName("value")
-				if keyNode != nil {
+				if keyNode != nil && valueNode != nil {
 					fn(keyNode, valueNode)
 				}
 			}
@@ -961,7 +1008,7 @@ func (p *Parser) walkMapping(node *tree_sitter.Node, fn func(key, value *tree_si
 			}
 			keyNode := child.ChildByFieldName("key")
 			valueNode := child.ChildByFieldName("value")
-			if keyNode != nil {
+			if keyNode != nil && valueNode != nil {
 				fn(keyNode, valueNode)
 			}
 		}

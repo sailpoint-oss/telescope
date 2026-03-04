@@ -353,3 +353,168 @@ components:
 		t.Error("schema Pet not indexed")
 	}
 }
+
+func TestParseYAML_DeeplyNestedSchema(t *testing.T) {
+	// Verify that deeply nested schemas (exceeding maxSchemaDepth=64) don't
+	// cause a stack overflow — the parser should return partial results.
+	mgr, store := setupManager(t)
+
+	// Build a spec with 70 levels of allOf nesting, exceeding the depth limit.
+	var content string
+	content = "openapi: \"3.1.0\"\ninfo:\n  title: Deep\n  version: \"1.0\"\npaths: {}\ncomponents:\n  schemas:\n    Root:\n"
+	indent := "      "
+	for i := 0; i < 70; i++ {
+		content += indent + "allOf:\n"
+		content += indent + "  - type: object\n"
+		indent += "    "
+	}
+
+	uri := protocol.DocumentURI("file:///deep.yaml")
+	openYAML(t, store, uri, content)
+
+	tree := mgr.GetTree(uri)
+	if tree == nil {
+		t.Fatal("GetTree returned nil")
+	}
+
+	// Must not panic.
+	parser := openapi.NewParser(tree, openapi.FormatYAML)
+	doc := parser.Parse()
+
+	if doc.Components == nil {
+		t.Fatal("Components is nil")
+	}
+	if _, ok := doc.Components.Schemas["Root"]; !ok {
+		t.Fatal("Root schema not parsed")
+	}
+}
+
+func TestParseYAML_NilValueMapping(t *testing.T) {
+	// A YAML key with no value (trailing key) must not cause a nil panic.
+	mgr, store := setupManager(t)
+	content := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /test:
+    get:
+      summary:
+      responses:
+        "200":
+          description: OK
+`
+	uri := protocol.DocumentURI("file:///nil-value.yaml")
+	openYAML(t, store, uri, content)
+
+	tree := mgr.GetTree(uri)
+	if tree == nil {
+		t.Fatal("GetTree returned nil")
+	}
+
+	// Must not panic — summary has no value node.
+	parser := openapi.NewParser(tree, openapi.FormatYAML)
+	doc := parser.Parse()
+
+	if doc.Version != "3.1.0" {
+		t.Errorf("Version = %q, want %q", doc.Version, "3.1.0")
+	}
+}
+
+func TestParseYAML_Callbacks(t *testing.T) {
+	mgr, store := setupManager(t)
+	content := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths: {}
+components:
+  callbacks:
+    myWebhook:
+      "{$request.body#/callbackUrl}":
+        post:
+          summary: Webhook notification
+          responses:
+            "200":
+              description: OK
+`
+	uri := protocol.DocumentURI("file:///callbacks.yaml")
+	openYAML(t, store, uri, content)
+
+	tree := mgr.GetTree(uri)
+	if tree == nil {
+		t.Fatal("GetTree returned nil")
+	}
+
+	parser := openapi.NewParser(tree, openapi.FormatYAML)
+	doc := parser.Parse()
+
+	if doc.Components == nil {
+		t.Fatal("Components is nil")
+	}
+	if len(doc.Components.Callbacks) != 1 {
+		t.Fatalf("len(Callbacks) = %d, want 1", len(doc.Components.Callbacks))
+	}
+	cb, ok := doc.Components.Callbacks["myWebhook"]
+	if !ok {
+		t.Fatal("myWebhook callback not found")
+	}
+	if len(*cb) != 1 {
+		t.Fatalf("len(myWebhook) = %d, want 1", len(*cb))
+	}
+}
+
+func TestParseYAML_ParameterExamples(t *testing.T) {
+	mgr, store := setupManager(t)
+	content := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /items:
+    get:
+      parameters:
+        - name: status
+          in: query
+          examples:
+            active:
+              value: active
+              summary: Active items
+            archived:
+              value: archived
+      responses:
+        "200":
+          description: OK
+`
+	uri := protocol.DocumentURI("file:///param-examples.yaml")
+	openYAML(t, store, uri, content)
+
+	tree := mgr.GetTree(uri)
+	if tree == nil {
+		t.Fatal("GetTree returned nil")
+	}
+
+	parser := openapi.NewParser(tree, openapi.FormatYAML)
+	doc := parser.Parse()
+
+	item, ok := doc.Paths["/items"]
+	if !ok {
+		t.Fatal("/items path not found")
+	}
+	if item.Get == nil {
+		t.Fatal("GET /items is nil")
+	}
+	if len(item.Get.Parameters) != 1 {
+		t.Fatalf("len(Parameters) = %d, want 1", len(item.Get.Parameters))
+	}
+	param := item.Get.Parameters[0]
+	if len(param.Examples) != 2 {
+		t.Fatalf("len(Examples) = %d, want 2", len(param.Examples))
+	}
+	if _, ok := param.Examples["active"]; !ok {
+		t.Error("example 'active' not found")
+	}
+	if _, ok := param.Examples["archived"]; !ok {
+		t.Error("example 'archived' not found")
+	}
+}

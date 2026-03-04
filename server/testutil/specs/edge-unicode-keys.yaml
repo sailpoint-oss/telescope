@@ -1,0 +1,27 @@
+openapi: "3.1.0"
+info:
+  title: "Unicode Keys \u2014 Test API"
+  version: "1.0.0"
+  description: "API with unicode characters in various places"
+paths:
+  /caf\u00e9:
+    get:
+      operationId: getCafe
+      summary: "Endpoint with unicode in path"
+      description: "Tests unicode handling in paths"
+      tags:
+        - unicode
+      responses:
+        "200":
+          description: "Caf\u00e9 response"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: "Name with em-dash \u2014 test"
+tags:
+  - name: unicode
+    description: "Unicode test tag"

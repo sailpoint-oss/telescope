@@ -21,4 +21,8 @@ func RegisterAll(s *gossip.Server) {
 	registerExtendedAnalyzers(s)
 	registerStructuralValidation(s)
 	registerMarkdownAnalyzers(s)
+	registerUnusedComponentAnalyzers(s)
+	registerCompletenessAnalyzers(s)
+	registerExampleValidationAnalyzers(s)
+	registerMigrationAnalyzers(s)
 }

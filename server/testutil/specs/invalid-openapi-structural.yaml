@@ -1,0 +1,17 @@
+# OpenAPI spec with structural (JSON Schema) violations.
+# Each issue should produce an oas3-schema error diagnostic.
+openapi: "3.1.0"
+# Missing required 'info' object entirely.
+paths:
+  /wrong-types:
+    get:
+      summary: 12345
+      description: true
+      operationId: validId
+      responses:
+        "200":
+          description: OK
+  /missing-responses:
+    post:
+      summary: This operation has no responses key
+      operationId: noResponses

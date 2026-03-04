@@ -151,7 +151,6 @@ func (m *RulesetManager) buildTransformer() treesitter.DiagnosticTransformer {
 	for _, ov := range overrides {
 		if ov.Disabled {
 			disabledSet[ov.RuleID] = true
-			// Also disable by Spectral alias
 			if alias := rulesets.SpectralToTelescopeID(ov.RuleID); alias != ov.RuleID {
 				disabledSet[alias] = true
 			}

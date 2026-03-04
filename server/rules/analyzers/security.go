@@ -106,6 +106,13 @@ func registerSecurityAnalyzers(s *gossip.Server) {
 					allReqs = append(allReqs, mo.Operation.Security...)
 				}
 			}
+
+			// Collect available scheme names for suggestions
+			var availableSchemes []string
+			for name := range idx.SecuritySchemes {
+				availableSchemes = append(availableSchemes, name)
+			}
+
 			for _, req := range allReqs {
 				for _, entry := range req.Entries {
 					if _, ok := idx.SecuritySchemes[entry.Name]; !ok {
@@ -113,7 +120,13 @@ func registerSecurityAnalyzers(s *gossip.Server) {
 						if loc.Node == nil {
 							loc = idx.Document.Loc
 						}
-						r.At(loc, "Security requirement references undefined scheme '%s'", entry.Name)
+						// Suggest closest match
+						suggestion := closestString(entry.Name, availableSchemes)
+						if suggestion != "" {
+							r.At(loc, "Security requirement references undefined scheme '%s'. Did you mean '%s'?", entry.Name, suggestion)
+						} else {
+							r.At(loc, "Security requirement references undefined scheme '%s'", entry.Name)
+						}
 					}
 				}
 			}

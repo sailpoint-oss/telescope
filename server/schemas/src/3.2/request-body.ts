@@ -8,7 +8,7 @@ export const RequestBodyObjectSchema = z
 		content: z
 			.record(z.string(), MediaTypeObjectSchema)
 			.meta({ title: "content" }),
-		required: z.boolean().optional().default(false).meta({ title: "required" }),
+		required: z.boolean().optional().meta({ title: "required" }),
 	})
 	.meta({
 		title: "RequestBody",

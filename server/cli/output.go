@@ -23,13 +23,26 @@ func outputResults(results []fileDiagnostics, format string) {
 
 func outputText(results []fileDiagnostics) {
 	total := 0
+	fixableCount := 0
 	for _, fd := range results {
 		for _, d := range fd.Diagnostics {
 			sev := severityIcon(d.Severity)
 			code := ""
+			ruleID := ""
 			if d.Code != nil {
+				if s, ok := d.Code.(string); ok {
+					ruleID = s
+				}
 				code = fmt.Sprintf(" [%v]", d.Code)
 			}
+
+			// Enhanced message with fix hint
+			fixHint := fixSuggestion(ruleID)
+			if fixHint != "" {
+				fixableCount++
+				code += " " + fixHint
+			}
+
 			fmt.Fprintf(os.Stdout, "%s:%d:%d: %s %s%s\n",
 				fd.Path,
 				d.Range.Start.Line+1,
@@ -42,7 +55,31 @@ func outputText(results []fileDiagnostics) {
 		}
 	}
 	if total > 0 {
-		fmt.Fprintf(os.Stderr, "\n%d problem(s) in %d file(s)\n", total, len(results))
+		summary := fmt.Sprintf("\n%d problem(s) in %d file(s)", total, len(results))
+		if fixableCount > 0 {
+			summary += fmt.Sprintf(" (%d auto-fixable)", fixableCount)
+		}
+		fmt.Fprintln(os.Stderr, summary)
+	}
+}
+
+// fixSuggestion returns a short fix hint for auto-fixable rules.
+func fixSuggestion(ruleID string) string {
+	switch ruleID {
+	case "operation-description", "deprecated-description":
+		return "(add 'description' field)"
+	case "operation-operationId":
+		return "(add 'operationId' field)"
+	case "missing-error-responses":
+		return "(add 4xx/5xx responses)"
+	case "no-request-body-on-get":
+		return "(remove requestBody)"
+	case "unused-component":
+		return "(remove unused component)"
+	case "migration-nullable":
+		return "(use type array in 3.1)"
+	default:
+		return ""
 	}
 }
 

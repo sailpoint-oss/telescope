@@ -14,9 +14,10 @@ type CrossRefResolver interface {
 // AnalysisData bundles the per-document index with optional project-level
 // cross-file resolution. The UserDataProvider sets this as UserData.
 type AnalysisData struct {
-	Index    *openapi.Index
-	Resolver CrossRefResolver // nil until a project context is built
-	DocURI   string           // the document URI for cross-file resolution
+	Index         *openapi.Index
+	Resolver      CrossRefResolver // nil until a project context is built
+	DocURI        string           // the document URI for cross-file resolution
+	TargetVersion openapi.Version  // from config or project root; empty = auto-detect
 }
 
 // GetIndex extracts the *openapi.Index from a treesitter AnalysisContext.

@@ -10,9 +10,9 @@
 ### Validation & Diagnostics
 
 - **Real-time Diagnostics** - See linting issues as you type in VS Code
-- **30 Built-in OpenAPI Rules** - Best practices (and **52 total** when SailPoint rules are enabled)
+- **65+ Built-in OpenAPI Rules** - Comprehensive validation covering naming, structure, security, paths, and OWASP
 - **Multi-file Support** - Full `$ref` resolution across your API project
-- **Custom Rules** - Extend with your own TypeScript rules and Zod schemas
+- **Custom Rules** - Extend with Go plugin binaries or Spectral-compatible YAML rulesets
 - **Pattern Matching** - Glob-based file inclusion/exclusion
 
 ### Code Intelligence
@@ -53,30 +53,29 @@ code --install-extension sailpoint.telescope
 
 ### Configuration
 
-Create `.telescope/config.yaml` in your project root:
+Create `.telescope.yaml` in your project root:
 
 ```yaml
-openapi:
-  patterns:
-    - "**/*.yaml"
-    - "**/*.yml"
-    - "**/*.json"
-    - "!**/node_modules/**"
+extends: telescope:recommended
 
-  # Enable SailPoint-specific rules
-  sailpoint: true
+rules:
+  operation-summary: warn
+  parameter-description: error
 
-  # Override rule severities
-  rulesOverrides:
-    operation-summary: warn
-    parameter-description: error
+include:
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.json"
+
+exclude:
+  - "**/node_modules/**"
 ```
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration reference.
 
 ### OpenAPI detection (high-level)
 
-- Files are discovered repo-wide using your configured `openapi.patterns`.
+- Files are discovered repo-wide using your configured `include` patterns.
 - Files are classified as OpenAPI using a lightweight check for the `openapi` (3.x) or `swagger` (2.0) root key.
 - When you open a classified file, the extension applies the custom language mode (`openapi-yaml` / `openapi-json`) for correct tokenization and grammars.
 
@@ -93,25 +92,32 @@ Multi-root workspaces are supported. Telescope runs **one language server per wo
 
 ### Debug logging
 
-Use the `telescope.trace` setting to control LSP trace logging. Keep it `off` unless you’re actively debugging.
+Use the `telescope.trace` setting to control LSP trace logging. Keep it `off` unless you're actively debugging.
 
 ## Architecture
 
-Telescope uses a unified pipeline for consistent diagnostics:
+Telescope is built as a Go language server with a VS Code extension client:
 
 ```
-Document → Loader → Indexer → Engine → Diagnostics
+Document (YAML/JSON)
+  → Tree-sitter incremental parse
+  → OpenAPI index (typed model)
+  → Rule execution (analyzers + plugins + spectral)
+  → Diagnostics with precise source locations
+  → VS Code / CLI output
 ```
 
 ```mermaid
 flowchart LR
     subgraph Entry["Entry"]
         Client[VS Code Extension]
+        CLI[CLI]
     end
 
-    subgraph Server["Language Server"]
-        LSP[LSP Server]
-        Engine[Linting Engine]
+    subgraph Server["Go Language Server"]
+        LSP[LSP Server / gossip]
+        TS[Tree-sitter Parser]
+        Engine[Rule Engine]
     end
 
     subgraph Output["Output"]
@@ -119,102 +125,107 @@ flowchart LR
         Fixes[Quick Fixes]
     end
 
-    Client --> LSP --> Engine --> Diag --> Client
+    Client --> LSP
+    CLI --> Engine
+    LSP --> TS --> Engine --> Diag --> Client
     Engine --> Fixes --> Client
 ```
 
 For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## Monorepo Structure
+## Repository Structure
 
-| Package                                         | Description                            |
-| ----------------------------------------------- | -------------------------------------- |
-| [`telescope-client`](packages/telescope-client) | VS Code extension client               |
-| [`telescope-server`](packages/telescope-server) | Language server + linting engine       |
-| [`test-files`](packages/test-files)             | Test fixtures and custom rule examples |
+| Directory | Description |
+| --------- | ----------- |
+| [`server/`](server/) | Go language server, CLI, and linting engine |
+| [`packages/telescope-client`](packages/telescope-client) | VS Code extension client |
+| [`packages/telescope-server`](packages/telescope-server) | Legacy TypeScript language server |
+| [`packages/test-files`](packages/test-files) | Test fixtures and examples |
 
 ## Built-in Rules
 
-Telescope includes **30** built-in OpenAPI best practice rules. If you enable `openapi.sailpoint: true`, it also enables **22** additional SailPoint-specific rules (**52 total**):
+Telescope includes **65+** built-in OpenAPI rules organized into rulesets:
 
-| Category   | Rules                                                  |
-| ---------- | ------------------------------------------------------ |
-| Core       | `$ref` cycle detection, unresolved reference checking  |
-| Operations | operationId, summary, tags, descriptions, responses    |
-| Parameters | required fields, examples, descriptions, formats       |
-| Schemas    | structure validation, allOf, required arrays, defaults |
-| Components | naming conventions                                     |
+| Ruleset | Description |
+| ------- | ----------- |
+| `telescope:recommended` | ~35 curated rules for most projects |
+| `telescope:all` | All ~65 rules enabled |
+| `telescope:owasp` | 15 OWASP security rules |
+| `telescope:strict` | Recommended + OWASP with stricter severities |
 
-See [RULES.md](packages/telescope-server/src/engine/rules/RULES.md) for the complete rule reference.
+| Category | Rules |
+| -------- | ----- |
+| Core | `$ref` cycle detection, unresolved reference checking |
+| Operations | operationId, summary, tags, descriptions, responses |
+| Parameters | required fields, examples, descriptions, formats |
+| Schemas | structure validation, allOf, required arrays, defaults |
+| Components | naming conventions |
+| Security | OWASP API security best practices |
 
-## CLI (CI / local linting)
+## CLI
 
-The `telescope-server` package also ships a small CLI (used by CI) with three subcommands:
-
-- `telescope lint` - Lint a workspace/root document and print results (supports `--format json|github`)
-- `telescope ci` - CI-oriented mode (report files, PR comments, diff modes)
-- `telescope lsp` - Start the language server over stdio
-
-From this repo (without installing globally), you can run it directly:
+The Go server ships a CLI with three subcommands:
 
 ```bash
-# Back-compat: running without a subcommand behaves like `telescope lint`
-bun packages/telescope-server/src/cli/index.ts --workspace . --format github
+# Lint files
+telescope lint api.yaml
+telescope lint ./specs/ --format json
+telescope lint --severity warn --fail-on error
 
-# Explicit subcommands
-bun packages/telescope-server/src/cli/index.ts lint --workspace . --format json
-bun packages/telescope-server/src/cli/index.ts ci --workspace . --report-md telescope-report.md
+# CI mode (diff-aware, PR comments)
+telescope ci --diff-base main --comment-pr
+
+# Start LSP server
+telescope serve              # stdio (default)
+telescope serve --tcp :9257  # TCP
 ```
+
+Output formats: `text`, `json`, `sarif`, `github` (GitHub Actions annotations).
 
 ## Custom Rules
 
-Create custom rules in `.telescope/rules/`:
+Custom rules are written as **Go plugin binaries** using the Telescope SDK:
 
-```typescript
-// .telescope/rules/require-contact.ts
-import { defineRule } from "telescope-server";
+```go
+package main
 
-export default defineRule({
-  meta: {
-    id: "require-contact",
-    number: 1000,
-    description: "API must include contact information",
-    type: "problem",
-    fileFormats: ["yaml", "yml", "json"],
-  },
-  check(ctx) {
-    return {
-      Info(info) {
-        if (!info.contact) {
-          ctx.report({
-            message: "Info section must include contact details",
-            severity: "error",
-            uri: info.uri,
-            range: ctx.locate(info.uri, info.pointer),
-          });
+import "github.com/sailpoint-oss/telescope/server/sdk"
+
+func main() {
+    p := sdk.NewPlugin("my-rules", "1.0.0")
+
+    sdk.Rule("require-security", sdk.Meta{
+        Description: "All operations must define a security requirement",
+        Severity:    sdk.Error,
+        Category:    sdk.Security,
+    }).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
+        if len(op.Security) == 0 {
+            r.At(op.Loc, "%s %s has no security requirement defined", method, path)
         }
-      },
-    };
-  },
-});
+    }).Register(p)
+
+    p.Serve()
+}
 ```
 
-See [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for the full custom rules guide.
+Build and deploy to `.telescope/plugins/`. Spectral-compatible YAML rulesets are also supported.
+
+See [server/README.md](server/README.md) for the full Go plugin SDK reference and [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for more details.
 
 ## Development
 
 ```bash
-# Install dependencies
+# Go server
+cd server
+go build ./...
+go test -race ./... -timeout 10m
+
+# TypeScript packages
 pnpm install
-
-# Run unit tests
-bun test
-
-# Build all packages
 pnpm build
+bun test packages/telescope-server
 
 # VS Code extension E2E (integration) tests
-# (downloads a VS Code build into packages/telescope-client/.vscode-test)
 pnpm --filter telescope-client test:e2e:compile
 pnpm --filter telescope-client test:e2e:run:single
 pnpm --filter telescope-client test:e2e:run:multi
@@ -227,13 +238,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ## Documentation
 
+- [Server & SDK Reference](server/README.md)
 - [LSP Features Reference](docs/LSP-FEATURES.md)
 - [CI (GitHub Actions)](docs/CI.md)
 - [Configuration Reference](docs/CONFIGURATION.md)
 - [Custom Rules Guide](docs/CUSTOM-RULES.md)
 - [Publishing Guide](docs/PUBLISHING.md)
 - [Architecture](ARCHITECTURE.md)
-- [Built-in Rules](packages/telescope-server/src/engine/rules/RULES.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## License

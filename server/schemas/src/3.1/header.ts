@@ -13,19 +13,16 @@ export const HeaderObjectSchema = z
 		required: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe("Determines whether this parameter is mandatory.")
 			.meta({ title: "required" }),
 		deprecated: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe("Specifies that a parameter is deprecated.")
 			.meta({ title: "deprecated" }),
 		allowEmptyValue: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe("Sets the ability to pass empty-valued parameters.")
 			.meta({ title: "allowEmptyValue" }),
 		style: z
@@ -37,7 +34,6 @@ export const HeaderObjectSchema = z
 		allowReserved: z
 			.boolean()
 			.optional()
-			.default(false)
 			.meta({ title: "allowReserved" }),
 		schema: SchemaObjectSchema.optional().meta({ title: "schema" }),
 		example: z.unknown().optional().meta({ title: "example" }),

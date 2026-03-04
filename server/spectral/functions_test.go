@@ -6,6 +6,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func yamlDoc(t *testing.T, input string) *yaml.Node {
+	t.Helper()
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(input), &doc); err != nil {
+		t.Fatalf("failed to parse YAML: %v", err)
+	}
+	return &doc
+}
+
 func yamlNode(t *testing.T, input string) *yaml.Node {
 	t.Helper()
 	var doc yaml.Node
@@ -331,4 +340,167 @@ func TestFuncEnumeration(t *testing.T) {
 			t.Error("expected issue for invalid enum value")
 		}
 	})
+}
+
+func TestFuncUnreferencedReusableObject(t *testing.T) {
+	t.Run("reports unreferenced schema", func(t *testing.T) {
+		root := yamlDoc(t, `
+openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /pets:
+    get:
+      responses:
+        "200":
+          description: OK
+components:
+  schemas:
+    Pet:
+      type: object
+    Unused:
+      type: string
+`)
+		// Navigate to components.schemas mapping node
+		schemasNode := findPath(root, "components", "schemas")
+		if schemasNode == nil {
+			t.Fatal("could not find components.schemas node")
+		}
+
+		opts := map[string]interface{}{
+			"reusableObjectsLocation": "#/components/schemas",
+			"__root__":                root,
+		}
+		issues := funcUnreferencedReusableObject(schemasNode, "", opts)
+
+		// Both Pet and Unused should be reported since neither is $ref'd.
+		if len(issues) != 2 {
+			t.Fatalf("expected 2 issues, got %d", len(issues))
+		}
+	})
+
+	t.Run("referenced schema is not reported", func(t *testing.T) {
+		root := yamlDoc(t, `
+openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /pets:
+    get:
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+components:
+  schemas:
+    Pet:
+      type: object
+    Unused:
+      type: string
+`)
+		schemasNode := findPath(root, "components", "schemas")
+		if schemasNode == nil {
+			t.Fatal("could not find components.schemas node")
+		}
+
+		opts := map[string]interface{}{
+			"reusableObjectsLocation": "#/components/schemas",
+			"__root__":                root,
+		}
+		issues := funcUnreferencedReusableObject(schemasNode, "", opts)
+
+		// Only Unused should be reported.
+		if len(issues) != 1 {
+			t.Fatalf("expected 1 issue, got %d", len(issues))
+		}
+		if issues[0].Message != `component "Unused" is not referenced` {
+			t.Errorf("unexpected message: %s", issues[0].Message)
+		}
+	})
+
+	t.Run("all referenced returns no issues", func(t *testing.T) {
+		root := yamlDoc(t, `
+openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /pets:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+  /errors:
+    get:
+      responses:
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    Pet:
+      type: object
+    Error:
+      type: object
+`)
+		schemasNode := findPath(root, "components", "schemas")
+		if schemasNode == nil {
+			t.Fatal("could not find components.schemas node")
+		}
+
+		opts := map[string]interface{}{
+			"reusableObjectsLocation": "#/components/schemas",
+			"__root__":                root,
+		}
+		issues := funcUnreferencedReusableObject(schemasNode, "", opts)
+		if len(issues) != 0 {
+			t.Errorf("expected no issues, got %d", len(issues))
+		}
+	})
+
+	t.Run("no root returns no issues", func(t *testing.T) {
+		node := yamlNode(t, "Pet:\n  type: object\n")
+		opts := map[string]interface{}{
+			"reusableObjectsLocation": "#/components/schemas",
+		}
+		issues := funcUnreferencedReusableObject(node, "", opts)
+		if len(issues) != 0 {
+			t.Errorf("expected no issues without root, got %d", len(issues))
+		}
+	})
+}
+
+// findPath navigates a YAML document node to a nested mapping value.
+func findPath(root *yaml.Node, keys ...string) *yaml.Node {
+	node := root
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	for _, key := range keys {
+		if node.Kind != yaml.MappingNode {
+			return nil
+		}
+		found := false
+		for i := 0; i < len(node.Content)-1; i += 2 {
+			if node.Content[i].Value == key {
+				node = node.Content[i+1]
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+	}
+	return node
 }

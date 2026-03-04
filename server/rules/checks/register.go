@@ -11,13 +11,16 @@ import (
 // RegisterAll registers all syntactic checks on the given server and populates
 // the rule registry with their metadata. All rules are registered
 // unconditionally; filtering is handled by the DiagnosticTransformer.
+//
+// Syntax-error and missing-token checks are no longer registered here because
+// child YAML/JSON language servers provide better syntax diagnostics with
+// multi-error recovery and specific messages. The duplicate-keys and ascii
+// checks are kept because they are OpenAPI-specific quality rules.
 func RegisterAll(s *gossip.Server) {
 	all := []struct {
 		register func(s *gossip.Server)
 		meta     rules.RuleMeta
 	}{
-		{registerSyntaxErrors, syntaxErrorMeta},
-		{registerMissingTokens, missingTokenMeta},
 		{registerDuplicateKeys, duplicateKeysMeta},
 		{registerASCII, asciiMeta},
 	}

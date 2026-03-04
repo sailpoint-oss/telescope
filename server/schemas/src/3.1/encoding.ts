@@ -25,7 +25,6 @@ export const EncodingObjectSchema = z
 		allowReserved: z
 			.boolean()
 			.optional()
-			.default(false)
 			.meta({ title: "allowReserved" }),
 	})
 	.meta({
