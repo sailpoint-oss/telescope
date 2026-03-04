@@ -27,28 +27,22 @@ npm install -g @vscode/vsce
 
 ### Build Both Packages
 
-The telescope extension uses direct TypeScript execution via Bun:
-
 ```bash
-# Build the VS Code client
-pnpm --filter telescope-client build
-
-# Build the language server
-pnpm --filter telescope-server build
+# Build the VS Code client extension
+pnpm --filter ./client run build
 ```
 
 ### Verify Build
 
 ```bash
-test -f packages/telescope-client/out/extension.js && echo "Client build complete"
-test -f packages/telescope-server/out/server.js && echo "Server build complete"
+test -f client/dist/extension.js && echo "Client build complete"
 ```
 
 ## Packaging
 
 ### Prepare package.json
 
-Before packaging, ensure `packages/telescope-client/package.json` has:
+Before packaging, ensure `client/package.json` has:
 
 - Correct `version` field
 - `private: false` (or remove the `private` field)
@@ -62,13 +56,13 @@ Before packaging, ensure `packages/telescope-client/package.json` has:
 ### Create VSIX Package
 
 ```bash
-cd packages/telescope-client
+cd client
 
 # Package the extension
 vsce package
 ```
 
-This creates a `.vsix` file (e.g., `telescope-0.1.0.vsix`) in the `packages/telescope-client` directory.
+This creates a `.vsix` file (e.g., `telescope-0.1.0.vsix`) in the `client` directory.
 
 ### Test Locally
 
@@ -109,7 +103,7 @@ code --install-extension telescope-0.1.0.vsix
 ### Publish
 
 ```bash
-cd packages/telescope-client
+cd client
 
 # Publish with token
 vsce publish -p <your-personal-access-token>
@@ -176,7 +170,7 @@ For open-source VS Code extension registries.
 pnpm add -g ovsx
 
 # Publish
-cd packages/telescope-client
+cd client
 ovsx publish -p <your-open-vsx-token>
 ```
 
@@ -193,7 +187,7 @@ Follow [semver](https://semver.org/):
 ### Update Version
 
 ```bash
-cd packages/telescope-client
+cd client
 
 # Update version in package.json
 npm version patch  # or minor, or major
@@ -243,12 +237,12 @@ jobs:
 
       - name: Publish to VS Code Marketplace
         run: |
-          cd packages/telescope-client
+          cd client
           npx vsce publish -p ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
         run: |
-          cd packages/telescope-client
+          cd client
           npx ovsx publish -p ${{ secrets.OVSX_PAT }}
 ```
 
@@ -275,7 +269,7 @@ pnpm --filter telescope-client build
 
 ```bash
 # Reinstall from root
-rm -rf node_modules packages/*/node_modules
+rm -rf node_modules client/node_modules test-files/node_modules
 pnpm install
 ```
 

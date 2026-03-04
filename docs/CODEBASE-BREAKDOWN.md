@@ -7,15 +7,14 @@ Telescope is an **OpenAPI linting and language-support tool** built on the Langu
 The codebase has two major components:
 
 - **Go server** (`server/`) -- Primary implementation. Tree-sitter-based LSP server, CLI, and linting engine.
-- **TypeScript packages** (`packages/`) -- VS Code extension client and legacy TypeScript language server.
+- **VS Code client** (`client/`) -- TypeScript VS Code extension.
+- **Test fixtures** (`test-files/`) -- OpenAPI test files and examples.
 
 ```
 telescope/
 ├── server/                    # Go language server + CLI (primary)
-├── packages/
-│   ├── telescope-client/      # VS Code extension client (TypeScript)
-│   ├── telescope-server/      # Legacy TypeScript language server
-│   └── test-files/            # Test fixtures and examples
+├── client/                    # VS Code extension client (TypeScript)
+├── test-files/                # Test fixtures and examples
 ├── docs/                      # Documentation
 ├── specifications/            # OpenAPI spec references (2.0 – 3.2.0)
 ├── biome.json                 # TypeScript linting (Biome)
@@ -33,7 +32,7 @@ The codebase breaks into **8 distinct functional domains**.
 
 ### 1. VS Code Extension Client
 
-**Package:** `packages/telescope-client/src/`
+**Package:** `client/src/`
 **Purpose:** Bridge between VS Code and the Go language server.
 
 | File | Responsibility |

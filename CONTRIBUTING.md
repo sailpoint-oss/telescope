@@ -32,10 +32,9 @@ cd server
 go build ./...
 go test -race ./... -timeout 10m
 
-# TypeScript packages
+# VS Code extension
 cd ..
 pnpm install
-bun test packages/telescope-server
 pnpm build
 ```
 
@@ -53,10 +52,8 @@ telescope/
 │   ├── rules/             # Rule builder, analyzers, checks
 │   ├── sdk/               # Plugin SDK for third-party authors
 │   └── ...
-├── packages/
-│   ├── telescope-client/  # VS Code extension client
-│   ├── telescope-server/  # Legacy TypeScript language server
-│   └── test-files/        # Test fixtures and examples
+├── client/                # VS Code extension client
+├── test-files/            # Test fixtures and examples
 └── docs/                  # Documentation
 ```
 
@@ -72,12 +69,6 @@ telescope/
 
    ```bash
    cd server && go test ./...
-   ```
-
-3. **Run TypeScript tests:**
-
-   ```bash
-   bun test packages/telescope-server
    ```
 
 ## Code Style
@@ -220,11 +211,7 @@ go test ./lsp                           # Specific package
 go test ./rules/analyzers -run TestName # Single test
 go test -bench=. ./openapi              # Benchmarks
 
-# TypeScript tests (from repo root)
-bun test packages/telescope-server      # All TS tests
-bun test --coverage                     # With coverage
-
-# E2E tests
+# E2E tests (from repo root)
 pnpm --filter telescope-client test:e2e:compile
 pnpm --filter telescope-client test:e2e:run:single
 pnpm --filter telescope-client test:e2e:run:multi
@@ -233,7 +220,7 @@ pnpm --filter telescope-client test:e2e:run:multi
 ### Test Fixtures
 
 - Go fixtures: `server/testutil/specs/` for OpenAPI test documents
-- TypeScript fixtures: `packages/test-files/openapi/` for integration testing
+- TypeScript fixtures: `test-files/openapi/` for integration testing
 
 ### Writing Tests
 
@@ -251,7 +238,6 @@ pnpm --filter telescope-client test:e2e:run:multi
 
    ```bash
    cd server && go test -race ./... -timeout 10m
-   bun test packages/telescope-server
    ```
 
 4. **Run linting:**

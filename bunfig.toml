@@ -20,6 +20,4 @@ coverageThreshold = { line = 0.75, function = 0.75 }
 # Exclude schema definitions from coverage calculations. These files are largely
 # declarative (Zod schema shapes + metadata) and otherwise drown out coverage
 # signals for the executable engine/LSP logic.
-coveragePathIgnorePatterns = [
-  "packages/telescope-server/src/engine/schemas/**",
-]
+coveragePathIgnorePatterns = []

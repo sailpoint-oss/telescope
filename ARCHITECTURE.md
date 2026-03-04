@@ -30,22 +30,15 @@ telescope/
 │   ├── testutil/              # Test utilities and fixture specs
 │   └── validation/            # Non-OpenAPI file validation
 │
-├── packages/
-│   ├── telescope-client/      # VS Code extension client
-│   │   └── src/
-│   │       ├── extension.ts   # Extension entry point
-│   │       ├── session-manager.ts  # Multi-root workspace orchestration
-│   │       ├── session.ts     # Single LSP session lifecycle
-│   │       ├── classifier.ts  # OpenAPI document classification
-│   │       └── workspace-scanner.ts  # File discovery
-│   │
-│   ├── telescope-server/      # Legacy TypeScript language server
-│   │   └── src/
-│   │       ├── server.ts      # Main entry point
-│   │       ├── lsp/           # LSP handlers
-│   │       └── engine/        # Linting engine
-│   │
-│   └── test-files/            # Test fixtures and examples
+├── client/                    # VS Code extension client
+│   └── src/
+│       ├── extension.ts       # Extension entry point
+│       ├── session-manager.ts # Multi-root workspace orchestration
+│       ├── session.ts         # Single LSP session lifecycle
+│       ├── classifier.ts      # OpenAPI document classification
+│       └── workspace-scanner.ts  # File discovery
+│
+├── test-files/                # Test fixtures and examples
 ```
 
 ## Data Flow (Go Server)
@@ -174,7 +167,7 @@ flowchart TB
 | Validation | `validation/` | Non-OpenAPI file validation against JSON Schema |
 | Schemas | `schemas/` | TypeScript/Zod definitions → generated JSON Schema |
 
-### VS Code Client (`packages/telescope-client/`)
+### VS Code Client (`client/`)
 
 | Component | File | Purpose |
 | --------- | ---- | ------- |

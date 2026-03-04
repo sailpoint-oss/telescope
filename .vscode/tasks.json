@@ -8,7 +8,7 @@
 			"args": [
 				"build",
 				"-o",
-				"${workspaceFolder}/packages/telescope-client/bin/telescope",
+				"${workspaceFolder}/client/bin/telescope",
 				"."
 			],
 			"options": {
@@ -30,7 +30,7 @@
 			"label": "build:extension",
 			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/telescope-client", "build"],
+			"args": ["run", "--cwd", "client", "build"],
 			"group": {
 				"kind": "build",
 				"isDefault": false
@@ -61,7 +61,7 @@
 			"label": "watch:extension",
 			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/telescope-client", "watch"],
+			"args": ["run", "--cwd", "client", "watch"],
 			"isBackground": true,
 			"problemMatcher": "$tsc-watch",
 			"presentation": {

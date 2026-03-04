@@ -2,7 +2,7 @@
 
 This is a **static example** of what the `telescope ci` GitHub Action produces as `telescope-report.md`.
 
-In this repository, we intentionally run Telescope against `packages/test-files/` so PRs can preview the exact comment/review behavior we use in downstream repos.
+In this repository, we intentionally run Telescope against `test-files/` so PRs can preview the exact comment/review behavior we use in downstream repos.
 
 ---
 
@@ -14,7 +14,7 @@ In this repository, we intentionally run Telescope against `packages/test-files/
 
 | Metric | Value |
 | --- | --- |
-| Workspace | `file:///home/runner/work/telescope/telescope/packages/test-files` |
+| Workspace | `file:///home/runner/work/telescope/telescope/test-files` |
 | Generated | `2026-01-01T00:00:00.000Z` |
 | Roots | 0 |
 | Diagnostics | 3 (errors: 1, warnings: 2, other: 0) |
@@ -24,8 +24,8 @@ In this repository, we intentionally run Telescope against `packages/test-files/
 
 | File | Count | Errors | Warnings |
 | --- | ---: | ---: | ---: |
-| [packages/test-files/openapi/test-errors.yaml](packages/test-files/openapi/test-errors.yaml) | 2 | 1 | 1 |
-| [packages/test-files/openapi/test-warnings.yaml](packages/test-files/openapi/test-warnings.yaml) | 1 | 0 | 1 |
+| [test-files/openapi/test-errors.yaml](test-files/openapi/test-errors.yaml) | 2 | 1 | 1 |
+| [test-files/openapi/test-warnings.yaml](test-files/openapi/test-warnings.yaml) | 1 | 0 | 1 |
 
 ## Rules
 
@@ -42,7 +42,7 @@ In this repository, we intentionally run Telescope against `packages/test-files/
 
 | Severity | File | Location | Message |
 | --- | --- | --- | --- |
-| error | [`packages/test-files/openapi/test-errors.yaml`](packages/test-files/openapi/test-errors.yaml) | [L3](packages/test-files/openapi/test-errors.yaml#L3) | API should define at least one server URL in the servers array |
+| error | [`test-files/openapi/test-errors.yaml`](test-files/openapi/test-errors.yaml) | [L3](test-files/openapi/test-errors.yaml#L3) | API should define at least one server URL in the servers array |
 
 </details>
 
@@ -51,7 +51,7 @@ In this repository, we intentionally run Telescope against `packages/test-files/
 
 | Severity | File | Location | Message |
 | --- | --- | --- | --- |
-| warning | [`packages/test-files/openapi/test-errors.yaml`](packages/test-files/openapi/test-errors.yaml) | [L12](packages/test-files/openapi/test-errors.yaml#L12) | Operation should include a summary |
+| warning | [`test-files/openapi/test-errors.yaml`](test-files/openapi/test-errors.yaml) | [L12](test-files/openapi/test-errors.yaml#L12) | Operation should include a summary |
 
 </details>
 
@@ -60,7 +60,7 @@ In this repository, we intentionally run Telescope against `packages/test-files/
 
 | Severity | File | Location | Message |
 | --- | --- | --- | --- |
-| warning | [`packages/test-files/openapi/test-warnings.yaml`](packages/test-files/openapi/test-warnings.yaml) | [L7](packages/test-files/openapi/test-warnings.yaml#L7) | API should define security schemes in components/securitySchemes |
+| warning | [`test-files/openapi/test-warnings.yaml`](test-files/openapi/test-warnings.yaml) | [L7](test-files/openapi/test-warnings.yaml#L7) | API should define security schemes in components/securitySchemes |
 
 </details>
 
