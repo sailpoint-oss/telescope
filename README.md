@@ -138,9 +138,8 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | Directory | Description |
 | --------- | ----------- |
 | [`server/`](server/) | Go language server, CLI, and linting engine |
-| [`packages/telescope-client`](packages/telescope-client) | VS Code extension client |
-| [`packages/telescope-server`](packages/telescope-server) | Legacy TypeScript language server |
-| [`packages/test-files`](packages/test-files) | Test fixtures and examples |
+| [`client`](client) | VS Code extension client |
+| [`test-files`](test-files) | Test fixtures and examples |
 
 ## Built-in Rules
 
@@ -220,10 +219,9 @@ cd server
 go build ./...
 go test -race ./... -timeout 10m
 
-# TypeScript packages
+# VS Code extension
 pnpm install
 pnpm build
-bun test packages/telescope-server
 
 # VS Code extension E2E (integration) tests
 pnpm --filter telescope-client test:e2e:compile

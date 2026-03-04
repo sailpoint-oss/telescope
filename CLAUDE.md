@@ -7,8 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Telescope** is a fast, extensible OpenAPI linter and language server. The project has two implementations:
 
 - **Go server** (`server/`) — Primary implementation. Tree-sitter-based LSP server, CLI, plugin system, and linting engine. This is where active development happens.
-- **VS Code extension client** (`packages/telescope-client/`) — TypeScript VS Code extension that discovers OpenAPI files and communicates with the Go server binary.
-- **TypeScript server** (`packages/telescope-server/`) — Legacy TypeScript LSP server. Still builds and ships but is being superseded by the Go server.
+- **VS Code extension client** (`client/`) — TypeScript VS Code extension that discovers OpenAPI files and communicates with the Go server binary.
 - **Schema definitions** (`server/schemas/`) — OpenAPI JSON Schemas defined in TypeScript/Zod, exported as JSON for use by the Go server at runtime.
 
 ## Key Commands
@@ -49,19 +48,17 @@ Use **Bun** for runtime/testing, **pnpm** for workspace package management.
 ```bash
 pnpm install                  # Install all workspace deps
 pnpm build                    # Build all packages
-bun test packages/telescope-server  # Run TS unit tests
 pnpm lint                     # Biome check
 pnpm lint:fix                 # Biome auto-fix
 pnpm format                   # Biome format
 
 # Build extension
-pnpm --filter telescope-server run build
-pnpm --filter ./packages/telescope-client run build
+pnpm --filter ./client run build
 
 # E2E tests (needs VS Code)
-pnpm --filter ./packages/telescope-client test:e2e:compile
-pnpm --filter ./packages/telescope-client test:e2e:run:single
-pnpm --filter ./packages/telescope-client test:e2e:run:multi
+pnpm --filter ./client test:e2e:compile
+pnpm --filter ./client test:e2e:run:single
+pnpm --filter ./client test:e2e:run:multi
 ```
 
 ### Schema Generation

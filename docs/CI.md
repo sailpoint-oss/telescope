@@ -1,6 +1,6 @@
 # Telescope CI (GitHub Actions)
 
-This repo’s lint engine can run in CI via the **same CLI** that powers the LSP rule pipeline.
+The Go CLI can run in CI via the **same engine** that powers the LSP rule pipeline.
 
 ## This repository: live PR preview workflow
 
@@ -8,7 +8,7 @@ This repo includes a **live example** workflow you can copy:
 
 - `.github/workflows/telescope.yml`
 
-It intentionally runs Telescope against `packages/test-files/` so that pull requests can **force deterministic warnings/errors** and preview the exact PR comment + inline review behavior.
+It intentionally runs Telescope against `test-files/` so that pull requests can **force deterministic warnings/errors** and preview the exact PR comment behavior.
 
 ## Recommended workflow (for spec repositories)
 
@@ -33,17 +33,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-go@v5
         with:
-          node-version: "20"
+          go-version: "1.25"
 
-      - name: Install Telescope CLI
-        run: npm i --no-save telescope-server
+      - name: Install Telescope
+        run: go install github.com/sailpoint-oss/telescope/server@latest
 
       - name: Run Telescope (CI)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx telescope ci --workspace . --comment-pr --comment-review --report-md telescope-report.md
+        run: telescope ci . --comment-pr --report-md telescope-report.md
 
       - name: Upload Telescope report artifact
         if: always()
@@ -59,16 +59,12 @@ jobs:
 - **Fails** the job if:
   - any **error** exists anywhere in the workspace, OR
   - any **warning or error** exists in files changed by the PR.
-- When enabled (`--comment-pr`, `--comment-review`) on `pull_request` events, it posts:
-  - a normal PR comment summary, and
-  - inline review comments for diagnostics that land on **changed lines** in the PR diff.
+- When enabled (`--comment-pr`) on `pull_request` events, it posts a PR comment summary.
 
 ## Local dev
 
 You can simulate PR gating locally using git refs:
 
 ```bash
-telescope ci --workspace . --diff-base main --diff-head HEAD --report-md telescope-report.md
+telescope ci . --diff-base main --diff-head HEAD --report-md telescope-report.md
 ```
-
-

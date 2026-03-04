@@ -1,7 +1,7 @@
 .PHONY: build clean install build-test-plugins
 
 BINARY = telescope-plugin-example
-TEST_FILES_PLUGINS = ../../../packages/test-files/.telescope/plugins
+TEST_FILES_PLUGINS = ../../../test-files/.telescope/plugins
 
 build:
 	go build -o $(BINARY) .

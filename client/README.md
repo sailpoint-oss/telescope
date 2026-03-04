@@ -171,44 +171,9 @@ openapi:
 
 ## Custom Rules
 
-Create custom validation rules in `.telescope/rules/`:
+Telescope supports custom rules via **Go plugin binaries**. Build plugins with the SDK (`server/sdk/`), place compiled binaries in `.telescope/plugins/`, and Telescope discovers them at startup.
 
-```typescript
-// .telescope/rules/require-contact.ts
-import { defineRule } from "telescope-server";
-
-export default defineRule({
-  meta: {
-    id: "require-contact",
-    number: 1000,
-    description: "API must include contact information",
-    type: "problem",
-    fileFormats: ["yaml", "yml", "json"],
-  },
-  check(ctx) {
-    return {
-      Info(info) {
-        if (!info.hasContact()) {
-          ctx.reportAt(info, "contact", {
-            message: "Info section must include contact details",
-            severity: "error",
-          });
-        }
-      },
-    };
-  },
-});
-```
-
-Register in config:
-
-```yaml
-openapi:
-  rules:
-    - rule: require-contact.ts
-```
-
-For full documentation on custom rules, see the [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md).
+For full documentation, see the [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md) and the example plugin at [`server/examples/custom-plugin/main.go`](https://github.com/sailpoint-oss/telescope/blob/main/server/examples/custom-plugin/main.go).
 
 ## Extension Settings
 
@@ -229,7 +194,7 @@ pnpm --filter telescope-client test:e2e:run:multi
 
 Notes:
 - The multi-root run is intentionally minimal (multi-root isolation + startup smoke).
-- VS Code downloads/user-data are written under `packages/telescope-client/.vscode-test` and are ignored by git.
+- VS Code downloads/user-data are written under `client/.vscode-test` and are ignored by git.
 
 ## Troubleshooting
 
@@ -273,7 +238,7 @@ openapi:
 - [Configuration Reference](https://github.com/sailpoint-oss/telescope/blob/main/docs/CONFIGURATION.md)
 - [LSP Features Reference](https://github.com/sailpoint-oss/telescope/blob/main/docs/LSP-FEATURES.md)
 - [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md)
-- [Built-in Rules Reference](https://github.com/sailpoint-oss/telescope/blob/main/packages/telescope-server/src/engine/rules/RULES.md)
+- [Built-in Rules Reference](https://github.com/sailpoint-oss/telescope/blob/main/server/README.md)
 
 ## License
 

@@ -74,13 +74,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run unit tests
-        run: pnpm test
-
       - name: Build extension
-        run: |
-          pnpm --filter telescope-server run build
-          pnpm --filter ./packages/telescope-client run build
+        run: pnpm --filter ./client run build
 
   e2e:
     name: E2E (${{ matrix.os }})
@@ -123,18 +118,18 @@ jobs:
         run: pnpm install
 
       - name: Build and compile E2E
-        run: pnpm --filter ./packages/telescope-client test:e2e:compile
+        run: pnpm --filter ./client test:e2e:compile
 
       - name: Run E2E tests (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
-          xvfb-run -a pnpm --filter ./packages/telescope-client test:e2e:run:single
-          xvfb-run -a pnpm --filter ./packages/telescope-client test:e2e:run:multi
+          xvfb-run -a pnpm --filter ./client test:e2e:run:single
+          xvfb-run -a pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E tests (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
         run: |
-          pnpm --filter ./packages/telescope-client test:e2e:run:single
-          pnpm --filter ./packages/telescope-client test:e2e:run:multi
+          pnpm --filter ./client test:e2e:run:single
+          pnpm --filter ./client test:e2e:run:multi

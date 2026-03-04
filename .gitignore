@@ -7,7 +7,7 @@ dist
 *.tgz
 
 # Built Go binaries
-packages/telescope-client/bin/
+client/bin/
 server/telescope
 server/telescope.exe
 
@@ -43,7 +43,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 **/.vscode-test/**
 
 # E2E-generated temporary workspace files (fixtures remain tracked)
-packages/telescope-client/test-fixtures/**/tmp-e2e/**
+client/test-fixtures/**/tmp-e2e/**
 
 # IntelliJ based IDEs
 .idea

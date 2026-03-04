@@ -3,12 +3,9 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "pnpm -r --if-present run build",
-		"test": "bun test packages/telescope-server",
-		"test:e2e": "pnpm --filter ./packages/telescope-client run test:e2e --if-present",
-		"test:no-coverage": "pnpm test --no-coverage packages/telescope-lsp packages/lens",
-		"typecheck:examples": "pnpm -C packages/telescope-server run build && pnpm -C packages/test-files exec tsc -p tsconfig.json",
-		"package": "pnpm --filter telescope-server run build && pnpm --filter telescope run build && pnpm --filter telescope run package",
+		"build": "pnpm --filter ./client run build",
+		"test:e2e": "pnpm --filter ./client run test:e2e --if-present",
+		"package": "pnpm --filter ./client run build && pnpm --filter ./client run package",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write ."
@@ -16,6 +13,7 @@
 	"dependencies": {},
 	"devDependencies": {},
 	"workspaces": [
-		"packages/*"
+		"client",
+		"test-files"
 	]
 }

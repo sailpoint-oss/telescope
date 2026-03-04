@@ -19,12 +19,6 @@
 		"noUnusedLocals": false,
 		"noUnusedParameters": false,
 		"noPropertyAccessFromIndexSignature": false,
-		"baseUrl": ".",
-		"paths": {
-			"lens": ["./packages/lens/src/index.ts"],
-			"lens/utils/*": ["./packages/lens/src/utils/*.ts"],
-			"lens/schemas/*": ["./packages/lens/src/schemas/*.ts"],
-			"lens/rules/*": ["./packages/lens/src/rules/*.ts"]
-		}
+		"baseUrl": "."
 	}
 }
