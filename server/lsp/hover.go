@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/LukasParke/gossip"
@@ -121,6 +122,13 @@ func formatSchemaHover(name string, schema *openapi.Schema) string {
 	if name != "" {
 		sb.WriteString(fmt.Sprintf("### %s\n\n", name))
 	}
+
+	// Show composition summary for allOf/anyOf/oneOf schemas
+	if len(schema.AllOf) > 0 || len(schema.AnyOf) > 0 || len(schema.OneOf) > 0 {
+		sb.WriteString(formatCompositionHover(schema, 0))
+		return sb.String()
+	}
+
 	if schema.Type != "" {
 		sb.WriteString(fmt.Sprintf("**Type:** `%s`", schema.Type))
 		if schema.Format != "" {
@@ -132,20 +140,187 @@ func formatSchemaHover(name string, schema *openapi.Schema) string {
 		sb.WriteString("---\n\n")
 		sb.WriteString(formatDescription(schema.Description.Text) + "\n\n")
 	}
+	if len(schema.Enum) > 0 {
+		sb.WriteString(fmt.Sprintf("**Enum:** `%s`\n\n", strings.Join(schema.Enum, "`, `")))
+	}
 	if len(schema.Required) > 0 {
 		sb.WriteString(fmt.Sprintf("**Required:** %s\n\n", strings.Join(schema.Required, ", ")))
 	}
 	if len(schema.Properties) > 0 {
-		sb.WriteString("**Properties:**\n")
-		for propName, prop := range schema.Properties {
-			t := prop.Type
-			if t == "" {
-				t = "any"
-			}
-			sb.WriteString(fmt.Sprintf("- `%s`: %s\n", propName, t))
-		}
+		sb.WriteString(formatPropertyTable(schema, 0))
 	}
 	return sb.String()
+}
+
+// formatPropertyTable renders a markdown table of schema properties.
+// depth limits nested expansion; at depth >= 2 nested objects show "..." .
+func formatPropertyTable(schema *openapi.Schema, depth int) string {
+	if len(schema.Properties) == 0 {
+		return ""
+	}
+
+	requiredSet := make(map[string]bool, len(schema.Required))
+	for _, r := range schema.Required {
+		requiredSet[r] = true
+	}
+
+	var sb strings.Builder
+	sb.WriteString("| Property | Type | Required | Description |\n")
+	sb.WriteString("|----------|------|----------|-------------|\n")
+
+	names := make([]string, 0, len(schema.Properties))
+	for n := range schema.Properties {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
+	for _, propName := range names {
+		prop := schema.Properties[propName]
+		typeStr := schemaTypeString(prop, depth)
+		req := ""
+		if requiredSet[propName] {
+			req = "**yes**"
+		}
+		desc := ""
+		if prop.Description.Text != "" {
+			desc = strings.ReplaceAll(prop.Description.Text, "\n", " ")
+			if len(desc) > 60 {
+				desc = desc[:57] + "..."
+			}
+		}
+		sb.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", propName, typeStr, req, desc))
+	}
+	return sb.String()
+}
+
+// schemaTypeString returns a human-readable type string for a schema property.
+func schemaTypeString(schema *openapi.Schema, depth int) string {
+	if schema.Ref != "" {
+		name := refBaseName(schema.Ref)
+		return fmt.Sprintf("`→ %s`", name)
+	}
+	if len(schema.AllOf) > 0 {
+		var parts []string
+		for _, s := range schema.AllOf {
+			parts = append(parts, schemaTypeString(s, depth+1))
+		}
+		return "allOf(" + strings.Join(parts, ", ") + ")"
+	}
+	if len(schema.OneOf) > 0 {
+		var parts []string
+		for _, s := range schema.OneOf {
+			parts = append(parts, schemaTypeString(s, depth+1))
+		}
+		return strings.Join(parts, " \\| ")
+	}
+	if len(schema.AnyOf) > 0 {
+		var parts []string
+		for _, s := range schema.AnyOf {
+			parts = append(parts, schemaTypeString(s, depth+1))
+		}
+		return strings.Join(parts, " \\| ")
+	}
+	t := schema.Type
+	if t == "" {
+		t = "any"
+	}
+	if t == "array" && schema.Items != nil {
+		itemType := schemaTypeString(schema.Items, depth+1)
+		return fmt.Sprintf("`%s[]`", itemType)
+	}
+	if schema.Format != "" {
+		return fmt.Sprintf("`%s(%s)`", t, schema.Format)
+	}
+	if t == "object" && depth >= 2 {
+		return "`object{...}`"
+	}
+	return fmt.Sprintf("`%s`", t)
+}
+
+// formatCompositionHover renders a merged view for allOf/anyOf/oneOf schemas.
+func formatCompositionHover(schema *openapi.Schema, depth int) string {
+	var sb strings.Builder
+
+	if len(schema.AllOf) > 0 {
+		sb.WriteString("**Composition:** `allOf`\n\n")
+		merged := mergeAllOfProperties(schema.AllOf)
+		if len(merged.Properties) > 0 {
+			sb.WriteString(formatPropertyTable(merged, depth+1))
+		}
+		if schema.Description.Text != "" {
+			sb.WriteString("\n---\n\n")
+			sb.WriteString(formatDescription(schema.Description.Text) + "\n\n")
+		}
+	}
+
+	if len(schema.OneOf) > 0 {
+		sb.WriteString("**Composition:** `oneOf`\n\n")
+		if schema.Discriminator != nil && schema.Discriminator.PropertyName != "" {
+			sb.WriteString(fmt.Sprintf("**Discriminator:** `%s`\n\n", schema.Discriminator.PropertyName))
+		}
+		sb.WriteString("**Variants:**\n")
+		for _, s := range schema.OneOf {
+			sb.WriteString(fmt.Sprintf("- %s\n", schemaTypeString(s, depth+1)))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(schema.AnyOf) > 0 {
+		sb.WriteString("**Composition:** `anyOf`\n\n")
+		sb.WriteString("**Variants:**\n")
+		for _, s := range schema.AnyOf {
+			sb.WriteString(fmt.Sprintf("- %s\n", schemaTypeString(s, depth+1)))
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// mergeAllOfProperties merges properties and required fields from all allOf sub-schemas
+// into a single unified schema for display purposes.
+func mergeAllOfProperties(schemas []*openapi.Schema) *openapi.Schema {
+	merged := &openapi.Schema{
+		Type:       "object",
+		Properties: make(map[string]*openapi.Schema),
+	}
+	requiredSet := make(map[string]bool)
+
+	for _, s := range schemas {
+		// Follow $ref names for display, but merge inline properties
+		for propName, prop := range s.Properties {
+			merged.Properties[propName] = prop
+		}
+		for _, r := range s.Required {
+			requiredSet[r] = true
+		}
+		// Recursively merge nested allOf
+		if len(s.AllOf) > 0 {
+			inner := mergeAllOfProperties(s.AllOf)
+			for propName, prop := range inner.Properties {
+				merged.Properties[propName] = prop
+			}
+			for _, r := range inner.Required {
+				requiredSet[r] = true
+			}
+		}
+	}
+
+	merged.Required = make([]string, 0, len(requiredSet))
+	for r := range requiredSet {
+		merged.Required = append(merged.Required, r)
+	}
+	sort.Strings(merged.Required)
+	return merged
+}
+
+// refBaseName extracts the component name from a $ref path.
+func refBaseName(ref string) string {
+	parts := strings.Split(ref, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return ref
 }
 
 func formatParameterHover(name string, param *openapi.Parameter) string {

@@ -41,19 +41,16 @@ export const ParameterObjectSchema = z
 		required: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe("Whether the parameter is required.")
 			.meta({ title: "required", examples: [true, false] }),
 		deprecated: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe("Marks the parameter as deprecated.")
 			.meta({ title: "deprecated", examples: [true] }),
 		allowEmptyValue: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe("For query parameters only. Allows empty values (?param=).")
 			.meta({ title: "allowEmptyValue", examples: [true] }),
 		style: ParameterStyleSchema.describe(
@@ -69,7 +66,6 @@ export const ParameterObjectSchema = z
 		allowReserved: z
 			.boolean()
 			.optional()
-			.default(false)
 			.describe(
 				"For query parameters. When true, allows reserved characters without encoding.",
 			)

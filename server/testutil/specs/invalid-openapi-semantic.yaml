@@ -1,0 +1,55 @@
+# Structurally valid OpenAPI spec that triggers many semantic rule warnings.
+openapi: "3.1.0"
+info:
+  title: Semantic Errors Test
+  version: "1.0.0"
+  # Missing contact and license
+tags:
+  - name: Users
+    # Missing tag description
+  - name: Accounts
+    # Missing tag description
+paths:
+  # Kebab-case violation
+  /getUserById:
+    get:
+      # Missing operationId
+      # Missing description
+      summary: Get user
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                # Missing schema description
+                properties:
+                  id:
+                    type: integer
+                  items:
+                    type: array
+                    # Array without items definition
+  # HTTP verb in path segment
+  /users/delete:
+    post:
+      operationId: deleteUser
+      description: Delete a user
+      summary: Delete user
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+  /accounts:
+    get:
+      operationId: deleteUser
+      description: Duplicate operationId
+      summary: List accounts
+      tags:
+        - Accounts
+      responses:
+        "200":
+          description: OK

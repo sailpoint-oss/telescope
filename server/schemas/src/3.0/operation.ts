@@ -55,10 +55,9 @@ export const OperationObjectSchema = z
 		deprecated: z
 			.boolean()
 			.optional()
-			.default(false)
 			.meta({
 				title: "deprecated",
-				description: "Marks this operation as deprecated.",
+				description: "Marks this operation as deprecated. Defaults to false.",
 				examples: [true, false],
 			}),
 		security: z.array(SecurityRequirementObjectSchema).optional().meta({

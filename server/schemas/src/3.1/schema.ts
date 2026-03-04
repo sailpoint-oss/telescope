@@ -3,6 +3,7 @@ import { ReferenceObjectSchema } from "../openapi-base";
 import { ArraySchemaObject } from "./data-types/array";
 import { BaseSchemaObjectSchema } from "./data-types/base";
 import { BooleanSchemaObject } from "./data-types/boolean";
+import { CompositionSchemaObject } from "./data-types/composition";
 import { IntegerSchemaObject } from "./data-types/integer";
 import { NullSchemaObject } from "./data-types/null";
 import { NumberSchemaObject } from "./data-types/number";
@@ -49,6 +50,7 @@ export const SchemaObjectSchema = z
 		NullSchemaObject,
 		ArraySchemaObject,
 		ObjectSchemaObject,
+		CompositionSchemaObject,
 	])
 	.meta({
 		title: "Schema Object",

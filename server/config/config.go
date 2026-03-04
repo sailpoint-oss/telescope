@@ -22,7 +22,8 @@ type Config struct {
 
 // OpenAPIConfig holds OpenAPI-specific configuration.
 type OpenAPIConfig struct {
-	Extensions ExtensionsConfig `yaml:"extensions,omitempty"`
+	TargetVersion string           `yaml:"targetVersion,omitempty"` // "3.0", "3.1", or "3.2"
+	Extensions    ExtensionsConfig `yaml:"extensions,omitempty"`
 }
 
 // ExtensionsConfig configures x-* extension validation.

@@ -3,6 +3,7 @@
 package lsp
 
 import (
+	"context"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ var Version = "dev"
 
 // telescopeSetup is a gossip Option that wires the OpenAPI index and rules
 // after the tree-sitter manager has been initialized by WithTreeSitter.
-func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, pluginHost *plugin.Host, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager) gossip.Option {
+func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, pluginHost *plugin.Host, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, childMgr *ChildLSPManager) gossip.Option {
 	return func(s *gossip.Server) {
 		// Bind the DiagnosticEngine now that WithTreeSitter has been applied.
 		// This must happen here (inside an Option) because gossip.NewServer
@@ -114,6 +115,11 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 	addlValidator := validation.NewAdditionalValidator(logger)
 	projMgr := project.NewManager(indexCache, logger)
 
+	// The ChildLSPManager publishes merged diagnostics. The publish function
+	// is nil initially; it gets wired to the real ClientProxy in OnInitialized
+	// once the server connection is established.
+	childMgr := NewChildLSPManager(nil, logger)
+
 	s := gossip.NewServer("telescope", Version,
 		gossip.WithTreeSitter(treesitter.Config{
 			Matchers: []treesitter.LanguageMatcher{
@@ -133,12 +139,35 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		gossip.WithMiddleware(middleware.Logging(logger), middleware.Recovery()),
 		gossip.WithCompletionTriggerCharacters("$", "/", "#", ":"),
 		gossip.WithSemanticTokensLegend(semanticTokensLegend),
-		telescopeSetup(cfg, indexCache, rsMgr, pluginHost, extRegistry, addlValidator, projMgr),
+		telescopeSetup(cfg, indexCache, rsMgr, pluginHost, extRegistry, addlValidator, projMgr, childMgr),
 	)
 
-	// Register an initialization hook that loads rulesets from the workspace
-	// and registers dynamic file watchers for hot-reload.
+	// Register document sync handlers to forward to child LSPs.
+	s.OnDidOpen(func(ctx *gossip.Context, params *protocol.DidOpenTextDocumentParams) error {
+		childMgr.DidOpen(context.Background(), params)
+		return nil
+	})
+	s.OnDidChange(func(ctx *gossip.Context, params *protocol.DidChangeTextDocumentParams) error {
+		childMgr.DidChange(context.Background(), params)
+		return nil
+	})
+	s.OnDidClose(func(ctx *gossip.Context, params *protocol.DidCloseTextDocumentParams) error {
+		childMgr.DidClose(context.Background(), params)
+		return nil
+	})
+
+	// Register an initialization hook that loads rulesets from the workspace,
+	// registers dynamic file watchers, and starts child LSPs.
 	s.OnInitialized(func(ctx *gossip.Context) {
+		// Wire the aggregator's publish to the real client proxy, and redirect
+		// the diagnostic engine's output through the aggregator so telescope's
+		// own diagnostics are merged with child LSP diagnostics.
+		childMgr.Aggregator().SetPublishFunc(ctx.Client.PublishDiagnostics)
+		ctx.Server().DiagnosticEngine().SetPublish(func(bgCtx context.Context, params *protocol.PublishDiagnosticsParams) error {
+			childMgr.Aggregator().Set(params.URI, "telescope", params.Diagnostics)
+			return nil
+		})
+
 		root := string(ctx.WorkspaceRoot())
 		rootPath := uriToFSPath(root)
 		if rootPath != "" {
@@ -196,9 +225,11 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 				}
 			}
 
+			// Start child YAML/JSON language servers for enhanced syntax and
+			// schema diagnostics. Runs in background to avoid blocking init.
+			go childMgr.Start(context.Background(), root)
+
 			// Start background workspace scan and project building.
-			// This runs in a goroutine to avoid blocking the initialized
-			// response while scanning large workspaces.
 			go projMgr.Initialize(rootPath, cfg.Exclude)
 		}
 		registerFileWatchers(ctx)

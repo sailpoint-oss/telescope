@@ -1,0 +1,52 @@
+openapi: "3.1.0"
+info:
+  title: Valid Minimal Spec
+  version: "1.0.0"
+  description: A minimal valid OpenAPI specification for baseline testing.
+  contact:
+    name: Test
+    email: test@example.com
+  license:
+    name: MIT
+servers:
+  - url: https://api.example.com/v1
+    description: Production server
+tags:
+  - name: Health
+    description: Health check endpoints
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      description: Returns the health status of the service.
+      deprecated: false
+      tags:
+        - Health
+      security:
+        - apiKey: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Health response
+                additionalProperties: false
+                properties:
+                  status:
+                    type: string
+                    description: Health status
+                    enum:
+                      - ok
+                      - degraded
+        "500":
+          description: Internal server error
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      name: X-API-Key
+      in: header
+      description: API key authentication

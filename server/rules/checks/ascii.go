@@ -23,7 +23,14 @@ func registerASCII(s *gossip.Server) {
 	s.Analyze("ascii", treesitter.Analyzer{
 		Scope: treesitter.ScopeFile,
 		Run: func(ctx *treesitter.AnalysisContext) []protocol.Diagnostic {
-			text := ctx.Document.Text()
+			var text string
+			if ctx.Document != nil {
+				text = ctx.Document.Text()
+			} else if ctx.Tree != nil {
+				text = string(ctx.Tree.Source())
+			} else {
+				return nil
+			}
 			var diags []protocol.Diagnostic
 
 			line := uint32(0)

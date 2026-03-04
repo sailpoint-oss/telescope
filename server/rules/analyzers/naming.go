@@ -70,17 +70,23 @@ func registerNamingAnalyzers(s *gossip.Server) {
 
 	rules.Define("operation-operationId-unique", operationIDUniqueMeta).Custom(
 		func(idx *openapi.Index, r *rules.Reporter) {
-			seen := make(map[string]string)
+			type opInfo struct {
+				loc  openapi.Loc
+				desc string
+			}
+			seen := make(map[string]opInfo)
 			for path, item := range idx.Document.Paths {
 				for _, mo := range item.Operations() {
 					opID := mo.Operation.OperationID
 					if opID == "" {
 						continue
 					}
-					if firstPath, exists := seen[opID]; exists {
-						r.At(mo.Operation.OperationIDLoc, "operationId '%s' is already used at %s", opID, firstPath)
+					desc := strings.ToUpper(mo.Method) + " " + path
+					if first, exists := seen[opID]; exists {
+						r.WithRelated(first.loc, "", "First defined here at %s", first.desc).
+							At(mo.Operation.OperationIDLoc, "operationId '%s' is already used at %s", opID, first.desc)
 					} else {
-						seen[opID] = strings.ToUpper(mo.Method) + " " + path
+						seen[opID] = opInfo{loc: mo.Operation.OperationIDLoc, desc: desc}
 					}
 				}
 			}

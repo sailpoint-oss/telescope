@@ -1,655 +1,501 @@
 # Custom Rules Guide
 
-Telescope supports custom rules for extending validation beyond the built-in rules. This guide covers creating both OpenAPI-specific rules and generic rules for any YAML/JSON files.
+Telescope supports two approaches for extending validation beyond the built-in rules:
 
-## Overview
+| Approach | Use Case | Language |
+| -------- | -------- | -------- |
+| **Go Plugin Binaries** | Full programmatic access to the typed OpenAPI model | Go |
+| **Spectral YAML Rulesets** | Declarative rules using JSONPath + built-in functions | YAML |
 
-| Rule Type     | Use Case                                       | API                   |
-| ------------- | ---------------------------------------------- | --------------------- |
-| OpenAPI Rules | Validate OpenAPI specs with semantic awareness | `defineRule()`        |
-| Generic Rules | Validate any YAML/JSON files                   | `defineGenericRule()` |
-| Zod Schemas   | Structural validation of any YAML/JSON files   | `defineSchema()`      |
+## Go Plugin Binaries
 
-## Directory Structure
+Custom rules are written as standalone Go binaries using the Telescope SDK. They run as isolated subprocesses via [hashicorp/go-plugin](https://github.com/hashicorp/go-plugin) RPC.
 
-```
-your-project/
-└── .telescope/
-    ├── config.yaml
-    ├── rules/
-    │   ├── my-openapi-rule.ts
-    │   └── my-generic-rule.ts
-    └── schemas/
-        └── my-schema.ts
+### Getting Started
+
+1. Create a new Go module:
+
+```bash
+mkdir my-rules && cd my-rules
+go mod init my-company/telescope-rules
+go get github.com/sailpoint-oss/telescope/server/sdk
 ```
 
-## OpenAPI Rules
+2. Write your plugin:
 
-OpenAPI rules use semantic visitors to validate specific parts of your API specification.
+```go
+// main.go
+package main
 
-### Basic Structure
+import "github.com/sailpoint-oss/telescope/server/sdk"
 
-```typescript
-// .telescope/rules/require-contact.ts
-import { defineRule } from "telescope-server";
+func main() {
+    p := sdk.NewPlugin("my-rules", "1.0.0")
 
-export default defineRule({
-  meta: {
-    id: "require-contact",
-    number: 1000, // Unique rule number
-    description: "API must include contact information",
-    type: "problem", // "problem" or "suggestion"
-    fileFormats: ["yaml", "yml", "json"],
-    defaultSeverity: "error", // Default when not overridden
-    scope: "single-file", // "single-file" or "cross-file"
-    fixable: false, // Whether rule provides auto-fixes
-  },
-  check(ctx) {
-    return {
-      // Visitor for Info section - receives typed InfoRef
-      Info(info) {
-        // Use typed accessor methods
-        if (!info.hasContact()) {
-          ctx.reportAt(info, "contact", {
-            message: "Info section must include contact details",
-            severity: "error",
-          });
+    sdk.Rule("require-security", sdk.Meta{
+        Description: "All operations must define a security requirement",
+        Severity:    sdk.Error,
+        Category:    sdk.Security,
+        Recommended: true,
+        HowToFix:    "Add a 'security' array to the operation or at the document root.",
+    }).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
+        if len(op.Security) == 0 {
+            r.At(op.Loc, "%s %s has no security requirement defined", method, path)
         }
+    }).Register(p)
 
-        // Access other typed properties
-        const title = info.title(); // string
-        const version = info.version(); // string
-        const desc = info.description(); // string | undefined
-      },
-    };
-  },
-});
-```
-
-### Meta Options Reference
-
-| Option            | Type                              | Required | Description                                                                 |
-| ----------------- | --------------------------------- | -------- | --------------------------------------------------------------------------- |
-| `id`              | `string`                          | Yes      | Unique identifier for the rule (used in config and diagnostics)             |
-| `number`          | `number`                          | Yes      | Unique numeric code for the rule                                            |
-| `description`     | `string`                          | Yes      | Human-readable description of what the rule checks                          |
-| `type`            | `"problem" \| "suggestion"`       | Yes      | Whether the rule detects problems or suggests improvements                  |
-| `fileFormats`     | `string[]`                        | Yes      | File extensions this rule applies to (e.g., `["yaml", "yml", "json"]`)      |
-| `defaultSeverity` | `"error" \| "warning" \| "info" \| "hint"` | No | Default severity when not overridden in config (defaults to `"error"`)      |
-| `scope`           | `"single-file" \| "cross-file"`   | No       | Execution scope - `single-file` runs per document, `cross-file` runs once   |
-| `fixable`         | `boolean`                         | No       | Whether the rule provides automatic fixes via `ctx.fix()`                   |
-| `url`             | `string`                          | No       | URL to documentation about this rule                                        |
-
-**Scope behavior:**
-
-- `single-file` (default): Rule runs once per document. Most rules use this.
-- `cross-file`: Rule runs once after all documents are processed. Use for aggregate checks like "all operationIds must be unique across the workspace".
-
-### Available Visitors
-
-| Visitor               | Description                         | Ref Type                  | Key Accessors                                                                         |
-| --------------------- | ----------------------------------- | ------------------------- | ------------------------------------------------------------------------------------- |
-| `Document`            | Every OpenAPI file (general checks) | `{ uri, pointer, node }`  | `node` (raw AST)                                                                      |
-| `Root`                | Root-level OpenAPI documents only   | `RootRef`                 | `openapi()`, `info()`, `paths()`, `servers()`, `tags()`                               |
-| `Info`                | API metadata section                | `InfoRef`                 | `title()`, `version()`, `description()`, `contact()`, `license()`, `hasContact()`     |
-| `Tag`                 | Each tag definition at root level   | `TagRef`                  | `name()`, `description()`, `externalDocs()`, `summary()`, `parent()`, `kind()`        |
-| `PathItem`            | Path definitions                    | `PathItemRef`             | `path()`, `operations()`, `hasOperation()`, `parameters()`                            |
-| `Operation`           | HTTP operations                     | `OperationRef`            | `method`, `operationId()`, `summary()`, `tags()`, `eachParameter()`, `eachResponse()` |
-| `Component`           | Component definitions               | `ComponentRef`            | `componentType()`, `componentName()`, `isSchema()`, `isParameter()`                   |
-| `Schema`              | Schema definitions (recursive)      | `SchemaRef`               | `type()`, `properties()`, `items()`, `eachProperty()`, `isArray()`, `isObject()`      |
-| `Parameter`           | Parameter definitions               | `ParameterRef`            | `getName()`, `getIn()`, `required()`, `schema()`, `isPath()`, `isQuery()`             |
-| `Response`            | Response definitions                | `ResponseRef`             | `description()`, `content()`, `isSuccess()`, `eachMediaType()`, `eachHeader()`        |
-| `RequestBody`         | Request body definitions            | `RequestBodyRef`          | `description()`, `required()`, `content()`, `eachMediaType()`                         |
-| `Header`              | Header definitions                  | `HeaderRef`               | `getName()`, `description()`, `schema()`, `required()`                                |
-| `MediaType`           | Media type definitions              | `MediaTypeRef`            | `schema()`, `example()`, `examples()`, `encoding()`                                   |
-| `SecurityRequirement` | Security requirements               | `SecurityRequirementRef`  | `node`, `level` ("root" or "operation")                                               |
-| `Example`             | Example definitions                 | `ExampleRef`              | `summary()`, `description()`, `value()`, `externalValue()`, `isExternal()`            |
-| `Link`                | Link definitions                    | `LinkRef`                 | `operationId()`, `operationRef()`, `parameters()`, `description()`                    |
-| `Callback`            | Callback definitions                | `CallbackRef`             | `expressions()`, `eachPathItem()`, `isRef()`                                          |
-| `Reference`           | All `$ref` nodes                    | `ReferenceRef`            | `ref` (the $ref string), `refPointer`, `node`                                         |
-| `Project`             | After all files processed           | `{ index: ProjectIndex }` | Aggregate/cross-file checks                                                           |
-
-### Context API
-
-The `ctx` object provides these methods:
-
-```typescript
-check(ctx) {
-  return {
-    Operation(op) {
-      // Access the project's documents
-      const doc = ctx.project.docs.get(op.uri);
-
-      // Get source location for a JSON pointer
-      const range = ctx.locate(op.uri, op.pointer);
-
-      // Report a diagnostic (full control)
-      ctx.report({
-        message: "Issue description",
-        severity: "error",   // "error", "warning", "info", or "hint"
-        uri: op.uri,
-        range,
-      });
-
-      // Report at a specific field (convenience method)
-      ctx.reportAt(op, "summary", {
-        message: "Summary is required",
-        severity: "error",
-      });
-
-      // Report at the current ref location (convenience method)
-      ctx.reportHere(op, {
-        message: "Operation has issues",
-        severity: "warning",
-      });
-
-      // Optional: register a fix (separately from reporting)
-      ctx.fix({
-        uri: op.uri,
-        ops: [{ op: "add", path: `${op.pointer}/operationId`, value: "myOperation" }],
-      });
-    },
-  };
+    p.Serve()
 }
 ```
 
-**Context methods:**
+3. Build and deploy:
 
-| Method                           | Description                                                           |
-| -------------------------------- | --------------------------------------------------------------------- |
-| `ctx.report(diagnostic)`         | Report a diagnostic with full control over location                   |
-| `ctx.reportAt(ref, field, opts)` | Report at a specific field within the ref (auto-locates the field)    |
-| `ctx.reportHere(ref, opts)`      | Report at the ref's location (uses the ref's pointer for location)    |
-| `ctx.locate(uri, pointer)`       | Get the source range for a JSON pointer                               |
-| `ctx.fix(patch)`                 | Register an auto-fix (JSON Patch operations)                          |
-| `ctx.project`                    | Access the project context (docs, indexes, etc.)                      |
-
-### Utility Functions
-
-```typescript
-import {
-  defineRule,
-  getValueAtPointer, // Get value at JSON pointer
-  joinPointer, // Join pointer segments
-  splitPointer, // Split pointer into segments
-  getParentPointer, // Get parent pointer
-} from "telescope-server";
-
-export default defineRule({
-  meta: {
-    /* ... */
-  },
-  check(ctx) {
-    return {
-      Operation(op) {
-        const doc = ctx.project.docs.get(op.uri);
-        if (!doc) return;
-
-        // Navigate to a child field
-        const summaryPointer = joinPointer([
-          ...splitPointer(op.pointer),
-          "summary",
-        ]);
-
-        const summary = getValueAtPointer(doc.ast, summaryPointer);
-
-        if (typeof summary !== "string" || summary.length < 10) {
-          ctx.report({
-            message: "Summary must be at least 10 characters",
-            severity: "warning",
-            uri: op.uri,
-            range:
-              ctx.locate(op.uri, summaryPointer) ??
-              ctx.locate(op.uri, op.pointer),
-          });
-        }
-      },
-    };
-  },
-});
+```bash
+go build -o my-rules .
+mkdir -p /path/to/project/.telescope/plugins/
+cp my-rules /path/to/project/.telescope/plugins/
 ```
 
-### Complete Example: Description Length Rule
+Telescope automatically discovers and runs plugin binaries from `.telescope/plugins/`.
 
-```typescript
-// .telescope/rules/description-length.ts
-import {
-  defineRule,
-  getValueAtPointer,
-  joinPointer,
-  splitPointer,
-} from "telescope-server";
+### Rule Metadata
 
-export default defineRule({
-  meta: {
-    id: "description-min-length",
-    number: 1001,
-    description: "Descriptions must be at least 20 characters",
-    type: "suggestion",
-    fileFormats: ["yaml", "yml", "json"],
-  },
-  check(ctx) {
-    const MIN_LENGTH = 20;
+Each rule is defined with `sdk.Rule(id, meta)` where `meta` has these fields:
 
-    function checkDescription(uri: string, pointer: string, fieldName: string) {
-      const doc = ctx.project.docs.get(uri);
-      if (!doc) return;
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `Description` | `string` | Yes | Human-readable description of what the rule checks |
+| `Severity` | `DiagnosticSeverity` | Yes | Default severity (`sdk.Error`, `sdk.Warn`, `sdk.Hint`) |
+| `Category` | `Category` | Yes | Rule category (see below) |
+| `Recommended` | `bool` | No | Include in `telescope:recommended` ruleset |
+| `HowToFix` | `string` | No | Guidance on how to fix the issue |
+| `DocURL` | `string` | No | URL to documentation about this rule |
 
-      const descPointer = joinPointer([
-        ...splitPointer(pointer),
-        "description",
-      ]);
-      const description = getValueAtPointer(doc.ast, descPointer);
+**Categories:** `sdk.Naming`, `sdk.Documentation`, `sdk.Structure`, `sdk.Types`, `sdk.Security`, `sdk.Servers`, `sdk.Paths`, `sdk.References`, `sdk.Syntax`, `sdk.OWASP`
 
-      if (typeof description === "string" && description.length < MIN_LENGTH) {
-        const range = ctx.locate(uri, descPointer);
-        if (range) {
-          ctx.report({
-            message: `${fieldName} description should be at least ${MIN_LENGTH} characters (currently ${description.length})`,
-            severity: "warning",
-            uri,
-            range,
-          });
-        }
-      }
+**Severities:** `sdk.Error`, `sdk.Warn`, `sdk.Hint` (also `sdk.SeverityError`, `sdk.SeverityWarning`, `sdk.SeverityInfo`, `sdk.SeverityHint`)
+
+### Visitor Methods
+
+Chain visitor methods on the rule builder to target specific parts of the OpenAPI document. Each visitor receives the typed OpenAPI model element and a `*sdk.Reporter` for reporting diagnostics.
+
+| Method | Callback Signature | Description |
+| ------ | ------------------ | ----------- |
+| `.Document(fn)` | `func(doc *Document, r *Reporter)` | Full document (top-level checks) |
+| `.Info(fn)` | `func(info *Info, r *Reporter)` | API metadata section |
+| `.Paths(fn)` | `func(path string, item *PathItem, r *Reporter)` | Each path definition |
+| `.Operations(fn)` | `func(path, method string, op *Operation, r *Reporter)` | Each HTTP operation |
+| `.Schemas(fn)` | `func(name string, schema *Schema, pointer string, r *Reporter)` | Top-level schemas |
+| `.RecursiveSchemas(fn)` | `func(name string, schema *Schema, pointer string, r *Reporter)` | All schemas including nested |
+| `.Parameters(fn)` | `func(param *Parameter, r *Reporter)` | Each parameter |
+| `.Responses(fn)` | `func(code string, resp *Response, r *Reporter)` | Each response |
+| `.RequestBodies(fn)` | `func(path, method string, rb *RequestBody, r *Reporter)` | Each request body |
+| `.Tags(fn)` | `func(tag *Tag, r *Reporter)` | Each tag definition |
+| `.Servers(fn)` | `func(server *Server, r *Reporter)` | Each server definition |
+| `.SecuritySchemes(fn)` | `func(name string, ss *SecurityScheme, r *Reporter)` | Each security scheme |
+| `.Examples(fn)` | `func(name string, ex *Example, r *Reporter)` | Each component example |
+| `.Custom(fn)` | `func(idx *Index, r *Reporter)` | Full index for arbitrary logic |
+
+### Reporter API
+
+The `*sdk.Reporter` provides methods for reporting diagnostics:
+
+```go
+// Report at a model element's location (uses rule's default severity)
+r.At(op.Loc, "Operation %s %s is missing a summary", method, path)
+
+// Report at an explicit LSP range
+r.AtRange(rng, "Invalid value at this location")
+
+// Report with overridden severity
+r.Error(loc, "Critical: %s", msg)   // Always error
+r.Warn(loc, "Consider: %s", msg)    // Always warning
+
+// Chain enrichments before reporting
+r.WithTags(protocol.DiagnosticTagDeprecated).At(loc, "Deprecated operation")
+r.WithRelated(otherLoc, otherURI, "Related definition here").At(loc, "Conflict found")
+r.WithData(myData).At(loc, "Issue with attached data")
+```
+
+### Composable Validators
+
+The SDK exposes `sdk.V` for building reusable field validators:
+
+```go
+// Individual validators
+sdk.V.Required()             // value must not be empty
+sdk.V.MinLength(10)          // value must be at least 10 characters
+sdk.V.MaxLength(100)         // value must be at most 100 characters
+sdk.V.Pattern(regexp)        // value must match regex
+sdk.V.OneOf([]string{...})   // value must be one of allowed values
+sdk.V.TitleCase()            // value must start with uppercase
+sdk.V.CamelCase()            // value must be camelCase
+sdk.V.KebabCase()            // value must be kebab-case
+sdk.V.Custom(fn, msg)        // custom validation function
+
+// Combinators
+sdk.V.All(v1, v2, v3)       // all validators must pass
+sdk.V.Any(v1, v2)           // at least one must pass
+sdk.V.Optional(v)           // skip if empty, validate if present
+
+// Usage in a visitor
+sdk.Rule("operation-id-camel", sdk.Meta{
+    Description: "operationId should be camelCase",
+    Severity:    sdk.Warn,
+    Category:    sdk.Naming,
+}).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
+    result := sdk.V.All(
+        sdk.V.Required(),
+        sdk.V.CamelCase(),
+    )(op.OperationID, "operationId")
+    if !result.Valid {
+        r.At(op.OperationIDLoc, "%s", result.Message)
     }
-
-    return {
-      Operation(op) {
-        checkDescription(op.uri, op.pointer, "Operation");
-      },
-      Parameter(param) {
-        checkDescription(param.uri, param.pointer, "Parameter");
-      },
-      Schema(schema) {
-        checkDescription(schema.uri, schema.pointer, "Schema");
-      },
-    };
-  },
-});
+}).Register(p)
 ```
 
-## Generic Rules
+### Complete Example
 
-Generic rules work on any YAML/JSON file, not just OpenAPI specs.
+This example plugin demonstrates multiple visitor types:
 
-### Basic Structure
+```go
+package main
 
-```typescript
-// .telescope/rules/require-version.ts
-import { defineGenericRule } from "telescope-server";
+import (
+    "strings"
 
-export default defineGenericRule({
-  meta: {
-    id: "require-version",
-    type: "problem",
-    docs: {
-      description: "All config files must have a version field",
-      recommended: false,
-    },
-    fileFormats: ["yaml", "json"],
-  },
-  create(ctx) {
-    return {
-      Document(ref) {
-        const node = ref.node as Record<string, unknown>;
+    "github.com/sailpoint-oss/telescope/server/sdk"
+)
 
-        if (typeof node === "object" && node !== null) {
-          if (!("version" in node)) {
-            ctx.report({
-              message: "Document must have a 'version' field at root level",
-              severity: "error",
-              uri: ref.uri,
-              range: ctx.offsetToRange(0, 1) ?? {
-                start: { line: 0, character: 0 },
-                end: { line: 0, character: 0 },
-              },
-            });
-          }
+func main() {
+    p := sdk.NewPlugin("my-company-rules", "1.0.0")
+
+    // Require security on all operations
+    sdk.Rule("require-security", sdk.Meta{
+        Description: "All operations must define a security requirement",
+        Severity:    sdk.Error,
+        Category:    sdk.Security,
+        Recommended: true,
+    }).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
+        if len(op.Security) == 0 {
+            r.At(op.Loc, "%s %s has no security requirement defined", method, path)
         }
-      },
-    };
-  },
-});
-```
+    }).Register(p)
 
-### Context API for Generic Rules
+    // Enforce PascalCase schema names
+    sdk.Rule("schema-pascal-case", sdk.Meta{
+        Description: "Component schema names should use PascalCase",
+        Severity:    sdk.Warn,
+        Category:    sdk.Naming,
+    }).Schemas(func(name string, s *sdk.Schema, _ string, r *sdk.Reporter) {
+        result := sdk.V.TitleCase()(name, "schema name")
+        if !result.Valid {
+            r.At(s.Loc, "Schema %q should use PascalCase", name)
+        }
+    }).Register(p)
 
-```typescript
-create(ctx) {
-  return {
-    Document(ref) {
-      // ref.node - The parsed document content
-      // ref.uri - Document URI
-      // ref.pointer - JSON pointer (usually "" for root)
+    // No trailing slashes in paths
+    sdk.Rule("no-trailing-slash", sdk.Meta{
+        Description: "API paths should not end with a trailing slash",
+        Severity:    sdk.Warn,
+        Category:    sdk.Paths,
+        HowToFix:    "Remove the trailing '/' from the path.",
+    }).Paths(func(path string, item *sdk.PathItem, r *sdk.Reporter) {
+        if len(path) > 1 && strings.HasSuffix(path, "/") {
+            r.At(item.PathLoc, "Path %q has a trailing slash", path)
+        }
+    }).Register(p)
 
-      // Convert character offsets to line/column range
-      const range = ctx.offsetToRange(startOffset, endOffset);
+    // Require HTTPS server URLs
+    sdk.Rule("server-url-https", sdk.Meta{
+        Description: "Server URLs should use HTTPS",
+        Severity:    sdk.Warn,
+        Category:    sdk.Servers,
+    }).Servers(func(server *sdk.Server, r *sdk.Reporter) {
+        if strings.HasPrefix(server.URL, "http://") {
+            r.At(server.URLLoc, "Server URL %q uses HTTP; consider HTTPS", server.URL)
+        }
+    }).Register(p)
 
-      // Report a diagnostic
-      ctx.report({
-        message: "Issue description",
-        severity: "error",
-        uri: ref.uri,
-        range: range ?? {
-          start: { line: 0, character: 0 },
-          end: { line: 0, character: 0 }
-        },
-      });
-    },
-  };
+    p.Serve()
 }
 ```
 
-### Complete Example: Key Ordering Rule
+### Testing Plugin Rules
 
-```typescript
-// .telescope/rules/yaml-key-order.ts
-import { defineGenericRule } from "telescope-server";
+Use the `rulestest` package to test rules with exact diagnostic assertions:
 
-const PREFERRED_ORDER = ["name", "version", "description", "author", "license"];
+```go
+package main
 
-export default defineGenericRule({
-  meta: {
-    id: "yaml-key-order",
-    type: "suggestion",
-    docs: {
-      description: "Enforce consistent key ordering in YAML files",
-      recommended: false,
-    },
-    fileFormats: ["yaml", "yml"],
-  },
-  create(ctx) {
-    return {
-      Document(ref) {
-        const node = ref.node as Record<string, unknown>;
+import (
+    "testing"
 
-        if (typeof node !== "object" || node === null || Array.isArray(node)) {
-          return;
+    "github.com/sailpoint-oss/telescope/server/rules/testing"
+)
+
+func TestRequireSecurity(t *testing.T) {
+    // Get the rule builder, then build the analyzer
+    rule := sdk.Rule("require-security", sdk.Meta{
+        Description: "All operations must define a security requirement",
+        Severity:    sdk.Error,
+        Category:    sdk.Security,
+    }).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
+        if len(op.Security) == 0 {
+            r.At(op.Loc, "%s %s has no security requirement defined", method, path)
         }
+    })
 
-        const keys = Object.keys(node);
-        const orderedKeys = [...keys].sort((a, b) => {
-          const aIndex = PREFERRED_ORDER.indexOf(a);
-          const bIndex = PREFERRED_ORDER.indexOf(b);
+    _, analyzer := rule.Build()
 
-          if (aIndex === -1 && bIndex === -1) return 0;
-          if (aIndex === -1) return 1;
-          if (bIndex === -1) return -1;
-          return aIndex - bIndex;
-        });
-
-        if (JSON.stringify(keys) !== JSON.stringify(orderedKeys)) {
-          ctx.report({
-            message: `Keys should be ordered: ${orderedKeys.join(", ")}`,
-            severity: "info",
-            uri: ref.uri,
-            range: ctx.offsetToRange(0, 1) ?? {
-              start: { line: 0, character: 0 },
-              end: { line: 0, character: 0 },
+    rulestest.Run(t, analyzer,
+        rulestest.Case{
+            Name: "reports missing security",
+            Spec: `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers`,
+            Expect: []rulestest.Diag{
+                {Line: 7, Code: "require-security", Severity: rulestest.Error},
             },
-          });
-        }
-      },
-    };
-  },
-});
+        },
+        rulestest.Case{
+            Name: "passes when security is defined",
+            Spec: `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+security:
+  - bearerAuth: []
+paths:
+  /users:
+    get:
+      operationId: listUsers`,
+            Expect: []rulestest.Diag{},
+        },
+    )
+}
 ```
 
-## Custom Zod Schemas
+Run tests with:
 
-Use Zod schemas for structural validation of files.
+```bash
+cd my-rules && go test ./...
+```
+
+---
+
+## Spectral YAML Rulesets
+
+Telescope supports Spectral-compatible YAML rulesets for declarative rules. These use JSONPath expressions to target document nodes and built-in validation functions -- no JavaScript execution required.
 
 ### Basic Structure
 
-```typescript
-// .telescope/schemas/app-config.ts
-import { defineSchema } from "telescope-server";
+Create a YAML ruleset file:
 
-export default defineSchema((z) =>
-  z.object({
-    name: z.string().min(1),
-    version: z.string().regex(/^\\d+\\.\\d+\\.\\d+$/),
-    settings: z
-      .object({
-        debug: z.boolean().optional(),
-        timeout: z.number().min(0).optional(),
-        logLevel: z.enum(["debug", "info", "warn", "error"]).optional(),
-      })
-      .optional(),
-    features: z.array(z.string()).optional(),
-  })
-);
+```yaml
+# my-rules.yaml
+rules:
+  operation-description:
+    description: Operations should have a description
+    message: "{{description}}"
+    severity: warn
+    given: "$.paths[*][get,post,put,patch,delete]"
+    then:
+      field: description
+      function: truthy
 ```
 
-### Advanced Schema Example
+### Rule Fields
 
-```typescript
-// .telescope/schemas/database-config.ts
-import { defineSchema } from "telescope-server";
+| Field | Type | Required | Description |
+| ----- | ---- | -------- | ----------- |
+| `description` | `string` | No | Human-readable description |
+| `message` | `string` | No | Diagnostic message (supports `{{value}}`, `{{path}}`, `{{property}}` placeholders) |
+| `severity` | `string` | No | `error`, `warn`, `info`, `hint` (default: `warn`) |
+| `given` | `string` or `string[]` | Yes | JSONPath expression(s) targeting document nodes |
+| `then` | `object` or `object[]` | Yes | Validation step(s) to apply at matched nodes |
+| `formats` | `string[]` | No | Restrict to spec versions: `oas2`, `oas3`, `oas3_0`, `oas3_1` |
+| `recommended` | `bool` | No | Whether the rule is recommended (default: `true`) |
 
-export default defineSchema((z) =>
-  z.object({
-    connection: z.object({
-      host: z.string().min(1),
-      port: z.number().int().min(1).max(65535),
-      database: z.string().min(1),
-      username: z.string().optional(),
-      password: z.string().optional(),
-      ssl: z.boolean().optional(),
-    }),
-    pool: z
-      .object({
-        min: z.number().int().min(0).optional(),
-        max: z.number().int().min(1).optional(),
-        idleTimeout: z.number().min(0).optional(),
-      })
-      .optional(),
-    replicas: z
-      .array(
-        z.object({
-          host: z.string().min(1),
-          port: z.number().int().min(1).max(65535),
-          database: z.string().min(1),
-          username: z.string().optional(),
-          password: z.string().optional(),
-          ssl: z.boolean().optional(),
-        })
-      )
-      .optional(),
-    migrations: z
-      .object({
-        directory: z.string(),
-        tableName: z.string().optional(),
-      })
-      .optional(),
-  })
-);
+### Built-in Functions
+
+| Function | Description | Options |
+| -------- | ----------- | ------- |
+| `truthy` | Value must be truthy (non-null, non-empty) | -- |
+| `falsy` | Value must be falsy | -- |
+| `defined` | Value must exist | -- |
+| `undefined` | Value must not exist | -- |
+| `pattern` | Value must match regex | `match: "regex"` or `notMatch: "regex"` |
+| `casing` | Value must follow naming convention | `type: "camel"`, `"pascal"`, `"kebab"`, `"snake"` |
+| `length` | Value length constraints | `min: N`, `max: N` |
+| `enumeration` | Value must be one of allowed values | `values: [...]` |
+| `schema` | Value must match JSON Schema | `schema: {...}` |
+| `alphabetical` | Array/object keys must be sorted | `keyedBy: "field"` |
+| `or` | At least one field must be truthy | `properties: ["a", "b"]` |
+| `xor` | Exactly one field must be truthy | `properties: ["a", "b"]` |
+| `typedEnum` | Enum values must match declared type | -- |
+| `unreferencedReusableObject` | Component must be referenced | -- |
+
+### JSONPath Expressions
+
+| Expression | Description |
+| ---------- | ----------- |
+| `$` | Document root |
+| `$.info` | Info object |
+| `$.paths[*]` | All path items |
+| `$.paths[*][get,post,put,patch,delete]` | All operations |
+| `$.components.schemas[*]` | All component schemas |
+| `$.paths[*][*].parameters[*]` | All operation parameters |
+| `$.paths[*][*].responses[*]` | All responses |
+
+### Example: Custom Spectral Ruleset
+
+```yaml
+# .telescope/spectral-rules.yaml
+rules:
+  # Require descriptions on operations
+  operation-description:
+    description: Every operation must have a description
+    severity: warn
+    given: "$.paths[*][get,post,put,patch,delete]"
+    then:
+      field: description
+      function: truthy
+
+  # Enforce kebab-case paths
+  path-kebab-case:
+    description: Paths should use kebab-case
+    severity: warn
+    given: "$.paths"
+    then:
+      field: "@key"
+      function: pattern
+      functionOptions:
+        match: "^(/[a-z0-9-{}]+)+$"
+
+  # Require contact info
+  info-contact:
+    description: API must include contact information
+    severity: error
+    given: "$.info"
+    then:
+      field: contact
+      function: defined
+
+  # Limit tag count
+  operation-tag-count:
+    description: Operations should have 1-3 tags
+    severity: warn
+    given: "$.paths[*][get,post,put,patch,delete].tags"
+    then:
+      function: length
+      functionOptions:
+        min: 1
+        max: 3
 ```
 
-### Zod Schema Reference
+### Registering Spectral Rulesets
 
-See Zod’s documentation for the full API surface; common building blocks:
+Reference Spectral YAML rulesets in your `.telescope.yaml` config:
 
-- `z.object({ ... })`
-- `z.string()`, `z.number()`, `z.boolean()`
-- `z.array(schema)`
-- `schema.optional()`
-- `z.enum([...])`
+```yaml
+# .telescope.yaml
+extends: telescope:recommended
+
+plugins:
+  - ./spectral-rules.yaml
+  - ./more-rules.yaml
+
+rules:
+  operation-description: error  # Override severity
+```
+
+---
 
 ## Configuration
 
-### Register OpenAPI Rules
+### Plugin Binaries
+
+Place compiled Go binaries in `.telescope/plugins/`:
+
+```
+your-project/
+├── .telescope/
+│   └── plugins/
+│       ├── my-rules        # Compiled Go plugin binary
+│       └── other-rules     # Another plugin binary
+├── .telescope.yaml          # Configuration file
+└── api/
+    └── openapi.yaml
+```
+
+### Spectral Rulesets
+
+Reference YAML rulesets via the `plugins` field in `.telescope.yaml`:
 
 ```yaml
-# .telescope/config.yaml
-openapi:
-  rules:
-    - rule: require-contact.ts
-    - rule: description-length.ts
-      patterns:
-        - "**/public-api/**/*.yaml"
+# .telescope.yaml
+extends: telescope:recommended
+
+plugins:
+  - .telescope/spectral-rules.yaml
+
+rules:
+  my-custom-rule: error   # Override any rule's severity
+  another-rule: off        # Disable a rule
 ```
 
-### Register Generic Rules and Schemas
+### Severity Overrides
+
+Override any rule's severity (built-in, plugin, or Spectral) in `.telescope.yaml`:
 
 ```yaml
-# .telescope/config.yaml
-additionalValidation:
-  config-files:
-    patterns:
-      - "config/**/*.yaml"
-    schemas:
-      - schema: app-config.ts
-    rules:
-      - rule: require-version.ts
-
-  package-files:
-    patterns:
-      - "**/package.yaml"
-    rules:
-      - rule: yaml-key-order.ts
+rules:
+  require-security: error
+  schema-pascal-case: warn
+  operation-description: off
 ```
 
-## Testing Custom Rules
+Valid values: `error`, `warn` / `warning`, `info`, `hint`, `off`
 
-### Unit Testing OpenAPI Rules
-
-Use the engine helpers to run a rule against an in-memory document:
-
-```typescript
-import { describe, expect, it } from "bun:test";
-import myRule from "./require-contact";
-import {
-  buildIndex,
-  buildRefGraph,
-  createRuleContext,
-  runEngine,
-  type Rule,
-} from "telescope-server";
-
-describe("require-contact", () => {
-  it("reports error when contact is missing", async () => {
-    const uri = "file:///api.yaml";
-    const doc = {
-      ast: {
-        openapi: "3.0.0",
-        info: { title: "My API", version: "1.0.0" },
-        paths: {},
-      },
-      ir: {
-        root: {
-          ptr: "#",
-          kind: "object",
-          children: [],
-          loc: { start: 0, end: 0 },
-          uri,
-        },
-      },
-      rawText: "",
-      hash: "",
-      mtimeMs: 0,
-      version: "3.0",
-      format: "yaml",
-    } as any;
-
-    const docs = new Map([[uri, doc]]);
-    const { graph, resolver, rootResolver } = buildRefGraph({ docs });
-    const index = buildIndex({ docs, graph, resolver });
-    const project = {
-      docs,
-      index,
-      resolver,
-      graph,
-      rootResolver,
-      version: index.version,
-    };
-
-    const diagnostics: any[] = [];
-    const fixes: any[] = [];
-    const ctx = createRuleContext(
-      project,
-      uri,
-      diagnostics,
-      fixes,
-      myRule as Rule
-    );
-    const visitors = (myRule as Rule).check?.(
-      ctx,
-      (myRule as any).state?.() ?? undefined
-    );
-    expect(visitors).toBeTruthy();
-
-    const result = runEngine(project, [uri], { rules: [myRule as Rule] });
-    expect(result.diagnostics.length).toBeGreaterThan(0);
-  });
-});
-```
-
-### Run Tests
-
-```bash
-bun test .telescope/rules/
-```
+---
 
 ## Best Practices
 
 ### Rule Design
 
-1. **Be specific** - Target a single concern per rule
-2. **Provide context** - Include helpful error messages
-3. **Use appropriate severity** - Reserve `error` for breaking issues
-4. **Consider fixes** - Provide auto-fixes when possible
+1. **Target a single concern** per rule -- keep rules focused and composable
+2. **Provide clear messages** -- include the offending value and what's expected
+3. **Use appropriate severity** -- reserve `error` for breaking issues
+4. **Add `HowToFix`** -- help users understand how to resolve the issue
+5. **Set `Recommended: true`** for rules that apply broadly
 
 ### Performance
 
-1. **Early returns** - Skip unnecessary processing
-2. **Cache lookups** - Reuse document references
-3. **Limit scope** - Use patterns to target specific files
+1. **Early returns** -- skip processing when fields are valid
+2. **Use specific visitors** -- prefer `.Operations()` over `.Custom()` when possible
+3. **Avoid heavy computation** -- rules run on every document change in the LSP
 
 ### Error Messages
 
-```typescript
+```go
 // Good: Specific and actionable
-ctx.report({
-  message: `Operation '${op.operationId}' should have a description of at least 20 characters`,
-  severity: "warning",
-  ...
-});
+r.At(op.Loc, "GET /users is missing a summary")
 
 // Bad: Vague and unhelpful
-ctx.report({
-  message: "Missing description",
-  severity: "error",
-  ...
-});
+r.At(op.Loc, "Missing field")
 ```
 
-## Troubleshooting
-
-### Rule Not Loading
-
-1. Check file path in config matches actual location
-2. Ensure default export: `export default defineRule(...)`
-3. Check for TypeScript errors in the rule file
-4. Verify Bun can load the file: `bun .telescope/rules/my-rule.ts`
-
-### Rule Not Triggering
-
-1. Verify patterns match target files
-2. Check visitor names match exactly (case-sensitive)
-3. Ensure the rule returns visitors from `check()` or `create()`
-4. Add console logging to debug visitor calls
-
-### Range/Location Issues
-
-1. Ensure `ctx.locate()` returns a valid range before using
-2. Provide fallback ranges for edge cases
-3. Use parent pointer if child pointer doesn't resolve
+---
 
 ## Related Documentation
 
 - [Configuration Reference](CONFIGURATION.md)
-- [Built-in Rules](../packages/telescope-server/src/engine/rules/RULES.md)
 - [Architecture](../ARCHITECTURE.md)
-- [Test Files Examples](../packages/test-files/README.md)
+- [Server & SDK Reference](../server/README.md)
+- [Contributing](../CONTRIBUTING.md)

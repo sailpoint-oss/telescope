@@ -139,7 +139,8 @@ func walkComponentSchemas(doc *openapi.Document, idx *openapi.Index, v Visitors,
 			v.Schema(name, schema, pointer, r)
 		}
 		if hasRecursive {
-			walkSchemaRecursive(schema, name, pointer, v.RecursiveSchema, r)
+			visited := make(map[*openapi.Schema]bool)
+			walkSchemaRecursive(schema, name, pointer, v.RecursiveSchema, r, 0, visited)
 		}
 	}
 
@@ -174,33 +175,38 @@ func walkComponentSchemas(doc *openapi.Document, idx *openapi.Index, v Visitors,
 	}
 }
 
+// maxWalkDepth limits recursive schema walking to prevent stack overflow.
+const maxWalkDepth = 64
+
 // walkSchemaRecursive visits a schema and all nested schemas (properties, items,
-// allOf, anyOf, oneOf, additionalProperties) depth-first.
-func walkSchemaRecursive(schema *openapi.Schema, name, pointer string, fn func(string, *openapi.Schema, string, *Reporter), r *Reporter) {
-	if schema == nil {
+// allOf, anyOf, oneOf, additionalProperties) depth-first. It tracks visited
+// schemas to prevent infinite loops from circular references.
+func walkSchemaRecursive(schema *openapi.Schema, name, pointer string, fn func(string, *openapi.Schema, string, *Reporter), r *Reporter, depth int, visited map[*openapi.Schema]bool) {
+	if schema == nil || depth > maxWalkDepth || visited[schema] {
 		return
 	}
+	visited[schema] = true
 	fn(name, schema, pointer, r)
 
 	for propName, propSchema := range schema.Properties {
-		walkSchemaRecursive(propSchema, propName, pointer+"/properties/"+propName, fn, r)
+		walkSchemaRecursive(propSchema, propName, pointer+"/properties/"+propName, fn, r, depth+1, visited)
 	}
 	if schema.Items != nil {
-		walkSchemaRecursive(schema.Items, "", pointer+"/items", fn, r)
+		walkSchemaRecursive(schema.Items, "", pointer+"/items", fn, r, depth+1, visited)
 	}
 	if schema.AdditionalProperties != nil {
-		walkSchemaRecursive(schema.AdditionalProperties, "", pointer+"/additionalProperties", fn, r)
+		walkSchemaRecursive(schema.AdditionalProperties, "", pointer+"/additionalProperties", fn, r, depth+1, visited)
 	}
 	for i, sub := range schema.AllOf {
-		walkSchemaRecursive(sub, "", fmt.Sprintf("%s/allOf/%d", pointer, i), fn, r)
+		walkSchemaRecursive(sub, "", fmt.Sprintf("%s/allOf/%d", pointer, i), fn, r, depth+1, visited)
 	}
 	for i, sub := range schema.AnyOf {
-		walkSchemaRecursive(sub, "", fmt.Sprintf("%s/anyOf/%d", pointer, i), fn, r)
+		walkSchemaRecursive(sub, "", fmt.Sprintf("%s/anyOf/%d", pointer, i), fn, r, depth+1, visited)
 	}
 	for i, sub := range schema.OneOf {
-		walkSchemaRecursive(sub, "", fmt.Sprintf("%s/oneOf/%d", pointer, i), fn, r)
+		walkSchemaRecursive(sub, "", fmt.Sprintf("%s/oneOf/%d", pointer, i), fn, r, depth+1, visited)
 	}
 	if schema.Not != nil {
-		walkSchemaRecursive(schema.Not, "", pointer+"/not", fn, r)
+		walkSchemaRecursive(schema.Not, "", pointer+"/not", fn, r, depth+1, visited)
 	}
 }

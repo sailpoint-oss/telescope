@@ -1,7 +1,7 @@
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
-github.com/LukasParke/gossip v0.1.0 h1:J2mNp+lxHFb6IbL9hPuH9Bee4s1j4LiajZ8lCgCOxF8=
-github.com/LukasParke/gossip v0.1.0/go.mod h1:MACwjk5oN8wbEmb0KGbTobA/ggC5BplAHtdkdEr6CFM=
+github.com/LukasParke/gossip v0.1.2 h1:+H/mma+fZm2uIpVJoRHNSuMV961mM6eW2m9lYKzIbiY=
+github.com/LukasParke/gossip v0.1.2/go.mod h1:MACwjk5oN8wbEmb0KGbTobA/ggC5BplAHtdkdEr6CFM=
 github.com/bufbuild/protocompile v0.14.1 h1:iA73zAf/fyljNjQKwYzUHD6AD4R8KMasmwa/FBatYVw=
 github.com/bufbuild/protocompile v0.14.1/go.mod h1:ppVdAIhbr2H8asPk6k4pY7t9zB1OU5DoEw9xY/FUi1c=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=

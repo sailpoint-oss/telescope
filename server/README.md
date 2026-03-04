@@ -10,8 +10,6 @@ A fast, extensible OpenAPI linter and language server written in Go.
 - [Configuration](#configuration)
 - [Built-in Rulesets](#built-in-rulesets)
 - [Custom Rules: Go Plugin SDK](#custom-rules-go-plugin-sdk)
-- [Custom Rules: JavaScript](#custom-rules-javascript)
-- [Custom Rules: TypeScript](#custom-rules-typescript)
 - [Schema Extensibility](#schema-extensibility)
 - [Testing Rules](#testing-rules)
 - [Design Considerations](#design-considerations)
@@ -27,7 +25,6 @@ A fast, extensible OpenAPI linter and language server written in Go.
 - **CLI** -- Lint files from the command line with multiple output formats (text, JSON, SARIF, GitHub annotations)
 - **CI integration** -- Diff-aware linting with GitHub PR comments and quality gating
 - **Go plugin SDK** -- Extend with compiled Go plugin binaries using a batteries-included SDK
-- **JS/TS scripting** -- Drop-in JavaScript or TypeScript rule files with zero external tooling
 - **Schema extensibility** -- Validate custom `x-*` extensions and arbitrary YAML/JSON files against JSON Schema
 - **Spectral/Vacuum compatible** -- Load existing rulesets in Spectral/Vacuum YAML format
 - **Markdown validation** -- Lint markdown content inside OpenAPI description fields (headings, links, formatting)
@@ -361,208 +358,6 @@ Rule authoring types: `sdk.Reporter`, `sdk.Meta`, `sdk.Category`, `sdk.Validator
 
 ---
 
-## Custom Rules: JavaScript
-
-JavaScript rules are single-file scripts that run inside an embedded [goja](https://github.com/dop251/goja) runtime (ES5.1 + select ES6 features). No external tooling, no build step -- just drop a `.js` file and it works.
-
-### How It Works
-
-1. Place `.js` files in `.telescope/rules/`
-2. Telescope loads each file at startup and extracts `exports.meta`
-3. On each document change, Telescope creates a fresh goja VM, runs your script, and calls `exports.check(ctx)`
-4. Your rule uses `ctx` visitor methods to walk the OpenAPI model and `ctx.report()` to emit diagnostics
-
-### Contract
-
-Every JS rule must export two things:
-
-```javascript
-exports.meta = {
-    id: "rule-id",                 // unique identifier
-    description: "What it checks", // human-readable description
-    severity: "warn",              // "error", "warn", "info", or "hint"
-    category: "security",          // grouping category
-};
-
-exports.check = function(ctx) {
-    // rule logic here
-};
-```
-
-### Context API
-
-The `ctx` object provides visitor methods that walk the OpenAPI model and call your function for each matching element:
-
-| Method | Callback Signature |
-|---|---|
-| `ctx.operations(fn)` | `fn(path, method, operation)` |
-| `ctx.schemas(fn)` | `fn(name, schema, pointer)` |
-| `ctx.recursiveSchemas(fn)` | `fn(name, schema, pointer)` |
-| `ctx.paths(fn)` | `fn(path, pathItem)` |
-| `ctx.parameters(fn)` | `fn(parameter)` |
-| `ctx.tags(fn)` | `fn(tag)` |
-| `ctx.servers(fn)` | `fn(server)` |
-| `ctx.responses(fn)` | `fn(code, response)` |
-| `ctx.requestBodies(fn)` | `fn(path, method, requestBody)` |
-| `ctx.securitySchemes(fn)` | `fn(name, securityScheme)` |
-| `ctx.report(loc, message)` | Report a diagnostic at a source location |
-
-The `ctx.document` property provides direct access to the top-level document object.
-
-### Object Shapes
-
-**Location (`loc`)**: Every model object has a `loc` property:
-
-```javascript
-{
-    startLine: 0,   // 0-based line number
-    startChar: 0,   // 0-based character offset
-    endLine: 0,
-    endChar: 0
-}
-```
-
-**Description**: Description fields are objects with `text` and `loc`:
-
-```javascript
-{
-    text: "The description content",
-    loc: { startLine: 5, startChar: 2, endLine: 5, endChar: 30 }
-}
-```
-
-**Operation**: Key fields include `operationId`, `summary`, `description`, `deprecated`, `tags` (string array), `security`, `parameters`, `responses`, `requestBody`, `extensions`, and `loc`.
-
-**Schema**: Key fields include `type`, `format`, `title`, `description`, `pattern`, `nullable`, `readOnly`, `writeOnly`, `deprecated`, `ref`, `enum`, `required`, `properties`, `extensions`, and `loc`.
-
-### Full Example
-
-```javascript
-exports.meta = {
-    id: "require-rate-limit",
-    description: "Responses should include rate limit headers",
-    severity: "warn",
-    category: "security",
-};
-
-exports.check = function(ctx) {
-    ctx.operations(function(path, method, op) {
-        var responses = op.responses;
-        if (!responses) return;
-
-        var codes = Object.keys(responses);
-        for (var i = 0; i < codes.length; i++) {
-            var code = codes[i];
-            if (code.charAt(0) !== "2") continue;
-
-            var resp = responses[code];
-            var headers = resp.headers;
-            if (!headers) {
-                ctx.report(resp.loc,
-                    method + " " + path + " " + code + " should include rate limit headers");
-                continue;
-            }
-
-            var headerKeys = Object.keys(headers);
-            var hasRateLimit = false;
-            for (var j = 0; j < headerKeys.length; j++) {
-                if (headerKeys[j].toLowerCase().indexOf("rate-limit") !== -1) {
-                    hasRateLimit = true;
-                    break;
-                }
-            }
-
-            if (!hasRateLimit) {
-                ctx.report(resp.loc,
-                    method + " " + path + " " + code + " should include rate limit headers");
-            }
-        }
-    });
-};
-```
-
-### Sandbox Limitations
-
-The goja runtime is sandboxed. The following are **not available**:
-
-- `require()` / `import` -- no module system
-- `fetch()` / `XMLHttpRequest` -- no network access
-- `fs`, `process`, `child_process` -- no filesystem or OS access
-- `async` / `await` / `Promise` -- no asynchronous operations
-- `setTimeout` / `setInterval` -- no timers
-
-A **5-second timeout** prevents infinite loops from blocking the LSP. If a script exceeds this limit, execution is terminated and no diagnostics are returned.
-
----
-
-## Custom Rules: TypeScript
-
-TypeScript rules work exactly like JavaScript rules but with full type annotations, interfaces, and modern syntax. TypeScript files are transparently transpiled to JavaScript using [esbuild](https://esbuild.github.io/) (compiled into the Telescope binary -- no external `esbuild` install required).
-
-### How It Works
-
-1. Place `.ts` files in `.telescope/rules/` (`.d.ts` files are skipped automatically)
-2. Telescope transpiles each `.ts` file to JS via esbuild (CommonJS output, ES2020 target)
-3. The transpiled JS runs in the same goja runtime as `.js` files
-4. Same `exports.meta` + `exports.check(ctx)` contract applies
-
-### Type Definitions
-
-Copy the type definition file from the examples into your rules directory for full IDE IntelliSense:
-
-```bash
-cp examples/js-rules/telescope.d.ts .telescope/rules/
-```
-
-Then reference it at the top of your `.ts` files:
-
-```typescript
-/// <reference path="./telescope.d.ts" />
-```
-
-The type definitions cover the full API surface: `Loc`, `Description`, `Document`, `Operation`, `Schema`, `Parameter`, `Response`, `Header`, `MediaType`, `RequestBody`, `Tag`, `Server`, `SecurityScheme`, `RuleContext`, and `RuleMeta`.
-
-### Full Example
-
-```typescript
-/// <reference path="./telescope.d.ts" />
-
-exports.meta = {
-    id: "require-operation-tags",
-    description: "Every operation must have at least one tag",
-    severity: "warn",
-    category: "documentation",
-};
-
-exports.check = (ctx: RuleContext) => {
-    ctx.operations((path: string, method: string, op: Operation) => {
-        if (!op.tags || op.tags.length === 0) {
-            ctx.report(op.loc, `${method.toUpperCase()} ${path} is missing tags`);
-        }
-    });
-};
-```
-
-### Benefits Over Plain JavaScript
-
-- **Type annotations** -- catch typos and incorrect field access at author time
-- **Interfaces** -- auto-complete for `op.operationId`, `schema.type`, `param.in`, etc.
-- **Arrow functions and template literals** -- cleaner callback syntax
-- **IDE IntelliSense** -- full hover docs and go-to-definition with the `.d.ts` file
-- **Same deployment** -- `.ts` files go in the same `.telescope/rules/` directory
-
-### Transpilation Details
-
-Telescope uses `esbuild` as a Go library (`github.com/evanw/esbuild/pkg/api`), meaning:
-
-- No external binary is spawned -- transpilation happens in-process
-- Output format is CommonJS to match the `exports.meta` / `exports.check` contract
-- Target is ES2020, which covers the subset of ES6+ features goja supports
-- Transpilation is effectively instant (microsecond-level for typical rule files)
-- Type annotations are stripped -- no runtime type checking (same as `tsc --noEmit false`)
-
----
-
 ## Schema Extensibility
 
 Telescope supports validating custom OpenAPI vendor extensions (`x-*` properties) and applying JSON Schema validation to arbitrary non-OpenAPI files.
@@ -742,39 +537,18 @@ Go plugin binaries run as separate subprocesses managed by `hashicorp/go-plugin`
 - **Memory isolation** -- each plugin has its own heap; a leaking plugin doesn't affect the host
 - **Clean shutdown** -- the host terminates plugin processes on exit via deferred `Shutdown()`
 
-### Sandbox Security (JS/TS)
-
-The goja JavaScript runtime is intentionally restricted:
-
-- **No filesystem access** -- rules cannot read, write, or list files
-- **No network access** -- no HTTP, WebSocket, or DNS operations
-- **No module system** -- `require()` and `import` are unavailable
-- **No OS interaction** -- no `process`, `child_process`, or environment variable access
-- **CPU timeout** -- 5-second wall-clock limit prevents infinite loops from blocking the LSP
-
-A fresh VM is created for each rule execution, ensuring no state leaks between runs.
-
-### Single Binary Distribution
-
-JavaScript and TypeScript rules run inside the Telescope binary itself. The goja runtime and esbuild transpiler are both pure Go libraries compiled into the binary. This means:
-
-- No Node.js installation required
-- No `npm install` step for users
-- No external `esbuild` binary to manage
-- The Telescope binary is fully self-contained
-
 ### RPC Protocol Stability
 
 The plugin protocol includes a version number (`ProtocolVersion = 1`) and a handshake cookie. When breaking changes are made to the RPC interface, the protocol version is incremented. Plugins built against an older SDK version will fail the handshake cleanly rather than producing corrupt data.
 
 ### Hot Reload
 
-- **JS/TS rules** -- reloaded on file change during an LSP session; edit, save, and see updated diagnostics
+- **Spectral YAML rulesets** -- reloaded on file change during an LSP session
 - **Go plugins** -- require rebuilding the binary and restarting the LSP (the binary is discovered at startup)
 
 ### Spectral Compatibility
 
-Existing `.spectral.yaml` rulesets are auto-discovered and loaded alongside native rules. This allows incremental migration: start with your existing Spectral configuration, then gradually replace declarative rules with Go or JS/TS rules for better performance and richer logic.
+Existing `.spectral.yaml` rulesets are auto-discovered and loaded alongside native rules. This allows incremental migration: start with your existing Spectral configuration, then gradually replace declarative rules with Go plugin rules for better performance and richer logic.
 
 ---
 
@@ -788,28 +562,13 @@ Existing `.spectral.yaml` rulesets are auto-discovered and loaded alongside nati
 - **Parallelism**: multiple plugins can run concurrently; results are merged
 - **Startup**: plugin discovery and `GetMeta()` is a one-time cost (~10-50ms per plugin at LSP startup)
 
-### JS/TS Rules
-
-- **Execution time**: ~1-5ms per rule per document for typical rules
-- **VM creation**: a fresh goja VM is created per rule execution for isolation; creation cost is ~0.1ms
-- **Bridge overhead**: the Go-to-JS model conversion adds ~0.5-2ms depending on spec size
-- **Multiple rules**: rules run sequentially in the same goroutine; 10 JS rules on a medium spec ≈ 20-50ms total
-
-### TypeScript Transpilation
-
-- **First load**: esbuild transpilation is effectively instant (microsecond-level for typical rule files)
-- **Cached**: transpiled JS is held in memory after first load; subsequent executions skip transpilation
-- **Binary size**: esbuild adds ~8MB to the Telescope binary (pure Go, no CGO)
-
 ### Recommendations
 
 | Scenario | Recommended Approach |
 |---|---|
-| Quick single-file rule | JS or TS in `.telescope/rules/` |
-| Type-safe rule authoring with IDE support | TS with `telescope.d.ts` |
+| Quick declarative rule | Spectral YAML ruleset |
 | Multi-rule package for distribution | Go plugin binary |
 | Complex cross-cutting validation | Go plugin with `.Custom()` visitor |
-| Prototyping and iteration | JS (no build step, instant reload) |
 | CI/CD pipelines | Go plugin for deterministic, compiled checks |
 
 ---
@@ -819,7 +578,7 @@ Existing `.spectral.yaml` rulesets are auto-discovered and loaded alongside nati
 Built on the [gossip](https://github.com/LukasParke/gossip) LSP framework with native tree-sitter integration:
 
 ```
-telescope-go/
+server/
 ├── cli/            Command-line interface (lint, ci, serve)
 ├── config/         Configuration loading and defaults
 ├── extensions/     x-* extension schema validation
@@ -829,33 +588,32 @@ telescope-go/
 │   ├── registry.go     Thread-safe extension registry
 │   └── types.go        Extension types and scopes
 ├── examples/
-│   ├── custom-plugin/  Example Go plugin binary
-│   └── js-rules/       Example JS/TS rule scripts
-├── lsp/            LSP server with 13+ feature handlers
+│   └── custom-plugin/  Example Go plugin binary
+├── lsp/            LSP server with 20+ feature handlers
 ├── markdown/       Markdown parsing and validation (goldmark)
 ├── openapi/        Typed OpenAPI model built from tree-sitter parse trees
 ├── plugin/
 │   ├── host.go         Plugin discovery and RPC management
 │   ├── protocol.go     RPC wire types and go-plugin integration
-│   └── script/         JS/TS runtime (goja + esbuild)
-│       ├── bridge.go       Go model → JS object conversion
-│       ├── goja.go         goja VM lifecycle and sandboxing
-│       ├── loader.go       Script discovery and loading
-│       ├── runtime.go      ScriptRule execution
-│       └── transpile.go    TypeScript → JavaScript via esbuild
+│   ├── manager.go      Plugin lifecycle management
+│   └── yaml_rules.go   YAML ruleset plugin adapter
+├── project/        Multi-file workspace and cross-file $ref resolution
 ├── rules/          Rule registry, builder, walker, and validators
 │   ├── analyzers/      Built-in rule implementations
+│   ├── checks/         Syntactic checks (duplicate keys, ASCII)
 │   ├── builder.go      Fluent rule definition API
 │   ├── reporter.go     Diagnostic reporting helpers
 │   ├── testing/        Test harness for rules
 │   ├── validators.go   Composable field validators
 │   └── walker.go       OpenAPI model traversal
 ├── rulesets/       Spectral/Vacuum-compatible ruleset loading
+├── schemas/        JSON Schema definitions (built via TypeScript/Zod)
 ├── sdk/            Batteries-included SDK for Go plugin authors
 │   ├── plugin.go       Plugin instance and RPC server
 │   ├── rule.go         Plugin-scoped rule builder
 │   └── types.go        Type aliases and constants
-├── schemas/        JSON Schema definitions (built via Zod)
+├── spectral/       Spectral custom rule engine (JSONPath + built-in functions)
+├── testutil/       Test utilities and fixture specs
 └── validation/     Additional file validation against JSON Schema
 ```
 
@@ -866,9 +624,9 @@ telescope-go/
 | [gossip](https://github.com/LukasParke/gossip) | LSP framework (server, protocol, document store, tree-sitter integration) |
 | [go-tree-sitter](https://github.com/tree-sitter/go-tree-sitter) | Incremental parsing for YAML/JSON |
 | [hashicorp/go-plugin](https://github.com/hashicorp/go-plugin) | Process-isolated plugin binaries via RPC |
-| [dop251/goja](https://github.com/dop251/goja) | Embedded JavaScript runtime (ES5.1+) |
-| [evanw/esbuild](https://github.com/evanw/esbuild) | TypeScript to JavaScript transpilation |
 | [yuin/goldmark](https://github.com/yuin/goldmark) | Markdown parsing and validation |
+| [vmware-labs/yaml-jsonpath](https://github.com/vmware-labs/yaml-jsonpath) | JSONPath evaluation for Spectral rules |
+| [spf13/cobra](https://github.com/spf13/cobra) | CLI framework |
 
 ## License
 

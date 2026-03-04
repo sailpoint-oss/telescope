@@ -396,18 +396,67 @@ func funcUnreferencedReusableObject(node *yaml.Node, field string, opts map[stri
 		return nil
 	}
 
-	// This function needs the full document root to scan for $ref usage.
-	// Since we operate on a subtree, we perform a best-effort check by
-	// just reporting the rule matched -- the engine can pass root context
-	// in a future enhancement.
 	reusableLoc, _ := opts["reusableObjectsLocation"].(string)
 	if reusableLoc == "" {
 		return nil
 	}
 
-	// For now, report no issues; full $ref tracking requires document-wide
-	// analysis that will be wired in when the engine supports root context.
-	return nil
+	root, _ := opts["__root__"].(*yaml.Node)
+	if root == nil {
+		return nil
+	}
+
+	// Collect all $ref values from the entire document.
+	refs := collectRefs(root)
+
+	// Check each child of the matched mapping for references.
+	var issues []Issue
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		keyNode := node.Content[i]
+		name := keyNode.Value
+		refPath := reusableLoc + "/" + name
+		if !refs[refPath] {
+			issues = append(issues, Issue{
+				Node:    keyNode,
+				Message: fmt.Sprintf("component %q is not referenced", name),
+			})
+		}
+	}
+
+	return issues
+}
+
+// collectRefs walks the entire YAML tree and returns a set of all $ref values.
+func collectRefs(node *yaml.Node) map[string]bool {
+	refs := make(map[string]bool)
+	collectRefsRecursive(node, refs)
+	return refs
+}
+
+func collectRefsRecursive(node *yaml.Node, refs map[string]bool) {
+	if node == nil {
+		return
+	}
+	switch node.Kind {
+	case yaml.DocumentNode:
+		for _, child := range node.Content {
+			collectRefsRecursive(child, refs)
+		}
+	case yaml.MappingNode:
+		for i := 0; i < len(node.Content)-1; i += 2 {
+			key := node.Content[i]
+			val := node.Content[i+1]
+			if key.Value == "$ref" && val.Kind == yaml.ScalarNode {
+				refs[val.Value] = true
+			} else {
+				collectRefsRecursive(val, refs)
+			}
+		}
+	case yaml.SequenceNode:
+		for _, item := range node.Content {
+			collectRefsRecursive(item, refs)
+		}
+	}
 }
 
 // --- helpers ---

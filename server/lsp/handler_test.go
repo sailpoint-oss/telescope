@@ -402,3 +402,300 @@ func TestNilIndex(t *testing.T) {
 		t.Errorf("expected nil completion list for unknown URI")
 	}
 }
+
+func TestCodeLensHandler(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewCodeLensHandler(env.cache)
+
+	result, err := handler(env.ctx, &protocol.CodeLensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("code lens error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected code lenses for spec with paths and schemas")
+	}
+
+	// Should include a file header lens with OpenAPI version
+	foundHeader := false
+	for _, lens := range result {
+		if lens.Command != nil && lens.Command.Title != "" {
+			if lens.Range.Start.Line == 0 && lens.Range.Start.Character == 0 {
+				foundHeader = true
+			}
+		}
+	}
+	if !foundHeader {
+		t.Error("expected file header code lens at line 0")
+	}
+
+	// Should include reference count lenses for schemas
+	foundRefLens := false
+	for _, lens := range result {
+		if lens.Command != nil && lens.Command.Command == "editor.action.showReferences" {
+			foundRefLens = true
+			break
+		}
+	}
+	if !foundRefLens {
+		t.Error("expected reference count code lens for component schemas")
+	}
+}
+
+func TestPrepareCallHierarchyHandler(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewPrepareCallHierarchyHandler(env.cache)
+
+	// Position on "Pet" schema name in components
+	idx := env.cache.Get(env.uri)
+	var petNamePos protocol.Position
+	if schema, ok := idx.Schemas["Pet"]; ok {
+		petNamePos = schema.NameLoc.Range.Start
+	} else {
+		t.Fatal("Pet schema not found in index")
+	}
+
+	result, err := handler(env.ctx, &protocol.CallHierarchyPrepareParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     petNamePos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare call hierarchy error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected call hierarchy item for Pet schema")
+	}
+	if result[0].Name != "Pet" {
+		t.Errorf("call hierarchy item name = %q, want 'Pet'", result[0].Name)
+	}
+}
+
+func TestPrepareCallHierarchyHandler_Empty(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewPrepareCallHierarchyHandler(env.cache)
+
+	// Position on an empty area should return nil
+	result, err := handler(env.ctx, &protocol.CallHierarchyPrepareParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 0, Character: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare call hierarchy error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil result for non-component position, got %+v", result)
+	}
+}
+
+func TestCallHierarchyIncomingHandler(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	prepareHandler := lsp.NewPrepareCallHierarchyHandler(env.cache)
+	incomingHandler := lsp.NewCallHierarchyIncomingHandler(env.cache)
+
+	// First prepare to get a valid CallHierarchyItem for Pet
+	idx := env.cache.Get(env.uri)
+	var petNamePos protocol.Position
+	if schema, ok := idx.Schemas["Pet"]; ok {
+		petNamePos = schema.NameLoc.Range.Start
+	} else {
+		t.Fatal("Pet schema not found in index")
+	}
+
+	items, err := prepareHandler(env.ctx, &protocol.CallHierarchyPrepareParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     petNamePos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare error: %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatal("no items from prepare")
+	}
+
+	// Now get incoming calls for Pet
+	result, err := incomingHandler(env.ctx, &protocol.CallHierarchyIncomingCallsParams{
+		Item: items[0],
+	})
+	if err != nil {
+		t.Fatalf("incoming calls error: %v", err)
+	}
+	// testSpec has a $ref to Pet from the GET /pets response, so expect at least 1
+	if len(result) == 0 {
+		t.Error("expected at least one incoming call for Pet schema (referenced via $ref)")
+	}
+}
+
+func TestSemanticTokensHandler(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewSemanticTokensHandler(env.cache)
+
+	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("semantic tokens error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil semantic tokens result")
+	}
+	// Data should be a multiple of 5 (deltaLine, deltaChar, length, tokenType, modifiers)
+	if len(result.Data)%5 != 0 {
+		t.Errorf("semantic tokens data length %d is not a multiple of 5", len(result.Data))
+	}
+	if len(result.Data) == 0 {
+		t.Error("expected semantic token data for spec with paths, schemas, refs")
+	}
+}
+
+func TestDocumentSymbolHandler(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewSymbolHandler(env.cache)
+
+	result, err := handler(env.ctx, &protocol.DocumentSymbolParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("document symbol error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected document symbols for spec")
+	}
+
+	// Check for expected top-level symbols: info, paths, schemas, securitySchemes, tags
+	names := make(map[string]bool)
+	for _, sym := range result {
+		names[sym.Name] = true
+	}
+	for _, expected := range []string{"paths", "schemas", "tags"} {
+		if !names[expected] {
+			t.Errorf("expected top-level symbol %q not found", expected)
+		}
+	}
+}
+
+func TestReferencesHandler(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewReferencesHandler(env.cache)
+
+	// Position on "Pet" schema name
+	idx := env.cache.Get(env.uri)
+	var petNamePos protocol.Position
+	if schema, ok := idx.Schemas["Pet"]; ok {
+		petNamePos = schema.NameLoc.Range.Start
+	} else {
+		t.Fatal("Pet schema not found in index")
+	}
+
+	result, err := handler(env.ctx, &protocol.ReferenceParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     petNamePos,
+		},
+		Context: protocol.ReferenceContext{
+			IncludeDeclaration: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("references error: %v", err)
+	}
+	// Should find the declaration + $ref usage
+	if len(result) < 2 {
+		t.Errorf("expected at least 2 references (declaration + $ref), got %d", len(result))
+	}
+}
+
+func TestReferencesHandler_Empty(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewReferencesHandler(env.cache)
+
+	// Position on an area with no referenceable symbol
+	result, err := handler(env.ctx, &protocol.ReferenceParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 0, Character: 0},
+		},
+		Context: protocol.ReferenceContext{
+			IncludeDeclaration: false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("references error: %v", err)
+	}
+	_ = result // ensure no panic
+}
+
+func TestInlayHintHandler(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewInlayHintHandler(env.cache)
+
+	// Request hints for the full document range
+	result, err := handler(env.ctx, &protocol.InlayHintParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 132, Character: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("inlay hint error: %v", err)
+	}
+	// testSpec has required fields on Pet and a $ref, expect some hints
+	if len(result) == 0 {
+		t.Error("expected inlay hints for spec with required fields and $ref")
+	}
+	for _, hint := range result {
+		if hint.Label == "" {
+			t.Error("inlay hint has empty label")
+		}
+	}
+}
+
+func TestInlayHintHandler_EmptyRange(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewInlayHintHandler(env.cache)
+
+	// Request hints for a range outside the document content
+	result, err := handler(env.ctx, &protocol.InlayHintParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 500, Character: 0},
+			End:   protocol.Position{Line: 510, Character: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("inlay hint error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected no inlay hints for out-of-range request, got %d", len(result))
+	}
+}
+
+func TestFoldingRangeHandler(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewFoldingRangeHandler(env.cache)
+
+	result, err := handler(env.ctx, &protocol.FoldingRangeParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("folding range error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected folding ranges for spec with paths, schemas, info")
+	}
+	for _, fr := range result {
+		if fr.StartLine >= fr.EndLine {
+			t.Errorf("invalid folding range: start %d >= end %d", fr.StartLine, fr.EndLine)
+		}
+		if fr.Kind != "region" {
+			t.Errorf("expected folding kind 'region', got %q", fr.Kind)
+		}
+	}
+}

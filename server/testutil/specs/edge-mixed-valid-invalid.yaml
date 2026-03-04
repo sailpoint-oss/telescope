@@ -1,0 +1,34 @@
+openapi: "3.1.0"
+info:
+  title: Mixed Valid Invalid Paths
+  version: "1.0.0"
+paths:
+  /valid-path:
+    get:
+      operationId: getValid
+      summary: A perfectly valid endpoint
+      description: This endpoint follows all the rules
+      tags:
+        - test
+      responses:
+        "200":
+          description: Success
+  /INVALID_PATH:
+    get:
+      summary: Missing operationId and kebab-case violation
+      responses:
+        "200":
+          description: OK
+  /another-valid:
+    post:
+      operationId: createAnother
+      summary: Another valid endpoint
+      description: This one is also fine
+      tags:
+        - test
+      responses:
+        "201":
+          description: Created
+tags:
+  - name: test
+    description: Test endpoints

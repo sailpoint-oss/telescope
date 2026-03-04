@@ -23,6 +23,11 @@ func NewCodeActionHandler(cache *openapi.IndexCache) gossip.CodeActionHandler {
 
 		var actions []protocol.CodeAction
 
+		// Scaffolding code actions when cursor is on a path
+		if idx != nil && doc != nil {
+			actions = append(actions, scaffoldingActions(uri, idx, doc, params)...)
+		}
+
 		// Diagnostic-triggered actions
 		for _, diag := range params.Context.Diagnostics {
 			if diag.Source == "oas3-schema" {
@@ -81,6 +86,18 @@ func NewCodeActionHandler(cache *openapi.IndexCache) gossip.CodeActionHandler {
 							Arguments: []interface{}{meta.DocURL},
 						},
 					})
+				}
+			}
+		}
+
+		// "Fix All" source action: collect all auto-fixable diagnostics
+		if params.Context.Only != nil {
+			for _, kind := range params.Context.Only {
+				if kind == "source.fixAll.telescope" || kind == "source.fixAll" {
+					fixAllAction := buildFixAllAction(uri, doc, idx, params.Context.Diagnostics)
+					if fixAllAction != nil {
+						actions = append(actions, *fixAllAction)
+					}
 				}
 			}
 		}
@@ -336,4 +353,247 @@ func camelToKebab(s string) string {
 		result.WriteRune(unicode.ToLower(r))
 	}
 	return result.String()
+}
+
+// scaffoldingActions returns context-aware scaffolding code actions for path items.
+func scaffoldingActions(uri protocol.DocumentURI, idx *openapi.Index, doc interface{ LineAt(uint32) string }, params *protocol.CodeActionParams) []protocol.CodeAction {
+	if idx == nil || !idx.IsOpenAPI() {
+		return nil
+	}
+
+	var actions []protocol.CodeAction
+	isYAML := idx.Format == openapi.FormatYAML
+	_ = isYAML
+
+	line := doc.LineAt(params.Range.Start.Line)
+
+	for path, item := range idx.Document.Paths {
+		if !strings.Contains(line, path) {
+			continue
+		}
+		if !rangeContains(item.Loc.Range, params.Range) {
+			continue
+		}
+
+		// Offer "Add standard error responses" for operations missing error responses
+		for _, mo := range item.Operations() {
+			op := mo.Operation
+			if !rangeContains(op.Loc.Range, params.Range) {
+				continue
+			}
+
+			hasError := false
+			for code := range op.Responses {
+				if strings.HasPrefix(code, "4") || strings.HasPrefix(code, "5") || code == "default" {
+					hasError = true
+					break
+				}
+			}
+
+			if !hasError && len(op.Responses) > 0 {
+				// Find the end of the responses block
+				var lastLine uint32
+				for _, resp := range op.Responses {
+					if resp.Loc.Range.End.Line > lastLine {
+						lastLine = resp.Loc.Range.End.Line
+					}
+				}
+				insertLine := lastLine + 1
+				errorText := "        '400':\n          description: Bad Request\n        '401':\n          description: Unauthorized\n        '404':\n          description: Not Found\n        '500':\n          description: Internal Server Error\n"
+
+				actions = append(actions, protocol.CodeAction{
+					Title: "Add standard error responses (400, 401, 404, 500)",
+					Kind:  "refactor",
+					Edit: &protocol.WorkspaceEdit{
+						Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+							uri: {{
+								Range: protocol.Range{
+									Start: protocol.Position{Line: insertLine, Character: 0},
+									End:   protocol.Position{Line: insertLine, Character: 0},
+								},
+								NewText: errorText,
+							}},
+						},
+					},
+				})
+			}
+
+			// Offer "Add pagination parameters" for GET operations without pagination
+			if strings.ToUpper(mo.Method) == "GET" {
+				hasPagination := false
+				paginationNames := map[string]bool{"page": true, "pageSize": true, "limit": true, "offset": true, "cursor": true}
+				for _, p := range op.Parameters {
+					if paginationNames[p.Name] {
+						hasPagination = true
+						break
+					}
+				}
+
+				if !hasPagination {
+					insertLine := op.Loc.Range.Start.Line + 1
+					paginationText := "      parameters:\n        - name: page\n          in: query\n          description: Page number\n          schema:\n            type: integer\n            default: 1\n        - name: pageSize\n          in: query\n          description: Number of items per page\n          schema:\n            type: integer\n            default: 20\n            maximum: 100\n"
+					if len(op.Parameters) > 0 {
+						// Append to existing parameters
+						lastParam := op.Parameters[len(op.Parameters)-1]
+						insertLine = lastParam.Loc.Range.End.Line + 1
+						paginationText = "        - name: page\n          in: query\n          description: Page number\n          schema:\n            type: integer\n            default: 1\n        - name: pageSize\n          in: query\n          description: Number of items per page\n          schema:\n            type: integer\n            default: 20\n            maximum: 100\n"
+					}
+
+					actions = append(actions, protocol.CodeAction{
+						Title: "Add pagination parameters (page, pageSize)",
+						Kind:  "refactor",
+						Edit: &protocol.WorkspaceEdit{
+							Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+								uri: {{
+									Range: protocol.Range{
+										Start: protocol.Position{Line: insertLine, Character: 0},
+										End:   protocol.Position{Line: insertLine, Character: 0},
+									},
+									NewText: paginationText,
+								}},
+							},
+						},
+					})
+				}
+			}
+		}
+
+		// Offer "Generate CRUD operations" if path has few operations
+		existingMethods := make(map[string]bool)
+		for _, mo := range item.Operations() {
+			existingMethods[strings.ToUpper(mo.Method)] = true
+		}
+
+		if len(existingMethods) < 4 {
+			resourceName := inferResourceName(path)
+			var crudText string
+			insertLine := item.Loc.Range.End.Line + 1
+
+			if !existingMethods["GET"] {
+				crudText += fmt.Sprintf("    get:\n      summary: List %ss\n      operationId: list%ss\n      responses:\n        '200':\n          description: Success\n", resourceName, capitalizeFirst(resourceName))
+			}
+			if !existingMethods["POST"] {
+				crudText += fmt.Sprintf("    post:\n      summary: Create %s\n      operationId: create%s\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n      responses:\n        '201':\n          description: Created\n", resourceName, capitalizeFirst(resourceName))
+			}
+			if !existingMethods["PUT"] {
+				crudText += fmt.Sprintf("    put:\n      summary: Update %s\n      operationId: update%s\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n      responses:\n        '200':\n          description: Success\n", resourceName, capitalizeFirst(resourceName))
+			}
+			if !existingMethods["DELETE"] {
+				crudText += fmt.Sprintf("    delete:\n      summary: Delete %s\n      operationId: delete%s\n      responses:\n        '204':\n          description: No Content\n", resourceName, capitalizeFirst(resourceName))
+			}
+
+			if crudText != "" {
+				actions = append(actions, protocol.CodeAction{
+					Title: fmt.Sprintf("Generate missing CRUD operations for %s", path),
+					Kind:  "refactor",
+					Edit: &protocol.WorkspaceEdit{
+						Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+							uri: {{
+								Range: protocol.Range{
+									Start: protocol.Position{Line: insertLine, Character: 0},
+									End:   protocol.Position{Line: insertLine, Character: 0},
+								},
+								NewText: crudText,
+							}},
+						},
+					},
+				})
+			}
+		}
+	}
+
+	return actions
+}
+
+// inferResourceName extracts a reasonable resource name from a path.
+func inferResourceName(path string) string {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	// Find the last non-parameter segment
+	for i := len(segments) - 1; i >= 0; i-- {
+		seg := segments[i]
+		if !strings.HasPrefix(seg, "{") {
+			// Singularize if it ends with 's'
+			if strings.HasSuffix(seg, "s") && len(seg) > 1 {
+				return seg[:len(seg)-1]
+			}
+			return seg
+		}
+	}
+	return "resource"
+}
+
+// buildFixAllAction constructs a single "Fix All" code action that applies all
+// auto-fixable diagnostics in the file at once.
+func buildFixAllAction(uri protocol.DocumentURI, doc interface{ LineAt(uint32) string }, idx *openapi.Index, diagnostics []protocol.Diagnostic) *protocol.CodeAction {
+	if idx == nil || doc == nil {
+		return nil
+	}
+
+	var edits []protocol.TextEdit
+	isYAML := idx.Format == openapi.FormatYAML
+
+	for _, diag := range diagnostics {
+		if diag.Source != rules.Source {
+			continue
+		}
+		ruleID := ""
+		if diag.Code != nil {
+			if s, ok := diag.Code.(string); ok {
+				ruleID = s
+			}
+		}
+
+		switch ruleID {
+		case "operation-description", "deprecated-description":
+			// Add missing description
+			insertLine := diag.Range.Start.Line + 1
+			newText := "  description: \"TODO: Add description\"\n"
+			if !isYAML {
+				newText = "  \"description\": \"TODO: Add description\",\n"
+			}
+			edits = append(edits, protocol.TextEdit{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: insertLine, Character: 0},
+					End:   protocol.Position{Line: insertLine, Character: 0},
+				},
+				NewText: newText,
+			})
+		}
+	}
+
+	// Also add auto-fixable refactoring: generate missing operationIds
+	for path, item := range idx.Document.Paths {
+		for _, mo := range item.Operations() {
+			if mo.Operation.OperationID != "" {
+				continue
+			}
+			opID := generateOperationID(mo.Method, path)
+			insertLine := mo.Operation.Loc.Range.Start.Line + 1
+			newText := fmt.Sprintf("  operationId: %s\n", opID)
+			if !isYAML {
+				newText = fmt.Sprintf("  \"operationId\": \"%s\",\n", opID)
+			}
+			edits = append(edits, protocol.TextEdit{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: insertLine, Character: 0},
+					End:   protocol.Position{Line: insertLine, Character: 0},
+				},
+				NewText: newText,
+			})
+		}
+	}
+
+	if len(edits) == 0 {
+		return nil
+	}
+
+	return &protocol.CodeAction{
+		Title: fmt.Sprintf("Fix all auto-fixable issues (%d fixes)", len(edits)),
+		Kind:  "source.fixAll.telescope",
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				uri: edits,
+			},
+		},
+	}
 }

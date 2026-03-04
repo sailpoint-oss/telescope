@@ -1,31 +1,51 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"unsafe"
+
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
+
+	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
+	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
 
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/LukasParke/gossip/treesitter"
 	"github.com/spf13/cobra"
 
 	"github.com/sailpoint-oss/telescope/server/config"
+	"github.com/sailpoint-oss/telescope/server/lsp"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/plugin"
 	"github.com/sailpoint-oss/telescope/server/project"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
+	"github.com/sailpoint-oss/telescope/server/rules/checks"
+	"github.com/sailpoint-oss/telescope/server/rulesets"
 )
 
 var (
-	outputFormat string
-	minSeverity  string
-	failOn       string
-	noColor      bool
-	reportMDPath string
+	outputFormat   string
+	minSeverity    string
+	failOn         string
+	noColor        bool
+	noExternalLSP  bool
+	reportMDPath   string
 	reportJSONPath string
+	saveBaseline   bool
+	failOnNew      bool
+)
+
+var (
+	yamlLang = tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
+	jsonLang = tree_sitter.NewLanguage(unsafe.Pointer(ts_json.Language()))
 )
 
 func newLintCmd() *cobra.Command {
@@ -42,6 +62,9 @@ func newLintCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noColor, "no-color", false, "Disable color output")
 	cmd.Flags().StringVar(&reportMDPath, "report-md", "", "Write Markdown report to file")
 	cmd.Flags().StringVar(&reportJSONPath, "report-json", "", "Write JSON report to file")
+	cmd.Flags().BoolVar(&noExternalLSP, "no-external-lsp", false, "Skip child YAML/JSON language server diagnostics")
+	cmd.Flags().BoolVar(&saveBaseline, "save-baseline", false, "Save current diagnostics as baseline")
+	cmd.Flags().BoolVar(&failOnNew, "fail-on-new", false, "Only fail if new diagnostics are introduced (compared to baseline)")
 
 	return cmd
 }
@@ -68,8 +91,23 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	// Build all analyzers for CLI use via the collection mechanism
-	allAnalyzers := rules.CollectAnalyzers(analyzers.RegisterAll)
+	allAnalyzers, allChecks := rules.CollectAll(analyzers.RegisterAll, checks.RegisterAll)
+
+	// Apply config rule overrides: filter out disabled rules and build
+	// severity overrides.
+	enabledRules := cfg.BuildEnabledRules()
+	sevOverrides := buildSeverityOverrides(cfg)
+
+	allAnalyzers = filterAnalyzers(allAnalyzers, enabledRules)
+	allChecks = filterChecks(allChecks, enabledRules)
+
+	// Parse minSeverity flag for output filtering.
+	var minSev protocol.DiagnosticSeverity
+	if minSeverity != "" {
+		if s, ok := rulesets.ParseSeverity(minSeverity); ok && s > 0 {
+			minSev = s
+		}
+	}
 
 	// Discover external plugins
 	pluginHost := plugin.NewHost(logger)
@@ -89,8 +127,21 @@ func runLint(cmd *cobra.Command, args []string) error {
 	}
 	defer pluginHost.Shutdown()
 
+	// Start child YAML/JSON language servers for enhanced diagnostics.
+	var childLinter *lsp.ChildLSPLinter
+	if !noExternalLSP && lsp.NodeAvailable() {
+		rootURI := pathToFileURI(wd)
+		childLinter = lsp.NewChildLSPLinter(logger)
+		if err := childLinter.Start(context.Background(), rootURI); err != nil {
+			logger.Warn("child language servers unavailable; continuing without external LSP diagnostics", "error", err)
+			childLinter = nil
+		}
+	}
+	if childLinter != nil {
+		defer childLinter.Stop(context.Background())
+	}
+
 	// Build project contexts for multi-file $ref resolution.
-	// Discover roots among the files, build transitive project contexts.
 	projectContexts := buildProjectContexts(files, logger)
 
 	var allDiags []fileDiagnostics
@@ -103,12 +154,20 @@ func runLint(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		diags := lintFile(file, content, cfg, allAnalyzers, projectContexts)
+		diags := lintFile(file, content, cfg, allAnalyzers, allChecks, projectContexts, childLinter)
 
 		// Run external plugin rules
 		if pluginHost.PluginCount() > 0 {
 			pluginResp := pluginHost.AnalyzeDirect(file, content)
 			diags = append(diags, pluginResp...)
+		}
+
+		// Apply severity overrides from config.
+		diags = applySeverityOverrides(diags, sevOverrides)
+
+		// Filter by minimum severity if set.
+		if minSev > 0 {
+			diags = filterBySeverity(diags, minSev)
 		}
 
 		if len(diags) > 0 {
@@ -119,6 +178,33 @@ func runLint(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}
+	}
+
+	// Baseline comparison
+	if saveBaseline {
+		if err := SaveBaseline(allDiags); err != nil {
+			return fmt.Errorf("saving baseline: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "Baseline saved with %d diagnostics across %d files\n", countDiags(allDiags), len(allDiags))
+	}
+
+	if failOnNew {
+		baseline, err := LoadBaseline()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "No baseline found (%v); comparing against empty baseline\n", err)
+			baseline = &Baseline{Diagnostics: make(map[string][]DiagFingerprint)}
+		}
+		comp := CompareBaseline(baseline, allDiags)
+		fmt.Fprintf(os.Stderr, "Baseline: %d | Current: %d | New: %d | Fixed: %d (net: %+d)\n",
+			comp.BaselineCount, comp.CurrentCount, comp.NewCount, comp.FixedCount,
+			comp.CurrentCount-comp.BaselineCount)
+
+		if comp.NewCount > 0 {
+			outputResults(comp.NewDiags, outputFormat)
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stderr, "No new diagnostics introduced")
+		return nil
 	}
 
 	outputResults(allDiags, outputFormat)
@@ -144,33 +230,104 @@ func runLint(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func countDiags(allDiags []fileDiagnostics) int {
+	total := 0
+	for _, fd := range allDiags {
+		total += len(fd.Diagnostics)
+	}
+	return total
+}
+
 type fileDiagnostics struct {
 	Path        string
 	Diagnostics []protocol.Diagnostic
 }
 
-func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []rules.NamedAnalyzer, projectContexts map[string]*project.ProjectContext) []protocol.Diagnostic {
+func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []rules.NamedAnalyzer, allChecks []rules.NamedCheck, projectContexts map[string]*project.ProjectContext, childLinter *lsp.ChildLSPLinter) []protocol.Diagnostic {
 	format := openapi.FormatFromURI(path)
 	if format == openapi.FormatUnknown {
 		return nil
 	}
 
-	idx := openapi.ParseAndIndex(content)
-	if idx == nil || idx.Document == nil {
-		return nil
-	}
-
 	uri := pathToFileURI(path)
+	langID := langIDForPath(path)
 
-	// Run all semantic analyzers against the parsed index
-	diags := rules.RunAnalyzers(allAnalyzers, idx, uri)
-
-	// Run cross-file unresolved-ref diagnostics if a project context exists
-	if pctx := findProjectContext(uri, projectContexts); pctx != nil {
-		diags = append(diags, diagnoseUnresolvedRefs(uri, idx, pctx)...)
+	// Start child LSP analysis in the background so it runs concurrently
+	// with telescope's own analyzers and checks.
+	var childDiags []protocol.Diagnostic
+	var childWg sync.WaitGroup
+	if childLinter != nil && langID != "" {
+		childWg.Add(1)
+		go func() {
+			defer childWg.Done()
+			childDiags = childLinter.LintFile(
+				context.Background(),
+				protocol.DocumentURI(uri),
+				langID,
+				content,
+			)
+		}()
 	}
 
+	var diags []protocol.Diagnostic
+
+	idx := openapi.ParseAndIndex(content)
+
+	tree, lang := parseTreeSitter(path, content)
+	defer func() {
+		if tree != nil {
+			tree.Close()
+		}
+	}()
+
+	// Always run analyzers -- the oas3-schema analyzer handles both root
+	// documents (version-based) and fragments (heuristic-based).
+	var analyzerOpts []rules.AnalyzerOption
+	if cfg.OpenAPI.TargetVersion != "" {
+		analyzerOpts = append(analyzerOpts, rules.WithTargetVersion(openapi.Version(cfg.OpenAPI.TargetVersion)))
+	}
+	diags = rules.RunAnalyzers(allAnalyzers, idx, uri, tree, analyzerOpts...)
+	diags = append(diags, rules.RunChecks(allChecks, tree, lang)...)
+
+	if idx != nil && idx.Document != nil {
+		if pctx := findProjectContext(uri, projectContexts); pctx != nil {
+			diags = append(diags, diagnoseUnresolvedRefs(uri, idx, pctx)...)
+		}
+	}
+
+	childWg.Wait()
+	diags = append(diags, childDiags...)
 	return diags
+}
+
+// parseTreeSitter parses content into a tree-sitter tree based on file extension.
+func parseTreeSitter(path string, content []byte) (*treesitter.Tree, *tree_sitter.Language) {
+	ext := strings.ToLower(filepath.Ext(path))
+
+	var lang *tree_sitter.Language
+	switch ext {
+	case ".yaml", ".yml":
+		lang = yamlLang
+	case ".json":
+		lang = jsonLang
+	default:
+		return nil, nil
+	}
+
+	parser := tree_sitter.NewParser()
+	if err := parser.SetLanguage(lang); err != nil {
+		parser.Close()
+		return nil, nil
+	}
+
+	raw := parser.Parse(content, nil)
+	parser.Close()
+
+	if raw == nil {
+		return nil, nil
+	}
+
+	return treesitter.NewTree(raw, content), lang
 }
 
 // buildProjectContexts creates ProjectContexts for root files among the
@@ -202,11 +359,9 @@ func buildProjectContexts(files []string, logger *slog.Logger) map[string]*proje
 
 // findProjectContext returns the ProjectContext that contains the given URI.
 func findProjectContext(uri string, contexts map[string]*project.ProjectContext) *project.ProjectContext {
-	// Direct match for root files
 	if pctx, ok := contexts[uri]; ok {
 		return pctx
 	}
-	// Search all projects for the URI
 	for _, pctx := range contexts {
 		if pctx.ContainsFile(uri) {
 			return pctx
@@ -286,6 +441,9 @@ func collectFiles(args []string, cfg *config.Config) ([]string, error) {
 					return err
 				}
 				if info.IsDir() {
+					if matchesAnyPattern(path, cfg.Exclude) {
+						return filepath.SkipDir
+					}
 					base := filepath.Base(path)
 					if base == "node_modules" || base == "vendor" || base == ".git" {
 						return filepath.SkipDir
@@ -304,6 +462,15 @@ func collectFiles(args []string, cfg *config.Config) ([]string, error) {
 			files = append(files, arg)
 		}
 	}
+
+	// Apply include/exclude patterns when configured.
+	if len(cfg.Exclude) > 0 {
+		files = filterExcluded(files, cfg.Exclude)
+	}
+	if len(cfg.Include) > 0 {
+		files = filterIncluded(files, cfg.Include)
+	}
+
 	return files, nil
 }
 
@@ -319,4 +486,161 @@ func pathToFileURI(path string) string {
 	}
 	u := &url.URL{Scheme: "file", Path: abs}
 	return u.String()
+}
+
+func langIDForPath(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".json":
+		return "json"
+	default:
+		return ""
+	}
+}
+
+// filterAnalyzers removes analyzers whose rule ID is explicitly disabled.
+func filterAnalyzers(all []rules.NamedAnalyzer, enabled map[string]bool) []rules.NamedAnalyzer {
+	if len(enabled) == 0 {
+		return all
+	}
+	var out []rules.NamedAnalyzer
+	for _, a := range all {
+		if v, ok := enabled[a.ID]; ok && !v {
+			continue // explicitly disabled
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// filterChecks removes checks whose name is explicitly disabled.
+func filterChecks(all []rules.NamedCheck, enabled map[string]bool) []rules.NamedCheck {
+	if len(enabled) == 0 {
+		return all
+	}
+	var out []rules.NamedCheck
+	for _, c := range all {
+		if v, ok := enabled[c.Name]; ok && !v {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// buildSeverityOverrides creates a map of rule ID to overridden severity
+// from the config's extends + rules fields.
+func buildSeverityOverrides(cfg *config.Config) map[string]protocol.DiagnosticSeverity {
+	rs := rulesets.GetBuiltin(cfg.Extends)
+	if rs == nil {
+		rs = &rulesets.RuleSet{Rules: make(map[string]rulesets.RuleDefinition)}
+	}
+	for id, sev := range cfg.Rules {
+		rs.Rules[id] = rulesets.RuleDefinition{Severity: sev}
+	}
+	overrides := rulesets.BuildSeverityOverrides(rs)
+	m := make(map[string]protocol.DiagnosticSeverity, len(overrides))
+	for _, o := range overrides {
+		if !o.Disabled && o.Severity > 0 {
+			m[o.RuleID] = o.Severity
+		}
+	}
+	return m
+}
+
+// applySeverityOverrides adjusts diagnostic severities based on config overrides.
+func applySeverityOverrides(diags []protocol.Diagnostic, overrides map[string]protocol.DiagnosticSeverity) []protocol.Diagnostic {
+	if len(overrides) == 0 {
+		return diags
+	}
+	for i := range diags {
+		code, _ := diags[i].Code.(string)
+		if code == "" {
+			continue
+		}
+		if sev, ok := overrides[code]; ok {
+			diags[i].Severity = sev
+		}
+	}
+	return diags
+}
+
+// filterBySeverity keeps only diagnostics at or above the given severity.
+// LSP severities are: 1=Error, 2=Warning, 3=Info, 4=Hint (lower = more severe).
+func filterBySeverity(diags []protocol.Diagnostic, minSev protocol.DiagnosticSeverity) []protocol.Diagnostic {
+	var out []protocol.Diagnostic
+	for _, d := range diags {
+		if d.Severity <= minSev {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// matchesAnyPattern checks if a path matches any of the given glob patterns.
+func matchesAnyPattern(path string, patterns []string) bool {
+	for _, pat := range patterns {
+		if matched, _ := filepath.Match(pat, path); matched {
+			return true
+		}
+		// Also try matching against just the relative path components.
+		if matched, _ := filepath.Match(pat, filepath.Base(path)); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// filterExcluded removes files that match any exclude pattern.
+func filterExcluded(files []string, patterns []string) []string {
+	var out []string
+	for _, f := range files {
+		excluded := false
+		for _, pat := range patterns {
+			if matchGlob(pat, f) {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// filterIncluded keeps only files that match at least one include pattern.
+func filterIncluded(files []string, patterns []string) []string {
+	var out []string
+	for _, f := range files {
+		for _, pat := range patterns {
+			if matchGlob(pat, f) {
+				out = append(out, f)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// matchGlob matches a file path against a glob pattern, handling ** (double star)
+// which filepath.Match doesn't support.
+func matchGlob(pattern, path string) bool {
+	// filepath.Match doesn't support **; strip it and match the base name
+	if strings.Contains(pattern, "**") {
+		basePat := strings.TrimPrefix(pattern, "**/")
+		basePat = strings.TrimPrefix(basePat, "**/")
+		if matched, _ := filepath.Match(basePat, filepath.Base(path)); matched {
+			return true
+		}
+	}
+	if matched, _ := filepath.Match(pattern, path); matched {
+		return true
+	}
+	if matched, _ := filepath.Match(pattern, filepath.Base(path)); matched {
+		return true
+	}
+	return false
 }

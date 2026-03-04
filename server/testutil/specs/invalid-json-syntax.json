@@ -1,0 +1,40 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Invalid JSON Syntax Test",
+    "version": "1.0.0",
+  },
+  "paths": {
+    "/trailing-comma": {
+      "get": {
+        "summary": "Trailing comma in responses object",
+        "responses": {
+          "200": {
+            "description": "OK",
+          }
+        }
+      }
+    },
+    "/trailing-array-comma": {
+      "get": {
+        "summary": "Trailing comma in tags array",
+        "tags": ["pets",],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/missing-brace": {
+      "get": {
+        "summary": "Missing closing brace",
+        "responses": {
+          "200": {
+            "description": "OK"
+
+        }
+      }
+    }
+  }
+}
