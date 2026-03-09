@@ -39,11 +39,12 @@ suite("Sidecar: Generic Rules", () => {
 			"custom/custom-generic-invalid.yaml",
 		);
 		await openAndShow(fileUri);
+		await waitForDiagnostics(fileUri, (d) => d.length > 0, { timeoutMs: 120000 });
 
 		const diagnostics = await waitForDiagnostics(
 			fileUri,
 			(d) => d.some((diag) => diagCode(diag) === "custom-version-required"),
-			{ timeoutMs: 120000 },
+			{ timeoutMs: 180000 },
 		);
 
 		const customDiags = diagnostics.filter(

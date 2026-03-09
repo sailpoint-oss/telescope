@@ -27,6 +27,12 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Build Bun runner
+        run: bash server/lsp/bun/runner/build.sh
+
       - name: Run Telescope (CI)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

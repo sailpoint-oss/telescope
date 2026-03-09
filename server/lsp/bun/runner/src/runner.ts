@@ -142,6 +142,8 @@ async function handleRunRules(envelope: Envelope): Promise<void> {
 			switch (loaded.kind) {
 				case "openapi": {
 					const ctx = buildRuleContext(req);
+					ctx._defaultCode =
+						(loaded.rule as { meta?: { id?: string } })?.meta?.id ?? ruleID;
 					runOpenAPIRule(
 						loaded.rule as { check: (ctx: any) => any },
 						ctx,
@@ -153,6 +155,8 @@ async function handleRunRules(envelope: Envelope): Promise<void> {
 				}
 				case "generic": {
 					const ctx = buildGenericContext(req);
+					ctx._defaultCode =
+						(loaded.rule as { meta?: { id?: string } })?.meta?.id ?? ruleID;
 					runGenericRule(
 						loaded.rule as { create: (ctx: any) => any },
 						ctx,

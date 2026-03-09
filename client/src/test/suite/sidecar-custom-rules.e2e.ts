@@ -39,11 +39,12 @@ suite("Sidecar: Custom OpenAPI Rules", () => {
 			"openapi/custom-openapi-invalid.yaml",
 		);
 		await openAndShow(fileUri);
+		await waitForDiagnostics(fileUri, (d) => d.length > 0, { timeoutMs: 120000 });
 
 		const diagnostics = await waitForDiagnostics(
 			fileUri,
 			(d) => d.some((diag) => diagCode(diag) === "custom-operation-summary"),
-			{ timeoutMs: 120000 },
+			{ timeoutMs: 180000 },
 		);
 
 		const customDiags = diagnostics.filter(

@@ -1,7 +1,7 @@
 packages:
   - client
   - test-files
-  - packages/telescope-server
+  - server/lsp/bun/telescope-server
   - server/lsp/bun/runner
 
 onlyBuiltDependencies:
