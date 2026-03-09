@@ -146,6 +146,7 @@ func (m *ChildLSPManager) DidOpen(ctx context.Context, params *protocol.DidOpenT
 	if params == nil {
 		return
 	}
+	m.logger.Debug("childMgr.DidOpen", "uri", params.TextDocument.URI, "languageID", params.TextDocument.LanguageID)
 	client := m.clientForURI(string(params.TextDocument.URI))
 	if client == nil {
 		return
@@ -169,28 +170,49 @@ func (m *ChildLSPManager) DidChange(ctx context.Context, params *protocol.DidCha
 }
 
 // DidClose forwards the notification to the appropriate child LSP and clears
-// aggregator state for that URI.
+// only the child LSP's source in the aggregator. We intentionally do NOT call
+// aggregator.Clear (which wipes all sources) because the DiagnosticEngine may
+// have already published fresh "telescope" diagnostics that would be lost.
 func (m *ChildLSPManager) DidClose(ctx context.Context, params *protocol.DidCloseTextDocumentParams) {
 	if params == nil {
 		return
 	}
 	uri := params.TextDocument.URI
+	m.logger.Debug("childMgr.DidClose", "uri", uri)
 	client := m.clientForURI(string(uri))
 	if client != nil {
 		_ = client.DidClose(ctx, params)
 	}
-	m.aggregator.Clear(uri)
+	source := m.sourceNameForURI(string(uri))
+	m.logger.Debug("childMgr.DidClose clearing child source", "uri", uri, "source", source)
+	m.aggregator.ClearSource(uri, source)
 }
 
 func (m *ChildLSPManager) clientForURI(uri string) *lspclient.Client {
+	m.mu.Lock()
+	yaml := m.yamlClient
+	json := m.jsonClient
+	m.mu.Unlock()
+
 	lower := strings.ToLower(uri)
 	if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
-		return m.yamlClient
+		return yaml
 	}
 	if strings.HasSuffix(lower, ".json") {
-		return m.jsonClient
+		return json
 	}
 	return nil
+}
+
+func (m *ChildLSPManager) sourceNameForURI(uri string) string {
+	lower := strings.ToLower(uri)
+	if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
+		return "yaml-ls"
+	}
+	if strings.HasSuffix(lower, ".json") {
+		return "json-ls"
+	}
+	return "yaml-ls"
 }
 
 func langIDForURI(uri string) string {

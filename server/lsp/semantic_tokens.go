@@ -4,9 +4,12 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -38,7 +41,7 @@ const (
 var pathParamRe = regexp.MustCompile(`\{([^}]+)\}`)
 
 // NewSemanticTokensHandler provides OpenAPI-aware syntax highlighting.
-func NewSemanticTokensHandler(cache *openapi.IndexCache) gossip.SemanticTokensHandler {
+func NewSemanticTokensHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.SemanticTokensHandler {
 	return func(ctx *gossip.Context, params *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
@@ -52,7 +55,7 @@ func NewSemanticTokensHandler(cache *openapi.IndexCache) gossip.SemanticTokensHa
 }
 
 // NewSemanticTokensRangeHandler provides range-scoped semantic tokens.
-func NewSemanticTokensRangeHandler(cache *openapi.IndexCache) gossip.SemanticTokensRangeHandler {
+func NewSemanticTokensRangeHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.SemanticTokensRangeHandler {
 	return func(ctx *gossip.Context, params *protocol.SemanticTokensRangeParams) (*protocol.SemanticTokens, error) {
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
@@ -77,16 +80,16 @@ func buildSemanticTokens(idx *openapi.Index) []semanticToken {
 	var tokens []semanticToken
 
 	for pathStr, item := range idx.Document.Paths {
-		if item.PathLoc.Range.Start.Line != 0 || item.PathLoc.Range.Start.Character != 0 || item.PathLoc.Range.End.Line != 0 {
+		if !isZeroRange(adapt.RangeToProtocol(item.PathLoc.Range)) {
 			tokens = append(tokens, semanticToken{
 				line: item.PathLoc.Range.Start.Line, char: item.PathLoc.Range.Start.Character,
-				length: rangeLen(item.PathLoc.Range), tokenType: tokNamespace,
+				length: rangeLen(adapt.RangeToProtocol(item.PathLoc.Range)), tokenType: tokNamespace,
 			})
 		}
 
 		for _, match := range pathParamRe.FindAllStringIndex(pathStr, -1) {
-			paramOffset := uint32(match[0])
-			paramLen := uint32(match[1] - match[0])
+			paramOffset := byteOffsetToUTF16(pathStr, match[0])
+			paramLen := byteOffsetToUTF16(pathStr[match[0]:], match[1]-match[0])
 			tokens = append(tokens, semanticToken{
 				line: item.PathLoc.Range.Start.Line, char: item.PathLoc.Range.Start.Character + paramOffset,
 				length: paramLen, tokenType: tokTypeParameter,
@@ -94,32 +97,34 @@ func buildSemanticTokens(idx *openapi.Index) []semanticToken {
 		}
 
 		for _, mo := range item.Operations() {
-			opLoc := mo.Operation.Loc
+			methodLoc := mo.Operation.MethodLoc
+			if isZeroRange(adapt.RangeToProtocol(methodLoc.Range)) {
+				methodLoc = mo.Operation.Loc
+			}
 			tokens = append(tokens, semanticToken{
-				line: opLoc.Range.Start.Line, char: opLoc.Range.Start.Character,
+				line: methodLoc.Range.Start.Line, char: methodLoc.Range.Start.Character,
 				length: uint32(len(mo.Method)), tokenType: tokMethod,
 			})
 
-			if mo.Operation.OperationID != "" && !isZeroRange(mo.Operation.OperationIDLoc.Range) {
+			if mo.Operation.OperationID != "" && !isZeroRange(adapt.RangeToProtocol(mo.Operation.OperationIDLoc.Range)) {
 				tokens = append(tokens, semanticToken{
 					line: mo.Operation.OperationIDLoc.Range.Start.Line, char: mo.Operation.OperationIDLoc.Range.Start.Character,
-					length: rangeLen(mo.Operation.OperationIDLoc.Range), tokenType: tokFunction,
+					length: rangeLen(adapt.RangeToProtocol(mo.Operation.OperationIDLoc.Range)), tokenType: tokFunction,
 				})
 			}
 
-			if mo.Operation.Deprecated {
-				tokens = append(tokens, semanticToken{
-					line: opLoc.Range.Start.Line, char: opLoc.Range.Start.Character,
-					length: uint32(len(mo.Method)), tokenType: tokMethod, modifiers: modDeprecated,
-				})
-			}
-
-			for code, resp := range mo.Operation.Responses {
-				if resp != nil && !isZeroRange(resp.Loc.Range) {
-					_ = code
+			for _, resp := range mo.Operation.Responses {
+				if resp == nil {
+					continue
+				}
+				codeLoc := resp.CodeLoc
+				if isZeroRange(adapt.RangeToProtocol(codeLoc.Range)) {
+					codeLoc = resp.Loc
+				}
+				if !isZeroRange(adapt.RangeToProtocol(codeLoc.Range)) {
 					tokens = append(tokens, semanticToken{
-						line: resp.Loc.Range.Start.Line, char: resp.Loc.Range.Start.Character,
-						length: uint32(len(code)), tokenType: tokEnum,
+						line: codeLoc.Range.Start.Line, char: codeLoc.Range.Start.Character,
+						length: rangeLen(adapt.RangeToProtocol(codeLoc.Range)), tokenType: tokEnum,
 					})
 				}
 			}
@@ -127,37 +132,51 @@ func buildSemanticTokens(idx *openapi.Index) []semanticToken {
 	}
 
 	for _, ref := range idx.AllRefs {
-		if !isZeroRange(ref.Loc.Range) {
+		if !isZeroRange(adapt.RangeToProtocol(ref.Loc.Range)) {
 			tokens = append(tokens, semanticToken{
 				line: ref.Loc.Range.Start.Line, char: ref.Loc.Range.Start.Character,
-				length: rangeLen(ref.Loc.Range), tokenType: tokVariable,
+				length: rangeLen(adapt.RangeToProtocol(ref.Loc.Range)), tokenType: tokVariable,
 			})
 		}
 	}
 
 	if idx.Document.Components != nil {
-		for name, schema := range idx.Document.Components.Schemas {
-			if !isZeroRange(schema.NameLoc.Range) {
+		for _, schema := range idx.Document.Components.Schemas {
+			if !isZeroRange(adapt.RangeToProtocol(schema.NameLoc.Range)) {
 				tokens = append(tokens, semanticToken{
 					line: schema.NameLoc.Range.Start.Line, char: schema.NameLoc.Range.Start.Character,
-					length: uint32(len(name)), tokenType: tokType, modifiers: modDeclaration,
+					length: rangeLen(adapt.RangeToProtocol(schema.NameLoc.Range)), tokenType: tokType, modifiers: modDeclaration,
 				})
 			}
-			if schema.Type != "" && !isZeroRange(schema.TypeLoc.Range) {
+			if schema.Type != "" && !isZeroRange(adapt.RangeToProtocol(schema.TypeLoc.Range)) {
 				tokens = append(tokens, semanticToken{
 					line: schema.TypeLoc.Range.Start.Line, char: schema.TypeLoc.Range.Start.Character,
-					length: rangeLen(schema.TypeLoc.Range), tokenType: tokKeyword,
+					length: rangeLen(adapt.RangeToProtocol(schema.TypeLoc.Range)), tokenType: tokKeyword,
 				})
 			}
 		}
 
-		for name, ss := range idx.Document.Components.SecuritySchemes {
-			if !isZeroRange(ss.Loc.Range) {
+		for _, ss := range idx.Document.Components.SecuritySchemes {
+			nameLoc := ss.NameLoc
+			if isZeroRange(adapt.RangeToProtocol(nameLoc.Range)) {
+				nameLoc = ss.Loc
+			}
+			if !isZeroRange(adapt.RangeToProtocol(nameLoc.Range)) {
 				tokens = append(tokens, semanticToken{
-					line: ss.Loc.Range.Start.Line, char: ss.Loc.Range.Start.Character,
-					length: uint32(len(name)), tokenType: tokMacro, modifiers: modDeclaration,
+					line: nameLoc.Range.Start.Line, char: nameLoc.Range.Start.Character,
+					length: rangeLen(adapt.RangeToProtocol(nameLoc.Range)), tokenType: tokMacro, modifiers: modDeclaration,
 				})
 			}
+		}
+	}
+
+	// Root tag names
+	for _, tag := range idx.Document.Tags {
+		if !isZeroRange(adapt.RangeToProtocol(tag.NameLoc.Range)) {
+			tokens = append(tokens, semanticToken{
+				line: tag.NameLoc.Range.Start.Line, char: tag.NameLoc.Range.Start.Character,
+				length: rangeLen(adapt.RangeToProtocol(tag.NameLoc.Range)), tokenType: tokType, modifiers: modDefinition,
+			})
 		}
 	}
 
@@ -193,6 +212,17 @@ func deltaEncode(tokens []semanticToken) []uint32 {
 	return data
 }
 
+// byteOffsetToUTF16 converts a byte offset within s to a UTF-16 code unit count.
+func byteOffsetToUTF16(s string, byteOff int) uint32 {
+	n := uint32(0)
+	for i := 0; i < byteOff && i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		n += uint32(utf16.RuneLen(r))
+		i += size
+	}
+	return n
+}
+
 func rangeLen(r protocol.Range) uint32 {
 	if r.Start.Line == r.End.Line {
 		return r.End.Character - r.Start.Character
@@ -206,10 +236,20 @@ func isZeroRange(r protocol.Range) bool {
 
 func isSecurityContext(line string) bool {
 	trimmed := strings.TrimSpace(line)
-	return strings.HasPrefix(trimmed, "security:") || strings.HasPrefix(trimmed, "- ")
+	if strings.HasPrefix(trimmed, "security:") {
+		return true
+	}
+	// Match security requirement list items: "- SchemeName: []" or "- SchemeName:"
+	if strings.HasPrefix(trimmed, "- ") {
+		rest := strings.TrimPrefix(trimmed, "- ")
+		// Security requirements have the form: SchemeName: [scopes] or SchemeName: []
+		return strings.Contains(rest, ":") && (strings.Contains(rest, "[") || strings.HasSuffix(rest, ":"))
+	}
+	return false
 }
 
 func isTagContext(line string) bool {
 	trimmed := strings.TrimSpace(line)
-	return strings.HasPrefix(trimmed, "tags:")
+	// Match "tags:" key or tag list items under tags (e.g. "- Pets")
+	return strings.HasPrefix(trimmed, "tags:") || strings.HasPrefix(trimmed, "- ")
 }

@@ -48,10 +48,14 @@ export function run(): Promise<void> {
 					const base = path.basename(f);
 					return base === "activation.e2e.js" || base === "multi-root.e2e.js";
 				})
-			: mode === "single"
-				? // In single-root mode, skip multi-root-specific assertions (covered by multi-root run).
-					allTestFiles.filter((f) => path.basename(f) !== "multi-root.e2e.js")
-				: allTestFiles;
+			: mode === "sidecar"
+				? allTestFiles.filter((f) => {
+						const base = path.basename(f);
+						return base === "activation.e2e.js" || base.startsWith("sidecar-");
+					})
+				: mode === "single"
+					? allTestFiles.filter((f) => path.basename(f) !== "multi-root.e2e.js")
+					: allTestFiles;
 
 	// Add files to the test suite
 	testFiles.forEach((f) => mocha.addFile(f));

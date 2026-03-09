@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/rulesets"
 	"gopkg.in/yaml.v3"
 )
@@ -18,7 +18,7 @@ type Rule struct {
 	ID               string
 	Description      string
 	Message          string // supports {{value}}, {{path}}, {{property}} placeholders
-	Severity         protocol.DiagnosticSeverity
+	Severity         ctypes.Severity
 	Given            []string       // JSONPath expressions
 	Then             []FunctionCall // validation steps
 	Formats          []string       // oas2, oas3, oas3_0, oas3_1
@@ -74,7 +74,7 @@ func parseRule(id string, def rulesets.RuleDefinition) (Rule, bool) {
 		return Rule{}, false
 	}
 
-	sev := protocol.SeverityWarning
+	sev := ctypes.SeverityWarning
 	if s, ok := rulesets.ParseSeverity(def.Severity); ok && s > 0 {
 		sev = s
 	}

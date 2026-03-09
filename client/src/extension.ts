@@ -8,11 +8,15 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { commands, type ExtensionContext, window, workspace } from "vscode";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { SessionManager } from "./session-manager";
 import { classifyDocument, formatSetupLog } from "./utils";
+
+const execFileAsync = promisify(execFile);
 
 /** Global session manager instance */
 let sessionManager: SessionManager | null = null;
@@ -125,6 +129,68 @@ export async function activate(context: ExtensionContext) {
 
 		context.subscriptions.push(sessionManager);
 
+		// Deprecated element decorations: red italic "deprecated" label after the name
+		const deprecatedDecorationType =
+			vscode.window.createTextEditorDecorationType({
+				after: {
+					contentText: " deprecated",
+					color: "rgba(255, 80, 80, 0.6)",
+					fontStyle: "italic",
+					margin: "0 0 0 0.5em",
+				},
+			});
+		context.subscriptions.push(deprecatedDecorationType);
+
+		// Track deprecated ranges per URI
+		const deprecatedRangesMap = new Map<
+			string,
+			Array<{
+				range: {
+					start: { line: number; character: number };
+					end: { line: number; character: number };
+				};
+				name: string;
+				kind: string;
+			}>
+		>();
+
+		function applyDeprecatedDecorations(editor: vscode.TextEditor): void {
+			const key = vscode.Uri.parse(editor.document.uri.toString()).toString();
+			const ranges = deprecatedRangesMap.get(key);
+			if (!ranges || ranges.length === 0) {
+				editor.setDecorations(deprecatedDecorationType, []);
+				return;
+			}
+			const decorations = ranges.map((r) => ({
+				range: new vscode.Range(
+					new vscode.Position(r.range.end.line, r.range.end.character),
+					new vscode.Position(r.range.end.line, r.range.end.character),
+				),
+				hoverMessage: `${r.name} (${r.kind}) is deprecated`,
+			}));
+			editor.setDecorations(deprecatedDecorationType, decorations);
+		}
+
+		// Apply decorations when visible editors change
+		context.subscriptions.push(
+			vscode.window.onDidChangeVisibleTextEditors((editors) => {
+				for (const editor of editors) {
+					applyDeprecatedDecorations(editor);
+				}
+			}),
+		);
+
+		// Wire the deprecated notification handler into the session manager
+		sessionManager.onDeprecatedRanges = (params) => {
+			const normalizedUri = vscode.Uri.parse(params.uri).toString();
+			deprecatedRangesMap.set(normalizedUri, params.ranges);
+			for (const editor of vscode.window.visibleTextEditors) {
+				if (editor.document.uri.toString() === normalizedUri) {
+					applyDeprecatedDecorations(editor);
+				}
+			}
+		};
+
 		sessionManager.initialize().then(
 			() => {
 				outputChannel.appendLine(formatSetupLog("All sessions initialized"));
@@ -198,14 +264,19 @@ export async function activate(context: ExtensionContext) {
 					return;
 				}
 
-				const items = files.map((uri) => {
+				const seen = new Set<string>();
+				const items: { label: string; description: string; uri: vscode.Uri }[] = [];
+				for (const uri of files) {
 					const parsedUri = vscode.Uri.parse(uri);
-					return {
+					const key = parsedUri.toString();
+					if (seen.has(key)) continue;
+					seen.add(key);
+					items.push({
 						label: path.basename(parsedUri.fsPath),
 						description: workspace.asRelativePath(parsedUri),
 						uri: parsedUri,
-					};
-				});
+					});
+				}
 
 				const selected = await window.showQuickPick(items, {
 					placeHolder: `${files.length} OpenAPI files found`,
@@ -235,6 +306,79 @@ export async function activate(context: ExtensionContext) {
 			}),
 		);
 
+		context.subscriptions.push(
+			commands.registerCommand("telescope.graphInfo", async () => {
+				if (!sessionManager) return;
+				const sessions = sessionManager.getRunningSessions();
+				const results: string[] = [];
+				for (const session of sessions) {
+					const client = session.getClient();
+					if (!client) continue;
+					try {
+						const info = await client.sendRequest("$/telescope/graphInfo");
+						results.push(
+							`**${session.folder.name}**\n\`\`\`json\n${JSON.stringify(info, null, 2)}\n\`\`\``,
+						);
+					} catch {
+						results.push(`**${session.folder.name}**: Error fetching graph info`);
+					}
+				}
+				if (results.length > 0) {
+					const doc = await vscode.workspace.openTextDocument({
+						content: results.join("\n\n---\n\n"),
+						language: "markdown",
+					});
+					await vscode.window.showTextDocument(doc, { preview: true });
+				} else {
+					window.showWarningMessage("No running Telescope sessions");
+				}
+			}),
+		);
+
+		context.subscriptions.push(
+			commands.registerCommand("telescope.rulePerf", async () => {
+				if (!sessionManager) return;
+				const sessions = sessionManager.getRunningSessions();
+				const results: string[] = [];
+				for (const session of sessions) {
+					const client = session.getClient();
+					if (!client) continue;
+					try {
+						const perf = (await client.sendRequest(
+							"$/telescope/rulePerf",
+						)) as {
+							rules?: { ruleId: string; durationMs: number; count: number }[];
+						};
+						const rules = perf?.rules ?? [];
+						rules.sort(
+							(a: { durationMs: number }, b: { durationMs: number }) =>
+								b.durationMs - a.durationMs,
+						);
+						const lines = rules.map(
+							(r: { ruleId: string; durationMs: number; count: number }) =>
+								`| ${r.ruleId} | ${r.durationMs}ms | ${r.count} |`,
+						);
+						results.push(
+							`**${session.folder.name}**\n\n| Rule | Duration | Diagnostics |\n|------|----------|-------------|\n${lines.join("\n")}`,
+						);
+					} catch {
+						results.push(
+							`**${session.folder.name}**: Error fetching rule performance`,
+						);
+					}
+				}
+				if (results.length > 0) {
+					const doc = await vscode.workspace.openTextDocument({
+						content: results.join("\n\n---\n\n"),
+						language: "markdown",
+					});
+					await vscode.window.showTextDocument(doc, { preview: true });
+				} else {
+					window.showWarningMessage("No running Telescope sessions");
+				}
+			}),
+		);
+
 		// --------------------------------------------------------------------
 		// Server refactor commands (multi-root safe)
 		// --------------------------------------------------------------------
@@ -250,11 +394,124 @@ export async function activate(context: ExtensionContext) {
 					const doc = await getDocument(uri);
 					if (!doc) return;
 					const session = sessionManager.getSessionForUri(doc.uri);
-					if (!session) return;
-					await session.executeServerCommand(cmd, [doc.uri.toString()]);
+					if (!session) {
+						window.showWarningMessage(
+							`No Telescope session found for ${workspace.asRelativePath(doc.uri)}`,
+						);
+						return;
+					}
+					try {
+						await session.executeServerCommand(cmd, [doc.uri.toString()]);
+					} catch (error) {
+						outputChannel.appendLine(
+							formatSetupLog(
+								`Command ${cmd} failed for ${doc.uri.toString()}: ${String(error)}`,
+							),
+						);
+						window.showErrorMessage(`Telescope command failed: ${cmd}`);
+					}
 				}),
 			);
 		}
+
+		context.subscriptions.push(
+			commands.registerCommand(
+				"telescope.bundlePreview",
+				async (uriOrString?: vscode.Uri | string) => {
+					const uri =
+						typeof uriOrString === "string"
+							? vscode.Uri.parse(uriOrString)
+							: uriOrString;
+					const document = await getDocument(uri);
+					if (!document) return;
+
+					try {
+						const language = document.languageId.includes("json") ? "json" : "yaml";
+						const { stdout, stderr } = await execFileAsync(
+							serverPath,
+							["bundle", document.uri.fsPath],
+							{ maxBuffer: 20 * 1024 * 1024 },
+						);
+						const content = (stdout || stderr || "").trim();
+						if (!content) {
+							window.showWarningMessage("Bundle preview returned no content");
+							return;
+						}
+						const previewDoc = await workspace.openTextDocument({
+							content,
+							language,
+						});
+						await window.showTextDocument(previewDoc, { preview: true });
+					} catch (error) {
+						outputChannel.appendLine(
+							formatSetupLog(
+								`Bundle preview failed for ${document.uri.toString()}: ${String(error)}`,
+							),
+						);
+						window.showErrorMessage("Telescope bundle preview failed. See Telescope output for details.");
+					}
+				},
+			),
+		);
+
+		context.subscriptions.push(
+			commands.registerCommand(
+				"telescope.validateExamples",
+				async (uriOrString?: vscode.Uri | string) => {
+					if (!sessionManager) return;
+					const uri =
+						typeof uriOrString === "string"
+							? vscode.Uri.parse(uriOrString)
+							: uriOrString;
+					const document = await getDocument(uri);
+					if (!document) return;
+					const session = sessionManager.getSessionForUri(document.uri);
+					if (!session) {
+						window.showWarningMessage("No Telescope session found for this document");
+						return;
+					}
+					try {
+						const result = (await session.executeServerCommand(
+							"telescope.validateExamples",
+							[document.uri.toString()],
+						)) as {
+							checked?: number;
+							invalid?: number;
+							issues?: string[];
+						} | null;
+						const checked = result?.checked ?? 0;
+						const invalid = result?.invalid ?? 0;
+						const issues = result?.issues ?? [];
+						if (invalid === 0) {
+							window.showInformationMessage(
+								`Example validation passed (${checked} checked).`,
+							);
+							return;
+						}
+						outputChannel.appendLine(
+							formatSetupLog(
+								`Example validation found ${invalid} issue(s) in ${document.uri.toString()}`,
+							),
+						);
+						for (const issue of issues) {
+							outputChannel.appendLine(`  - ${issue}`);
+						}
+						window.showWarningMessage(
+							`Example validation found ${invalid} issue(s). See Telescope output for details.`,
+						);
+					} catch (error) {
+						outputChannel.appendLine(
+							formatSetupLog(
+								`Example validation failed for ${document.uri.toString()}: ${String(error)}`,
+							),
+						);
+						window.showErrorMessage(
+							"Telescope example validation failed. See Telescope output for details.",
+						);
+					}
+				},
+			),
+		);
 
 		context.subscriptions.push(
 			commands.registerCommand(

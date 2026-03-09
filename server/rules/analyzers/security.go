@@ -2,7 +2,7 @@ package analyzers
 
 import (
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -11,7 +11,7 @@ var (
 	noAPIKeyInQueryMeta = rules.RuleMeta{
 		ID:          "no-api-key-in-query",
 		Description: "API keys should not be passed in query parameters.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategorySecurity,
 		Recommended: true,
 		HowToFix:    "Use header or cookie authentication instead of query parameters.",
@@ -21,7 +21,7 @@ var (
 	oauthFlowURLsMeta = rules.RuleMeta{
 		ID:          "oauth-flow-urls",
 		Description: "OAuth flow URLs should be absolute and use HTTPS.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategorySecurity,
 		Recommended: true,
 		HowToFix:    "Use absolute HTTPS URLs for OAuth flow endpoints.",
@@ -31,7 +31,7 @@ var (
 	securityGlobalOrOperationMeta = rules.RuleMeta{
 		ID:          "security-global-or-operation",
 		Description: "Security should be defined globally or on every operation.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategorySecurity,
 		Recommended: true,
 		HowToFix:    "Add security requirements either globally or to each operation.",
@@ -41,7 +41,7 @@ var (
 	securitySchemesDefinedMeta = rules.RuleMeta{
 		ID:          "security-schemes-defined",
 		Description: "Security requirements must reference defined security schemes.",
-		Severity:    protocol.SeverityError,
+		Severity:    ctypes.SeverityError,
 		Category:    rules.CategorySecurity,
 		Recommended: true,
 		HowToFix:    "Define the security scheme in components/securitySchemes.",
@@ -118,7 +118,7 @@ func registerSecurityAnalyzers(s *gossip.Server) {
 					if _, ok := idx.SecuritySchemes[entry.Name]; !ok {
 						loc := entry.NameLoc
 						if loc.Node == nil {
-							loc = idx.Document.Loc
+							loc = openapi.Loc{Range: ctypes.FileStartRange}
 						}
 						// Suggest closest match
 						suggestion := closestString(entry.Name, availableSchemes)

@@ -191,6 +191,19 @@ export class WorkspaceScanner {
 	}
 
 	/**
+	 * Recompute the OpenAPI count from the cache. Call this after
+	 * classifying individual files (e.g. from a file watcher) to keep
+	 * the count accurate between full workspace scans.
+	 */
+	recount(): void {
+		let count = 0;
+		for (const result of this.cache.values()) {
+			if (result.isOpenAPI) count++;
+		}
+		this.openAPICount = count;
+	}
+
+	/**
 	 * Cancel any ongoing scan.
 	 */
 	cancelScan(): void {

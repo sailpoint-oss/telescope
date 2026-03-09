@@ -25,7 +25,7 @@
 package sdk
 
 import (
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -67,17 +67,17 @@ type ValidationResult = rules.ValidationResult
 // --- Severity constants ---
 
 const (
-	SeverityError   = protocol.SeverityError
-	SeverityWarning = protocol.SeverityWarning
-	SeverityInfo    = protocol.SeverityInformation
-	SeverityHint    = protocol.SeverityHint
+	SeverityError   = ctypes.SeverityError
+	SeverityWarning = ctypes.SeverityWarning
+	SeverityInfo    = ctypes.SeverityInfo
+	SeverityHint    = ctypes.SeverityHint
 )
 
 // Convenience aliases matching common usage.
 const (
-	Error = protocol.SeverityError
-	Warn  = protocol.SeverityWarning
-	Hint  = protocol.SeverityHint
+	Error = ctypes.SeverityError
+	Warn  = ctypes.SeverityWarning
+	Hint  = ctypes.SeverityHint
 )
 
 // --- Category constants ---

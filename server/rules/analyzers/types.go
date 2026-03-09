@@ -2,7 +2,7 @@ package analyzers
 
 import (
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -10,7 +10,7 @@ import (
 var noUnknownFormatsMeta = rules.RuleMeta{
 	ID:          "no-unknown-formats",
 	Description: "Schema format values should be known/standard formats.",
-	Severity:    protocol.SeverityWarning,
+	Severity:    ctypes.SeverityWarning,
 	Category:    rules.CategoryTypes,
 	Recommended: true,
 	HowToFix:    "Use a known format (e.g., date-time, email, uri, uuid, int32, int64, float, double).",

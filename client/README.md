@@ -7,9 +7,9 @@ A powerful VS Code extension for OpenAPI specifications with real-time validatio
 ### Validation & Diagnostics
 
 - **Real-time Diagnostics** — See linting issues as you type
-- **52 Built-in Rules** — OpenAPI best practices and optional SailPoint enterprise standards
+- **88 Built-in Rules** — OpenAPI best practices, security, and OWASP coverage
 - **Multi-file Support** — Full `$ref` resolution across your API project
-- **Custom Rules** — Extend with TypeScript rules and TypeBox schemas
+- **Custom Rules** — Extend with Go plugin binaries and Spectral-compatible YAML rulesets
 
 ### Code Intelligence
 
@@ -54,54 +54,51 @@ code --install-extension sailpoint.telescope
 The extension automatically detects OpenAPI documents based on:
 
 1. File contains `openapi:` or `swagger:` root key
-2. File matches patterns configured in `.telescope/config.yaml`
+2. File matches patterns configured in `.telescope.yaml`
 
 Once detected, Telescope treats the file as OpenAPI for language server features. When you open a detected file, Telescope applies the custom OpenAPI language mode (`openapi-yaml` / `openapi-json`) for correct tokenization and grammars.
 
 ## Configuration
 
-Create `.telescope/config.yaml` in your workspace root to customize behavior:
+Create `.telescope.yaml` in your workspace root to customize behavior:
 
 ```yaml
-openapi:
-  # Glob patterns for OpenAPI files
-  patterns:
-    - "**/*.yaml"
-    - "**/*.yml"
-    - "**/*.json"
-    - "!**/node_modules/**"
-    - "!**/dist/**"
+extends: telescope:recommended
 
-  # Enable SailPoint enterprise rules (adds 22 additional rules)
-  sailpoint: false
+rules:
+  operation-summary: warn
+  parameter-description: error
+  ascii-only: off
 
-  # Override rule severities
-  rulesOverrides:
-    operation-summary: warn
-    parameter-description: error
-    ascii-only: off
+include:
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.json"
 
-  # Register custom rules
-  rules:
-    - rule: my-custom-rule.ts
+exclude:
+  - "node_modules/**"
+  - "dist/**"
+
+plugins:
+  - ./rulesets/custom.yaml
 ```
 
 ### Configuration Options
 
-| Option                   | Description                                                           |
-| ------------------------ | --------------------------------------------------------------------- |
-| `openapi.patterns`       | Glob patterns to match OpenAPI files. Use `!` prefix for exclusions.  |
-| `openapi.sailpoint`      | Enable SailPoint-specific rules (`true`/`false`). Default: `false`    |
-| `openapi.rulesOverrides` | Override severity for built-in rules (`error`, `warn`, `info`, `off`) |
-| `openapi.rules`          | Register custom TypeScript rules from `.telescope/rules/`             |
-| `additionalValidation`   | Configure validation for non-OpenAPI files                            |
+| Option    | Description                                                           |
+| --------- | --------------------------------------------------------------------- |
+| `extends` | Base ruleset (`telescope:recommended`, `telescope:all`, `telescope:owasp`, `telescope:strict`) |
+| `rules`   | Override severity for built-in rules (`error`, `warn`, `info`, `off`) |
+| `include` | Glob patterns to match OpenAPI files                                  |
+| `exclude` | Glob patterns to exclude                                              |
+| `plugins` | Spectral YAML rulesets or Go plugin binary paths                      |
 
 ### Default Patterns
 
 When no configuration exists, the extension matches:
 
 ```yaml
-patterns:
+include:
   - "**/*.yaml"
   - "**/*.yml"
   - "**/*.json"
@@ -110,7 +107,7 @@ patterns:
 
 ### Configuration Reload
 
-Configuration automatically reloads when `.telescope/config.yaml` is modified, and when relevant VS Code settings change.
+Configuration automatically reloads when `.telescope.yaml` is modified, and when relevant VS Code settings change.
 
 ## Commands
 
@@ -129,44 +126,40 @@ Conversion commands are also available in the editor and file explorer context m
 
 ## Built-in Rules
 
-### OpenAPI Best Practice Rules (30 rules)
+### Built-in Rulesets
+
+| Ruleset                  | Rules | Description                           |
+| ------------------------ | ----- | ------------------------------------- |
+| `telescope:recommended`  | 50    | Core best practices                   |
+| `telescope:all`          | 56    | All non-OWASP rules                  |
+| `telescope:owasp`        | 32    | OWASP API Security Top 10            |
+| `telescope:strict`       | 82    | Recommended + OWASP combined          |
+
+### Rule Categories
 
 | Category          | Examples                                                              |
 | ----------------- | --------------------------------------------------------------------- |
 | **References**    | Unresolved `$ref` detection                                           |
 | **Naming**        | Unique operationIds, schema naming conventions, tag formatting        |
 | **Documentation** | HTML in descriptions, deprecation explanations, enum descriptions     |
-| **Structure**     | allOf composition, array items, discriminator mappings                |
-| **Security**      | Security scheme definitions, API key placement, OAuth URLs            |
+| **Structure**     | allOf composition, array items, discriminator mappings, JSON Schema   |
+| **Security**      | Security scheme definitions, API key placement, OAuth URLs, OWASP    |
 | **Paths**         | Parameter matching, trailing slashes, kebab-case, HTTP verbs in paths |
 | **Types**         | String maxLength hints, format validation                             |
 | **Servers**       | Server definitions, HTTPS requirements                                |
 
-### SailPoint Enterprise Rules (22 rules)
-
-Enable with `openapi.sailpoint: true`. These enforce stricter requirements:
-
-| Category       | Examples                                                            |
-| -------------- | ------------------------------------------------------------------- |
-| **Operations** | Required descriptions, summaries, tags, error responses, pagination |
-| **Parameters** | Required descriptions, examples, explicit required flag             |
-| **Schemas**    | Required descriptions, examples, required arrays                    |
-| **Types**      | Numeric format requirements, boolean defaults                       |
-| **Root**       | SailPoint extensions, alphabetically sorted tags                    |
-
 ### Overriding Rule Severity
 
 ```yaml
-openapi:
-  rulesOverrides:
-    # Disable a rule
-    string-max-length: off
+rules:
+  # Disable a rule
+  string-max-length: off
 
-    # Reduce to warning
-    path-kebab-case: warn
+  # Reduce to warning
+  path-kebab-case: warn
 
-    # Increase to error
-    security-schemes-defined: error
+  # Increase to error
+  security-schemes-defined: error
 ```
 
 ## Custom Rules
@@ -182,14 +175,25 @@ For full documentation, see the [Custom Rules Guide](https://github.com/sailpoin
 | `telescope.autoConvertJsonToYaml` | Automatically convert JSON OpenAPI files to YAML when detected | `false` |
 | `telescope.trace`                 | LSP trace logging level (`off`, `messages`, `verbose`)         | `off`   |
 
+## Architecture
+
+The extension follows a per-folder session architecture:
+
+- **SessionManager** creates one `Session` per workspace folder when the extension activates.
+- Each **Session** spawns a Go language server process (`telescope serve`) via `vscode-languageclient`, connected over stdio.
+- A **WorkspaceScanner** runs a background scan to discover and classify OpenAPI files using a lightweight heuristic (checks for `openapi` / `swagger` root keys, rejects known non-OpenAPI patterns like Kubernetes manifests and Docker Compose files).
+- When you open a classified file, the session applies the `openapi-yaml` or `openapi-json` language mode via `vscode.languages.setTextDocumentLanguage`, which triggers the LanguageClient to re-sync the document with the correct language ID.
+- The server uses **push diagnostics** exclusively (`textDocument/publishDiagnostics`). Diagnostics from the Telescope rule engine and child YAML/JSON language servers are merged by a `DiagnosticAggregator` on the server side before being sent to the client.
+- File watchers track creation, deletion, and changes to YAML/JSON files and the `.telescope.yaml` config file, keeping the scanner and server in sync.
+
 ## E2E (VS Code integration) tests
 
 For full end-to-end coverage (extension + language server), run:
 
 ```bash
-pnpm --filter telescope-client test:e2e:compile
-pnpm --filter telescope-client test:e2e:run:single
-pnpm --filter telescope-client test:e2e:run:multi
+pnpm --filter ./client test:e2e:compile
+pnpm --filter ./client test:e2e:run:single
+pnpm --filter ./client test:e2e:run:multi
 ```
 
 Notes:
@@ -208,27 +212,25 @@ Notes:
 ### No Diagnostics Appearing
 
 1. Check the document parses as valid YAML/JSON
-2. Verify the file matches your `patterns` in `.telescope/config.yaml`
+2. Verify the file matches your `patterns` in `.telescope.yaml`
 3. Ensure the file contains an `openapi:` or `swagger:` root key
 4. Check the output channel for classification messages
 
 ### Configuration Not Loading
 
-1. Verify file location: `.telescope/config.yaml` in workspace root
+1. Verify file location: `.telescope.yaml` in workspace root
 2. Check YAML syntax is valid
 3. Look for errors in the output channel
 
 ### Slow Performance
 
-Add exclusion patterns for large directories:
+Add exclusion patterns for large directories in `.telescope.yaml`:
 
 ```yaml
-openapi:
-  patterns:
-    - "**/*.yaml"
-    - "!**/node_modules/**"
-    - "!**/dist/**"
-    - "!**/.git/**"
+exclude:
+  - "node_modules/**"
+  - "dist/**"
+  - ".git/**"
 ```
 
 ## Links
@@ -242,4 +244,4 @@ openapi:
 
 ## License
 
-[MIT](https://github.com/sailpoint-oss/telescope/blob/main/LICENSE) - Copyright (c) 2024 SailPoint Technologies
+[MIT](https://github.com/sailpoint-oss/telescope/blob/main/LICENSE) - Copyright (c) 2026 SailPoint Technologies

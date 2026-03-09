@@ -65,9 +65,7 @@
       "required": [
         "$ref"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema7"
-      },
+      "additionalProperties": false,
       "title": "Reference Object",
       "description": "A reference to another component in the specification.",
       "examples": [
@@ -161,7 +159,6 @@
       "title": "description",
       "description": "A description which by default SHOULD override that of the referenced component."
     },
-    "__schema7": {},
     "__schema8": {
       "type": "object",
       "properties": {
@@ -211,9 +208,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "Type Array Schema",
       "description": "OpenAPI 3.1 (JSON Schema) allows type to be an array of primitive types.",
       "examples": [
@@ -274,7 +269,6 @@
       "title": "examples",
       "description": "Array of example values."
     },
-    "__schema14": {},
     "__schema15": {
       "type": "array",
       "items": {
@@ -283,7 +277,6 @@
       "title": "enum",
       "description": "An array of valid values for this schema."
     },
-    "__schema16": {},
     "__schema17": {
       "title": "const",
       "description": "A constant value that this schema must match."
@@ -305,9 +298,7 @@
       "required": [
         "propertyName"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema24"
-      },
+      "additionalProperties": false,
       "title": "Discriminator",
       "description": "When request bodies or response payloads may be one of a number of different schemas, a discriminator object can be used to aid in serialization, deserialization, and validation.",
       "examples": [
@@ -341,7 +332,6 @@
     "__schema23": {
       "type": "string"
     },
-    "__schema24": {},
     "__schema25": {
       "title": "xml",
       "$ref": "#/$defs/__schema26"
@@ -365,9 +355,7 @@
           "$ref": "#/$defs/__schema32"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema34"
-      },
+      "additionalProperties": false,
       "title": "XML",
       "description": "A metadata object that allows for more fine-tuned XML model definitions.",
       "examples": [
@@ -409,7 +397,6 @@
     "__schema33": {
       "type": "boolean"
     },
-    "__schema34": {},
     "__schema35": {
       "title": "externalDocs",
       "$ref": "#/$defs/__schema36"
@@ -427,9 +414,7 @@
       "required": [
         "url"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema39"
-      },
+      "additionalProperties": false,
       "title": "ExternalDocumentation",
       "description": "Allows referencing an external resource for extended documentation.",
       "examples": [
@@ -450,7 +435,6 @@
       "title": "url",
       "description": "The URL for the target documentation."
     },
-    "__schema39": {},
     "__schema40": {
       "type": "boolean",
       "title": "readOnly",
@@ -495,7 +479,6 @@
         "object"
       ]
     },
-    "__schema45": {},
     "__schema46": {
       "type": "object",
       "properties": {
@@ -557,9 +540,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "String Object",
       "description": "A String Object defines the shape of a string value.",
       "examples": [
@@ -728,9 +709,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "Number Object",
       "description": "A Number Object defines the shape of a number value.",
       "examples": [
@@ -900,9 +879,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "Integer Object",
       "description": "An Integer Object defines the shape of an integer value.",
       "examples": [
@@ -1044,9 +1021,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "Boolean Object",
       "description": "A Boolean Object defines the shape of a boolean value.",
       "examples": [
@@ -1108,9 +1083,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "Null Object",
       "description": "A Null Object defines the shape of a null value.",
       "examples": [
@@ -1196,9 +1169,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "Array Object",
       "description": "An Array Object defines the shape of an array value.",
       "examples": [
@@ -1363,9 +1334,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "Object Object",
       "description": "An Object Object defines the shape of an object value.",
       "examples": [
@@ -1571,9 +1540,7 @@
           "$ref": "#/$defs/__schema139"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema45"
-      },
+      "additionalProperties": false,
       "title": "Composition Schema",
       "description": "A schema using composition keywords (allOf, anyOf, oneOf, not, if/then/else) without a type constraint.",
       "examples": [

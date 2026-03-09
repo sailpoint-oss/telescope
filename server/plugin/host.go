@@ -7,13 +7,18 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	goplugin "github.com/hashicorp/go-plugin"
 
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
+
+const pluginAnalyzeTimeout = 10 * time.Second
 
 // RunningPlugin tracks a single launched plugin subprocess.
 type RunningPlugin struct {
@@ -155,7 +160,7 @@ func (h *Host) Analyzer() treesitter.Analyzer {
 
 			var allDiags []protocol.Diagnostic
 			for _, p := range plugins {
-				resp, err := p.rule.Analyze(&AnalyzeRequest{
+				resp, err := h.analyzeWithTimeout(p, &AnalyzeRequest{
 					URI:     uri,
 					Content: content,
 				})
@@ -170,7 +175,7 @@ func (h *Host) Analyzer() treesitter.Analyzer {
 							Start: protocol.Position{Line: d.StartLine, Character: d.StartChar},
 							End:   protocol.Position{Line: d.EndLine, Character: d.EndChar},
 						},
-						Severity: stringToSeverity(d.Severity),
+						Severity: adapt.SeverityToProtocol(stringToSeverity(d.Severity)),
 						Source:   sourceOrDefault(d.Source, p.name),
 						Code:     d.Code,
 						Message:  d.Message,
@@ -194,7 +199,7 @@ func (h *Host) AnalyzeDirect(uri string, content []byte) []protocol.Diagnostic {
 
 	var allDiags []protocol.Diagnostic
 	for _, p := range plugins {
-		resp, err := p.rule.Analyze(&AnalyzeRequest{
+		resp, err := h.analyzeWithTimeout(p, &AnalyzeRequest{
 			URI:     uri,
 			Content: content,
 		})
@@ -208,7 +213,7 @@ func (h *Host) AnalyzeDirect(uri string, content []byte) []protocol.Diagnostic {
 					Start: protocol.Position{Line: d.StartLine, Character: d.StartChar},
 					End:   protocol.Position{Line: d.EndLine, Character: d.EndChar},
 				},
-				Severity: stringToSeverity(d.Severity),
+				Severity: adapt.SeverityToProtocol(stringToSeverity(d.Severity)),
 				Source:   sourceOrDefault(d.Source, p.name),
 				Code:     d.Code,
 				Message:  d.Message,
@@ -236,18 +241,36 @@ func (h *Host) PluginCount() int {
 	return len(h.plugins)
 }
 
-func stringToSeverity(s string) protocol.DiagnosticSeverity {
+func (h *Host) analyzeWithTimeout(p *RunningPlugin, req *AnalyzeRequest) (*AnalyzeResponse, error) {
+	type result struct {
+		resp *AnalyzeResponse
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		resp, err := p.rule.Analyze(req)
+		ch <- result{resp, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.resp, r.err
+	case <-time.After(pluginAnalyzeTimeout):
+		return nil, fmt.Errorf("plugin %s analyze timed out after %s", p.name, pluginAnalyzeTimeout)
+	}
+}
+
+func stringToSeverity(s string) ctypes.Severity {
 	switch s {
 	case "error":
-		return protocol.SeverityError
+		return ctypes.SeverityError
 	case "warn", "warning":
-		return protocol.SeverityWarning
+		return ctypes.SeverityWarning
 	case "info", "information":
-		return protocol.SeverityInformation
+		return ctypes.SeverityInfo
 	case "hint":
-		return protocol.SeverityHint
+		return ctypes.SeverityHint
 	default:
-		return protocol.SeverityWarning
+		return ctypes.SeverityWarning
 	}
 }
 

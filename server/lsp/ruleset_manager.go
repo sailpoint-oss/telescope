@@ -61,7 +61,9 @@ func (m *RulesetManager) Reload() error {
 	if err := m.reload(); err != nil {
 		return err
 	}
-	m.engine.InvalidateAll()
+	if m.engine != nil {
+		m.engine.InvalidateAll()
+	}
 	return nil
 }
 
@@ -155,9 +157,10 @@ func (m *RulesetManager) buildTransformer() treesitter.DiagnosticTransformer {
 				disabledSet[alias] = true
 			}
 		} else {
-			severityMap[ov.RuleID] = ov.Severity
+			sev := protocol.DiagnosticSeverity(ov.Severity)
+			severityMap[ov.RuleID] = sev
 			if alias := rulesets.SpectralToTelescopeID(ov.RuleID); alias != ov.RuleID {
-				severityMap[alias] = ov.Severity
+				severityMap[alias] = sev
 			}
 		}
 	}

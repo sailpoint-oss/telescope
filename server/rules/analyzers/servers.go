@@ -2,7 +2,7 @@ package analyzers
 
 import (
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -11,7 +11,7 @@ var (
 	serversDefinedMeta = rules.RuleMeta{
 		ID:          "oas3-api-servers",
 		Description: "OpenAPI document should define at least one server.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryServers,
 		Recommended: true,
 		HowToFix:    "Add a 'servers' section with at least one server URL.",
@@ -21,7 +21,7 @@ var (
 	serverURLHTTPSMeta = rules.RuleMeta{
 		ID:          "server-url-https",
 		Description: "Server URLs should use HTTPS.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryServers,
 		Recommended: true,
 		HowToFix:    "Change the server URL to use https:// instead of http://.",
@@ -36,7 +36,7 @@ func registerServersAnalyzers(s *gossip.Server) {
 				return
 			}
 			if len(idx.Document.Servers) == 0 {
-				r.At(idx.Document.Loc, "No servers defined; add a 'servers' section")
+				r.AtRange(ctypes.FileStartRange, "No servers defined; add a 'servers' section")
 			}
 		},
 	).Register(s)

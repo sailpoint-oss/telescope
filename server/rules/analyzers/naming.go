@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -13,7 +13,7 @@ var (
 	schemaNameCapitalMeta = rules.RuleMeta{
 		ID:          "schema-name-capital",
 		Description: "Schema names should start with an uppercase letter.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryNaming,
 		Recommended: true,
 		HowToFix:    "Rename the schema to start with a capital letter (e.g., 'pet' → 'Pet').",
@@ -23,7 +23,7 @@ var (
 	exampleNameCapitalMeta = rules.RuleMeta{
 		ID:          "example-name-capital",
 		Description: "Example names should start with an uppercase letter.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryNaming,
 		Recommended: true,
 		HowToFix:    "Rename the example to start with a capital letter.",
@@ -33,7 +33,7 @@ var (
 	operationIDUniqueMeta = rules.RuleMeta{
 		ID:          "operation-operationId-unique",
 		Description: "Every operationId must be unique across the entire API.",
-		Severity:    protocol.SeverityError,
+		Severity:    ctypes.SeverityError,
 		Category:    rules.CategoryNaming,
 		Recommended: true,
 		HowToFix:    "Give each operation a unique operationId.",
@@ -43,7 +43,7 @@ var (
 	tagsFormatMeta = rules.RuleMeta{
 		ID:          "tags-format",
 		Description: "Tags should follow a consistent naming format.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryNaming,
 		Recommended: true,
 		HowToFix:    "Use a consistent casing style for tag names.",

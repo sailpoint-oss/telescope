@@ -1,10 +1,14 @@
 package extensions_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/LukasParke/gossip/treesitter"
 	"github.com/sailpoint-oss/telescope/server/extensions"
+	"github.com/sailpoint-oss/telescope/server/openapi"
+	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
 func TestRegistryRegisterAndGet(t *testing.T) {
@@ -100,5 +104,80 @@ func TestLoadBuiltins(t *testing.T) {
 
 	if r.Count() < 20 {
 		t.Errorf("expected at least 20 builtin extensions, got %d", r.Count())
+	}
+}
+
+func TestAnalyzer_AcceptsAnalysisData(t *testing.T) {
+	r := extensions.NewRegistry()
+	r.Register(extensions.ExtensionMeta{
+		Name:   "x-test",
+		Scopes: []extensions.Scope{extensions.ScopeOperation},
+		Schema: json.RawMessage(`{"type": "string"}`),
+	})
+
+	doc := &openapi.Document{
+		DocType: openapi.DocTypeRoot,
+		Paths: map[string]*openapi.PathItem{
+			"/users": {
+				Loc: openapi.Loc{},
+			},
+		},
+	}
+	idx := &openapi.Index{Document: doc}
+
+	analyzer := extensions.Analyzer(r)
+
+	// UserData as *rules.AnalysisData (the path used by the LSP wiring)
+	ctx := &treesitter.AnalysisContext{
+		Context:  context.Background(),
+		UserData: &rules.AnalysisData{Index: idx},
+	}
+	diags := analyzer.Run(ctx)
+	// Should not panic and should run successfully (no extension diags expected)
+	_ = diags
+
+	// UserData as nil should return nil without panic
+	ctx2 := &treesitter.AnalysisContext{
+		Context:  context.Background(),
+		UserData: nil,
+	}
+	diags2 := analyzer.Run(ctx2)
+	if diags2 != nil {
+		t.Errorf("expected nil diagnostics for nil UserData, got %v", diags2)
+	}
+}
+
+func TestAnalyzer_EnumValidation(t *testing.T) {
+	r := extensions.NewRegistry()
+	r.Register(extensions.ExtensionMeta{
+		Name:   "x-env",
+		Scopes: []extensions.Scope{extensions.ScopeRoot},
+		Schema: json.RawMessage(`{"type": "string", "enum": ["prod", "staging", "dev"]}`),
+	})
+
+	doc := &openapi.Document{
+		DocType: openapi.DocTypeRoot,
+		Extensions: map[string]*openapi.Node{
+			"x-env": {Value: "invalid-env", Loc: openapi.Loc{}},
+		},
+	}
+	idx := &openapi.Index{Document: doc}
+
+	analyzer := extensions.Analyzer(r)
+	ctx := &treesitter.AnalysisContext{
+		Context:  context.Background(),
+		UserData: &rules.AnalysisData{Index: idx},
+	}
+	diags := analyzer.Run(ctx)
+
+	found := false
+	for _, d := range diags {
+		if d.Code == "extension-enum" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected extension-enum diagnostic for invalid enum value")
 	}
 }

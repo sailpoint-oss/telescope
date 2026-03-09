@@ -8,13 +8,14 @@ import (
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
 var duplicateKeysMeta = rules.RuleMeta{
 	ID:          "duplicate-keys",
 	Description: "Reports duplicate mapping keys in YAML/JSON objects.",
-	Severity:    protocol.SeverityError,
+	Severity:    ctypes.SeverityError,
 	Category:    rules.CategorySyntax,
 	Recommended: true,
 	HowToFix:    "Remove or rename the duplicate key.",
@@ -57,7 +58,7 @@ func walkForDuplicates(node *tree_sitter.Node, tree *treesitter.Tree, diags *[]p
 					continue
 				}
 				keyText := unquoteKey(tree.NodeText(keyNode))
-				keyRange := treesitter.NodeRange(keyNode)
+				keyRange := tree.NodeRange(keyNode)
 
 				if firstRange, exists := seen[keyText]; exists {
 					*diags = append(*diags, protocol.Diagnostic{

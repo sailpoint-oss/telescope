@@ -8,6 +8,7 @@ import (
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/markdown"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
@@ -311,6 +312,44 @@ paths: {}
 	}
 }
 
+func TestDescriptionHTML_IgnoresCodeBlocks(t *testing.T) {
+	spec := "openapi: \"3.1.0\"\ninfo:\n  title: Code Block API\n  version: \"1.0.0\"\n  description: |\n    ## Example\n\n    ```html\n    <div class=\"container\">\n      <p>Hello</p>\n    </div>\n    ```\n\n    Use `<span>` for inline elements.\npaths: {}\n"
+	idx := buildMarkdownIndex(t, spec)
+	descs := collectAllDescriptions(idx)
+
+	htmlPattern := regexp.MustCompile(`<[a-zA-Z][^>]*>`)
+	fencedCode := regexp.MustCompile("(?s)```[^`]*```")
+	inlineCode := regexp.MustCompile("`[^`]+`")
+	for _, d := range descs {
+		text := fencedCode.ReplaceAllString(d.Text, "")
+		text = inlineCode.ReplaceAllString(text, "")
+		if htmlPattern.MatchString(text) {
+			t.Errorf("false positive HTML detection in description with code blocks: %q", d.Text)
+		}
+	}
+}
+
+func TestDescriptionHTML_StillDetectsOutsideCode(t *testing.T) {
+	spec := "openapi: \"3.1.0\"\ninfo:\n  title: Mixed API\n  version: \"1.0.0\"\n  description: |\n    ## Overview\n\n    ```html\n    <div>code block</div>\n    ```\n\n    But also <b>raw HTML</b> outside code.\npaths: {}\n"
+	idx := buildMarkdownIndex(t, spec)
+	descs := collectAllDescriptions(idx)
+
+	htmlPattern := regexp.MustCompile(`<[a-zA-Z][^>]*>`)
+	fencedCode := regexp.MustCompile("(?s)```[^`]*```")
+	inlineCode := regexp.MustCompile("`[^`]+`")
+	var found bool
+	for _, d := range descs {
+		text := fencedCode.ReplaceAllString(d.Text, "")
+		text = inlineCode.ReplaceAllString(text, "")
+		if htmlPattern.MatchString(text) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected HTML detection for raw HTML outside code blocks")
+	}
+}
+
 func TestDescriptionLoc_Populated(t *testing.T) {
 	idx := buildMarkdownIndex(t, markdownBrokenSpec)
 	if idx == nil || idx.Document == nil {
@@ -329,7 +368,7 @@ func TestDescriptionLoc_Populated(t *testing.T) {
 		for _, mo := range item.Operations() {
 			if mo.Operation.Description.Text != "" {
 				loc := mo.Operation.Description.Loc
-				if loc.Range == (protocol.Range{}) {
+				if loc.Range == (ctypes.Range{}) {
 					t.Errorf("Operation %s Description.Loc not populated", mo.Operation.OperationID)
 				}
 			}
@@ -339,7 +378,7 @@ func TestDescriptionLoc_Populated(t *testing.T) {
 	if idx.Document.Components != nil {
 		for name, schema := range idx.Document.Components.Schemas {
 			if schema.Description.Text != "" {
-				if schema.Description.Loc.Range == (protocol.Range{}) {
+				if schema.Description.Loc.Range == (ctypes.Range{}) {
 					t.Errorf("Schema %s Description.Loc not populated", name)
 				}
 			}

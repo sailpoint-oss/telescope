@@ -2,7 +2,7 @@ package analyzers
 
 import (
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -10,7 +10,7 @@ import (
 var unusedComponentMeta = rules.RuleMeta{
 	ID:          "unused-component",
 	Description: "Components defined but never referenced are unnecessary.",
-	Severity:    protocol.SeverityWarning,
+	Severity:    ctypes.SeverityWarning,
 	Category:    rules.CategoryStructure,
 	Recommended: true,
 	HowToFix:    "Remove the unused component or add a $ref that references it.",
@@ -36,28 +36,34 @@ func registerUnusedComponentAnalyzers(s *gossip.Server) {
 				components = append(components, componentInfo{"schemas", name, schema.NameLoc})
 			}
 			for name, resp := range idx.Document.Components.Responses {
-				components = append(components, componentInfo{"responses", name, resp.Loc})
+				components = append(components, componentInfo{"responses", name, openapi.LocOrFallback(resp.NameLoc, resp.Loc)})
 			}
 			for name, param := range idx.Document.Components.Parameters {
-				components = append(components, componentInfo{"parameters", name, param.Loc})
+				components = append(components, componentInfo{"parameters", name, openapi.LocOrFallback(param.NameLoc, param.Loc)})
 			}
 			for name, ex := range idx.Document.Components.Examples {
-				components = append(components, componentInfo{"examples", name, ex.Loc})
+				components = append(components, componentInfo{"examples", name, openapi.LocOrFallback(ex.NameLoc, ex.Loc)})
 			}
 			for name, rb := range idx.Document.Components.RequestBodies {
-				components = append(components, componentInfo{"requestBodies", name, rb.Loc})
+				components = append(components, componentInfo{"requestBodies", name, openapi.LocOrFallback(rb.NameLoc, rb.Loc)})
 			}
 			for name, h := range idx.Document.Components.Headers {
-				components = append(components, componentInfo{"headers", name, h.Loc})
+				components = append(components, componentInfo{"headers", name, openapi.LocOrFallback(h.NameLoc, h.Loc)})
 			}
 			for name, ss := range idx.Document.Components.SecuritySchemes {
-				components = append(components, componentInfo{"securitySchemes", name, ss.Loc})
+				components = append(components, componentInfo{"securitySchemes", name, openapi.LocOrFallback(ss.NameLoc, ss.Loc)})
 			}
 			for name, l := range idx.Document.Components.Links {
-				components = append(components, componentInfo{"links", name, l.Loc})
+				components = append(components, componentInfo{"links", name, openapi.LocOrFallback(l.NameLoc, l.Loc)})
 			}
 
 			for _, comp := range components {
+				// Skip components that are $ref wrappers — cross-file usage
+				// can't be tracked from the root file alone.
+				if isRefWrapper(comp.kind, comp.name, idx) {
+					continue
+				}
+
 				refPath := openapi.ComponentRefPath(comp.kind, comp.name)
 				refs := idx.RefsTo(refPath)
 
@@ -69,9 +75,9 @@ func registerUnusedComponentAnalyzers(s *gossip.Server) {
 				if len(refs) == 0 {
 					loc := comp.loc
 					if loc.Node == nil {
-						loc = idx.Document.Loc
+						loc = openapi.Loc{Range: ctypes.FileStartRange}
 					}
-					r.WithTags(protocol.DiagnosticTagUnnecessary).
+					r.WithTags(ctypes.DiagnosticTagUnnecessary).
 						At(loc, "Component '%s/%s' is defined but never referenced", comp.kind, comp.name)
 				}
 			}
@@ -97,6 +103,49 @@ func isSecuritySchemeUsed(name string, idx *openapi.Index) bool {
 					}
 				}
 			}
+		}
+	}
+	return false
+}
+
+// isRefWrapper checks if a component is just a $ref wrapper pointing to an external file.
+// Such components can't have their cross-file usage tracked from the root file alone.
+func isRefWrapper(kind, name string, idx *openapi.Index) bool {
+	if idx.Document.Components == nil {
+		return false
+	}
+	switch kind {
+	case "securitySchemes":
+		if ss, ok := idx.Document.Components.SecuritySchemes[name]; ok {
+			return ss.Ref != ""
+		}
+	case "schemas":
+		if s, ok := idx.Document.Components.Schemas[name]; ok {
+			return s.Ref != ""
+		}
+	case "responses":
+		if r, ok := idx.Document.Components.Responses[name]; ok {
+			return r.Ref != ""
+		}
+	case "parameters":
+		if p, ok := idx.Document.Components.Parameters[name]; ok {
+			return p.Ref != ""
+		}
+	case "requestBodies":
+		if rb, ok := idx.Document.Components.RequestBodies[name]; ok {
+			return rb.Ref != ""
+		}
+	case "headers":
+		if h, ok := idx.Document.Components.Headers[name]; ok {
+			return h.Ref != ""
+		}
+	case "links":
+		if l, ok := idx.Document.Components.Links[name]; ok {
+			return l.Ref != ""
+		}
+	case "examples":
+		if e, ok := idx.Document.Components.Examples[name]; ok {
+			return e.Ref != ""
 		}
 	}
 	return false

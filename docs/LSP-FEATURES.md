@@ -73,12 +73,30 @@ Useful for understanding schema relationships and refactoring impact.
 
 **Trigger**: Hover over any element
 
-- **`$ref` values**: Preview the referenced content inline
-- **External URLs**: Display as external reference with link
-- **Local references**: Show formatted YAML/JSON preview (truncated for large objects)
+Rich, context-aware hover for all OpenAPI elements:
+
+**`$ref` hover** resolves all 8 component types (Schema, Parameter, Response, RequestBody, Header, Link, Example, PathItem) with full details:
+
+- **Schema references**: Type, constraints (minLength, maxLength, minimum, maximum, pattern, minItems, maxItems, maxProperties), flags (deprecated, nullable, readOnly, writeOnly, const), default/example values, enum values, required fields, and property tables
+- **Composition display**: allOf shows merged properties as a table; oneOf/anyOf show variant summaries with discriminator field if present
+- **Parameter references**: Location (in: query/path/header/cookie), required/deprecated flags, type with format, enum values, example, description
+- **Response references**: Description, content types with schema type hints (e.g., `application/json -> object`), headers list
+- **Header/Link/Example references**: Full formatted details
+
+**operationId hover** shows:
+
+- HTTP method + path (e.g., `GET /users`)
+- Deprecated flag, summary, and description (with heading outline for long descriptions)
+- Tags used, parameter counts by location (path, query, header, cookie), response codes
+
+**Security scheme hover**: Type, scheme, bearer format, location, name, description, OAuth flow details
+
+**Tag hover**: Tag name, description, external docs
+
+**Path item hover**: Path string, summary, list of operations with method + summary
 
 ```yaml
-# Hover over the $ref value to see User schema preview
+# Hover over the $ref value to see full schema details with constraints
 $ref: "#/components/schemas/User"
 ```
 
@@ -95,6 +113,15 @@ OpenAPI-specific completions for:
 | Operation tags        | Global tag names with descriptions                                 |
 | Response status codes | Common HTTP codes (200, 201, 400, 401, 404, 500, etc.)             |
 | Media types           | `application/json`, `application/xml`, `multipart/form-data`, etc. |
+| Schema properties     | Common patterns (id, uuid, email, created_at, etc.) with snippets  |
+| Operation templates   | GET/POST/PUT/PATCH/DELETE skeletons                                 |
+| HTTP headers          | X-Request-ID, ETag, Retry-After, etc.                               |
+
+**Completion resolve** provides rich details when you select an item:
+
+- **`$ref` completions**: Full target details (schema type, constraints, properties) shown in the detail panel
+- **Security scheme completions**: Full scheme details (type, scheme, flows)
+- **Tag completions**: Description + operation count using the tag
 
 ```yaml
 responses:
@@ -111,12 +138,19 @@ responses:
 
 Visual hints displayed inline:
 
-- **`$ref` type hints**: Shows `→ object`, `→ array`, `→ allOf composition` after refs
-- **Required property indicators**: Shows `*` before required schema properties
+- **`$ref` type hints**: Shows `: <type>` after refs (e.g., `: object`, `: string`, `: array`)
+- **Required property indicators**: Shows `*` before required schema properties with tooltip
+- **Parameter location hints**: Shows `in: <location>` after parameter names
+- **Deprecated schema markers**: `deprecated` label at schema name with tooltip
+- **Deprecated operation markers**: `deprecated` label at operation location
+- **Composition summary hints**:
+  - allOf: `merged: {property1, property2, ...}` with property count tooltip
+  - oneOf: `oneOf: Variant1 | Variant2 | ...` (or `discriminator: fieldName -> Variant1, Variant2, ...`)
+  - anyOf: `anyOf: Variant1 | Variant2 | ...`
 
 ```yaml
 schema:
-  $ref: "#/components/schemas/User" # → object (inlay hint)
+  $ref: "#/components/schemas/User" # : object (inlay hint)
 ```
 
 ### Semantic Tokens
@@ -125,19 +159,21 @@ schema:
 
 Semantic highlighting for OpenAPI elements:
 
-| Element          | Token Type      | Example                        |
-| ---------------- | --------------- | ------------------------------ |
-| HTTP methods     | `method`        | `get`, `post`, `put`, `delete` |
-| Paths            | `namespace`     | `/users/{id}`                  |
-| Status codes     | `enum`          | `200`, `404`, `default`        |
-| `$ref` values    | `variable`      | `#/components/schemas/User`    |
-| Schema types     | `keyword`       | `string`, `integer`, `array`   |
-| operationId      | `function`      | `getUserById`                  |
-| Security schemes | `macro`         | `bearerAuth`                   |
-| Media types      | `string`        | `application/json`             |
-| Deprecated flags | `modifier`      | `deprecated: true`             |
-| Schema names     | `type`          | Component schema definitions   |
-| Path parameters  | `typeParameter` | `{userId}`                     |
+| Element          | Token Type      | Modifiers              | Example                        |
+| ---------------- | --------------- | ---------------------- | ------------------------------ |
+| HTTP methods     | `method`        | `deprecated` if marked | `get`, `post`, `put`, `delete` |
+| Paths            | `namespace`     |                        | `/users/{id}`                  |
+| Status codes     | `enum`          |                        | `200`, `404`, `default`        |
+| `$ref` values    | `variable`      |                        | `#/components/schemas/User`    |
+| Schema types     | `keyword`       |                        | `string`, `integer`, `array`   |
+| operationId      | `function`      |                        | `getUserById`                  |
+| Security schemes | `macro`         |                        | `bearerAuth`                   |
+| Media types      | `string`        |                        | `application/json`             |
+| Schema names     | `type`          | `deprecated`, `definition` | Component schema definitions |
+| Tag names        | `type`          | `definition`           | Global tag definitions         |
+| Path parameters  | `typeParameter` |                        | `{userId}`                     |
+
+The `deprecated` modifier renders as strikethrough in VS Code, giving visual feedback for deprecated schemas and operations directly in the editor.
 
 ## Refactoring
 
@@ -272,9 +308,9 @@ Color picker for color values in JSON documents.
 
 Validation sources:
 
-1. **OpenAPI Rules**: 30 built-in rules covering best practices (52 with SailPoint rules enabled)
-2. **Schema Validation**: TypeBox schemas for structural validation
-3. **Custom Rules**: Your `.telescope/rules/` TypeScript rules
+1. **OpenAPI Rules**: 88 built-in rules covering best practices, security, and OWASP
+2. **Schema Validation**: JSON Schema structural validation for OpenAPI 3.0/3.1/3.2
+3. **Custom Rules**: Go plugin binaries and Spectral-compatible YAML rulesets
 4. **Reference Validation**: `$ref` resolution and cycle detection
 
 Diagnostic severities:
@@ -327,11 +363,13 @@ Workspace symbol search (`Ctrl+T`) returns results incrementally:
 
 **Trigger**: Automatic when editing matching text (if supported by client)
 
-Synchronized editing for related text spans:
+Synchronized editing for related text spans within a single document:
 
-- Edit multiple occurrences simultaneously
-- Useful for renaming within a single document
-- Client must support `textDocument/linkedEditingRange`
+- **`$ref` linked editing**: Edits all identical `$ref` values simultaneously
+- **Tag linked editing**: Editing a root tag definition updates all operation tag usages (and vice versa)
+- **operationId linked editing**: Editing an operationId definition updates link operationId references
+
+Requires 2+ matching ranges to activate. Client must support `textDocument/linkedEditingRange`.
 
 ## Embedded Language Support
 
@@ -401,4 +439,4 @@ Context menu commands are also available when right-clicking on files in Explore
 - [Configuration Reference](CONFIGURATION.md) - Configure patterns and rules
 - [Custom Rules Guide](CUSTOM-RULES.md) - Create custom validation rules
 - [Architecture](../ARCHITECTURE.md) - Technical implementation details
-- [Built-in Rules](../packages/telescope-server/src/engine/rules/RULES.md) - Rule reference
+- [Built-in Rules](../server/README.md) - Rule reference

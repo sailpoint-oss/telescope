@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -14,7 +14,7 @@ var (
 	kebabCaseMeta = rules.RuleMeta{
 		ID:          "kebab-case",
 		Description: "Path segments should use kebab-case.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryPaths,
 		Recommended: true,
 		HowToFix:    "Rename path segments to use kebab-case (lowercase with hyphens).",
@@ -24,7 +24,7 @@ var (
 	noTrailingSlashMeta = rules.RuleMeta{
 		ID:          "path-keys-no-trailing-slash",
 		Description: "Paths should not have trailing slashes.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryPaths,
 		Recommended: true,
 		HowToFix:    "Remove the trailing slash from the path.",
@@ -34,7 +34,7 @@ var (
 	noHTTPVerbsMeta = rules.RuleMeta{
 		ID:          "no-http-verbs",
 		Description: "Path segments should not contain HTTP verbs.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryPaths,
 		Recommended: true,
 		HowToFix:    "Remove the HTTP verb from the path segment; the HTTP method already defines the action.",
@@ -44,7 +44,7 @@ var (
 	paramsMatchMeta = rules.RuleMeta{
 		ID:          "path-params",
 		Description: "Path parameters must match those declared in the operation.",
-		Severity:    protocol.SeverityError,
+		Severity:    ctypes.SeverityError,
 		Category:    rules.CategoryPaths,
 		Recommended: true,
 		HowToFix:    "Ensure path template parameters and operation parameter definitions match.",
@@ -54,7 +54,7 @@ var (
 	templateValidMeta = rules.RuleMeta{
 		ID:          "path-declarations-must-exist",
 		Description: "Path templates must be syntactically valid.",
-		Severity:    protocol.SeverityError,
+		Severity:    ctypes.SeverityError,
 		Category:    rules.CategoryPaths,
 		Recommended: true,
 		HowToFix:    "Fix the path template syntax (e.g., matching braces).",
@@ -64,7 +64,7 @@ var (
 	idUniqueInPathMeta = rules.RuleMeta{
 		ID:          "id-unique-in-path",
 		Description: "Path parameter names must be unique within a path.",
-		Severity:    protocol.SeverityError,
+		Severity:    ctypes.SeverityError,
 		Category:    rules.CategoryPaths,
 		Recommended: true,
 		HowToFix:    "Rename duplicate path parameter names.",
@@ -74,7 +74,7 @@ var (
 	casingConsistencyMeta = rules.RuleMeta{
 		ID:          "casing-consistency",
 		Description: "Path segments should use consistent casing across the API.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryPaths,
 		Recommended: true,
 		HowToFix:    "Use consistent casing (preferably kebab-case) across all paths.",
@@ -84,7 +84,7 @@ var (
 	noGenericParamNamesMeta = rules.RuleMeta{
 		ID:          "path-param-values-no-generic-syntax",
 		Description: "Path parameter names should not use generic syntax like <id> or :id.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryPaths,
 		Recommended: true,
 		HowToFix:    "Use OpenAPI path template syntax: {paramName}.",
@@ -137,7 +137,7 @@ func registerPathsAnalyzers(s *gossip.Server) {
 					}
 					for _, tp := range templateParams {
 						if !declaredParams[tp] {
-							r.At(mo.Operation.Loc, "Path parameter '{%s}' in %s not declared in %s operation", tp, path, mo.Method)
+							r.At(openapi.LocOrFallback(mo.Operation.ParametersLoc, mo.Operation.Loc), "Path parameter '{%s}' in %s not declared in %s operation", tp, path, mo.Method)
 						}
 					}
 				}

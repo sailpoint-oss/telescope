@@ -5,10 +5,12 @@ info:
 paths:
   /users:
     get:
-      # Missing operationId - should produce a diagnostic
       summary: Get users
       description: Retrieve a list of users
       responses:
         "200":
           description: OK
-
+          content:
+            application/json:
+              schema:
+                type: invalid-type-value

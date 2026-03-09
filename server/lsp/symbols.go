@@ -6,6 +6,7 @@ import (
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -33,7 +34,7 @@ func positionBefore(a, b protocol.Position) bool {
 }
 
 // NewSymbolHandler provides document symbols for the OpenAPI structure.
-func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
+func NewSymbolHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.DocumentSymbolHandler {
 	return func(ctx *gossip.Context, params *protocol.DocumentSymbolParams) ([]protocol.DocumentSymbol, error) {
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
@@ -57,8 +58,8 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 				Name:           title,
 				Detail:         detail,
 				Kind:           protocol.SymbolPackage,
-				Range:          info.Loc.Range,
-				SelectionRange: clampSelection(info.Loc.Range, info.TitleLoc.Range),
+				Range:          adapt.RangeToProtocol(info.Loc.Range),
+				SelectionRange: clampSelection(adapt.RangeToProtocol(info.Loc.Range), adapt.RangeToProtocol(info.TitleLoc.Range)),
 			})
 		}
 
@@ -69,8 +70,8 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 				pathSymbol := protocol.DocumentSymbol{
 					Name:           path,
 					Kind:           protocol.SymbolModule,
-					Range:          item.Loc.Range,
-					SelectionRange: clampSelection(item.Loc.Range, item.PathLoc.Range),
+					Range:          adapt.RangeToProtocol(item.Loc.Range),
+					SelectionRange: clampSelection(adapt.RangeToProtocol(item.Loc.Range), adapt.RangeToProtocol(item.PathLoc.Range)),
 				}
 				for _, mo := range item.Operations() {
 					name := strings.ToUpper(mo.Method)
@@ -80,8 +81,8 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					pathSymbol.Children = append(pathSymbol.Children, protocol.DocumentSymbol{
 						Name:           name,
 						Kind:           protocol.SymbolMethod,
-						Range:          mo.Operation.Loc.Range,
-						SelectionRange: mo.Operation.Loc.Range,
+						Range:          adapt.RangeToProtocol(mo.Operation.Loc.Range),
+						SelectionRange: adapt.RangeToProtocol(mo.Operation.Loc.Range),
 					})
 				}
 				pathChildren = append(pathChildren, pathSymbol)
@@ -89,8 +90,8 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 			symbols = append(symbols, protocol.DocumentSymbol{
 				Name:           "paths",
 				Kind:           protocol.SymbolNamespace,
-				Range:          idx.Document.Loc.Range,
-				SelectionRange: idx.Document.Loc.Range,
+				Range:          adapt.RangeToProtocol(idx.Document.Loc.Range),
+				SelectionRange: adapt.RangeToProtocol(idx.Document.Loc.Range),
 				Children:       pathChildren,
 			})
 		}
@@ -108,11 +109,11 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					Name:           name,
 					Detail:         schema.Type,
 					Kind:           protocol.SymbolClass,
-					Range:          schema.Loc.Range,
-					SelectionRange: clampSelection(schema.Loc.Range, schema.NameLoc.Range),
+					Range:          adapt.RangeToProtocol(schema.Loc.Range),
+					SelectionRange: clampSelection(adapt.RangeToProtocol(schema.Loc.Range), adapt.RangeToProtocol(schema.NameLoc.Range)),
 				})
 			}
-			symbols = append(symbols, componentGroupSymbol("schemas", comp.Loc.Range, children))
+			symbols = append(symbols, componentGroupSymbol("schemas", adapt.RangeToProtocol(comp.Loc.Range), children))
 		}
 
 		// Parameters
@@ -127,11 +128,11 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					Name:           name,
 					Detail:         detail,
 					Kind:           protocol.SymbolVariable,
-					Range:          param.Loc.Range,
-					SelectionRange: clampSelection(param.Loc.Range, param.NameLoc.Range),
+					Range:          adapt.RangeToProtocol(param.Loc.Range),
+					SelectionRange: clampSelection(adapt.RangeToProtocol(param.Loc.Range), adapt.RangeToProtocol(param.NameLoc.Range)),
 				})
 			}
-			symbols = append(symbols, componentGroupSymbol("parameters", comp.Loc.Range, children))
+			symbols = append(symbols, componentGroupSymbol("parameters", adapt.RangeToProtocol(comp.Loc.Range), children))
 		}
 
 		// Responses
@@ -142,11 +143,11 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					Name:           name,
 					Detail:         truncate(resp.Description.Text, 60),
 					Kind:           protocol.SymbolField,
-					Range:          resp.Loc.Range,
-					SelectionRange: resp.Loc.Range,
+					Range:          adapt.RangeToProtocol(resp.Loc.Range),
+					SelectionRange: adapt.RangeToProtocol(resp.Loc.Range),
 				})
 			}
-			symbols = append(symbols, componentGroupSymbol("responses", comp.Loc.Range, children))
+			symbols = append(symbols, componentGroupSymbol("responses", adapt.RangeToProtocol(comp.Loc.Range), children))
 		}
 
 		// Request Bodies
@@ -157,11 +158,11 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					Name:           name,
 					Detail:         truncate(rb.Description.Text, 60),
 					Kind:           protocol.SymbolStruct,
-					Range:          rb.Loc.Range,
-					SelectionRange: rb.Loc.Range,
+					Range:          adapt.RangeToProtocol(rb.Loc.Range),
+					SelectionRange: adapt.RangeToProtocol(rb.Loc.Range),
 				})
 			}
-			symbols = append(symbols, componentGroupSymbol("requestBodies", comp.Loc.Range, children))
+			symbols = append(symbols, componentGroupSymbol("requestBodies", adapt.RangeToProtocol(comp.Loc.Range), children))
 		}
 
 		// Headers
@@ -172,11 +173,11 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					Name:           name,
 					Detail:         truncate(hdr.Description.Text, 60),
 					Kind:           protocol.SymbolField,
-					Range:          hdr.Loc.Range,
-					SelectionRange: hdr.Loc.Range,
+					Range:          adapt.RangeToProtocol(hdr.Loc.Range),
+					SelectionRange: adapt.RangeToProtocol(hdr.Loc.Range),
 				})
 			}
-			symbols = append(symbols, componentGroupSymbol("headers", comp.Loc.Range, children))
+			symbols = append(symbols, componentGroupSymbol("headers", adapt.RangeToProtocol(comp.Loc.Range), children))
 		}
 
 		// Security Schemes
@@ -187,11 +188,11 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					Name:           name,
 					Detail:         ss.Type,
 					Kind:           protocol.SymbolProperty,
-					Range:          ss.Loc.Range,
-					SelectionRange: ss.Loc.Range,
+					Range:          adapt.RangeToProtocol(ss.Loc.Range),
+					SelectionRange: adapt.RangeToProtocol(ss.Loc.Range),
 				})
 			}
-			symbols = append(symbols, componentGroupSymbol("securitySchemes", comp.Loc.Range, children))
+			symbols = append(symbols, componentGroupSymbol("securitySchemes", adapt.RangeToProtocol(comp.Loc.Range), children))
 		}
 
 		// Links
@@ -202,11 +203,11 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					Name:           name,
 					Detail:         truncate(link.Description.Text, 60),
 					Kind:           protocol.SymbolProperty,
-					Range:          link.Loc.Range,
-					SelectionRange: link.Loc.Range,
+					Range:          adapt.RangeToProtocol(link.Loc.Range),
+					SelectionRange: adapt.RangeToProtocol(link.Loc.Range),
 				})
 			}
-			symbols = append(symbols, componentGroupSymbol("links", comp.Loc.Range, children))
+			symbols = append(symbols, componentGroupSymbol("links", adapt.RangeToProtocol(comp.Loc.Range), children))
 		}
 
 		// Callbacks
@@ -221,7 +222,7 @@ func NewSymbolHandler(cache *openapi.IndexCache) gossip.DocumentSymbolHandler {
 					SelectionRange: r,
 				})
 			}
-			symbols = append(symbols, componentGroupSymbol("callbacks", comp.Loc.Range, children))
+			symbols = append(symbols, componentGroupSymbol("callbacks", adapt.RangeToProtocol(comp.Loc.Range), children))
 		}
 
 		return appendTagSymbols(symbols, idx), nil
@@ -238,15 +239,15 @@ func appendTagSymbols(symbols []protocol.DocumentSymbol, idx *openapi.Index) []p
 			Name:           tag.Name,
 			Detail:         truncate(tag.Description.Text, 60),
 			Kind:           protocol.SymbolString,
-			Range:          tag.Loc.Range,
-			SelectionRange: clampSelection(tag.Loc.Range, tag.NameLoc.Range),
+			Range:          adapt.RangeToProtocol(tag.Loc.Range),
+			SelectionRange: clampSelection(adapt.RangeToProtocol(tag.Loc.Range), adapt.RangeToProtocol(tag.NameLoc.Range)),
 		})
 	}
 	symbols = append(symbols, protocol.DocumentSymbol{
 		Name:           "tags",
 		Kind:           protocol.SymbolNamespace,
-		Range:          idx.Document.Loc.Range,
-		SelectionRange: idx.Document.Loc.Range,
+		Range:          adapt.RangeToProtocol(idx.Document.Loc.Range),
+		SelectionRange: adapt.RangeToProtocol(idx.Document.Loc.Range),
 		Children:       children,
 	})
 	return symbols
@@ -265,7 +266,7 @@ func componentGroupSymbol(name string, parentRange protocol.Range, children []pr
 func callbackRange(cb openapi.Callback) protocol.Range {
 	for _, item := range cb {
 		if item != nil {
-			return item.Loc.Range
+			return adapt.RangeToProtocol(item.Loc.Range)
 		}
 	}
 	return protocol.Range{}

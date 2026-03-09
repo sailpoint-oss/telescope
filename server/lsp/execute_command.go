@@ -3,16 +3,18 @@ package lsp
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
 // NewExecuteCommandHandler handles custom telescope commands.
 // Commands expect a document URI as the first argument.
-func NewExecuteCommandHandler(cache *openapi.IndexCache) gossip.ExecuteCommandHandler {
+func NewExecuteCommandHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.ExecuteCommandHandler {
 	return func(ctx *gossip.Context, params *protocol.ExecuteCommandParams) (interface{}, error) {
 		uri := extractDocURI(params.Arguments)
 
@@ -23,6 +25,8 @@ func NewExecuteCommandHandler(cache *openapi.IndexCache) gossip.ExecuteCommandHa
 			return executeSortPaths(ctx, cache, uri)
 		case "telescope.generateResponseSkeletons":
 			return executeGenerateResponses(ctx, cache, uri)
+		case "telescope.validateExamples":
+			return executeValidateExamples(cache, uri)
 		default:
 			return nil, nil
 		}
@@ -83,8 +87,8 @@ func executeSortTags(ctx *gossip.Context, cache *openapi.IndexCache, uri protoco
 	first := idx.Document.Tags[0]
 	last := idx.Document.Tags[len(idx.Document.Tags)-1]
 	editRange := protocol.Range{
-		Start: first.Loc.Range.Start,
-		End:   last.Loc.Range.End,
+		Start: adapt.PositionToProtocol(first.Loc.Range.Start),
+		End:   adapt.PositionToProtocol(last.Loc.Range.End),
 	}
 
 	edit := &protocol.WorkspaceEdit{
@@ -144,7 +148,6 @@ func executeSortPaths(ctx *gossip.Context, cache *openapi.IndexCache, uri protoc
 
 	// Get the original text and rebuild with sorted path order
 	// For now, just return the sorted order as a rebuild
-	isYAML := idx.Format == openapi.FormatYAML
 	var sb strings.Builder
 	for _, e := range entries {
 		startL := e.item.Loc.Range.Start.Line
@@ -157,7 +160,6 @@ func executeSortPaths(ctx *gossip.Context, cache *openapi.IndexCache, uri protoc
 			}
 		}
 	}
-	_ = isYAML
 
 	editRange := protocol.Range{
 		Start: protocol.Position{Line: startLine, Character: 0},
@@ -230,7 +232,7 @@ func executeGenerateResponses(ctx *gossip.Context, cache *openapi.IndexCache, ur
 				if resp == nil {
 					continue
 				}
-				if resp.Loc.Range.End.Line > insertLine-1 {
+				if resp.Loc.Range.End.Line >= insertLine {
 					insertLine = resp.Loc.Range.End.Line
 				}
 			}
@@ -294,4 +296,86 @@ func statusDescription(code string) string {
 	default:
 		return "Response"
 	}
+}
+
+func executeValidateExamples(cache *openapi.IndexCache, uri protocol.DocumentURI) (interface{}, error) {
+	idx := cache.Get(uri)
+	if idx == nil || !idx.IsOpenAPI() || idx.Document == nil || idx.Document.Components == nil {
+		return map[string]interface{}{
+			"checked": 0,
+			"invalid": 0,
+			"issues":  []string{},
+		}, nil
+	}
+
+	checked := 0
+	invalid := 0
+	issues := make([]string, 0)
+
+	for name, schema := range idx.Document.Components.Schemas {
+		if schema == nil || schema.Example == nil || schema.Type == "" {
+			continue
+		}
+		checked++
+		if !exampleMatchesSchemaType(schema.Example.Value, schema.Type) {
+			invalid++
+			issues = append(issues, fmt.Sprintf("components.schemas.%s example does not match type %q", name, schema.Type))
+		}
+	}
+
+	return map[string]interface{}{
+		"checked": checked,
+		"invalid": invalid,
+		"issues":  issues,
+	}, nil
+}
+
+func exampleMatchesSchemaType(raw, schemaType string) bool {
+	literalType := detectExampleLiteralType(raw)
+	switch strings.ToLower(schemaType) {
+	case "string":
+		return literalType == "string"
+	case "boolean":
+		return literalType == "boolean"
+	case "integer":
+		return literalType == "integer"
+	case "number":
+		return literalType == "integer" || literalType == "number"
+	case "array":
+		return literalType == "array"
+	case "object":
+		return literalType == "object"
+	default:
+		return true
+	}
+}
+
+func detectExampleLiteralType(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "string"
+	}
+	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
+		return "object"
+	}
+	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
+		return "array"
+	}
+	if s == "true" || s == "false" {
+		return "boolean"
+	}
+	if s == "null" || s == "~" {
+		return "null"
+	}
+	if _, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return "integer"
+	}
+	if _, err := strconv.ParseFloat(s, 64); err == nil {
+		return "number"
+	}
+	if (strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"")) ||
+		(strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
+		return "string"
+	}
+	return "string"
 }

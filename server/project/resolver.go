@@ -7,6 +7,8 @@ import (
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
+func normURI(uri string) string { return openapi.NormalizeURI(uri) }
+
 // CrossFileResolver resolves $ref values that span across files within a
 // project. It uses the project's merged set of indexes to locate the target
 // document and then delegates to its local resolver.
@@ -35,16 +37,18 @@ func (r *CrossFileResolver) Resolve(fromURI, ref string) (*ResolveResult, error)
 		return nil, fmt.Errorf("empty $ref")
 	}
 
+	from := normURI(fromURI)
+
 	if strings.HasPrefix(ref, "#") {
-		idx, ok := r.docs[fromURI]
+		idx, ok := r.docs[from]
 		if !ok {
-			return nil, fmt.Errorf("source document %s not in project", fromURI)
+			return nil, fmt.Errorf("source document %s not in project", from)
 		}
 		val, err := idx.ResolveRef(ref)
 		if err != nil {
 			return nil, err
 		}
-		return &ResolveResult{TargetURI: fromURI, TargetIndex: idx, Value: val}, nil
+		return &ResolveResult{TargetURI: from, TargetIndex: idx, Value: val}, nil
 	}
 
 	parts := strings.SplitN(ref, "#", 2)
@@ -54,9 +58,9 @@ func (r *CrossFileResolver) Resolve(fromURI, ref string) (*ResolveResult, error)
 		fragment = "#" + parts[1]
 	}
 
-	targetURI := resolveRelativeURI(fromURI, filePart)
+	targetURI := normURI(resolveRelativeURI(from, filePart))
 	if targetURI == "" {
-		return nil, fmt.Errorf("cannot resolve file path %q relative to %s", filePart, fromURI)
+		return nil, fmt.Errorf("cannot resolve file path %q relative to %s", filePart, from)
 	}
 
 	idx, ok := r.docs[targetURI]

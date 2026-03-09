@@ -13,21 +13,20 @@ import (
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
-	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
 	"github.com/spf13/cobra"
 
 	"github.com/sailpoint-oss/telescope/server/config"
+	"github.com/sailpoint-oss/telescope/server/lintengine"
 	"github.com/sailpoint-oss/telescope/server/lsp"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
-	"github.com/sailpoint-oss/telescope/server/plugin"
 	"github.com/sailpoint-oss/telescope/server/project"
 	"github.com/sailpoint-oss/telescope/server/rules"
-	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
-	"github.com/sailpoint-oss/telescope/server/rules/checks"
 	"github.com/sailpoint-oss/telescope/server/rulesets"
 )
 
@@ -70,112 +69,40 @@ func newLintCmd() *cobra.Command {
 }
 
 func runLint(cmd *cobra.Command, args []string) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return err
-	}
-
-	if len(args) == 0 {
-		args = []string{"."}
-	}
-
-	files, err := collectFiles(args, cfg)
-	if err != nil {
-		return err
-	}
-
-	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "No OpenAPI files found")
-		return nil
-	}
-
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-
-	allAnalyzers, allChecks := rules.CollectAll(analyzers.RegisterAll, checks.RegisterAll)
-
-	// Apply config rule overrides: filter out disabled rules and build
-	// severity overrides.
-	enabledRules := cfg.BuildEnabledRules()
-	sevOverrides := buildSeverityOverrides(cfg)
-
-	allAnalyzers = filterAnalyzers(allAnalyzers, enabledRules)
-	allChecks = filterChecks(allChecks, enabledRules)
 
 	// Parse minSeverity flag for output filtering.
 	var minSev protocol.DiagnosticSeverity
 	if minSeverity != "" {
 		if s, ok := rulesets.ParseSeverity(minSeverity); ok && s > 0 {
-			minSev = s
+			minSev = adapt.SeverityToProtocol(s)
 		}
 	}
 
-	// Discover external plugins
-	pluginHost := plugin.NewHost(logger)
 	wd, _ := os.Getwd()
-	pluginDir := filepath.Join(wd, ".telescope", "plugins")
-	if err := pluginHost.Discover(pluginDir); err != nil {
-		logger.Warn("failed to discover plugins", "error", err)
+	run, err := lintengine.Run(context.Background(), lintengine.Options{
+		Paths:         args,
+		WorkingDir:    wd,
+		ConfigPath:    cfgFile,
+		RulesetPath:   rulesetArg,
+		MinSeverity:   minSev,
+		NoExternalLSP: noExternalLSP,
+	}, logger)
+	if err != nil {
+		return err
 	}
-	for _, p := range cfg.Plugins {
-		pluginPath := p
-		if !filepath.IsAbs(pluginPath) {
-			pluginPath = filepath.Join(wd, pluginPath)
-		}
-		if err := pluginHost.LoadPlugin(pluginPath); err != nil {
-			logger.Warn("failed to load plugin", "path", p, "error", err)
-		}
+	if len(run.Files) == 0 {
+		fmt.Fprintln(os.Stderr, "No OpenAPI files found")
+		return nil
 	}
-	defer pluginHost.Shutdown()
-
-	// Start child YAML/JSON language servers for enhanced diagnostics.
-	var childLinter *lsp.ChildLSPLinter
-	if !noExternalLSP && lsp.NodeAvailable() {
-		rootURI := pathToFileURI(wd)
-		childLinter = lsp.NewChildLSPLinter(logger)
-		if err := childLinter.Start(context.Background(), rootURI); err != nil {
-			logger.Warn("child language servers unavailable; continuing without external LSP diagnostics", "error", err)
-			childLinter = nil
-		}
-	}
-	if childLinter != nil {
-		defer childLinter.Stop(context.Background())
-	}
-
-	// Build project contexts for multi-file $ref resolution.
-	projectContexts := buildProjectContexts(files, logger)
 
 	var allDiags []fileDiagnostics
 	exitCode := 0
-
-	for _, file := range files {
-		content, err := os.ReadFile(file)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", file, err)
-			continue
-		}
-
-		diags := lintFile(file, content, cfg, allAnalyzers, allChecks, projectContexts, childLinter)
-
-		// Run external plugin rules
-		if pluginHost.PluginCount() > 0 {
-			pluginResp := pluginHost.AnalyzeDirect(file, content)
-			diags = append(diags, pluginResp...)
-		}
-
-		// Apply severity overrides from config.
-		diags = applySeverityOverrides(diags, sevOverrides)
-
-		// Filter by minimum severity if set.
-		if minSev > 0 {
-			diags = filterBySeverity(diags, minSev)
-		}
-
-		if len(diags) > 0 {
-			allDiags = append(allDiags, fileDiagnostics{Path: file, Diagnostics: diags})
-			for _, d := range diags {
-				if shouldFail(d.Severity) {
-					exitCode = 1
-				}
+	for _, result := range run.Results {
+		allDiags = append(allDiags, fileDiagnostics(result))
+		for _, d := range result.Diagnostics {
+			if shouldFail(d.Severity) {
+				exitCode = 1
 			}
 		}
 	}
@@ -211,7 +138,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	// Write reports if requested
 	if reportJSONPath != "" || reportMDPath != "" {
-		report := buildLintReport(wd, files, allDiags)
+		report := buildLintReport(wd, run.Files, allDiags)
 		if reportJSONPath != "" {
 			if err := writeJSONReport(reportJSONPath, report); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing JSON report: %v\n", err)
@@ -286,8 +213,8 @@ func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []ru
 	if cfg.OpenAPI.TargetVersion != "" {
 		analyzerOpts = append(analyzerOpts, rules.WithTargetVersion(openapi.Version(cfg.OpenAPI.TargetVersion)))
 	}
-	diags = rules.RunAnalyzers(allAnalyzers, idx, uri, tree, analyzerOpts...)
-	diags = append(diags, rules.RunChecks(allChecks, tree, lang)...)
+	diags = adapt.DiagnosticsToProtocol(rules.RunAnalyzers(allAnalyzers, idx, uri, tree, analyzerOpts...))
+	diags = append(diags, adapt.DiagnosticsToProtocol(rules.RunChecks(allChecks, tree, lang))...)
 
 	if idx != nil && idx.Document != nil {
 		if pctx := findProjectContext(uri, projectContexts); pctx != nil {
@@ -381,7 +308,7 @@ func diagnoseUnresolvedRefs(uri string, idx *openapi.Index, pctx *project.Projec
 		if strings.HasPrefix(target, "#") {
 			for _, usage := range usages {
 				diags = append(diags, protocol.Diagnostic{
-					Range:    usage.Loc.Range,
+					Range:    adapt.RangeToProtocol(usage.Loc.Range),
 					Severity: protocol.SeverityError,
 					Source:   "unresolved-ref",
 					Message:  "Cannot resolve $ref: " + target,
@@ -395,7 +322,7 @@ func diagnoseUnresolvedRefs(uri string, idx *openapi.Index, pctx *project.Projec
 		}
 		for _, usage := range usages {
 			diags = append(diags, protocol.Diagnostic{
-				Range:    usage.Loc.Range,
+				Range:    adapt.RangeToProtocol(usage.Loc.Range),
 				Severity: protocol.SeverityError,
 				Source:   "unresolved-ref",
 				Message:  "Cannot resolve $ref: " + target,
@@ -418,14 +345,39 @@ func shouldFail(sev protocol.DiagnosticSeverity) bool {
 }
 
 func loadConfig() (*config.Config, error) {
+	var cfg *config.Config
+	var err error
+
 	if cfgFile != "" {
-		return config.LoadFile(cfgFile)
+		cfg, err = config.LoadFile(cfgFile)
+	} else {
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			cfg = config.DefaultConfig()
+		} else {
+			cfg, err = config.Load(wd)
+		}
 	}
-	wd, err := os.Getwd()
 	if err != nil {
-		return config.DefaultConfig(), nil
+		return nil, err
 	}
-	return config.Load(wd)
+
+	// Apply --ruleset flag: load the specified ruleset file and merge its
+	// rule overrides into the config.
+	if rulesetArg != "" {
+		rs, rsErr := rulesets.LoadFile(rulesetArg)
+		if rsErr != nil {
+			return nil, fmt.Errorf("load ruleset %s: %w", rulesetArg, rsErr)
+		}
+		if cfg.Rules == nil {
+			cfg.Rules = make(map[string]string)
+		}
+		for id, def := range rs.Rules {
+			cfg.Rules[id] = def.Severity
+		}
+	}
+
+	return cfg, nil
 }
 
 func collectFiles(args []string, cfg *config.Config) ([]string, error) {
@@ -544,7 +496,7 @@ func buildSeverityOverrides(cfg *config.Config) map[string]protocol.DiagnosticSe
 	m := make(map[string]protocol.DiagnosticSeverity, len(overrides))
 	for _, o := range overrides {
 		if !o.Disabled && o.Severity > 0 {
-			m[o.RuleID] = o.Severity
+			m[o.RuleID] = protocol.DiagnosticSeverity(o.Severity)
 		}
 	}
 	return m

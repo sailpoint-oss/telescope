@@ -5,7 +5,8 @@ import (
 	"strings"
 
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/markdown"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
@@ -15,7 +16,7 @@ var (
 	descriptionMarkdownMeta = rules.RuleMeta{
 		ID:          "description-markdown",
 		Description: "Description fields must contain valid CommonMark without structural issues.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryDocumentation,
 		Recommended: true,
 		HowToFix:    "Fix the reported markdown structural issue (empty heading, skipped level, empty link/image).",
@@ -25,14 +26,16 @@ var (
 	descriptionHTMLMeta = rules.RuleMeta{
 		ID:          "description-html",
 		Description: "Description fields should not contain raw HTML tags.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryDocumentation,
 		Recommended: true,
 		HowToFix:    "Replace raw HTML with CommonMark equivalents.",
 		DocURL:      rules.DocBaseURL + "description-html",
 	}
 
-	htmlTagPattern = regexp.MustCompile(`<[a-zA-Z][^>]*>`)
+	htmlTagPattern   = regexp.MustCompile(`<[a-zA-Z][^>]*>`)
+	fencedCodeBlock  = regexp.MustCompile("(?s)```[^`]*```")
+	inlineCodeSpan   = regexp.MustCompile("`[^`]+`")
 )
 
 // HeadingFixData is attached to description-markdown diagnostics for heading
@@ -198,7 +201,7 @@ func validateDescription(desc openapi.DescriptionValue, r *rules.Reporter) {
 			r.WithData(data)
 		}
 		rng := markdown.TranslatePosition(desc, iss.Line)
-		r.AtRange(rng, "%s", iss.Message)
+		r.AtRange(adapt.RangeFromProtocol(rng), "%s", iss.Message)
 	}
 }
 
@@ -239,7 +242,11 @@ func parseHeadingLevels(msg string) (expected, actual int) {
 }
 
 func checkHTML(desc openapi.DescriptionValue, r *rules.Reporter) {
-	if htmlTagPattern.MatchString(desc.Text) {
+	// Strip code blocks and inline code spans before checking for HTML,
+	// since HTML inside code is valid markdown usage.
+	text := fencedCodeBlock.ReplaceAllString(desc.Text, "")
+	text = inlineCodeSpan.ReplaceAllString(text, "")
+	if htmlTagPattern.MatchString(text) {
 		r.At(desc.Loc, "Description contains raw HTML tags; use CommonMark instead")
 	}
 }

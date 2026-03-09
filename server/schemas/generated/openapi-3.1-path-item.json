@@ -42,9 +42,7 @@
       "$ref": "#/$defs/__schema297"
     }
   },
-  "additionalProperties": {
-    "$ref": "#/$defs/__schema298"
-  },
+  "additionalProperties": false,
   "title": "PathItem",
   "description": "Describes the operations available on a single path.",
   "$defs": {
@@ -169,9 +167,7 @@
           "$ref": "#/$defs/__schema286"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema287"
-      },
+      "additionalProperties": false,
       "title": "Operation",
       "description": "Describes a single API operation on a path.",
       "examples": [
@@ -268,9 +264,7 @@
       "required": [
         "$ref"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema21"
-      },
+      "additionalProperties": false,
       "title": "Reference Object",
       "description": "A reference to another component in the specification.",
       "examples": [
@@ -304,7 +298,6 @@
       "title": "description",
       "description": "A description which by default SHOULD override that of the referenced component."
     },
-    "__schema21": {},
     "__schema22": {
       "type": "object",
       "properties": {
@@ -352,9 +345,7 @@
         "name",
         "in"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema229"
-      },
+      "additionalProperties": false,
       "title": "Parameter",
       "description": "Describes a single operation parameter.",
       "examples": [
@@ -586,9 +577,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "Type Array Schema",
       "description": "OpenAPI 3.1 (JSON Schema) allows type to be an array of primitive types.",
       "examples": [
@@ -649,7 +638,6 @@
       "title": "examples",
       "description": "Array of example values."
     },
-    "__schema44": {},
     "__schema45": {
       "type": "array",
       "items": {
@@ -658,7 +646,6 @@
       "title": "enum",
       "description": "An array of valid values for this schema."
     },
-    "__schema46": {},
     "__schema47": {
       "title": "const",
       "description": "A constant value that this schema must match."
@@ -680,9 +667,7 @@
       "required": [
         "propertyName"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema54"
-      },
+      "additionalProperties": false,
       "title": "Discriminator",
       "description": "When request bodies or response payloads may be one of a number of different schemas, a discriminator object can be used to aid in serialization, deserialization, and validation.",
       "examples": [
@@ -716,7 +701,6 @@
     "__schema53": {
       "type": "string"
     },
-    "__schema54": {},
     "__schema55": {
       "title": "xml",
       "$ref": "#/$defs/__schema56"
@@ -740,9 +724,7 @@
           "$ref": "#/$defs/__schema62"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema64"
-      },
+      "additionalProperties": false,
       "title": "XML",
       "description": "A metadata object that allows for more fine-tuned XML model definitions.",
       "examples": [
@@ -784,7 +766,6 @@
     "__schema63": {
       "type": "boolean"
     },
-    "__schema64": {},
     "__schema65": {
       "title": "externalDocs",
       "$ref": "#/$defs/__schema66"
@@ -802,9 +783,7 @@
       "required": [
         "url"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema69"
-      },
+      "additionalProperties": false,
       "title": "ExternalDocumentation",
       "description": "Allows referencing an external resource for extended documentation.",
       "examples": [
@@ -825,7 +804,6 @@
       "title": "url",
       "description": "The URL for the target documentation."
     },
-    "__schema69": {},
     "__schema70": {
       "type": "boolean",
       "title": "readOnly",
@@ -870,7 +848,6 @@
         "object"
       ]
     },
-    "__schema75": {},
     "__schema76": {
       "type": "object",
       "properties": {
@@ -932,9 +909,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "String Object",
       "description": "A String Object defines the shape of a string value.",
       "examples": [
@@ -1103,9 +1078,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "Number Object",
       "description": "A Number Object defines the shape of a number value.",
       "examples": [
@@ -1275,9 +1248,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "Integer Object",
       "description": "An Integer Object defines the shape of an integer value.",
       "examples": [
@@ -1419,9 +1390,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "Boolean Object",
       "description": "A Boolean Object defines the shape of a boolean value.",
       "examples": [
@@ -1483,9 +1452,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "Null Object",
       "description": "A Null Object defines the shape of a null value.",
       "examples": [
@@ -1571,9 +1538,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "Array Object",
       "description": "An Array Object defines the shape of an array value.",
       "examples": [
@@ -1738,9 +1703,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "Object Object",
       "description": "An Object Object defines the shape of an object value.",
       "examples": [
@@ -1946,9 +1909,7 @@
           "$ref": "#/$defs/__schema169"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema75"
-      },
+      "additionalProperties": false,
       "title": "Composition Schema",
       "description": "A schema using composition keywords (allOf, anyOf, oneOf, not, if/then/else) without a type constraint.",
       "examples": [
@@ -2092,9 +2053,7 @@
           "$ref": "#/$defs/__schema179"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema180"
-      },
+      "additionalProperties": false,
       "title": "Example",
       "description": "Example Object",
       "examples": [
@@ -2127,7 +2086,6 @@
       "title": "externalValue",
       "description": "A URL that points to the literal example."
     },
-    "__schema180": {},
     "__schema181": {
       "type": "object",
       "propertyNames": {
@@ -2158,9 +2116,7 @@
           "$ref": "#/$defs/__schema189"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema228"
-      },
+      "additionalProperties": false,
       "title": "MediaType",
       "description": "Each Media Type Object provides schema and examples for the media type identified by its key.",
       "examples": [
@@ -2182,7 +2138,6 @@
       "title": "example",
       "$ref": "#/$defs/__schema186"
     },
-    "__schema186": {},
     "__schema187": {
       "type": "object",
       "propertyNames": {
@@ -2228,9 +2183,7 @@
           "$ref": "#/$defs/__schema225"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema227"
-      },
+      "additionalProperties": false,
       "title": "Encoding",
       "description": "A single encoding definition applied to a single schema property.",
       "examples": [
@@ -2307,9 +2260,7 @@
           "$ref": "#/$defs/__schema214"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema217"
-      },
+      "additionalProperties": false,
       "title": "Header",
       "description": "The Header Object follows the structure of the Parameter Object.",
       "examples": [
@@ -2378,7 +2329,6 @@
       "title": "example",
       "$ref": "#/$defs/__schema211"
     },
-    "__schema211": {},
     "__schema212": {
       "type": "object",
       "propertyNames": {
@@ -2397,16 +2347,12 @@
       "propertyNames": {
         "$ref": "#/$defs/__schema215"
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema216"
-      },
+      "additionalProperties": false,
       "title": "content"
     },
     "__schema215": {
       "type": "string"
     },
-    "__schema216": {},
-    "__schema217": {},
     "__schema218": {
       "anyOf": [
         {
@@ -2454,9 +2400,6 @@
     "__schema226": {
       "type": "boolean"
     },
-    "__schema227": {},
-    "__schema228": {},
-    "__schema229": {},
     "__schema230": {
       "title": "requestBody",
       "$ref": "#/$defs/__schema231"
@@ -2489,9 +2432,7 @@
       "required": [
         "content"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema239"
-      },
+      "additionalProperties": false,
       "title": "RequestBody",
       "description": "Describes a single request body.",
       "examples": [
@@ -2534,7 +2475,6 @@
     "__schema238": {
       "type": "boolean"
     },
-    "__schema239": {},
     "__schema240": {
       "type": "object",
       "propertyNames": {
@@ -2599,9 +2539,7 @@
       "required": [
         "description"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema274"
-      },
+      "additionalProperties": false,
       "title": "Response",
       "description": "Describes a single response from an API Operation.",
       "examples": [
@@ -2695,9 +2633,7 @@
           "$ref": "#/$defs/__schema260"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema273"
-      },
+      "additionalProperties": false,
       "title": "Link",
       "description": "The Link object represents a possible design-time link for a response.",
       "examples": [
@@ -2724,16 +2660,13 @@
       "propertyNames": {
         "$ref": "#/$defs/__schema256"
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema257"
-      },
+      "additionalProperties": false,
       "title": "parameters",
       "description": "A map representing parameters to pass to an operation as specified with operationId or identified via operationRef."
     },
     "__schema256": {
       "type": "string"
     },
-    "__schema257": {},
     "__schema258": {
       "title": "requestBody",
       "description": "A literal value or {expression} to use as a request body when calling the target operation."
@@ -2762,9 +2695,7 @@
       "required": [
         "url"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema272"
-      },
+      "additionalProperties": false,
       "title": "Server",
       "description": "An object representing a Server.",
       "examples": [
@@ -2837,9 +2768,7 @@
       "required": [
         "default"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema271"
-      },
+      "additionalProperties": false,
       "title": "ServerVariable",
       "description": "A server variable for URL template substitution. Use {variableName} in the server URL.",
       "examples": [
@@ -2899,25 +2828,18 @@
       ],
       "description": "An optional description for the server variable."
     },
-    "__schema271": {},
-    "__schema272": {},
-    "__schema273": {},
-    "__schema274": {},
     "__schema275": {
       "type": "object",
       "propertyNames": {
         "$ref": "#/$defs/__schema276"
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema277"
-      },
+      "additionalProperties": false,
       "title": "callbacks",
       "description": "Webhooks/callbacks triggered by this operation."
     },
     "__schema276": {
       "type": "string"
     },
-    "__schema277": {},
     "__schema278": {
       "title": "deprecated",
       "examples": [
@@ -2982,7 +2904,6 @@
     "__schema286": {
       "$ref": "#/$defs/__schema66"
     },
-    "__schema287": {},
     "__schema288": {
       "title": "put",
       "$ref": "#/$defs/__schema10"
@@ -3027,7 +2948,6 @@
         "$ref": "#/$defs/__schema17"
       },
       "title": "parameters"
-    },
-    "__schema298": {}
+    }
   }
 }

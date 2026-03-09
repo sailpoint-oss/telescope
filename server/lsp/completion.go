@@ -15,7 +15,7 @@ var snippetEscaper = strings.NewReplacer("\\", "\\\\", "$", "\\$", "}", "\\}")
 
 // NewCompletionHandler returns completions for $ref paths, HTTP status codes,
 // media types, security schemes, tags, and common OpenAPI fields.
-func NewCompletionHandler(cache *openapi.IndexCache) gossip.CompletionHandler {
+func NewCompletionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.CompletionHandler {
 	return func(ctx *gossip.Context, params *protocol.CompletionParams) (*protocol.CompletionList, error) {
 		uri := params.TextDocument.URI
 		idx := cache.Get(uri)
@@ -43,6 +43,9 @@ func NewCompletionHandler(cache *openapi.IndexCache) gossip.CompletionHandler {
 		if isSecurityContext(line) && idx != nil {
 			items = append(items, securitySchemeCompletions(idx)...)
 		}
+		if isSecurityScopeContext(line) && idx != nil {
+			items = append(items, securityScopeCompletions(idx, line)...)
+		}
 
 		if isTagContext(line) && idx != nil {
 			items = append(items, tagCompletions(idx)...)
@@ -51,6 +54,11 @@ func NewCompletionHandler(cache *openapi.IndexCache) gossip.CompletionHandler {
 		// Schema property completions
 		if isPropertyContext(line) {
 			items = append(items, propertyPatternCompletions()...)
+		}
+
+		// Path key/template completions under paths:
+		if isPathTemplateContext(line) && idx != nil {
+			items = append(items, pathTemplateCompletions(idx)...)
 		}
 
 		// HTTP method / operation template completions
@@ -71,7 +79,7 @@ func NewCompletionHandler(cache *openapi.IndexCache) gossip.CompletionHandler {
 }
 
 // NewCompletionResolveHandler enriches a completion item with documentation.
-func NewCompletionResolveHandler(cache *openapi.IndexCache) gossip.CompletionResolveHandler {
+func NewCompletionResolveHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.CompletionResolveHandler {
 	return func(ctx *gossip.Context, item *protocol.CompletionItem) (*protocol.CompletionItem, error) {
 		if item.Data == nil {
 			return item, nil
@@ -95,19 +103,37 @@ func NewCompletionResolveHandler(cache *openapi.IndexCache) gossip.CompletionRes
 				Value: fmt.Sprintf("Media type `%s`", value),
 			}
 		case "ref":
+			doc := fmt.Sprintf("Reference to `%s`", value)
+			if _, target := cache.FindRefTarget(value); target != nil {
+				doc = formatRefHover(value, target)
+			}
 			item.Documentation = &protocol.MarkupContent{
 				Kind:  protocol.Markdown,
-				Value: fmt.Sprintf("Reference to `%s`", value),
+				Value: doc,
 			}
 		case "securityScheme":
+			doc := fmt.Sprintf("Security scheme `%s`", value)
+			for _, idx := range cache.All() {
+				if ss, ok := idx.SecuritySchemes[value]; ok {
+					doc = formatSecuritySchemeHover(value, ss, idx)
+					break
+				}
+			}
 			item.Documentation = &protocol.MarkupContent{
 				Kind:  protocol.Markdown,
-				Value: fmt.Sprintf("Security scheme `%s`", value),
+				Value: doc,
 			}
 		case "tag":
+			doc := fmt.Sprintf("Tag `%s`", value)
+			for _, idx := range cache.All() {
+				if tag, ok := idx.Tags[value]; ok {
+					doc = formatTagHover(tag, idx)
+					break
+				}
+			}
 			item.Documentation = &protocol.MarkupContent{
 				Kind:  protocol.Markdown,
-				Value: fmt.Sprintf("Tag `%s`", value),
+				Value: doc,
 			}
 		}
 
@@ -214,6 +240,58 @@ func securitySchemeCompletions(idx *openapi.Index) []protocol.CompletionItem {
 	return items
 }
 
+func securityScopeCompletions(idx *openapi.Index, line string) []protocol.CompletionItem {
+	if idx == nil || idx.Document == nil || idx.Document.Components == nil {
+		return nil
+	}
+	schemeName := extractSecuritySchemeFromLine(line)
+	items := make([]protocol.CompletionItem, 0)
+	appendScopes := func(name string, ss *openapi.SecurityScheme) {
+		if ss == nil || ss.Flows == nil {
+			return
+		}
+		flows := []*openapi.OAuthFlow{
+			ss.Flows.AuthorizationCode,
+			ss.Flows.ClientCredentials,
+			ss.Flows.Implicit,
+			ss.Flows.Password,
+		}
+		for _, flow := range flows {
+			if flow == nil || len(flow.Scopes) == 0 {
+				continue
+			}
+			for scope, desc := range flow.Scopes {
+				detail := "OAuth scope"
+				if name != "" {
+					detail = fmt.Sprintf("OAuth scope for %s", name)
+				}
+				if desc != "" {
+					detail += ": " + desc
+				}
+				items = append(items, protocol.CompletionItem{
+					Label:            scope,
+					Kind:             protocol.CompletionKindField,
+					Detail:           detail,
+					InsertText:       scope,
+					InsertTextFormat: &snippetFmt,
+					SortText:         "scope_" + scope,
+				})
+			}
+		}
+	}
+
+	if schemeName != "" {
+		if ss, ok := idx.SecuritySchemes[schemeName]; ok {
+			appendScopes(schemeName, ss)
+			return items
+		}
+	}
+	for name, ss := range idx.SecuritySchemes {
+		appendScopes(name, ss)
+	}
+	return items
+}
+
 func tagCompletions(idx *openapi.Index) []protocol.CompletionItem {
 	var items []protocol.CompletionItem
 	for _, tag := range idx.Document.Tags {
@@ -233,7 +311,26 @@ func tagCompletions(idx *openapi.Index) []protocol.CompletionItem {
 
 func isResponseContext(line string) bool {
 	trimmed := strings.TrimSpace(line)
-	return strings.HasPrefix(trimmed, "responses:") || strings.HasPrefix(trimmed, "'") || strings.HasPrefix(trimmed, "\"")
+	if strings.HasPrefix(trimmed, "responses:") {
+		return true
+	}
+	// Match quoted status codes (e.g. '200':, "404":) that appear under responses.
+	if (strings.HasPrefix(trimmed, "'") || strings.HasPrefix(trimmed, "\"")) && strings.Contains(trimmed, ":") {
+		// Extract the quoted value and check if it looks like a status code.
+		for _, q := range []byte{'"', '\''} {
+			if trimmed[0] == q {
+				end := strings.IndexByte(trimmed[1:], q)
+				if end >= 0 {
+					val := trimmed[1 : end+1]
+					if val == "default" || (len(val) == 3 && val[0] >= '1' && val[0] <= '5') {
+						return true
+					}
+				}
+				break
+			}
+		}
+	}
+	return false
 }
 
 func isContentContext(line string) bool {
@@ -260,6 +357,87 @@ func isHTTPMethodContext(line string) bool {
 func isHeaderContext(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	return strings.HasPrefix(trimmed, "headers:")
+}
+
+func isPathTemplateContext(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "/") {
+		return false
+	}
+	return strings.HasSuffix(trimmed, ":")
+}
+
+func isSecurityScopeContext(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	// Examples:
+	// - bearerAuth: [<cursor>]
+	// bearerAuth: [<cursor>]
+	return strings.Contains(trimmed, ": [") || strings.HasSuffix(trimmed, ":[")
+}
+
+func extractSecuritySchemeFromLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimPrefix(trimmed, "- ")
+	colon := strings.Index(trimmed, ":")
+	if colon <= 0 {
+		return ""
+	}
+	return strings.TrimSpace(trimmed[:colon])
+}
+
+func pathTemplateCompletions(idx *openapi.Index) []protocol.CompletionItem {
+	if idx == nil || idx.Document == nil || len(idx.Document.Paths) == 0 {
+		return nil
+	}
+	items := make([]protocol.CompletionItem, 0, len(idx.Document.Paths)+3)
+	seen := map[string]bool{}
+
+	// Derived suggestions based on existing paths in the same document.
+	for path := range idx.Document.Paths {
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		items = append(items, protocol.CompletionItem{
+			Label:            path,
+			Kind:             protocol.CompletionKindSnippet,
+			Detail:           "Existing path",
+			InsertText:       path + ":",
+			InsertTextFormat: &snippetFmt,
+			SortText:         "path_existing_" + path,
+		})
+
+		// Suggest ID route variant for collection-style paths.
+		idVariant := strings.TrimSuffix(path, "/") + "/{id}"
+		if !seen[idVariant] {
+			seen[idVariant] = true
+			items = append(items, protocol.CompletionItem{
+				Label:            idVariant,
+				Kind:             protocol.CompletionKindSnippet,
+				Detail:           "Path template with parameter",
+				InsertText:       idVariant + ":",
+				InsertTextFormat: &snippetFmt,
+				SortText:         "path_variant_" + idVariant,
+			})
+		}
+	}
+
+	// Generic templates useful when starting a new path section.
+	generic := []string{"/resources", "/resources/{resourceId}", "/resources/{resourceId}/subresources"}
+	for _, p := range generic {
+		if seen[p] {
+			continue
+		}
+		items = append(items, protocol.CompletionItem{
+			Label:            p,
+			Kind:             protocol.CompletionKindSnippet,
+			Detail:           "Path template",
+			InsertText:       p + ":",
+			InsertTextFormat: &snippetFmt,
+			SortText:         "path_template_" + p,
+		})
+	}
+	return items
 }
 
 // propertyPatternCompletions offers common schema property patterns.

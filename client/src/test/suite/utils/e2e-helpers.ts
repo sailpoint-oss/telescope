@@ -60,20 +60,49 @@ export async function waitForDiagnostics(
 	if (predicate(current)) return current;
 
 	return await new Promise<vscode.Diagnostic[]>((resolve, reject) => {
-		const timer = setTimeout(() => {
+		let resolved = false;
+		const done = (diags: vscode.Diagnostic[]) => {
+			if (resolved) return;
+			resolved = true;
+			clearTimeout(timer);
+			clearInterval(poll);
 			sub.dispose();
-			reject(new Error(`Timeout waiting for diagnostics after ${timeoutMs}ms`));
+			resolve(diags);
+		};
+
+		const timer = setTimeout(() => {
+			if (resolved) return;
+			resolved = true;
+			clearInterval(poll);
+			sub.dispose();
+			const finalDiags = vscode.languages.getDiagnostics(uri);
+			const openDoc = vscode.workspace.textDocuments.find(
+				(d) => d.uri.toString() === uri.toString(),
+			);
+			reject(
+				new Error(
+					`Timeout waiting for diagnostics after ${timeoutMs}ms ` +
+						`(uri=${uri.toString()}, currentCount=${finalDiags.length}, ` +
+						`languageId=${openDoc?.languageId ?? "not-open"})`,
+				),
+			);
 		}, timeoutMs);
 
 		const sub = vscode.languages.onDidChangeDiagnostics((e) => {
 			if (!e.uris.some((u) => u.toString() === uri.toString())) return;
 			const next = vscode.languages.getDiagnostics(uri);
-			if (predicate(next)) {
-				clearTimeout(timer);
-				sub.dispose();
-				resolve(next);
-			}
+			if (predicate(next)) done(next);
 		});
+
+		// Re-check after subscribing to close the race window, then poll
+		// periodically as a safety net for missed events.
+		const poll = setInterval(() => {
+			const next = vscode.languages.getDiagnostics(uri);
+			if (predicate(next)) done(next);
+		}, 500);
+
+		const recheck = vscode.languages.getDiagnostics(uri);
+		if (predicate(recheck)) done(recheck);
 	});
 }
 
@@ -108,9 +137,42 @@ export async function deleteWorkspaceFile(relativePath: string): Promise<void> {
 	}
 }
 
+/**
+ * Execute a VS Code command with retries until the result satisfies a predicate.
+ * Consolidates the retry-loop pattern used across provider E2E tests.
+ */
+export async function executeWithRetry<T>(
+	command: string,
+	args: unknown[],
+	predicate: (result: T) => boolean,
+	options?: { maxAttempts?: number; delayMs?: number },
+): Promise<T> {
+	const maxAttempts = options?.maxAttempts ?? 10;
+	const delayMs = options?.delayMs ?? 1000;
+	let last: T | undefined;
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		last = (await vscode.commands.executeCommand(command, ...args)) as T;
+		if (last !== undefined && last !== null && predicate(last)) return last;
+		await delay(delayMs);
+	}
+	return last as T;
+}
+
 export function isMultiRootWorkspace(): boolean {
 	if (process.env.TELESCOPE_E2E_MODE === "multi") return true;
 	return (vscode.workspace.workspaceFolders?.length ?? 0) > 1;
+}
+
+export function isSidecarWorkspace(): boolean {
+	return process.env.TELESCOPE_E2E_MODE === "sidecar";
+}
+
+
+export function diagCode(d: vscode.Diagnostic): string {
+	if (typeof d.code === "object" && d.code !== null) {
+		return String(d.code.value);
+	}
+	return String(d.code ?? "");
 }
 
 export async function delay(ms: number): Promise<void> {

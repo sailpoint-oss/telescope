@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/testutil/specs"
@@ -39,7 +39,7 @@ func BenchmarkGoPlugin_Operations(b *testing.B) {
 			b.SetBytes(int64(len(spec.Content)))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				r := rules.NewReporter("bench-op", protocol.SeverityWarning)
+				r := rules.NewReporter("bench-op", ctypes.SeverityWarning)
 				rules.Walk(idx, v, r)
 				_ = r.Diagnostics()
 			}
@@ -63,7 +63,7 @@ func BenchmarkGoPlugin_Schemas(b *testing.B) {
 			b.SetBytes(int64(len(spec.Content)))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				r := rules.NewReporter("bench-schema", protocol.SeverityWarning)
+				r := rules.NewReporter("bench-schema", ctypes.SeverityWarning)
 				rules.Walk(idx, v, r)
 				_ = r.Diagnostics()
 			}
@@ -86,7 +86,7 @@ func BenchmarkGoPlugin_Paths(b *testing.B) {
 			b.SetBytes(int64(len(spec.Content)))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				r := rules.NewReporter("bench-path", protocol.SeverityWarning)
+				r := rules.NewReporter("bench-path", ctypes.SeverityWarning)
 				rules.Walk(idx, v, r)
 				_ = r.Diagnostics()
 			}
@@ -109,7 +109,7 @@ func BenchmarkGoPlugin_Parameters(b *testing.B) {
 			b.SetBytes(int64(len(spec.Content)))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				r := rules.NewReporter("bench-param", protocol.SeverityWarning)
+				r := rules.NewReporter("bench-param", ctypes.SeverityWarning)
 				rules.Walk(idx, v, r)
 				_ = r.Diagnostics()
 			}
@@ -173,7 +173,7 @@ func BenchmarkGoPlugin_Combined(b *testing.B) {
 			b.SetBytes(int64(len(spec.Content)))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				r := rules.NewReporter("bench-combined", protocol.SeverityWarning)
+				r := rules.NewReporter("bench-combined", ctypes.SeverityWarning)
 				rules.Walk(idx, v, r)
 				_ = r.Diagnostics()
 			}
@@ -209,7 +209,7 @@ func BenchmarkGoPlugin_ParseAndWalk(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				idx := openapi.ParseAndIndex(spec.Content)
-				r := rules.NewReporter("bench-e2e", protocol.SeverityWarning)
+				r := rules.NewReporter("bench-e2e", ctypes.SeverityWarning)
 				rules.Walk(idx, v, r)
 				_ = r.Diagnostics()
 			}

@@ -2,7 +2,7 @@ package analyzers
 
 import (
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -11,7 +11,7 @@ var (
 	migrationNullableMeta = rules.RuleMeta{
 		ID:          "migration-nullable",
 		Description: "In OpenAPI 3.1, use type array ['string', 'null'] instead of nullable: true.",
-		Severity:    protocol.SeverityInformation,
+		Severity:    ctypes.SeverityInfo,
 		Category:    rules.CategoryTypes,
 		Recommended: false,
 		Formats:     []openapi.Format{openapi.Format(openapi.Version30)},

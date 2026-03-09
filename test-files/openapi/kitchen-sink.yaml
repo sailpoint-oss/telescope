@@ -1,0 +1,423 @@
+openapi: "3.1.0"
+info:
+  title: Kitchen Sink API
+  version: "2.0.0"
+  description: |
+    Comprehensive test fixture exercising every LSP feature.
+
+    ## Authentication
+    Supports OAuth2 and API key authentication.
+
+    ## Rate Limiting
+    All endpoints are rate-limited to 100 requests per minute.
+  contact:
+    name: API Support
+    email: support@example.com
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: https://api.example.com/v2
+    description: Production server
+    x-internal: false
+    variables:
+      version:
+        default: v2
+        enum: [v1, v2]
+        description: API version
+
+tags:
+  - name: Users
+    description: User management operations
+    externalDocs:
+      description: User guide
+      url: https://docs.example.com/users
+    x-display-name: User Management
+  - name: Admin
+    description: Administrative operations
+
+paths:
+  /users:
+    summary: User collection
+    get:
+      operationId: listUsers
+      summary: List all users
+      description: |
+        Returns a paginated list of users.
+
+        Supports filtering by status and role.
+
+        # some markdown
+
+        - list
+        - of
+        - items
+        - with
+        - markdown
+        - support
+        - **bold**
+        - *italic*
+        - [link](https://example.com)
+        - ![image](https://example.com/image.png)
+        - ```json
+          {
+            "name": "John Doe",
+            "email": "john.doe@example.com"
+          }
+          ```
+          - ```yaml
+          name: John Doe
+          email: john.doe@example.com
+          ```
+          - ```html
+          <html>
+          <body>
+          <h1>Hello, World!</h1>
+          </body>
+          </html>
+          ```
+          - ```python
+          def hello_world():
+            print("Hello, World!")
+          ```
+          - ```javascript
+          console.log("Hello, World!");
+          ```
+          - ```java
+          public class HelloWorld {
+            public static void main(String[] args) {
+              System.out.println("Hello, World!");
+            }
+          }
+          ```
+      tags:
+        - Users
+      parameters:
+        - $ref: "#/components/parameters/PageLimit"
+        - name: status
+          in: query
+          description: Filter by user status
+          schema:
+            type: string
+            enum: [active, inactive, pending]
+          example: active
+        - name: role
+          in: query
+          deprecated: true
+          description: Filter by role (deprecated, use /users/by-role)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+          headers:
+            X-Total-Count:
+              $ref: "#/components/headers/X-Total-Count"
+          links:
+            GetUser:
+              $ref: "#/components/links/GetUserById"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      security:
+        - oauth2: [read:users]
+        - apiKey: []
+    post:
+      operationId: createUser
+      summary: Create a new user
+      tags:
+        - Users
+      requestBody:
+        $ref: "#/components/requestBodies/CreateUser"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+      x-rate-limit: 10
+
+  /users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: The user's unique identifier
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getUser
+      summary: Get a user by ID
+      tags:
+        - Users
+      responses:
+        "200":
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: deleteUser
+      summary: Delete a user
+      deprecated: true
+      tags:
+        - Admin
+      responses:
+        "204":
+          description: User deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /admin/settings:
+    get:
+      operationId: getSettings
+      summary: Get admin settings
+      tags:
+        - Admin
+      responses:
+        "200":
+          description: Settings retrieved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
+components:
+  schemas:
+    User:
+      type: object
+      title: User Account
+      description: Represents a user in the system
+      required:
+        - id
+        - email
+        - name
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+          description: Unique user identifier
+        email:
+          type: string
+          format: email
+          minLength: 5
+          maxLength: 254
+          pattern: "^[\\w.+-]+@[\\w-]+\\.[a-z]{2,}$"
+          description: User's email address
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Display name
+        age:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 150
+          description: User's age
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          type: string
+          enum: [active, inactive, pending]
+          default: active
+        tags:
+          type: array
+          items:
+            type: string
+          minItems: 0
+          maxItems: 10
+          description: User tags
+        metadata:
+          type: object
+          maxProperties: 20
+          description: Arbitrary metadata
+      example:
+        id: "550e8400-e29b-41d4-a716-446655440000"
+        email: "user@example.com"
+        name: "John Doe"
+
+    Role:
+      type: string
+      enum: [admin, editor, viewer]
+      description: User role within the system
+      default: viewer
+
+    DeprecatedProfile:
+      type: object
+      deprecated: true
+      description: Legacy profile object (use User instead)
+      properties:
+        username:
+          type: string
+          nullable: true
+        bio:
+          type: string
+          writeOnly: true
+
+    Pet:
+      oneOf:
+        - $ref: "#/components/schemas/Cat"
+        - $ref: "#/components/schemas/Dog"
+      discriminator:
+        propertyName: petType
+        mapping:
+          cat: "#/components/schemas/Cat"
+          dog: "#/components/schemas/Dog"
+
+    Cat:
+      type: object
+      required:
+        - petType
+      properties:
+        petType:
+          type: string
+          const: cat
+        color:
+          type: string
+    Dog:
+      type: object
+      required:
+        - petType
+      properties:
+        petType:
+          type: string
+          const: dog
+        breed:
+          type: string
+
+    Settings:
+      allOf:
+        - type: object
+          properties:
+            theme:
+              type: string
+              enum: [light, dark]
+        - type: object
+          properties:
+            language:
+              type: string
+              default: en
+
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          format: int32
+        message:
+          type: string
+
+  parameters:
+    PageLimit:
+      name: limit
+      in: query
+      description: Maximum number of items to return
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 25
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BadRequest:
+      description: Invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  requestBodies:
+    CreateUser:
+      description: User creation payload
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - email
+              - name
+            properties:
+              email:
+                type: string
+                format: email
+              name:
+                type: string
+
+  headers:
+    X-Total-Count:
+      description: Total number of items
+      schema:
+        type: integer
+        format: int64
+
+  links:
+    GetUserById:
+      operationId: getUser
+      description: Fetch a user by the ID returned in the response
+
+  examples:
+    UserExample:
+      summary: Sample user
+      description: A typical user object
+      value:
+        id: "550e8400-e29b-41d4-a716-446655440000"
+        email: "jane@example.com"
+        name: "Jane Doe"
+        role: editor
+
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      description: OAuth 2.0 authentication
+      flows:
+        authorizationCode:
+          authorizationUrl: https://auth.example.com/authorize
+          tokenUrl: https://auth.example.com/token
+          scopes:
+            read:users: Read user data
+            write:users: Modify user data
+    apiKey:
+      type: apiKey
+      name: X-API-Key
+      in: header
+      description: API key authentication
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - oauth2: [read:users]

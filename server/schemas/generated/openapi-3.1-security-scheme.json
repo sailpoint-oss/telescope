@@ -50,9 +50,7 @@
       "required": [
         "$ref"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema7"
-      },
+      "additionalProperties": false,
       "title": "Reference Object",
       "description": "A reference to another component in the specification.",
       "examples": [
@@ -146,7 +144,6 @@
       "title": "description",
       "description": "A description which by default SHOULD override that of the referenced component."
     },
-    "__schema7": {},
     "__schema8": {
       "type": "object",
       "properties": {
@@ -168,9 +165,7 @@
         "name",
         "in"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema13"
-      },
+      "additionalProperties": false,
       "title": "ApiKeySecurityScheme",
       "description": "API Key security scheme.",
       "examples": [
@@ -220,7 +215,6 @@
       "title": "description",
       "description": "A description of the security scheme."
     },
-    "__schema13": {},
     "__schema14": {
       "type": "object",
       "properties": {
@@ -241,9 +235,7 @@
         "type",
         "scheme"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema19"
-      },
+      "additionalProperties": false,
       "title": "HttpSecurityScheme",
       "description": "HTTP authentication security scheme (Basic, Bearer, etc.).",
       "examples": [
@@ -294,7 +286,6 @@
       "title": "description",
       "description": "A description of the security scheme."
     },
-    "__schema19": {},
     "__schema20": {
       "type": "object",
       "properties": {
@@ -308,9 +299,7 @@
       "required": [
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema24"
-      },
+      "additionalProperties": false,
       "title": "MutualTLSSecurityScheme",
       "description": "Mutual TLS security scheme",
       "examples": [
@@ -332,7 +321,6 @@
     "__schema23": {
       "type": "string"
     },
-    "__schema24": {},
     "__schema25": {
       "type": "object",
       "properties": {
@@ -350,9 +338,7 @@
         "type",
         "flows"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema43"
-      },
+      "additionalProperties": false,
       "title": "OAuth2SecurityScheme",
       "description": "OAuth2 security scheme"
     },
@@ -377,9 +363,7 @@
           "$ref": "#/$defs/__schema39"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema40"
-      },
+      "additionalProperties": false,
       "title": "flows",
       "description": "Allows configuration of the supported OAuth Flows.",
       "examples": [
@@ -414,9 +398,7 @@
       "required": [
         "scopes"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema36"
-      },
+      "additionalProperties": false,
       "title": "OAuthFlow",
       "description": "Configuration details for a supported OAuth Flow.",
       "examples": [
@@ -464,7 +446,6 @@
     "__schema35": {
       "type": "string"
     },
-    "__schema36": {},
     "__schema37": {
       "title": "password",
       "$ref": "#/$defs/__schema29"
@@ -477,7 +458,6 @@
       "title": "authorizationCode",
       "$ref": "#/$defs/__schema29"
     },
-    "__schema40": {},
     "__schema41": {
       "title": "description",
       "$ref": "#/$defs/__schema42"
@@ -485,7 +465,6 @@
     "__schema42": {
       "type": "string"
     },
-    "__schema43": {},
     "__schema44": {
       "type": "object",
       "properties": {
@@ -503,9 +482,7 @@
         "type",
         "openIdConnectUrl"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema49"
-      },
+      "additionalProperties": false,
       "title": "OpenIdConnectSecurityScheme",
       "description": "OpenID Connect security scheme"
     },
@@ -526,7 +503,6 @@
     },
     "__schema48": {
       "type": "string"
-    },
-    "__schema49": {}
+    }
   }
 }

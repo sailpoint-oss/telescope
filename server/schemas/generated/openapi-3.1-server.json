@@ -15,9 +15,7 @@
   "required": [
     "url"
   ],
-  "additionalProperties": {
-    "$ref": "#/$defs/__schema10"
-  },
+  "additionalProperties": false,
   "title": "Server",
   "description": "An object representing a Server.",
   "examples": [
@@ -90,9 +88,7 @@
       "required": [
         "default"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema9"
-      },
+      "additionalProperties": false,
       "title": "ServerVariable",
       "description": "A server variable for URL template substitution. Use {variableName} in the server URL.",
       "examples": [
@@ -151,8 +147,6 @@
         "Port number"
       ],
       "description": "An optional description for the server variable."
-    },
-    "__schema9": {},
-    "__schema10": {}
+    }
   }
 }

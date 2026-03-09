@@ -34,7 +34,7 @@ export type {
  *
  * @example
  * ```typescript
- * import { defineExtension } from "telescope-server";
+ * import { defineExtension } from "telescope/extensions";
  *
  * export default defineExtension({
  *   name: "x-company-auth",

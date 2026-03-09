@@ -10,7 +10,7 @@
 ### Validation & Diagnostics
 
 - **Real-time Diagnostics** - See linting issues as you type in VS Code
-- **65+ Built-in OpenAPI Rules** - Comprehensive validation covering naming, structure, security, paths, and OWASP
+- **88 Built-in OpenAPI Rules** - Comprehensive validation covering naming, structure, security, paths, and OWASP
 - **Multi-file Support** - Full `$ref` resolution across your API project
 - **Custom Rules** - Extend with Go plugin binaries or Spectral-compatible YAML rulesets
 - **Pattern Matching** - Glob-based file inclusion/exclusion
@@ -96,40 +96,97 @@ Use the `telescope.trace` setting to control LSP trace logging. Keep it `off` un
 
 ## Architecture
 
-Telescope is built as a Go language server with a VS Code extension client:
-
-```
-Document (YAML/JSON)
-  → Tree-sitter incremental parse
-  → OpenAPI index (typed model)
-  → Rule execution (analyzers + plugins + spectral)
-  → Diagnostics with precise source locations
-  → VS Code / CLI output
-```
+Telescope is a Go language server built on the [gossip](https://github.com/LukasParke/gossip) LSP framework, paired with a TypeScript VS Code extension client. The server uses tree-sitter for incremental YAML/JSON parsing, builds a typed OpenAPI model, runs rules against it, and publishes diagnostics back to the editor via the LSP push-diagnostic protocol (`textDocument/publishDiagnostics`).
 
 ```mermaid
-flowchart LR
-    subgraph Entry["Entry"]
-        Client[VS Code Extension]
-        CLI[CLI]
+flowchart TB
+    subgraph client ["VS Code Extension (TypeScript)"]
+        Activate["activate()"]
+        SM["SessionManager"]
+        Session["Session (per folder)"]
+        Scanner["WorkspaceScanner"]
+        Classifier["OpenAPI Classifier"]
+        LC["LanguageClient (stdio)"]
     end
 
-    subgraph Server["Go Language Server"]
-        LSP[LSP Server / gossip]
-        TS[Tree-sitter Parser]
-        Engine[Rule Engine]
+    subgraph server ["Go Language Server"]
+        Gossip["gossip Server (JSON-RPC)"]
+        DocStore["Document Store"]
+        TSParser["Tree-sitter Manager"]
+        IndexBuild["openapi.BuildIndex()"]
+        IndexCache["IndexCache (per-URI)"]
+
+        subgraph rules ["Rule Engine"]
+            Analyzers["Built-in Analyzers (88 rules)"]
+            Spectral["Spectral Engine (YAML rulesets)"]
+            Plugins["Go Plugin Binaries (hashicorp/go-plugin)"]
+            ExtVal["Extension Validator (x-* schemas)"]
+            Checks["Syntactic Checks (duplicate keys, ASCII)"]
+        end
+
+        DiagEngine["DiagnosticEngine (caching, incremental)"]
+        ProjMgr["Project Manager"]
+
+        subgraph childLSP ["Child LSP Servers"]
+            YamlLS["yaml-language-server"]
+            JsonLS["vscode-json-language-server"]
+        end
+
+        Aggregator["DiagnosticAggregator (80ms debounce)"]
     end
 
-    subgraph Output["Output"]
-        Diag[Diagnostics]
-        Fixes[Quick Fixes]
+    subgraph features ["LSP Feature Handlers"]
+        Hover["Hover"]
+        Definition["Go to Definition"]
+        References["Find References"]
+        Completion["Completions"]
+        CodeAction["Code Actions / Quick Fixes"]
+        More["Rename, CodeLens, InlayHints, ..."]
     end
 
-    Client --> LSP
-    CLI --> Engine
-    LSP --> TS --> Engine --> Diag --> Client
-    Engine --> Fixes --> Client
+    CLI["CLI (lint, ci, serve)"]
+
+    Activate --> SM --> Session
+    Session --> Scanner --> Classifier
+    Session --> LC
+
+    LC <-->|"stdio"| Gossip
+    CLI --> Gossip
+
+    Gossip --> DocStore
+    Gossip --> TSParser
+    TSParser -->|"onTreeUpdate"| DiagEngine
+    DiagEngine -->|"UserDataProvider"| IndexBuild
+    IndexBuild --> IndexCache
+    DiagEngine --> rules
+    rules --> DiagEngine
+
+    DiagEngine -->|"Set(uri, telescope, diags)"| Aggregator
+    childLSP -->|"Set(uri, yaml-ls/json-ls, diags)"| Aggregator
+    Aggregator -->|"publishDiagnostics"| LC
+
+    ProjMgr -->|"cross-file $ref resolution"| IndexCache
+    ProjMgr -->|"PublishDirect"| LC
+
+    IndexCache --> features
+    features <--> LC
 ```
+
+### How it works
+
+1. **Discovery and classification.** The VS Code extension runs a `SessionManager` that creates one `Session` per workspace folder. Each session spawns a `WorkspaceScanner` that discovers YAML/JSON files via glob patterns and classifies them as OpenAPI by checking for the `openapi` or `swagger` root key. When you open a classified file, the extension applies the `openapi-yaml` or `openapi-json` language mode.
+
+2. **Parsing.** The `LanguageClient` connects to the Go server over stdio. The gossip framework receives `didOpen`/`didChange`/`didClose` notifications, stores documents in a thread-safe document store, and feeds them to tree-sitter for incremental parsing. Document lifecycle notifications are serialized via `docSyncMu` to prevent races during language reclassification.
+
+3. **Indexing.** On every tree update, the `DiagnosticEngine` calls the `UserDataProvider`, which runs `openapi.BuildIndex(tree, doc)`. This walks the tree-sitter CST and produces a typed `Index` containing operations, schemas, parameters, responses, security schemes, tags, and all `$ref` usages. Indexes are cached per-URI in the `IndexCache` with an on-demand builder fallback.
+
+4. **Rule execution.** The `DiagnosticEngine` runs five categories of checks in parallel: built-in analyzers (using the fluent `RuleBuilder` visitor API), syntactic checks (tree-sitter pattern queries), Spectral-compatible YAML rulesets (JSONPath + built-in functions), Go plugin binaries (via `hashicorp/go-plugin` RPC), and vendor extension schema validators. Each produces diagnostics with precise source locations.
+
+5. **Diagnostic aggregation.** Telescope diagnostics flow through a `DiagnosticAggregator` (from gossip's `lspclient` package) that merges results from three sources: the Telescope rule engine, the child `yaml-language-server`, and the child `vscode-json-language-server`. The aggregator debounces for 80ms, then publishes the merged set to the client via `textDocument/publishDiagnostics`.
+
+6. **Cross-file resolution.** The `Project Manager` runs a background workspace scan, builds a dependency graph of root documents and their transitive `$ref` targets, and provides a `CrossFileResolver` to the rule engine. This enables cross-file go-to-definition, find-references, and project-level diagnostics.
+
+7. **Feature handlers.** All 24 LSP feature handlers (hover, definition, references, completions, rename, code actions, etc.) read from the `IndexCache` and optionally the `Project Manager` to provide code intelligence.
 
 For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -143,23 +200,29 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Built-in Rules
 
-Telescope includes **65+** built-in OpenAPI rules organized into rulesets:
+Telescope includes **88** built-in OpenAPI rules organized into rulesets:
 
 | Ruleset | Description |
 | ------- | ----------- |
-| `telescope:recommended` | ~35 curated rules for most projects |
-| `telescope:all` | All ~65 rules enabled |
-| `telescope:owasp` | 15 OWASP security rules |
-| `telescope:strict` | Recommended + OWASP with stricter severities |
+| `telescope:recommended` | 50 curated rules for most projects |
+| `telescope:all` | All 56 non-OWASP rules |
+| `telescope:owasp` | 32 OWASP API security rules |
+| `telescope:strict` | Recommended + OWASP combined |
 
-| Category | Rules |
-| -------- | ----- |
-| Core | `$ref` cycle detection, unresolved reference checking |
-| Operations | operationId, summary, tags, descriptions, responses |
-| Parameters | required fields, examples, descriptions, formats |
-| Schemas | structure validation, allOf, required arrays, defaults |
-| Components | naming conventions |
-| Security | OWASP API security best practices |
+| Category | Count | Examples |
+| -------- | ----- | -------- |
+| Structure | 14 | JSON Schema validation, allOf, arrays, discriminators, unused components |
+| Documentation | 17 | Descriptions, deprecation, markdown quality |
+| Paths | 8 | Kebab-case, trailing slashes, parameter matching |
+| Naming | 4 | Schema/example casing, operationId uniqueness |
+| Security | 4 | API key placement, OAuth URLs, security requirements |
+| Types | 4 | Format validation, example type/enum matching |
+| Servers | 2 | Server definitions, HTTPS |
+| References | 1 | Unresolved `$ref` detection |
+| Syntax | 2 | Duplicate keys, ASCII |
+| OWASP | 32 | Full Spectral OWASP v2.x parity |
+
+See [docs/RULES.md](docs/RULES.md) for the complete rule reference with IDs and descriptions.
 
 ## CLI
 
@@ -216,17 +279,24 @@ See [server/README.md](server/README.md) for the full Go plugin SDK reference an
 ```bash
 # Go server
 cd server
-go build ./...
-go test -race ./... -timeout 10m
+go build ./...                        # verify compilation
+go test -race ./... -timeout 10m      # run all tests with race detection
+go build -o ../client/bin/telescope . # build binary for VS Code extension
 
 # VS Code extension
 pnpm install
 pnpm build
 
-# VS Code extension E2E (integration) tests
-pnpm --filter telescope-client test:e2e:compile
-pnpm --filter telescope-client test:e2e:run:single
-pnpm --filter telescope-client test:e2e:run:multi
+# E2E (integration) tests
+pnpm --filter ./client test:e2e:compile
+pnpm --filter ./client test:e2e:run:single
+pnpm --filter ./client test:e2e:run:multi
+
+# Full test suite (Go + E2E) in one command
+cd server && go test -race ./... -timeout 10m && \
+  cd ../.. && cd gossip && go test -race ./... -timeout 10m && \
+  cd ../telescope && pnpm --filter ./client test:e2e:run:single && \
+  pnpm --filter ./client test:e2e:run:multi
 
 # Run the extension locally (VS Code)
 # Press F5 to launch Extension Development Host
@@ -237,6 +307,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 ## Documentation
 
 - [Server & SDK Reference](server/README.md)
+- [Built-in Rules Reference](docs/RULES.md)
 - [LSP Features Reference](docs/LSP-FEATURES.md)
 - [CI (GitHub Actions)](docs/CI.md)
 - [Configuration Reference](docs/CONFIGURATION.md)

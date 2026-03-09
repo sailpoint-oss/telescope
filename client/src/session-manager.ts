@@ -234,6 +234,13 @@ export class SessionManager implements vscode.Disposable {
 
 		this.sessions.set(id, session);
 
+		// Forward deprecated ranges notifications to the extension
+		session.onDeprecatedRanges = (params) => {
+			if (this.onDeprecatedRanges) {
+				this.onDeprecatedRanges(params);
+			}
+		};
+
 		try {
 			await session.start();
 		} catch (error) {
@@ -243,6 +250,21 @@ export class SessionManager implements vscode.Disposable {
 
 		return session;
 	}
+
+	/** Callback for deprecated ranges notifications from sessions. */
+	onDeprecatedRanges:
+		| ((params: {
+				uri: string;
+				ranges: Array<{
+					range: {
+						start: { line: number; character: number };
+						end: { line: number; character: number };
+					};
+					name: string;
+					kind: string;
+				}>;
+		  }) => void)
+		| null = null;
 
 	/**
 	 * Stop and remove a session for a workspace folder.

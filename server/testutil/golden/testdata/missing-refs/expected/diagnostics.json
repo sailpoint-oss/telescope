@@ -1,0 +1,9 @@
+[
+  {
+    "file": "api.yaml",
+    "line": 0,
+    "code": "unused-component",
+    "severity": "info",
+    "message": "never referenced"
+  }
+]

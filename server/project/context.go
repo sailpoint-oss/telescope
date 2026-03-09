@@ -28,14 +28,15 @@ type ProjectContext struct {
 // The indexCache is consulted first; if the URI is already cached (e.g., from
 // an open document), that index is used instead of re-reading from disk.
 func BuildProjectContext(rootURI string, indexCache *openapi.IndexCache, logger *slog.Logger) (*ProjectContext, error) {
+	norm := openapi.NormalizeURI(rootURI)
 	ctx := &ProjectContext{
-		RootURI: rootURI,
+		RootURI: norm,
 		Docs:    make(map[string]*openapi.Index),
 		Graph:   NewFileGraph(),
 		logger:  logger,
 	}
 
-	if err := ctx.loadTransitive(rootURI, indexCache); err != nil {
+	if err := ctx.loadTransitive(norm, indexCache); err != nil {
 		return nil, fmt.Errorf("build project from %s: %w", rootURI, err)
 	}
 
@@ -45,7 +46,8 @@ func BuildProjectContext(rootURI string, indexCache *openapi.IndexCache, logger 
 
 // loadTransitive recursively loads a file and all its external $ref targets.
 func (p *ProjectContext) loadTransitive(uri string, cache *openapi.IndexCache) error {
-	if _, loaded := p.Docs[uri]; loaded {
+	norm := openapi.NormalizeURI(uri)
+	if _, loaded := p.Docs[norm]; loaded {
 		return nil // already visited
 	}
 
@@ -57,7 +59,7 @@ func (p *ProjectContext) loadTransitive(uri string, cache *openapi.IndexCache) e
 		return nil // non-fatal: skip unreachable files
 	}
 
-	p.Docs[uri] = idx
+	p.Docs[norm] = idx
 
 	edges := ExtractExternalRefs(uri, idx)
 	for _, edge := range edges {
@@ -98,120 +100,7 @@ func indexFromDisk(uri string) (*openapi.Index, error) {
 		return nil, fmt.Errorf("failed to parse %s", path)
 	}
 
-	collectRefsFromContent(idx, data, uri)
-
 	return idx, nil
-}
-
-// collectRefsFromContent performs a lightweight scan for $ref values in raw
-// YAML/JSON content and populates the index's AllRefs and Refs fields. The
-// standalone parser doesn't walk for $ref values, so we do a simple text scan.
-func collectRefsFromContent(idx *openapi.Index, data []byte, uri string) {
-	content := string(data)
-	if idx.Refs == nil {
-		idx.Refs = make(map[string][]openapi.RefUsage)
-	}
-
-	lines := splitLines(content)
-	for _, line := range lines {
-		ref := extractRefFromLine(line)
-		if ref == "" {
-			continue
-		}
-		usage := openapi.RefUsage{Target: ref}
-		idx.Refs[ref] = append(idx.Refs[ref], usage)
-		idx.AllRefs = append(idx.AllRefs, usage)
-	}
-}
-
-func extractRefFromLine(line string) string {
-	// YAML: $ref: "./path" or $ref: './path' or $ref: ./path
-	if idx := findSubstring(line, "$ref:"); idx >= 0 {
-		val := trimLeft(line[idx+5:])
-		return unquoteRef(val)
-	}
-	// JSON: "$ref": "value"
-	if idx := findSubstring(line, "\"$ref\""); idx >= 0 {
-		rest := line[idx+6:]
-		if colon := findSubstring(rest, ":"); colon >= 0 {
-			val := trimLeft(rest[colon+1:])
-			return unquoteRef(val)
-		}
-	}
-	return ""
-}
-
-func unquoteRef(s string) string {
-	s = trimLeft(s)
-	s = trimRight(s)
-	if len(s) == 0 {
-		return ""
-	}
-	if (s[0] == '"' || s[0] == '\'') && len(s) >= 2 {
-		quote := s[0]
-		end := findByte(s[1:], quote)
-		if end >= 0 {
-			return s[1 : end+1]
-		}
-	}
-	// Bare value (YAML unquoted)
-	end := len(s)
-	for i := 0; i < len(s); i++ {
-		if s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == ',' {
-			end = i
-			break
-		}
-	}
-	return s[:end]
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
-func findSubstring(s, sub string) int {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
-}
-
-func findByte(s string, b byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == b {
-			return i
-		}
-	}
-	return -1
-}
-
-func trimLeft(s string) string {
-	i := 0
-	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
-		i++
-	}
-	return s[i:]
-}
-
-func trimRight(s string) string {
-	i := len(s) - 1
-	for i >= 0 && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
-		i--
-	}
-	return s[:i+1]
 }
 
 func toDocURI(uri string) protocol.DocumentURI {
@@ -219,26 +108,48 @@ func toDocURI(uri string) protocol.DocumentURI {
 }
 
 // RebuildIndex re-indexes a single file within the project, updating the
-// graph and resolver.
+// graph and resolver. Newly referenced files are loaded transitively.
 func (p *ProjectContext) RebuildIndex(uri string, cache *openapi.IndexCache) error {
 	idx, err := p.loadIndex(uri, cache)
 	if err != nil {
 		return err
 	}
 
-	p.Docs[uri] = idx
-	p.Graph.RemoveEdgesFrom(uri)
-	for _, edge := range ExtractExternalRefs(uri, idx) {
+	norm := openapi.NormalizeURI(uri)
+	p.Docs[norm] = idx
+	p.Graph.RemoveEdgesFrom(norm)
+	edges := ExtractExternalRefs(norm, idx)
+	for _, edge := range edges {
 		p.Graph.AddEdge(edge)
 	}
+
+	// Load any newly referenced files that aren't yet part of this project.
+	for _, edge := range edges {
+		if _, loaded := p.Docs[edge.ToURI]; !loaded {
+			if err := p.loadTransitive(edge.ToURI, cache); err != nil {
+				if p.logger != nil {
+					p.logger.Warn("failed to load new ref target during rebuild", "uri", edge.ToURI, "error", err)
+				}
+			}
+		}
+	}
+
 	p.Resolver = NewCrossFileResolver(p.Docs)
 	return nil
 }
 
 // ContainsFile reports whether the given URI is part of this project.
+// The URI is normalized before lookup to handle encoding differences.
 func (p *ProjectContext) ContainsFile(uri string) bool {
-	_, ok := p.Docs[uri]
-	return ok
+	if _, ok := p.Docs[uri]; ok {
+		return true
+	}
+	norm := openapi.NormalizeURI(uri)
+	if norm != uri {
+		_, ok := p.Docs[norm]
+		return ok
+	}
+	return false
 }
 
 // AllURIs returns every file URI in the project.

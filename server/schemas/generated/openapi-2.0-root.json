@@ -50,9 +50,7 @@
     "info",
     "paths"
   ],
-  "additionalProperties": {
-    "$ref": "#/$defs/__schema313"
-  },
+  "additionalProperties": false,
   "title": "Swagger",
   "$defs": {
     "__schema0": {
@@ -90,9 +88,7 @@
         "title",
         "version"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema23"
-      },
+      "additionalProperties": false,
       "title": "info",
       "description": "REQUIRED. Provides metadata about the API."
     },
@@ -140,9 +136,7 @@
           "$ref": "#/$defs/__schema13"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema15"
-      },
+      "additionalProperties": false,
       "title": "Contact"
     },
     "__schema9": {
@@ -178,7 +172,6 @@
     "__schema14": {
       "type": "string"
     },
-    "__schema15": {},
     "__schema16": {
       "title": "license",
       "$ref": "#/$defs/__schema17"
@@ -196,9 +189,7 @@
       "required": [
         "name"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema21"
-      },
+      "additionalProperties": false,
       "title": "License"
     },
     "__schema18": {
@@ -220,7 +211,6 @@
     "__schema20": {
       "type": "string"
     },
-    "__schema21": {},
     "__schema22": {
       "type": "string",
       "description": "REQUIRED. Provides the version of the application API (not the specification version).",
@@ -229,7 +219,6 @@
         "1.0.1"
       ]
     },
-    "__schema23": {},
     "__schema24": {
       "description": "The host (name or ip) serving the API. MAY include a port. Does not include scheme or basePath.",
       "title": "host",
@@ -340,9 +329,7 @@
           "required": [
             "$ref"
           ],
-          "additionalProperties": {
-            "$ref": "#/$defs/__schema291"
-          },
+          "additionalProperties": false,
           "title": "PathItem"
         },
         {}
@@ -455,9 +442,7 @@
       "required": [
         "responses"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema282"
-      },
+      "additionalProperties": false,
       "title": "Operation"
     },
     "__schema44": {
@@ -501,9 +486,7 @@
       "required": [
         "url"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema55"
-      },
+      "additionalProperties": false,
       "title": "ExternalDocumentation"
     },
     "__schema52": {
@@ -522,7 +505,6 @@
       ],
       "description": "REQUIRED. The URL for the target documentation."
     },
-    "__schema55": {},
     "__schema56": {
       "title": "operationId",
       "$ref": "#/$defs/__schema57"
@@ -605,9 +587,7 @@
         "in",
         "schema"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema179"
-      },
+      "additionalProperties": false,
       "title": "BodyParameter"
     },
     "__schema66": {
@@ -727,9 +707,7 @@
           "$ref": "#/$defs/__schema176"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema178"
-      },
+      "additionalProperties": false,
       "title": "schema",
       "description": "REQUIRED. The schema defining the type.",
       "$ref": "#/$defs/__schema86"
@@ -891,9 +869,7 @@
           "$ref": "#/$defs/__schema176"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema178"
-      },
+      "additionalProperties": false,
       "title": "Schema"
     },
     "__schema87": {
@@ -972,9 +948,7 @@
           "$ref": "#/$defs/__schema123"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema125"
-      },
+      "additionalProperties": false,
       "title": "Items"
     },
     "__schema91": {
@@ -1023,7 +997,6 @@
       "title": "default",
       "$ref": "#/$defs/__schema100"
     },
-    "__schema100": {},
     "__schema101": {
       "title": "maximum",
       "$ref": "#/$defs/__schema102"
@@ -1117,7 +1090,6 @@
     "__schema124": {
       "type": "number"
     },
-    "__schema125": {},
     "__schema126": {
       "title": "allOf",
       "$ref": "#/$defs/__schema127"
@@ -1132,7 +1104,6 @@
       "title": "default",
       "$ref": "#/$defs/__schema129"
     },
-    "__schema129": {},
     "__schema130": {
       "title": "discriminator",
       "$ref": "#/$defs/__schema131"
@@ -1170,9 +1141,7 @@
           "$ref": "#/$defs/__schema144"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema146"
-      },
+      "additionalProperties": false,
       "title": "XML"
     },
     "__schema136": {
@@ -1210,7 +1179,6 @@
     "__schema145": {
       "type": "boolean"
     },
-    "__schema146": {},
     "__schema147": {
       "title": "externalDocs",
       "$ref": "#/$defs/__schema51"
@@ -1219,7 +1187,6 @@
       "title": "example",
       "$ref": "#/$defs/__schema149"
     },
-    "__schema149": {},
     "__schema150": {
       "title": "maximum",
       "$ref": "#/$defs/__schema151"
@@ -1331,8 +1298,6 @@
     "__schema177": {
       "type": "number"
     },
-    "__schema178": {},
-    "__schema179": {},
     "__schema180": {
       "type": "object",
       "properties": {
@@ -1408,9 +1373,7 @@
         "in",
         "type"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema221"
-      },
+      "additionalProperties": false,
       "title": "NonBodyParameter"
     },
     "__schema181": {
@@ -1493,7 +1456,6 @@
       "title": "default",
       "$ref": "#/$defs/__schema196"
     },
-    "__schema196": {},
     "__schema197": {
       "title": "maximum",
       "$ref": "#/$defs/__schema198"
@@ -1587,7 +1549,6 @@
     "__schema220": {
       "type": "number"
     },
-    "__schema221": {},
     "__schema222": {
       "type": "object",
       "properties": {
@@ -1604,9 +1565,7 @@
       "required": [
         "$ref"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema225"
-      },
+      "additionalProperties": false,
       "title": "Reference Object",
       "description": "A reference to another component in the specification.",
       "examples": [
@@ -1640,7 +1599,6 @@
       "title": "description",
       "description": "A description which by default SHOULD override that of the referenced component."
     },
-    "__schema225": {},
     "__schema226": {
       "type": "object",
       "properties": {
@@ -1648,9 +1606,7 @@
           "$ref": "#/$defs/__schema227"
         }
       },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema272"
-      },
+      "additionalProperties": false,
       "title": "responses",
       "description": "REQUIRED. The responses for this operation."
     },
@@ -1688,9 +1644,7 @@
       "required": [
         "description"
       ],
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema271"
-      },
+      "additionalProperties": false,
       "title": "Response"
     },
     "__schema230": {
@@ -1772,9 +1726,7 @@
         "required": [
           "type"
         ],
-        "additionalProperties": {
-          "$ref": "#/$defs/__schema268"
-        },
+        "additionalProperties": false,
         "title": "Header"
       }
     },
@@ -1824,7 +1776,6 @@
       "title": "default",
       "$ref": "#/$defs/__schema243"
     },
-    "__schema243": {},
     "__schema244": {
       "title": "maximum",
       "$ref": "#/$defs/__schema245"
@@ -1918,7 +1869,6 @@
     "__schema267": {
       "type": "number"
     },
-    "__schema268": {},
     "__schema269": {
       "title": "examples",
       "$ref": "#/$defs/__schema270"
@@ -1928,10 +1878,8 @@
       "propertyNames": {
         "type": "string"
       },
-      "additionalProperties": {}
+      "additionalProperties": false
     },
-    "__schema271": {},
-    "__schema272": {},
     "__schema273": {
       "title": "schemes",
       "$ref": "#/$defs/__schema274"
@@ -1984,7 +1932,6 @@
         "type": "string"
       }
     },
-    "__schema282": {},
     "__schema283": {
       "title": "put",
       "$ref": "#/$defs/__schema43"
@@ -2026,7 +1973,6 @@
         ]
       }
     },
-    "__schema291": {},
     "__schema292": {
       "title": "definitions",
       "$ref": "#/$defs/__schema293"
@@ -2130,9 +2076,7 @@
         "required": [
           "name"
         ],
-        "additionalProperties": {
-          "$ref": "#/$defs/__schema311"
-        },
+        "additionalProperties": false,
         "title": "Tag"
       }
     },
@@ -2152,11 +2096,9 @@
       "title": "externalDocs",
       "$ref": "#/$defs/__schema51"
     },
-    "__schema311": {},
     "__schema312": {
       "title": "externalDocs",
       "$ref": "#/$defs/__schema51"
-    },
-    "__schema313": {}
+    }
   }
 }

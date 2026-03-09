@@ -67,7 +67,7 @@ func resolveRelativeURI(baseURI, relPath string) string {
 	baseDir := filepath.Dir(u.Path)
 	resolved := filepath.Clean(filepath.Join(baseDir, relPath))
 
-	target := &url.URL{Scheme: "file", Path: resolved}
+	target := &url.URL{Scheme: "file", Path: filepath.Clean(resolved)}
 	return target.String()
 }
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -143,9 +143,9 @@ func TestTranslatePosition(t *testing.T) {
 	desc := openapi.DescriptionValue{
 		Text: "# Title\n\nSome text",
 		Loc: openapi.Loc{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 10, Character: 4},
-				End:   protocol.Position{Line: 15, Character: 0},
+			Range: ctypes.Range{
+				Start: ctypes.Position{Line: 10, Character: 4},
+				End:   ctypes.Position{Line: 15, Character: 0},
 			},
 		},
 		LineOffset: 0,
@@ -167,9 +167,9 @@ func TestTranslatePosition_BlockScalar(t *testing.T) {
 	desc := openapi.DescriptionValue{
 		Text: "# Title\n\nSome text",
 		Loc: openapi.Loc{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 10, Character: 4},
-				End:   protocol.Position{Line: 15, Character: 0},
+			Range: ctypes.Range{
+				Start: ctypes.Position{Line: 10, Character: 4},
+				End:   ctypes.Position{Line: 15, Character: 0},
 			},
 		},
 		LineOffset: 1,
@@ -191,9 +191,9 @@ func TestTranslateRange(t *testing.T) {
 	desc := openapi.DescriptionValue{
 		Text: "Some content here",
 		Loc: openapi.Loc{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 5, Character: 2},
-				End:   protocol.Position{Line: 10, Character: 0},
+			Range: ctypes.Range{
+				Start: ctypes.Position{Line: 5, Character: 2},
+				End:   ctypes.Position{Line: 10, Character: 0},
 			},
 		},
 		LineOffset: 0,
@@ -216,9 +216,9 @@ func TestTranslateRange_BlockScalar(t *testing.T) {
 	desc := openapi.DescriptionValue{
 		Text: "See [link](https://example.com) for details.",
 		Loc: openapi.Loc{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: 5, Character: 2},
-				End:   protocol.Position{Line: 10, Character: 0},
+			Range: ctypes.Range{
+				Start: ctypes.Position{Line: 5, Character: 2},
+				End:   ctypes.Position{Line: 10, Character: 0},
 			},
 		},
 		LineOffset: 1,

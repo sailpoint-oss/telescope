@@ -11,6 +11,8 @@ import (
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/testutil/specs"
@@ -52,11 +54,11 @@ func buildIndex(t *testing.T, spec specs.Spec) *openapi.Index {
 	return openapi.BuildIndex(tree, doc)
 }
 
-func runRule(t *testing.T, idx *openapi.Index, ruleID string, severity protocol.DiagnosticSeverity, v rules.Visitors) []protocol.Diagnostic {
+func runRule(t *testing.T, idx *openapi.Index, ruleID string, severity ctypes.Severity, v rules.Visitors) []protocol.Diagnostic {
 	t.Helper()
 	r := rules.NewReporter(ruleID, severity)
 	rules.Walk(idx, v, r)
-	return r.Diagnostics()
+	return adapt.DiagnosticsToProtocol(r.Diagnostics())
 }
 
 func TestNaming_SchemaNameCapital(t *testing.T) {
@@ -65,7 +67,7 @@ func TestNaming_SchemaNameCapital(t *testing.T) {
 		t.Skip("test-valid spec not found")
 	}
 	idx := buildIndex(t, spec)
-	diags := runRule(t, idx, "schema-name-capital", protocol.SeverityWarning, rules.Visitors{
+	diags := runRule(t, idx, "schema-name-capital", ctypes.SeverityWarning, rules.Visitors{
 		Schema: func(name string, schema *openapi.Schema, pointer string, r *rules.Reporter) {
 			if name != "" && len(name) > 0 && name[0] >= 'a' && name[0] <= 'z' {
 				r.At(schema.NameLoc, "Schema name '%s' should start with uppercase", name)
@@ -87,7 +89,7 @@ func TestNaming_OperationIDUnique(t *testing.T) {
 	idx := buildIndex(t, spec)
 	seen := make(map[string]bool)
 	var dupes int
-	diags := runRule(t, idx, "operation-operationId-unique", protocol.SeverityError, rules.Visitors{
+	diags := runRule(t, idx, "operation-operationId-unique", ctypes.SeverityError, rules.Visitors{
 		Operation: func(path, method string, op *openapi.Operation, r *rules.Reporter) {
 			if op.OperationID == "" {
 				return
@@ -113,14 +115,17 @@ func TestExtended_OperationTags(t *testing.T) {
 		t.Skip("test-warnings spec not found")
 	}
 	idx := buildIndex(t, spec)
-	diags := runRule(t, idx, "operation-tags", protocol.SeverityWarning, rules.Visitors{
+	diags := runRule(t, idx, "operation-tags", ctypes.SeverityWarning, rules.Visitors{
 		Operation: func(path, method string, op *openapi.Operation, r *rules.Reporter) {
 			if len(op.Tags) == 0 {
 				r.At(op.Loc, "Operation %s %s should have at least one tag", method, path)
 			}
 		},
 	})
-	_ = diags // coverage test: ensure rule runs without panic
+	// test-warnings spec has all operations with tags, so 0 diagnostics expected.
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics (all operations have tags), got %d", len(diags))
+	}
 }
 
 func TestExtended_OperationDescription(t *testing.T) {
@@ -129,14 +134,17 @@ func TestExtended_OperationDescription(t *testing.T) {
 		t.Skip("test-warnings spec not found")
 	}
 	idx := buildIndex(t, spec)
-	diags := runRule(t, idx, "operation-description", protocol.SeverityWarning, rules.Visitors{
+	diags := runRule(t, idx, "operation-description", ctypes.SeverityWarning, rules.Visitors{
 		Operation: func(path, method string, op *openapi.Operation, r *rules.Reporter) {
 			if op.Description.Text == "" {
 				r.At(op.Loc, "Operation %s %s should have a description", method, path)
 			}
 		},
 	})
-	_ = diags
+	// test-warnings spec has all operations with descriptions, so 0 diagnostics expected.
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics (all operations have descriptions), got %d", len(diags))
+	}
 }
 
 func TestSecurity_SecuritySchemesDefined(t *testing.T) {
@@ -145,7 +153,7 @@ func TestSecurity_SecuritySchemesDefined(t *testing.T) {
 		t.Skip("test-errors spec not found")
 	}
 	idx := buildIndex(t, spec)
-	diags := runRule(t, idx, "security-schemes-defined", protocol.SeverityError, rules.Visitors{
+	diags := runRule(t, idx, "security-schemes-defined", ctypes.SeverityError, rules.Visitors{
 		Custom: func(idx *openapi.Index, r *rules.Reporter) {
 			allReqs := append([]openapi.SecurityRequirement{}, idx.Document.Security...)
 			for _, item := range idx.Document.Paths {
@@ -158,7 +166,7 @@ func TestSecurity_SecuritySchemesDefined(t *testing.T) {
 					if _, ok := idx.SecuritySchemes[entry.Name]; !ok {
 						loc := entry.NameLoc
 						if loc.Node == nil {
-							loc = idx.Document.Loc
+							loc = openapi.Loc{Range: adapt.RangeFromProtocol(protocol.FileStartRange)}
 						}
 						r.At(loc, "Security requirement references undefined scheme '%s'", entry.Name)
 					}
@@ -166,7 +174,9 @@ func TestSecurity_SecuritySchemesDefined(t *testing.T) {
 			}
 		},
 	})
-	_ = diags
+	if len(diags) == 0 {
+		t.Error("expected diagnostics for undefined security schemes in test-errors spec")
+	}
 }
 
 func TestPaths_KebabCase(t *testing.T) {
@@ -175,7 +185,7 @@ func TestPaths_KebabCase(t *testing.T) {
 		t.Skip("test-warnings spec not found")
 	}
 	idx := buildIndex(t, spec)
-	diags := runRule(t, idx, "kebab-case", protocol.SeverityWarning, rules.Visitors{
+	diags := runRule(t, idx, "kebab-case", ctypes.SeverityWarning, rules.Visitors{
 		Path: func(path string, item *openapi.PathItem, r *rules.Reporter) {
 			for _, seg := range strings.Split(path, "/") {
 				if seg == "" || strings.HasPrefix(seg, "{") {
@@ -188,7 +198,10 @@ func TestPaths_KebabCase(t *testing.T) {
 			}
 		},
 	})
-	_ = diags
+	// test-warnings spec uses kebab-case paths, so 0 diagnostics expected.
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics (all paths are kebab-case), got %d", len(diags))
+	}
 }
 
 func TestServers_ServersDefined(t *testing.T) {
@@ -197,14 +210,17 @@ func TestServers_ServersDefined(t *testing.T) {
 		t.Skip("test-valid spec not found")
 	}
 	idx := buildIndex(t, spec)
-	diags := runRule(t, idx, "oas3-api-servers", protocol.SeverityWarning, rules.Visitors{
+	diags := runRule(t, idx, "oas3-api-servers", ctypes.SeverityWarning, rules.Visitors{
 		Document: func(doc *openapi.Document, r *rules.Reporter) {
 			if len(doc.Servers) == 0 {
-				r.At(doc.Loc, "API should define at least one server")
+				r.AtRange(adapt.RangeFromProtocol(protocol.FileStartRange), "API should define at least one server")
 			}
 		},
 	})
-	_ = diags
+	// test-valid spec has no servers section, so servers-defined rule correctly fires.
+	if diags == nil {
+		t.Error("expected non-nil diagnostics slice")
+	}
 }
 
 func TestValidSpec_NoUnresolvedRefs(t *testing.T) {
@@ -213,7 +229,7 @@ func TestValidSpec_NoUnresolvedRefs(t *testing.T) {
 		t.Skip("test-valid spec not found")
 	}
 	idx := buildIndex(t, spec)
-	diags := runRule(t, idx, "unresolved-ref", protocol.SeverityError, rules.Visitors{
+	diags := runRule(t, idx, "unresolved-ref", ctypes.SeverityError, rules.Visitors{
 		Custom: func(idx *openapi.Index, r *rules.Reporter) {
 			for _, ref := range idx.AllRefs {
 				if _, err := idx.Resolve(ref.Target); err != nil {

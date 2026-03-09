@@ -31,11 +31,14 @@ paths: {}
 `)
 
 	diags := client.WaitForDiagnostics("file:///test.yaml", 5*time.Second)
-	_ = diags
+	if diags == nil {
+		t.Error("expected non-nil diagnostics")
+	}
 
-	hover, err := client.Hover("file:///test.yaml", protocol.Position{Line: 0, Character: 0})
-	_ = hover
-	_ = err
+	_, err := client.Hover("file:///test.yaml", protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("hover should not error on valid spec: %v", err)
+	}
 }
 
 func TestServer_DiagnosticsOnInvalidSpec(t *testing.T) {
@@ -58,7 +61,12 @@ paths:
 `)
 
 	diags := client.WaitForDiagnostics("file:///bad.yaml", 5*time.Second)
-	_ = diags
+	if len(diags) == 0 {
+		t.Error("expected diagnostics for invalid spec")
+	}
+	if !hasDiagWithCode(diags, "unresolved-ref") {
+		t.Error("expected unresolved-ref diagnostic for #/components/schemas/NonExistent")
+	}
 }
 
 func TestServer_Completion(t *testing.T) {
@@ -89,9 +97,11 @@ components:
 
 	completions, err := client.Completion("file:///api.yaml", protocol.Position{Line: 14, Character: 22})
 	if err != nil {
-		t.Logf("completion returned error: %v", err)
+		t.Errorf("completion should not error: %v", err)
 	}
-	_ = completions
+	if completions == nil {
+		t.Error("expected non-nil completion response")
+	}
 }
 
 func TestServer_DocumentSymbol(t *testing.T) {
@@ -116,3 +126,7 @@ components:
 
 	_ = client.WaitForDiagnostics("file:///sym.yaml", 5*time.Second)
 }
+
+// Cross-file integration tests using the full server are in handler_test.go
+// (TestDefinitionHandler_CrossFile_*, TestHoverHandler_CrossFile_*) which use
+// a direct handler setup with pre-built indexes for deterministic testing.

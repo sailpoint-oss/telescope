@@ -53,8 +53,13 @@ func runCI(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	roots := args
+	if len(roots) == 0 {
+		roots = []string{"."}
+	}
+
 	// Collect all OpenAPI files in the workspace.
-	allFiles, err := collectFiles([]string{"."}, cfg)
+	allFiles, err := collectFiles(roots, cfg)
 	if err != nil {
 		return err
 	}

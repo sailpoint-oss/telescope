@@ -7,7 +7,10 @@ import (
 
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
+	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
 // Analyzer creates a treesitter.Analyzer that validates x-* extensions
@@ -16,8 +19,8 @@ func Analyzer(registry *Registry) treesitter.Analyzer {
 	return treesitter.Analyzer{
 		Scope: treesitter.ScopeFile,
 		Run: func(ctx *treesitter.AnalysisContext) []protocol.Diagnostic {
-			idx, ok := ctx.UserData.(*openapi.Index)
-			if !ok || idx == nil || idx.Document == nil {
+			idx := rules.GetIndex(ctx)
+			if idx == nil || idx.Document == nil {
 				return nil
 			}
 			v := &extensionValidator{registry: registry}
@@ -53,9 +56,6 @@ func (v *extensionValidator) validate(doc *openapi.Document) {
 			for _, p := range op.Parameters {
 				v.checkExtensions(p.Extensions, ScopeParameter)
 			}
-			if op.RequestBody != nil {
-				v.checkScope(op.RequestBody.Loc, ScopeRequestBody)
-			}
 			for _, resp := range op.Responses {
 				v.checkExtensions(resp.Extensions, ScopeResponse)
 			}
@@ -72,12 +72,11 @@ func (v *extensionValidator) validate(doc *openapi.Document) {
 	}
 
 	for i := range doc.Tags {
-		// Tags don't have Extensions in our model, but we validate anyway
-		_ = doc.Tags[i]
+		v.checkExtensions(doc.Tags[i].Extensions, ScopeTag)
 	}
 
 	for i := range doc.Servers {
-		_ = doc.Servers[i]
+		v.checkExtensions(doc.Servers[i].Extensions, ScopeServer)
 	}
 }
 
@@ -93,7 +92,7 @@ func (v *extensionValidator) checkExtensions(exts map[string]*openapi.Node, scop
 
 		// Check scope validity
 		if !v.registry.ValidAtScope(name, scope) {
-			v.report(node.Loc, protocol.SeverityWarning, "extension-scope",
+			v.report(node.Loc, ctypes.SeverityWarning, "extension-scope",
 				fmt.Sprintf("Extension %q is not valid at scope %q (expected: %s)",
 					name, scope, formatScopes(ext.Meta.Scopes)))
 		}
@@ -109,7 +108,7 @@ func (v *extensionValidator) checkRequired(exts map[string]*openapi.Node, scope 
 	required := v.registry.RequiredForScope(scope)
 	for _, req := range required {
 		if _, ok := exts[req.Meta.Name]; !ok {
-			v.report(loc, protocol.SeverityWarning, "extension-required",
+			v.report(loc, ctypes.SeverityWarning, "extension-required",
 				fmt.Sprintf("Required extension %q is missing at scope %q", req.Meta.Name, scope))
 		}
 	}
@@ -124,46 +123,37 @@ func (v *extensionValidator) validateValue(name string, node *openapi.Node, ext 
 	// Basic type validation
 	switch schemaType {
 	case "string":
-		if node.Value == "" {
-			v.report(node.Loc, protocol.SeverityWarning, "extension-type",
-				fmt.Sprintf("Extension %q expects a string value", name))
-		}
-	case "boolean":
-		if node.Value != "true" && node.Value != "false" {
-			v.report(node.Loc, protocol.SeverityWarning, "extension-type",
-				fmt.Sprintf("Extension %q expects a boolean value", name))
-		}
-		// Enum validation for strings
-		if schemaType == "string" {
-			if enumRaw, ok := ext.SchemaData["enum"]; ok {
-				if enumData, err := json.Marshal(enumRaw); err == nil {
-					var enumValues []string
-					if json.Unmarshal(enumData, &enumValues) == nil && len(enumValues) > 0 {
-						found := false
-						for _, ev := range enumValues {
-							if ev == node.Value {
-								found = true
-								break
-							}
+		if enumRaw, ok := ext.SchemaData["enum"]; ok {
+			if enumData, err := json.Marshal(enumRaw); err == nil {
+				var enumValues []string
+				if json.Unmarshal(enumData, &enumValues) == nil && len(enumValues) > 0 {
+					found := false
+					for _, ev := range enumValues {
+						if ev == node.Value {
+							found = true
+							break
 						}
-						if !found {
-							v.report(node.Loc, protocol.SeverityWarning, "extension-enum",
-								fmt.Sprintf("Extension %q value %q is not one of: %s",
-									name, node.Value, strings.Join(enumValues, ", ")))
-						}
+					}
+					if !found {
+						v.report(node.Loc, ctypes.SeverityWarning, "extension-enum",
+							fmt.Sprintf("Extension %q value %q is not one of: %s",
+								name, node.Value, strings.Join(enumValues, ", ")))
 					}
 				}
 			}
 		}
+	case "boolean":
+		if node.Value != "true" && node.Value != "false" {
+			v.report(node.Loc, ctypes.SeverityWarning, "extension-type",
+				fmt.Sprintf("Extension %q expects a boolean value", name))
+		}
 	}
 }
 
-func (v *extensionValidator) checkScope(_ openapi.Loc, _ Scope) {}
-
-func (v *extensionValidator) report(loc openapi.Loc, severity protocol.DiagnosticSeverity, code, message string) {
+func (v *extensionValidator) report(loc openapi.Loc, severity ctypes.Severity, code, message string) {
 	v.diags = append(v.diags, protocol.Diagnostic{
-		Range:    loc.Range,
-		Severity: severity,
+		Range:    adapt.RangeToProtocol(loc.Range),
+		Severity: adapt.SeverityToProtocol(severity),
 		Source:   "telescope",
 		Code:     code,
 		Message:  message,

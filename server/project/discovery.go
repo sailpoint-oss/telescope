@@ -261,13 +261,13 @@ func classifyByContent(data []byte, path string) FileRole {
 	return RoleUnknown
 }
 
-// pathToURI converts an absolute filesystem path to a file:// URI.
+// pathToURI converts an absolute filesystem path to a normalized file:// URI.
 func pathToURI(path string) string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		abs = path
 	}
-	u := &url.URL{Scheme: "file", Path: abs}
+	u := &url.URL{Scheme: "file", Path: filepath.Clean(abs)}
 	return u.String()
 }
 

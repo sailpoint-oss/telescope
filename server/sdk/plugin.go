@@ -9,6 +9,7 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
 	goplugin "github.com/sailpoint-oss/telescope/server/plugin"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -69,7 +70,7 @@ func (s *pluginServer) GetMeta() (*goplugin.GetMetaResponse, error) {
 		metas[i] = goplugin.PluginRuleMeta{
 			ID:          m.ID,
 			Description: m.Description,
-			Severity:    severityToString(m.Severity),
+			Severity:    severityFromInt(int(m.Severity)),
 			Category:    string(m.Category),
 			Recommended: m.Recommended,
 			HowToFix:    m.HowToFix,
@@ -102,7 +103,7 @@ func (s *pluginServer) Analyze(req *goplugin.AnalyzeRequest) (*goplugin.AnalyzeR
 				StartChar: d.Range.Start.Character,
 				EndLine:   d.Range.End.Line,
 				EndChar:   d.Range.End.Character,
-				Severity:  severityToString(d.Severity),
+				Severity:  severityFromInt(int(d.Severity)),
 				Code:      diagnosticCode(d),
 				Message:   d.Message,
 				Source:    pluginSource(d.Source, s.instance.name, id),
@@ -127,34 +128,36 @@ func pluginSource(src, pluginName, ruleID string) string {
 	return pluginName
 }
 
-func severityToString(s protocol.DiagnosticSeverity) string {
-	switch s {
-	case protocol.SeverityError:
+// severityFromInt converts a severity code (1=error, 2=warn, 3=info, 4=hint) to string.
+// Works with both ctypes.Severity and protocol.DiagnosticSeverity.
+func severityFromInt(sev int) string {
+	switch sev {
+	case 1:
 		return "error"
-	case protocol.SeverityWarning:
+	case 2:
 		return "warn"
-	case protocol.SeverityInformation:
+	case 3:
 		return "info"
-	case protocol.SeverityHint:
+	case 4:
 		return "hint"
 	default:
 		return "warn"
 	}
 }
 
-// stringToSeverity converts a severity string to a protocol severity.
-func stringToSeverity(s string) protocol.DiagnosticSeverity {
+// stringToSeverity converts a severity string to a core severity.
+func stringToSeverity(s string) ctypes.Severity {
 	switch s {
 	case "error":
-		return protocol.SeverityError
+		return ctypes.SeverityError
 	case "warn", "warning":
-		return protocol.SeverityWarning
+		return ctypes.SeverityWarning
 	case "info", "information":
-		return protocol.SeverityInformation
+		return ctypes.SeverityInfo
 	case "hint":
-		return protocol.SeverityHint
+		return ctypes.SeverityHint
 	default:
-		return protocol.SeverityWarning
+		return ctypes.SeverityWarning
 	}
 }
 

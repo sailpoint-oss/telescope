@@ -110,10 +110,10 @@ extends: telescope:recommended
 
 | Name | Description |
 | ---- | ----------- |
-| `telescope:recommended` | ~35 curated rules for most projects (default) |
-| `telescope:all` | All ~65 rules enabled (excludes OWASP) |
-| `telescope:owasp` | 15 OWASP API security rules |
-| `telescope:strict` | Recommended + OWASP with stricter severities |
+| `telescope:recommended` | 50 curated rules for most projects (default) |
+| `telescope:all` | All 56 non-OWASP rules |
+| `telescope:owasp` | 32 OWASP API security rules |
+| `telescope:strict` | Recommended + OWASP combined |
 
 ### `rules`
 

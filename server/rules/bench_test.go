@@ -13,6 +13,7 @@ import (
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/testutil/specs"
 )
@@ -108,7 +109,7 @@ func BenchmarkAnalyzer_UnresolvedRef(b *testing.B) {
 				if _, err := idx.Resolve(target); err != nil {
 					for _, usage := range usages {
 						diags = append(diags, protocol.Diagnostic{
-							Range:   usage.Loc.Range,
+							Range:   adapt.RangeToProtocol(usage.Loc.Range),
 							Message: fmt.Sprintf("Cannot resolve $ref: %s", target),
 						})
 					}
@@ -145,7 +146,7 @@ func BenchmarkAnalyzer_Naming(b *testing.B) {
 			for name, schema := range idx.Schemas {
 				if len(name) > 0 && name[0] >= 'a' && name[0] <= 'z' {
 					diags = append(diags, protocol.Diagnostic{
-						Range:   schema.NameLoc.Range,
+						Range:   adapt.RangeToProtocol(schema.NameLoc.Range),
 						Message: fmt.Sprintf("Schema name '%s' should start with uppercase", name),
 					})
 				}
@@ -182,7 +183,7 @@ func BenchmarkAnalyzer_Documentation(b *testing.B) {
 				op := opRef.Operation
 				if op.Description.Text == "" {
 					diags = append(diags, protocol.Diagnostic{
-						Range:   op.Loc.Range,
+						Range:   adapt.RangeToProtocol(op.Loc.Range),
 						Message: "Operation missing description",
 					})
 				}
@@ -218,7 +219,7 @@ func BenchmarkAnalyzer_Paths(b *testing.B) {
 			for path, item := range idx.Document.Paths {
 				if len(path) > 1 && path[len(path)-1] == '/' {
 					diags = append(diags, protocol.Diagnostic{
-						Range:   item.PathLoc.Range,
+						Range:   adapt.RangeToProtocol(item.PathLoc.Range),
 						Message: fmt.Sprintf("Path '%s' has trailing slash", path),
 					})
 				}
@@ -254,7 +255,7 @@ func BenchmarkAnalyzer_Security(b *testing.B) {
 			for name, scheme := range idx.SecuritySchemes {
 				if scheme.Type == "apiKey" && scheme.In == "query" {
 					diags = append(diags, protocol.Diagnostic{
-						Range:   scheme.Loc.Range,
+						Range:   adapt.RangeToProtocol(scheme.Loc.Range),
 						Message: fmt.Sprintf("Security scheme '%s' uses API key in query", name),
 					})
 				}
@@ -289,7 +290,7 @@ func BenchmarkAllAnalyzers(b *testing.B) {
 			for target, usages := range idx.Refs {
 				if _, err := idx.Resolve(target); err != nil {
 					for _, u := range usages {
-						diags = append(diags, protocol.Diagnostic{Range: u.Loc.Range, Message: "unresolved"})
+						diags = append(diags, protocol.Diagnostic{Range: adapt.RangeToProtocol(u.Loc.Range), Message: "unresolved"})
 					}
 				}
 			}
@@ -299,7 +300,7 @@ func BenchmarkAllAnalyzers(b *testing.B) {
 			var diags []protocol.Diagnostic
 			for name, s := range idx.Schemas {
 				if len(name) > 0 && name[0] >= 'a' && name[0] <= 'z' {
-					diags = append(diags, protocol.Diagnostic{Range: s.NameLoc.Range, Message: "naming"})
+					diags = append(diags, protocol.Diagnostic{Range: adapt.RangeToProtocol(s.NameLoc.Range), Message: "naming"})
 				}
 			}
 			return diags
@@ -308,7 +309,7 @@ func BenchmarkAllAnalyzers(b *testing.B) {
 			var diags []protocol.Diagnostic
 			for _, op := range idx.Operations {
 				if op.Operation.Description.Text == "" {
-					diags = append(diags, protocol.Diagnostic{Range: op.Operation.Loc.Range, Message: "docs"})
+					diags = append(diags, protocol.Diagnostic{Range: adapt.RangeToProtocol(op.Operation.Loc.Range), Message: "docs"})
 				}
 			}
 			return diags
@@ -317,7 +318,7 @@ func BenchmarkAllAnalyzers(b *testing.B) {
 			var diags []protocol.Diagnostic
 			for path, item := range idx.Document.Paths {
 				if len(path) > 1 && path[len(path)-1] == '/' {
-					diags = append(diags, protocol.Diagnostic{Range: item.PathLoc.Range, Message: "path"})
+					diags = append(diags, protocol.Diagnostic{Range: adapt.RangeToProtocol(item.PathLoc.Range), Message: "path"})
 				}
 			}
 			return diags
@@ -326,7 +327,7 @@ func BenchmarkAllAnalyzers(b *testing.B) {
 			var diags []protocol.Diagnostic
 			for _, scheme := range idx.SecuritySchemes {
 				if scheme.Type == "apiKey" && scheme.In == "query" {
-					diags = append(diags, protocol.Diagnostic{Range: scheme.Loc.Range, Message: "sec"})
+					diags = append(diags, protocol.Diagnostic{Range: adapt.RangeToProtocol(scheme.Loc.Range), Message: "sec"})
 				}
 			}
 			return diags

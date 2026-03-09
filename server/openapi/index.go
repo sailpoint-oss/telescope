@@ -9,6 +9,7 @@ import (
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 )
 
 // OperationRef links an operation to its path and method.
@@ -123,7 +124,7 @@ func (idx *Index) collectRefs(tree *treesitter.Tree, doc *document.Document, for
 	if root == nil {
 		return
 	}
-	idx.walkForRefs(root, tree, format)
+	idx.walkForRefs(root, tree, format, nil)
 	for i := range idx.AllRefs {
 		idx.AllRefs[i].URI = doc.URI()
 	}
@@ -134,7 +135,7 @@ func (idx *Index) collectRefs(tree *treesitter.Tree, doc *document.Document, for
 	}
 }
 
-func (idx *Index) walkForRefs(node *tree_sitter.Node, tree *treesitter.Tree, format FileFormat) {
+func (idx *Index) walkForRefs(node *tree_sitter.Node, tree *treesitter.Tree, format FileFormat, path []string) {
 	if node == nil {
 		return
 	}
@@ -151,19 +152,25 @@ func (idx *Index) walkForRefs(node *tree_sitter.Node, tree *treesitter.Tree, for
 			if keyText == "$ref" {
 				refTarget := unquote(tree.NodeText(valueNode))
 				usage := RefUsage{
-					Loc:    LocFromNode(valueNode),
+					Loc:    Loc{Range: adapt.RangeFromProtocol(tree.NodeRange(valueNode)), Node: valueNode},
 					Target: refTarget,
+					From:   "/" + strings.Join(path, "/"),
 				}
 				idx.Refs[refTarget] = append(idx.Refs[refTarget], usage)
 				idx.AllRefs = append(idx.AllRefs, usage)
+				return // $ref nodes don't have meaningful children
 			}
+			// Descend into the value with the key appended to the path.
+			childPath := append(path, escapeJSONPointer(keyText))
+			idx.walkForRefs(valueNode, tree, format, childPath)
+			return
 		}
 	}
 
 	for i := uint(0); i < node.ChildCount(); i++ {
 		child := node.Child(i)
 		if child != nil {
-			idx.walkForRefs(child, tree, format)
+			idx.walkForRefs(child, tree, format, path)
 		}
 	}
 }
@@ -181,6 +188,9 @@ func (idx *Index) IsOpenAPI() bool {
 
 // HasPath returns true if the given path template exists.
 func (idx *Index) HasPath(path string) bool {
+	if idx == nil || idx.Document == nil {
+		return false
+	}
 	_, ok := idx.Document.Paths[path]
 	return ok
 }
@@ -247,6 +257,7 @@ func (idx *Index) RefsTo(target string) []RefUsage {
 type IndexCache struct {
 	mu      sync.RWMutex
 	indexes map[protocol.DocumentURI]*Index
+	builder func(protocol.DocumentURI) *Index
 }
 
 // NewIndexCache creates a new index cache.
@@ -256,25 +267,58 @@ func NewIndexCache() *IndexCache {
 	}
 }
 
-// Get returns the cached index for a URI, or nil.
+// NormalizeURI canonicalizes a file:// URI so that URIs produced by the LSP
+// client and by the server's pathToURI function compare equal as map keys.
+// It delegates to gossip's protocol.NormalizeURI which cleans the path,
+// removes host/query/fragment, and re-serializes.
+func NormalizeURI(uri string) string {
+	return string(protocol.NormalizeURI(protocol.DocumentURI(uri)))
+}
+
+// SetBuilder registers a fallback function that builds the index on-demand
+// when Get finds no cached entry. The builder must be safe for concurrent use.
+func (c *IndexCache) SetBuilder(fn func(protocol.DocumentURI) *Index) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.builder = fn
+}
+
+// Get returns the cached index for a URI. If no cached entry exists and a
+// builder has been registered via SetBuilder, it builds, caches, and returns
+// the index on demand. The URI is normalized before lookup.
 func (c *IndexCache) Get(uri protocol.DocumentURI) *Index {
+	norm := protocol.NormalizeURI(uri)
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.indexes[uri]
+	idx := c.indexes[norm]
+	builder := c.builder
+	c.mu.RUnlock()
+	if idx != nil {
+		return idx
+	}
+	if builder == nil {
+		return nil
+	}
+	idx = builder(uri)
+	if idx != nil {
+		c.Set(uri, idx)
+	}
+	return idx
 }
 
-// Set stores an index for a URI.
+// Set stores an index for a URI. The URI is normalized before storage.
 func (c *IndexCache) Set(uri protocol.DocumentURI, idx *Index) {
+	norm := protocol.NormalizeURI(uri)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.indexes[uri] = idx
+	c.indexes[norm] = idx
 }
 
-// Delete removes the index for a URI.
+// Delete removes the index for a URI. The URI is normalized before lookup.
 func (c *IndexCache) Delete(uri protocol.DocumentURI) {
+	norm := protocol.NormalizeURI(uri)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.indexes, uri)
+	delete(c.indexes, norm)
 }
 
 // All returns all cached indexes.
@@ -302,27 +346,12 @@ func (c *IndexCache) FindByOperationID(opID string) (protocol.DocumentURI, *Oper
 
 // FindRefTarget searches all cached indexes for a $ref target.
 func (c *IndexCache) FindRefTarget(ref string) (protocol.DocumentURI, interface{}) {
-	if !strings.HasPrefix(ref, "#/") {
-		// Cross-file ref: extract file path
-		parts := strings.SplitN(ref, "#", 2)
-		if len(parts) == 2 {
-			// Would need to resolve the file URI — for now just search all
-			for uri, idx := range c.indexes {
-				if result, err := idx.Resolve(ref); err == nil {
-					return uri, result
-				}
-				_ = uri
-			}
-		}
-	}
-
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for uri, idx := range c.indexes {
 		if result, err := idx.Resolve(ref); err == nil {
 			return uri, result
 		}
-		_ = uri
 	}
 	return "", nil
 }

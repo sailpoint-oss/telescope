@@ -2,6 +2,7 @@ package lsp_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
 	"github.com/sailpoint-oss/telescope/server/lsp"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -134,7 +136,7 @@ security:
 
 func TestRenameHandler_Tag(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewRenameHandler(env.cache)
+	handler := lsp.NewRenameHandler(env.cache, nil)
 
 	// Rename the "pets" tag
 	result, err := handler(env.ctx, &protocol.RenameParams{
@@ -171,13 +173,13 @@ func TestRenameHandler_Tag(t *testing.T) {
 
 func TestRenameHandler_Schema(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewRenameHandler(env.cache)
+	handler := lsp.NewRenameHandler(env.cache, nil)
 
 	// Position on "Pet" schema name in components
 	idx := env.cache.Get(env.uri)
 	var petNameRange protocol.Range
 	if schema, ok := idx.Schemas["Pet"]; ok {
-		petNameRange = schema.NameLoc.Range
+		petNameRange = adapt.RangeToProtocol(schema.NameLoc.Range)
 	}
 
 	result, err := handler(env.ctx, &protocol.RenameParams{
@@ -202,7 +204,7 @@ func TestRenameHandler_Schema(t *testing.T) {
 
 func TestPrepareRenameHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewPrepareRenameHandler(env.cache)
+	handler := lsp.NewPrepareRenameHandler(env.cache, nil)
 
 	tests := []struct {
 		name     string
@@ -236,7 +238,7 @@ func TestPrepareRenameHandler(t *testing.T) {
 
 func TestCompletionHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewCompletionHandler(env.cache)
+	handler := lsp.NewCompletionHandler(env.cache, nil)
 
 	result, err := handler(env.ctx, &protocol.CompletionParams{
 		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
@@ -261,7 +263,7 @@ func TestCompletionHandler(t *testing.T) {
 
 func TestCodeActionHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewCodeActionHandler(env.cache)
+	handler := lsp.NewCodeActionHandler(env.cache, nil)
 
 	result, err := handler(env.ctx, &protocol.CodeActionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -281,7 +283,7 @@ func TestCodeActionHandler(t *testing.T) {
 
 func TestDocumentLinkHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewDocumentLinkHandler(env.cache)
+	handler := lsp.NewDocumentLinkHandler(env.cache, nil)
 
 	result, err := handler(env.ctx, &protocol.DocumentLinkParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -304,7 +306,7 @@ func TestDocumentLinkHandler(t *testing.T) {
 
 func TestFormattingHandler_YAML(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewFormattingHandler(env.cache)
+	handler := lsp.NewFormattingHandler(env.cache, nil)
 
 	result, err := handler(env.ctx, &protocol.DocumentFormattingParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -322,7 +324,7 @@ func TestFormattingHandler_YAML(t *testing.T) {
 
 func TestHoverHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewHoverHandler(env.cache)
+	handler := lsp.NewHoverHandler(env.cache, nil)
 
 	tests := []struct {
 		name string
@@ -351,7 +353,7 @@ func TestHoverHandler(t *testing.T) {
 
 func TestDefinitionHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewDefinitionHandler(env.cache)
+	handler := lsp.NewDefinitionHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.DefinitionParams{
 		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
@@ -365,6 +367,55 @@ func TestDefinitionHandler(t *testing.T) {
 	_ = result
 }
 
+func TestDefinitionHandler_Ref(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewDefinitionHandler(env.cache, nil, nil)
+
+	// Line 27 (0-based) in testSpec: `$ref: "#/components/schemas/Pet"`
+	// Test Ctrl+Click on various positions within the $ref value
+	positions := []struct {
+		name string
+		pos  protocol.Position
+	}{
+		{"middle of ref value", protocol.Position{Line: 27, Character: 30}},
+		{"start of ref value", protocol.Position{Line: 27, Character: 22}},
+		{"on $ref key", protocol.Position{Line: 27, Character: 17}},
+	}
+
+	idx := env.cache.Get(env.uri)
+	petSchema, ok := idx.Schemas["Pet"]
+	if !ok {
+		t.Fatal("Pet schema not found in index")
+	}
+
+	// Expect NameLoc (component key) when available, otherwise Loc
+	expectedLine := petSchema.Loc.Range.Start.Line
+	if adapt.RangeToProtocol(petSchema.NameLoc.Range) != (protocol.Range{}) {
+		expectedLine = petSchema.NameLoc.Range.Start.Line
+	}
+
+	for _, tt := range positions {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := handler(env.ctx, &protocol.DefinitionParams{
+				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+					Position:     tt.pos,
+				},
+			})
+			if err != nil {
+				t.Fatalf("definition error: %v", err)
+			}
+			if len(result) == 0 {
+				t.Fatal("expected definition result for $ref to Pet schema")
+			}
+			if result[0].Range.Start.Line != expectedLine {
+				t.Errorf("expected definition at line %d, got line %d",
+					expectedLine, result[0].Range.Start.Line)
+			}
+		})
+	}
+}
+
 func TestNilIndex(t *testing.T) {
 	store := document.NewStore()
 	cache := openapi.NewIndexCache()
@@ -374,7 +425,7 @@ func TestNilIndex(t *testing.T) {
 	}
 	uri := protocol.DocumentURI("file:///nonexistent.yaml")
 
-	hoverHandler := lsp.NewHoverHandler(cache)
+	hoverHandler := lsp.NewHoverHandler(cache, nil)
 	result, err := hoverHandler(ctx, &protocol.HoverParams{
 		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -388,7 +439,7 @@ func TestNilIndex(t *testing.T) {
 		t.Errorf("hover with nil index should return nil result")
 	}
 
-	completionHandler := lsp.NewCompletionHandler(cache)
+	completionHandler := lsp.NewCompletionHandler(cache, nil)
 	cResult, err := completionHandler(ctx, &protocol.CompletionParams{
 		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -405,7 +456,7 @@ func TestNilIndex(t *testing.T) {
 
 func TestCodeLensHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewCodeLensHandler(env.cache)
+	handler := lsp.NewCodeLensHandler(env.cache, nil)
 
 	result, err := handler(env.ctx, &protocol.CodeLensParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -433,7 +484,7 @@ func TestCodeLensHandler(t *testing.T) {
 	// Should include reference count lenses for schemas
 	foundRefLens := false
 	for _, lens := range result {
-		if lens.Command != nil && lens.Command.Command == "editor.action.showReferences" {
+		if lens.Command != nil && lens.Command.Command == "telescope.showReferences" {
 			foundRefLens = true
 			break
 		}
@@ -445,13 +496,13 @@ func TestCodeLensHandler(t *testing.T) {
 
 func TestPrepareCallHierarchyHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewPrepareCallHierarchyHandler(env.cache)
+	handler := lsp.NewPrepareCallHierarchyHandler(env.cache, nil)
 
 	// Position on "Pet" schema name in components
 	idx := env.cache.Get(env.uri)
 	var petNamePos protocol.Position
 	if schema, ok := idx.Schemas["Pet"]; ok {
-		petNamePos = schema.NameLoc.Range.Start
+		petNamePos = adapt.PositionToProtocol(schema.NameLoc.Range.Start)
 	} else {
 		t.Fatal("Pet schema not found in index")
 	}
@@ -475,7 +526,7 @@ func TestPrepareCallHierarchyHandler(t *testing.T) {
 
 func TestPrepareCallHierarchyHandler_Empty(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewPrepareCallHierarchyHandler(env.cache)
+	handler := lsp.NewPrepareCallHierarchyHandler(env.cache, nil)
 
 	// Position on an empty area should return nil
 	result, err := handler(env.ctx, &protocol.CallHierarchyPrepareParams{
@@ -494,14 +545,14 @@ func TestPrepareCallHierarchyHandler_Empty(t *testing.T) {
 
 func TestCallHierarchyIncomingHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	prepareHandler := lsp.NewPrepareCallHierarchyHandler(env.cache)
-	incomingHandler := lsp.NewCallHierarchyIncomingHandler(env.cache)
+	prepareHandler := lsp.NewPrepareCallHierarchyHandler(env.cache, nil)
+	incomingHandler := lsp.NewCallHierarchyIncomingHandler(env.cache, nil)
 
 	// First prepare to get a valid CallHierarchyItem for Pet
 	idx := env.cache.Get(env.uri)
 	var petNamePos protocol.Position
 	if schema, ok := idx.Schemas["Pet"]; ok {
-		petNamePos = schema.NameLoc.Range.Start
+		petNamePos = adapt.PositionToProtocol(schema.NameLoc.Range.Start)
 	} else {
 		t.Fatal("Pet schema not found in index")
 	}
@@ -534,7 +585,7 @@ func TestCallHierarchyIncomingHandler(t *testing.T) {
 
 func TestSemanticTokensHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewSemanticTokensHandler(env.cache)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
 
 	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -554,9 +605,89 @@ func TestSemanticTokensHandler(t *testing.T) {
 	}
 }
 
+func TestSemanticTokensPositions(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("semantic tokens error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil semantic tokens result")
+	}
+
+	// Decode delta-encoded tokens to absolute positions
+	type absToken struct {
+		line, char, length, tokenType, modifiers uint32
+	}
+	var tokens []absToken
+	var prevLine, prevChar uint32
+	for i := 0; i+4 < len(result.Data); i += 5 {
+		dLine := result.Data[i]
+		dChar := result.Data[i+1]
+		line := prevLine + dLine
+		ch := dChar
+		if dLine == 0 {
+			ch = prevChar + dChar
+		}
+		tokens = append(tokens, absToken{
+			line: line, char: ch,
+			length:    result.Data[i+2],
+			tokenType: result.Data[i+3],
+			modifiers: result.Data[i+4],
+		})
+		prevLine = line
+		prevChar = ch
+	}
+
+	const (
+		tokMethod = 11
+		tokEnum   = 3
+		tokMacro  = 12
+	)
+
+	// Verify HTTP method tokens land on the key, not the value body
+	// testSpec line 10: "    get:" → char 4, len 3
+	// testSpec line 28: "    post:" → char 4, len 4
+	findToken := func(line, char, length, tokenType uint32) bool {
+		for _, tok := range tokens {
+			if tok.line == line && tok.char == char && tok.length == length && tok.tokenType == tokenType {
+				return true
+			}
+		}
+		return false
+	}
+
+	tests := []struct {
+		name                               string
+		line, char, length, tokenType uint32
+	}{
+		{"get method key", 10, 4, 3, tokMethod},
+		{"post method key", 28, 4, 4, tokMethod},
+		{"200 response code key", 22, 8, 5, tokEnum},
+		{"201 response code key", 34, 8, 5, tokEnum},
+		{"bearerAuth security scheme key", 53, 4, 10, tokMacro},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !findToken(tt.line, tt.char, tt.length, tt.tokenType) {
+				t.Errorf("expected token at line %d char %d len %d type %d; got tokens:", tt.line, tt.char, tt.length, tt.tokenType)
+				for _, tok := range tokens {
+					if tok.tokenType == tt.tokenType {
+						t.Errorf("  line=%d char=%d len=%d type=%d mod=%d", tok.line, tok.char, tok.length, tok.tokenType, tok.modifiers)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestDocumentSymbolHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewSymbolHandler(env.cache)
+	handler := lsp.NewSymbolHandler(env.cache, nil)
 
 	result, err := handler(env.ctx, &protocol.DocumentSymbolParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -582,13 +713,13 @@ func TestDocumentSymbolHandler(t *testing.T) {
 
 func TestReferencesHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewReferencesHandler(env.cache)
+	handler := lsp.NewReferencesHandler(env.cache, nil)
 
 	// Position on "Pet" schema name
 	idx := env.cache.Get(env.uri)
 	var petNamePos protocol.Position
 	if schema, ok := idx.Schemas["Pet"]; ok {
-		petNamePos = schema.NameLoc.Range.Start
+		petNamePos = adapt.PositionToProtocol(schema.NameLoc.Range.Start)
 	} else {
 		t.Fatal("Pet schema not found in index")
 	}
@@ -613,7 +744,7 @@ func TestReferencesHandler(t *testing.T) {
 
 func TestReferencesHandler_Empty(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewReferencesHandler(env.cache)
+	handler := lsp.NewReferencesHandler(env.cache, nil)
 
 	// Position on an area with no referenceable symbol
 	result, err := handler(env.ctx, &protocol.ReferenceParams{
@@ -633,7 +764,7 @@ func TestReferencesHandler_Empty(t *testing.T) {
 
 func TestInlayHintHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewInlayHintHandler(env.cache)
+	handler := lsp.NewInlayHintHandler(env.cache, nil)
 
 	// Request hints for the full document range
 	result, err := handler(env.ctx, &protocol.InlayHintParams{
@@ -659,7 +790,7 @@ func TestInlayHintHandler(t *testing.T) {
 
 func TestInlayHintHandler_EmptyRange(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewInlayHintHandler(env.cache)
+	handler := lsp.NewInlayHintHandler(env.cache, nil)
 
 	// Request hints for a range outside the document content
 	result, err := handler(env.ctx, &protocol.InlayHintParams{
@@ -677,9 +808,836 @@ func TestInlayHintHandler_EmptyRange(t *testing.T) {
 	}
 }
 
+// testSpecRich exercises hover enrichments: constraints, flags, request bodies,
+// examples, deprecated schemas, links, and headers.
+const testSpecRich = `openapi: "3.1.0"
+info:
+  title: Rich API
+  version: "1.0.0"
+tags:
+  - name: Users
+    description: User management
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      summary: List users
+      tags:
+        - Users
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+          links:
+            GetUser:
+              $ref: "#/components/links/GetUserLink"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createUser
+      summary: Create user
+      tags:
+        - Users
+      requestBody:
+        $ref: "#/components/requestBodies/CreateUser"
+      responses:
+        "201":
+          description: Created
+  /users/{id}:
+    get:
+      operationId: getUser
+      summary: Get user by ID
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+    delete:
+      operationId: deleteUser
+      deprecated: true
+      summary: Delete user
+      tags:
+        - Users
+      responses:
+        "204":
+          description: Deleted
+components:
+  schemas:
+    User:
+      type: object
+      description: A user account
+      required:
+        - id
+        - email
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          minLength: 5
+          maxLength: 254
+        age:
+          type: integer
+          minimum: 0
+          maximum: 150
+        status:
+          type: string
+          enum: [active, inactive]
+          default: active
+    DeprecatedModel:
+      type: object
+      deprecated: true
+      description: Legacy model
+      properties:
+        name:
+          type: string
+          nullable: true
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Max items to return
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+      example: 25
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/User"
+  requestBodies:
+    CreateUser:
+      description: User creation payload
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              email:
+                type: string
+              name:
+                type: string
+  headers:
+    X-Total-Count:
+      description: Total number of items
+      schema:
+        type: integer
+  links:
+    GetUserLink:
+      operationId: getUser
+      description: Fetch a user by ID
+  examples:
+    UserExample:
+      summary: Sample user
+      description: A typical user
+      value: '{"id":"123","email":"a@b.com"}'
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+`
+
+func TestHoverHandler_RefToRequestBody(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewHoverHandler(env.cache, nil)
+
+	// Line with $ref to requestBodies/CreateUser (0-based line 36)
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 36, Character: 15},
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result for $ref to requestBody")
+	}
+	content := result.Contents.Value
+	if !strings.Contains(content, "$ref") {
+		t.Errorf("expected $ref in hover, got: %s", content)
+	}
+	if !strings.Contains(content, "application/json") {
+		t.Errorf("expected content type in requestBody hover, got: %s", content)
+	}
+}
+
+func TestHoverHandler_ConstrainedSchema(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewHoverHandler(env.cache, nil)
+
+	// Hover over "User" schema name in components
+	idx := env.cache.Get(env.uri)
+	var userPos protocol.Position
+	if schema, ok := idx.Schemas["User"]; ok {
+		userPos = adapt.PositionToProtocol(schema.NameLoc.Range.Start)
+	} else {
+		t.Fatal("User schema not found")
+	}
+
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     userPos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result for User schema")
+	}
+	content := result.Contents.Value
+	// User schema has properties with constraints
+	if !strings.Contains(content, "Property") {
+		t.Errorf("expected property table in schema hover, got: %s", content)
+	}
+}
+
+func TestHoverHandler_DeprecatedSchema(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewHoverHandler(env.cache, nil)
+
+	idx := env.cache.Get(env.uri)
+	var pos protocol.Position
+	if schema, ok := idx.Schemas["DeprecatedModel"]; ok {
+		pos = adapt.PositionToProtocol(schema.NameLoc.Range.Start)
+	} else {
+		t.Fatal("DeprecatedModel schema not found")
+	}
+
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover for deprecated schema")
+	}
+	content := result.Contents.Value
+	if !strings.Contains(content, "deprecated") {
+		t.Errorf("expected 'deprecated' flag in hover, got: %s", content)
+	}
+}
+
+func TestHoverHandler_OperationIdRich(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewHoverHandler(env.cache, nil)
+
+	// Hover on "listUsers" operationId (0-based line 10, char 20)
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 10, Character: 20},
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result for operationId")
+	}
+	content := result.Contents.Value
+	if !strings.Contains(content, "GET") {
+		t.Errorf("expected HTTP method in operation hover, got: %s", content)
+	}
+	if !strings.Contains(content, "Tags") {
+		t.Errorf("expected Tags in operation hover, got: %s", content)
+	}
+	if !strings.Contains(content, "Responses") {
+		t.Errorf("expected Responses in operation hover, got: %s", content)
+	}
+}
+
+func TestHoverHandler_ResponseShowsSchema(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewHoverHandler(env.cache, nil)
+
+	idx := env.cache.Get(env.uri)
+	var pos protocol.Position
+	if resp, ok := idx.Responses["Unauthorized"]; ok {
+		pos = adapt.PositionToProtocol(resp.Loc.Range.Start)
+	}
+
+	// Hover on "Unauthorized" component response
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	// If we got a hover, it should mention the schema type
+	if result != nil {
+		content := result.Contents.Value
+		if !strings.Contains(content, "application/json") {
+			t.Errorf("expected content type in response hover, got: %s", content)
+		}
+	}
+}
+
+func TestCompletionResolve_RefRich(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewCompletionResolveHandler(env.cache, nil)
+
+	item := &protocol.CompletionItem{
+		Label: "#/components/schemas/User",
+		Data: map[string]interface{}{
+			"resolveKind":  "ref",
+			"resolveValue": "#/components/schemas/User",
+		},
+	}
+	result, err := handler(env.ctx, item)
+	if err != nil {
+		t.Fatalf("resolve error: %v", err)
+	}
+	doc, ok := result.Documentation.(*protocol.MarkupContent)
+	if !ok || doc == nil {
+		t.Fatal("expected markdown documentation")
+	}
+	if !strings.Contains(doc.Value, "$ref") {
+		t.Errorf("expected $ref in resolved doc, got: %s", doc.Value)
+	}
+	if !strings.Contains(doc.Value, "object") {
+		t.Errorf("expected type info in resolved doc, got: %s", doc.Value)
+	}
+}
+
+func TestCompletionResolve_SecuritySchemeRich(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewCompletionResolveHandler(env.cache, nil)
+
+	item := &protocol.CompletionItem{
+		Label: "bearerAuth",
+		Data: map[string]interface{}{
+			"resolveKind":  "securityScheme",
+			"resolveValue": "bearerAuth",
+		},
+	}
+	result, err := handler(env.ctx, item)
+	if err != nil {
+		t.Fatalf("resolve error: %v", err)
+	}
+	doc, ok := result.Documentation.(*protocol.MarkupContent)
+	if !ok || doc == nil {
+		t.Fatal("expected markdown documentation")
+	}
+	if !strings.Contains(doc.Value, "http") {
+		t.Errorf("expected scheme type in resolved doc, got: %s", doc.Value)
+	}
+	if !strings.Contains(doc.Value, "bearer") {
+		t.Errorf("expected 'bearer' in resolved doc, got: %s", doc.Value)
+	}
+}
+
+func TestCompletionResolve_TagRich(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewCompletionResolveHandler(env.cache, nil)
+
+	item := &protocol.CompletionItem{
+		Label: "Users",
+		Data: map[string]interface{}{
+			"resolveKind":  "tag",
+			"resolveValue": "Users",
+		},
+	}
+	result, err := handler(env.ctx, item)
+	if err != nil {
+		t.Fatalf("resolve error: %v", err)
+	}
+	doc, ok := result.Documentation.(*protocol.MarkupContent)
+	if !ok || doc == nil {
+		t.Fatal("expected markdown documentation")
+	}
+	if !strings.Contains(doc.Value, "Users") {
+		t.Errorf("expected tag name in resolved doc, got: %s", doc.Value)
+	}
+	if !strings.Contains(doc.Value, "Operations") {
+		t.Errorf("expected operations list in resolved doc, got: %s", doc.Value)
+	}
+}
+
+func TestSemanticTokens_DeprecatedSchema(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("semantic tokens error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil semantic tokens")
+	}
+
+	// Decode tokens to find the DeprecatedModel schema name
+	idx := env.cache.Get(env.uri)
+	schema, ok := idx.Schemas["DeprecatedModel"]
+	if !ok {
+		t.Fatal("DeprecatedModel not found")
+	}
+	targetLine := schema.NameLoc.Range.Start.Line
+
+	type absToken struct{ line, char, length, tokenType, modifiers uint32 }
+	var tokens []absToken
+	var prevLine, prevChar uint32
+	for i := 0; i+4 < len(result.Data); i += 5 {
+		dLine := result.Data[i]
+		dChar := result.Data[i+1]
+		line := prevLine + dLine
+		ch := dChar
+		if dLine == 0 {
+			ch = prevChar + dChar
+		}
+		tokens = append(tokens, absToken{line, ch, result.Data[i+2], result.Data[i+3], result.Data[i+4]})
+		prevLine = line
+		prevChar = ch
+	}
+
+	const tokType = 1
+	const modDeclaration = 1 << 0
+
+	found := false
+	for _, tok := range tokens {
+		if tok.line == targetLine && tok.tokenType == tokType {
+			// Deprecated modifier is no longer sent via semantic tokens;
+			// deprecated styling is handled client-side via decorations.
+			if tok.modifiers&modDeclaration == 0 {
+				t.Errorf("DeprecatedModel schema token at line %d missing declaration modifier", targetLine)
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("no type token found for DeprecatedModel at line %d", targetLine)
+	}
+}
+
+func TestSemanticTokens_TagNames(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("semantic tokens error: %v", err)
+	}
+
+	idx := env.cache.Get(env.uri)
+	tag, ok := idx.Tags["Users"]
+	if !ok {
+		t.Fatal("Users tag not found")
+	}
+	targetLine := tag.NameLoc.Range.Start.Line
+
+	type absToken struct{ line, char, length, tokenType, modifiers uint32 }
+	var tokens []absToken
+	var prevLine, prevChar uint32
+	for i := 0; i+4 < len(result.Data); i += 5 {
+		dLine := result.Data[i]
+		dChar := result.Data[i+1]
+		line := prevLine + dLine
+		ch := dChar
+		if dLine == 0 {
+			ch = prevChar + dChar
+		}
+		tokens = append(tokens, absToken{line, ch, result.Data[i+2], result.Data[i+3], result.Data[i+4]})
+		prevLine = line
+		prevChar = ch
+	}
+
+	const tokType = 1
+	const modDefinition = 1 << 1
+
+	found := false
+	for _, tok := range tokens {
+		if tok.line == targetLine && tok.tokenType == tokType && tok.modifiers&modDefinition != 0 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("no type+definition token found for Users tag at line %d", targetLine)
+	}
+}
+
+func TestInlayHints_NoDeprecatedHints(t *testing.T) {
+	// Deprecated markers are now handled client-side via decorations,
+	// so the server should NOT emit deprecated inlay hints.
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewInlayHintHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.InlayHintParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 200, Character: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("inlay hint error: %v", err)
+	}
+
+	for _, hint := range result {
+		if hint.Label == "deprecated" {
+			t.Error("deprecated inlay hints should no longer be emitted by the server")
+		}
+	}
+}
+
+func TestLinkedEditing_Tag(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewLinkedEditingRangeHandler(env.cache, nil)
+
+	// Position on "Users" tag name in root tags (line 8)
+	idx := env.cache.Get(env.uri)
+	tag, ok := idx.Tags["Users"]
+	if !ok {
+		t.Fatal("Users tag not found")
+	}
+	pos := adapt.PositionToProtocol(tag.NameLoc.Range.Start)
+
+	result, err := handler(env.ctx, &protocol.LinkedEditingRangeParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("linked editing error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected linked editing ranges for tag")
+	}
+	// Root definition + operation usages (listUsers, createUser, getUser, deleteUser use Users tag)
+	if len(result.Ranges) < 2 {
+		t.Errorf("expected at least 2 linked editing ranges for tag, got %d", len(result.Ranges))
+	}
+}
+
+func TestComponentDefinitionLoc_AllKinds(t *testing.T) {
+	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
+	handler := lsp.NewReferencesHandler(env.cache, nil)
+	idx := env.cache.Get(env.uri)
+
+	// Verify that all component kinds resolve to a non-zero definition loc
+	// by checking that references finds a declaration for each.
+	kinds := map[string]string{
+		"schemas":         "User",
+		"parameters":      "Limit",
+		"responses":       "Unauthorized",
+		"requestBodies":   "CreateUser",
+		"headers":         "X-Total-Count",
+		"securitySchemes": "bearerAuth",
+		"links":           "GetUserLink",
+		"examples":        "UserExample",
+	}
+
+	for kind, name := range kinds {
+		t.Run(kind+"/"+name, func(t *testing.T) {
+			names := idx.ComponentNames(kind)
+			found := false
+			for _, n := range names {
+				if n == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Skipf("component %s/%s not indexed", kind, name)
+			}
+
+			// Rename handler uses componentDefinitionLoc — verify it gives a real range
+			// by checking the references handler can find the definition + refs.
+			pos := adapt.PositionToProtocol(idx.Document.Components.Schemas["User"].NameLoc.Range.Start)
+			if kind == "schemas" {
+				pos = adapt.PositionToProtocol(idx.Document.Components.Schemas[name].NameLoc.Range.Start)
+			}
+
+			result, err := handler(env.ctx, &protocol.ReferenceParams{
+				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+					Position:     pos,
+				},
+				Context: protocol.ReferenceContext{IncludeDeclaration: true},
+			})
+			if err != nil {
+				t.Fatalf("references error: %v", err)
+			}
+			_ = result // no panic
+		})
+	}
+}
+
+func TestDocumentHighlight_RefDirect(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewDocumentHighlightHandler(env.cache, nil)
+
+	// Position on $ref value pointing to Pet schema (line 27 in testSpec)
+	result, err := handler(env.ctx, &protocol.DocumentHighlightParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 27, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("highlight error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Error("expected highlights for $ref to Pet schema")
+	}
+	for _, h := range result {
+		if h.Kind != 2 { // highlightRead
+			t.Errorf("expected highlight kind 2 (read), got %d", h.Kind)
+		}
+	}
+}
+
+func TestLinkedEditing_OperationIdInlineResponseLink(t *testing.T) {
+	// Spec with inline response link referencing an operationId
+	spec := `openapi: "3.1.0"
+info:
+  title: Link Test
+  version: "1.0.0"
+paths:
+  /items:
+    get:
+      operationId: listItems
+      responses:
+        "200":
+          description: OK
+          links:
+            GetItem:
+              operationId: listItems
+  /items/{id}:
+    get:
+      operationId: getItem
+      responses:
+        "200":
+          description: OK
+`
+	env := setupTestEnv(t, "file:///link.yaml", spec)
+	handler := lsp.NewLinkedEditingRangeHandler(env.cache, nil)
+	idx := env.cache.Get(env.uri)
+
+	opRef, ok := idx.Operations["listItems"]
+	if !ok {
+		t.Fatal("listItems operation not found")
+	}
+	pos := adapt.PositionToProtocol(opRef.Operation.OperationIDLoc.Range.Start)
+
+	result, err := handler(env.ctx, &protocol.LinkedEditingRangeParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("linked editing error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected linked editing ranges for operationId with inline link")
+	}
+	// Should include: the operationId definition + the inline response link reference
+	if len(result.Ranges) < 2 {
+		t.Errorf("expected at least 2 linked editing ranges (def + inline link), got %d", len(result.Ranges))
+	}
+}
+
+func TestTypeDefinitionHandler_Ref(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewTypeDefinitionHandler(env.cache, nil, nil)
+
+	// Position on $ref to Pet schema (line 27)
+	result, err := handler(env.ctx, &protocol.TypeDefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 27, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("type definition error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected type definition result for $ref to Pet schema")
+	}
+	idx := env.cache.Get(env.uri)
+	petSchema := idx.Schemas["Pet"]
+	if result[0].Range.Start.Line != petSchema.Loc.Range.Start.Line {
+		t.Errorf("expected type definition at line %d, got %d",
+			petSchema.Loc.Range.Start.Line, result[0].Range.Start.Line)
+	}
+}
+
+func TestPrepareRename_ExactRange(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewPrepareRenameHandler(env.cache, nil)
+	idx := env.cache.Get(env.uri)
+
+	// Test that prepare rename returns the exact NameLoc range for a schema
+	schema, ok := idx.Schemas["Pet"]
+	if !ok {
+		t.Fatal("Pet schema not found")
+	}
+	pos := adapt.PositionToProtocol(schema.NameLoc.Range.Start)
+
+	result, err := handler(env.ctx, &protocol.PrepareRenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare rename error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil prepare rename result")
+	}
+	if result.Range != adapt.RangeToProtocol(schema.NameLoc.Range) {
+		t.Errorf("expected exact NameLoc range %+v, got %+v", adapt.RangeToProtocol(schema.NameLoc.Range), result.Range)
+	}
+}
+
+const testSpecUnicode = `openapi: "3.1.0"
+info:
+  title: Ünïcödé API
+  version: "1.0.0"
+paths:
+  /héllo/{nàme}:
+    get:
+      operationId: greet
+      parameters:
+        - name: nàme
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+components:
+  schemas:
+    Ünïcödé:
+      type: object
+      properties:
+        nàme:
+          type: string
+  securitySchemes:
+    Öauth:
+      type: http
+      scheme: bearer
+`
+
+func TestSemanticTokens_UnicodePathParam(t *testing.T) {
+	env := setupTestEnv(t, "file:///unicode.yaml", testSpecUnicode)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("semantic tokens error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil semantic tokens")
+	}
+	if len(result.Data)%5 != 0 {
+		t.Errorf("data length %d not a multiple of 5", len(result.Data))
+	}
+
+	type absToken struct {
+		line, char, length, tokenType, modifiers uint32
+	}
+	var tokens []absToken
+	var prevLine, prevChar uint32
+	for i := 0; i+4 < len(result.Data); i += 5 {
+		dLine := result.Data[i]
+		dChar := result.Data[i+1]
+		line := prevLine + dLine
+		ch := dChar
+		if dLine == 0 {
+			ch = prevChar + dChar
+		}
+		tokens = append(tokens, absToken{
+			line: line, char: ch,
+			length:    result.Data[i+2],
+			tokenType: result.Data[i+3],
+			modifiers: result.Data[i+4],
+		})
+		prevLine = line
+		prevChar = ch
+	}
+
+	// Path param {nàme} - verify the token offset accounts for multi-byte
+	// chars in "héllo/" preceding the param (UTF-16: h=1, é=1, l=1, l=1, o=1, /=1 = 6).
+	// The path key starts at some character. The param "{nàme}" starts at offset 6
+	// from the path start (after "/héllo/"), which in UTF-16 is 7 chars.
+	const tokTypeParameter = 6
+	foundParam := false
+	for _, tok := range tokens {
+		if tok.tokenType == tokTypeParameter {
+			foundParam = true
+			// nàme is 4 chars in UTF-16 (nàme: n=1,à=1,m=1,e=1 = 4), braces add 2 = 6
+			if tok.length != 6 {
+				t.Errorf("param token length = %d, want 6 (UTF-16 len of {nàme})", tok.length)
+			}
+		}
+	}
+	if !foundParam {
+		t.Error("no path parameter token found for Unicode path")
+	}
+
+	// Schema name "Ünïcödé" should use rangeLen, not byte len
+	const tokType = 1
+	foundSchema := false
+	for _, tok := range tokens {
+		if tok.tokenType == tokType && tok.modifiers == 1 {
+			foundSchema = true
+			// Ünïcödé: each char is 1 UTF-16 unit = 7
+			if tok.length != 7 {
+				t.Errorf("schema name token length = %d, want 7 (UTF-16 len of Ünïcödé)", tok.length)
+			}
+		}
+	}
+	if !foundSchema {
+		t.Error("no schema declaration token found for Unicode schema name")
+	}
+}
+
 func TestFoldingRangeHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewFoldingRangeHandler(env.cache)
+	handler := lsp.NewFoldingRangeHandler(env.cache, nil)
 
 	result, err := handler(env.ctx, &protocol.FoldingRangeParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -697,5 +1655,597 @@ func TestFoldingRangeHandler(t *testing.T) {
 		if fr.Kind != "region" {
 			t.Errorf("expected folding kind 'region', got %q", fr.Kind)
 		}
+	}
+}
+
+func TestDefinitionHandler_OnDemandIndex(t *testing.T) {
+	// Simulate the "first click does nothing" scenario: handler is called
+	// before the DiagnosticEngine has built the index. With the builder
+	// wired on the cache, Get should build on-demand.
+	store := document.NewStore()
+	lang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
+	mgr := treesitter.NewManager(treesitter.Config{
+		Matchers: []treesitter.LanguageMatcher{
+			{Language: lang, Extensions: []string{".yaml", ".yml"}, LanguageID: "yaml"},
+		},
+	}, store)
+	t.Cleanup(mgr.Close)
+
+	uri := protocol.DocumentURI("file:///ondemand.yaml")
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "yaml",
+			Version:    1,
+			Text:       testSpec,
+		},
+	})
+
+	cache := openapi.NewIndexCache()
+	// Wire the on-demand builder like server.go does.
+	cache.SetBuilder(func(u protocol.DocumentURI) *openapi.Index {
+		doc := store.Get(u)
+		tree := mgr.GetTree(u)
+		if doc == nil || tree == nil {
+			return nil
+		}
+		return openapi.BuildIndex(tree, doc)
+	})
+
+	// Do NOT pre-populate the cache. The handler should build on-demand.
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+
+	handler := lsp.NewDefinitionHandler(cache, nil, nil)
+
+	// Line 27 (0-based) in testSpec: `$ref: "#/components/schemas/Pet"`
+	result, err := handler(ctx, &protocol.DefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     protocol.Position{Line: 27, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("definition error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected definition result from on-demand index build")
+	}
+	if result[0].URI != uri {
+		t.Errorf("expected definition URI %q, got %q", uri, result[0].URI)
+	}
+}
+
+func TestDefinitionHandler_LocalRefReturnsSameURI(t *testing.T) {
+	env := setupTestEnv(t, "file:///same-uri.yaml", testSpec)
+	handler := lsp.NewDefinitionHandler(env.cache, nil, nil)
+
+	// Line 27 (0-based) in testSpec: `$ref: "#/components/schemas/Pet"`
+	result, err := handler(env.ctx, &protocol.DefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 27, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("definition error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected definition result")
+	}
+	if result[0].URI != env.uri {
+		t.Errorf("expected returned URI to match input URI %q, got %q", env.uri, result[0].URI)
+	}
+}
+
+func TestLocationFromTarget_Document(t *testing.T) {
+	env := setupTestEnv(t, "file:///doc-target.yaml", testSpec)
+	idx := env.cache.Get(env.uri)
+	if idx == nil || idx.Document == nil {
+		t.Fatal("expected index with document")
+	}
+
+	loc := lsp.LocationFromTarget(env.uri, idx.Document)
+	if loc == nil {
+		t.Fatal("expected non-nil location for *Document target")
+	}
+	if loc.URI != env.uri {
+		t.Errorf("expected URI %q, got %q", env.uri, loc.URI)
+	}
+}
+
+func TestLocationFromTarget_Schema(t *testing.T) {
+	env := setupTestEnv(t, "file:///schema-target.yaml", testSpec)
+	idx := env.cache.Get(env.uri)
+	if idx == nil {
+		t.Fatal("expected index")
+	}
+	pet := idx.Schemas["Pet"]
+	if pet == nil {
+		t.Fatal("expected Pet schema in index")
+	}
+
+	loc := lsp.LocationFromTarget(env.uri, pet)
+	if loc == nil {
+		t.Fatal("expected non-nil location for *Schema target")
+	}
+	if loc.URI != env.uri {
+		t.Errorf("expected URI %q, got %q", env.uri, loc.URI)
+	}
+}
+
+func TestLocationFromTarget_UnknownType(t *testing.T) {
+	loc := lsp.LocationFromTarget("file:///test.yaml", "not-a-model-type")
+	if loc != nil {
+		t.Error("expected nil for unknown target type")
+	}
+}
+
+func TestUriToFSPath(t *testing.T) {
+	tests := []struct {
+		name string
+		uri  string
+		want string
+	}{
+		{"standard file URI", "file:///home/user/test.yaml", "/home/user/test.yaml"},
+		{"non-file URI", "/some/path", "/some/path"},
+		{"with encoded space", "file:///home/user/my%20file.yaml", "/home/user/my file.yaml"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lsp.UriToFSPath(tt.uri)
+			if got != tt.want {
+				t.Errorf("uriToFSPath(%q) = %q, want %q", tt.uri, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Cross-file handler tests
+// ---------------------------------------------------------------------------
+
+type crossFileEnv struct {
+	store   *document.Store
+	mgr     *treesitter.Manager
+	cache   *openapi.IndexCache
+	bridge  *lsp.GraphBridge
+	ctx     *gossip.Context
+	rootURI protocol.DocumentURI
+	compURI protocol.DocumentURI
+}
+
+const crossFileRootSpec = `openapi: "3.1.0"
+info:
+  title: Ref Root
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./components.yaml#/components/schemas/User"
+`
+
+const crossFileCompSpec = `openapi: "3.1.0"
+info:
+  title: Components
+  version: "1.0.0"
+components:
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+`
+
+func setupCrossFileEnv(t *testing.T) *crossFileEnv {
+	t.Helper()
+
+	rootURI := protocol.DocumentURI("file:///project/root.yaml")
+	compURI := protocol.DocumentURI("file:///project/components.yaml")
+
+	store := document.NewStore()
+	lang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
+	mgr := treesitter.NewManager(treesitter.Config{
+		Matchers: []treesitter.LanguageMatcher{
+			{Language: lang, Extensions: []string{".yaml", ".yml"}, LanguageID: "yaml"},
+		},
+	}, store)
+	t.Cleanup(mgr.Close)
+
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: compURI, LanguageID: "yaml", Version: 1, Text: crossFileCompSpec},
+	})
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: rootURI, LanguageID: "yaml", Version: 1, Text: crossFileRootSpec},
+	})
+
+	cache := openapi.NewIndexCache()
+
+	compTree := mgr.GetTree(compURI)
+	if compTree == nil {
+		t.Fatal("nil tree for components")
+	}
+	compDoc := store.Get(compURI)
+	compIdx := openapi.BuildIndex(compTree, compDoc)
+	cache.Set(compURI, compIdx)
+
+	rootTree := mgr.GetTree(rootURI)
+	if rootTree == nil {
+		t.Fatal("nil tree for root")
+	}
+	rootDoc := store.Get(rootURI)
+	rootIdx := openapi.BuildIndex(rootTree, rootDoc)
+	cache.Set(rootURI, rootIdx)
+
+	bridge := lsp.NewGraphBridge(nil)
+	bridge.SyncEdgesFromIndex(string(rootURI), rootIdx)
+	bridge.SyncEdgesFromIndex(string(compURI), compIdx)
+
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+
+	return &crossFileEnv{
+		store:   store,
+		mgr:     mgr,
+		cache:   cache,
+		bridge:  bridge,
+		ctx:     ctx,
+		rootURI: rootURI,
+		compURI: compURI,
+	}
+}
+
+func TestDefinitionHandler_CrossFile_ReturnsAbsoluteURI(t *testing.T) {
+	env := setupCrossFileEnv(t)
+	handler := lsp.NewDefinitionHandler(env.cache, nil, env.bridge)
+
+	// $ref is on line 14 in crossFileRootSpec
+	result, err := handler(env.ctx, &protocol.DefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.rootURI},
+			Position:     protocol.Position{Line: 14, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("definition error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected at least one definition result for cross-file $ref")
+	}
+
+	targetURI := string(result[0].URI)
+	if !strings.HasPrefix(targetURI, "file://") {
+		t.Errorf("expected file:// URI, got %q", targetURI)
+	}
+	if !strings.HasSuffix(targetURI, "/project/components.yaml") {
+		t.Errorf("expected target URI to end with /project/components.yaml, got %q", targetURI)
+	}
+	if result[0].URI != env.compURI {
+		t.Errorf("target URI %q should match components URI %q", result[0].URI, env.compURI)
+	}
+}
+
+func TestDefinitionHandler_CrossFile_LandsAtSchema(t *testing.T) {
+	env := setupCrossFileEnv(t)
+	handler := lsp.NewDefinitionHandler(env.cache, nil, env.bridge)
+
+	result, err := handler(env.ctx, &protocol.DefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.rootURI},
+			Position:     protocol.Position{Line: 14, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("definition error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected definition result")
+	}
+
+	// User schema key is at line 6 in crossFileCompSpec
+	targetLine := result[0].Range.Start.Line
+	if targetLine < 5 || targetLine > 7 {
+		t.Errorf("expected definition to land near User schema (line 5-7), got line %d", targetLine)
+	}
+}
+
+func TestHoverHandler_CrossFile_ReturnsSchemaContent(t *testing.T) {
+	env := setupCrossFileEnv(t)
+	handler := lsp.NewHoverHandler(env.cache, env.bridge)
+
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.rootURI},
+			Position:     protocol.Position{Line: 14, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result for cross-file $ref, got nil")
+	}
+
+	content := result.Contents.Value
+	if content == "" {
+		t.Fatal("expected non-empty hover content")
+	}
+
+	if !strings.Contains(content, "$ref") {
+		t.Errorf("hover should mention $ref, got: %s", content[:min(len(content), 300)])
+	}
+}
+
+func TestHoverHandler_CrossFile_ShowsProperties(t *testing.T) {
+	env := setupCrossFileEnv(t)
+	handler := lsp.NewHoverHandler(env.cache, env.bridge)
+
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.rootURI},
+			Position:     protocol.Position{Line: 14, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result for cross-file $ref")
+	}
+
+	content := result.Contents.Value
+	if !strings.Contains(content, "id") || !strings.Contains(content, "email") {
+		t.Errorf("hover should show User properties (id, email), got: %s", content[:min(len(content), 500)])
+	}
+}
+
+func TestRenameHandler_CrossFile_SchemaUpdatesDefinitionAndRefs(t *testing.T) {
+	env := setupCrossFileEnv(t)
+	handler := lsp.NewRenameHandler(env.cache, env.bridge)
+	compIdx := env.cache.Get(env.compURI)
+	if compIdx == nil {
+		t.Fatal("missing components index")
+	}
+	schema, ok := compIdx.Schemas["User"]
+	if !ok {
+		t.Fatal("missing User schema in components index")
+	}
+	start := adapt.RangeToProtocol(schema.NameLoc.Range).Start
+
+	result, err := handler(env.ctx, &protocol.RenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.compURI},
+			Position:     start,
+		},
+		NewName: "AccountUser",
+	})
+	if err != nil {
+		t.Fatalf("rename error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("rename returned nil")
+	}
+
+	compEdits := result.Changes[env.compURI]
+	rootEdits := result.Changes[env.rootURI]
+	if len(compEdits) == 0 {
+		t.Fatal("expected rename edits in components file")
+	}
+	if len(rootEdits) == 0 {
+		t.Fatal("expected rename edits in root file")
+	}
+
+	foundRefUpdate := false
+	for _, e := range rootEdits {
+		if strings.Contains(e.NewText, "AccountUser") {
+			foundRefUpdate = true
+			break
+		}
+	}
+	if !foundRefUpdate {
+		t.Fatalf("expected root edits to include updated ref name; got %#v", rootEdits)
+	}
+}
+
+func TestCompletionHandler_SecurityScopeCompletions(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: OAuth Test
+  version: "1.0.0"
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      security:
+        - oauth2: [read:pets]
+      responses:
+        "200":
+          description: ok
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://example.com/auth
+          tokenUrl: https://example.com/token
+          scopes:
+            read:pets: Read pets
+            write:pets: Write pets
+`
+	env := setupTestEnv(t, "file:///oauth.yaml", spec)
+	handler := lsp.NewCompletionHandler(env.cache, nil)
+
+	// Cursor inside security scope list on "- oauth2: [read:pets]"
+	result, err := handler(env.ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 9, Character: 18},
+		},
+	})
+	if err != nil {
+		t.Fatalf("completion error: %v", err)
+	}
+	if result == nil || len(result.Items) == 0 {
+		t.Fatal("expected scope completions, got none")
+	}
+
+	labels := map[string]bool{}
+	for _, item := range result.Items {
+		labels[item.Label] = true
+	}
+	if !labels["read:pets"] || !labels["write:pets"] {
+		t.Fatalf("expected OAuth scope completions, got labels=%v", labels)
+	}
+}
+
+func TestExecuteCommand_ValidateExamples(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Validate Examples
+  version: "1.0.0"
+paths: {}
+components:
+  schemas:
+    UserName:
+      type: string
+      example: 42
+    UserCount:
+      type: integer
+      example: 7
+`
+	env := setupTestEnv(t, "file:///validate-examples.yaml", spec)
+	handler := lsp.NewExecuteCommandHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.ExecuteCommandParams{
+		Command:   "telescope.validateExamples",
+		Arguments: []interface{}{string(env.uri)},
+	})
+	if err != nil {
+		t.Fatalf("execute command error: %v", err)
+	}
+	payload, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result, got %T", result)
+	}
+
+	checked, _ := payload["checked"].(int)
+	if checked == 0 {
+		// json unmarshaling from interface{} may use float64
+		if checkedF, okF := payload["checked"].(float64); !okF || int(checkedF) == 0 {
+			t.Fatalf("expected checked > 0, got %#v", payload["checked"])
+		}
+	}
+	invalid, _ := payload["invalid"].(int)
+	if invalid == 0 {
+		if invalidF, okF := payload["invalid"].(float64); !okF || int(invalidF) == 0 {
+			t.Fatalf("expected invalid > 0, got %#v", payload["invalid"])
+		}
+	}
+}
+
+func TestTypeDefinitionHandler_ResponseSchemaRef(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: TypeDef
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+`
+	env := setupTestEnv(t, "file:///typedef-response.yaml", spec)
+	handler := lsp.NewTypeDefinitionHandler(env.cache, nil, nil)
+
+	result, err := handler(env.ctx, &protocol.TypeDefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 14, Character: 25},
+		},
+	})
+	if err != nil {
+		t.Fatalf("typeDefinition error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected type definition result for response schema ref")
+	}
+	if result[0].URI != env.uri {
+		t.Fatalf("expected type definition to target same document %s, got %s", env.uri, result[0].URI)
+	}
+}
+
+func TestCompletionHandler_PathTemplateCompletions(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Paths
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      responses:
+        "200":
+          description: ok
+`
+	env := setupTestEnv(t, "file:///paths.yaml", spec)
+	handler := lsp.NewCompletionHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 5, Character: 4}, // "/users:"
+		},
+	})
+	if err != nil {
+		t.Fatalf("completion error: %v", err)
+	}
+	if result == nil || len(result.Items) == 0 {
+		t.Fatal("expected path template completions")
+	}
+
+	labels := map[string]bool{}
+	for _, item := range result.Items {
+		labels[item.Label] = true
+	}
+	if !labels["/users"] {
+		t.Fatalf("expected completion to include existing path /users; got %v", labels)
+	}
+	if !labels["/users/{id}"] {
+		t.Fatalf("expected completion to include /users/{id}; got %v", labels)
 	}
 }

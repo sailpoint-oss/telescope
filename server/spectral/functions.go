@@ -311,6 +311,23 @@ func funcSchema(node *yaml.Node, field string, opts map[string]interface{}) []Is
 
 func validateSchemaBasic(node *yaml.Node, schema map[string]interface{}) []Issue {
 	expectedType, _ := schema["type"].(string)
+
+	// Validate enum constraint (applies regardless of type)
+	if enumRaw, ok := schema["enum"]; ok {
+		if enumList, ok := enumRaw.([]interface{}); ok && node.Kind == yaml.ScalarNode {
+			found := false
+			for _, allowed := range enumList {
+				if fmt.Sprint(allowed) == node.Value {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return []Issue{{Node: node, Message: fmt.Sprintf("value %q is not one of the allowed enum values", node.Value)}}
+			}
+		}
+	}
+
 	if expectedType == "" {
 		return nil
 	}
@@ -326,6 +343,35 @@ func validateSchemaBasic(node *yaml.Node, schema map[string]interface{}) []Issue
 	case "object":
 		if node.Kind != yaml.MappingNode {
 			return []Issue{{Node: node, Message: "must be an object"}}
+		}
+
+		// Validate required fields
+		if reqRaw, ok := schema["required"]; ok {
+			if reqList, ok := reqRaw.([]interface{}); ok {
+				for _, r := range reqList {
+					reqName, _ := r.(string)
+					if reqName != "" && !nodeHasField(node, reqName) {
+						return []Issue{{Node: node, Message: fmt.Sprintf("missing required property %q", reqName)}}
+					}
+				}
+			}
+		}
+
+		// Validate properties
+		if propsRaw, ok := schema["properties"]; ok {
+			if propsMap, ok := propsRaw.(map[string]interface{}); ok {
+				for propName, propSchemaRaw := range propsMap {
+					child := nodeField(node, propName)
+					if child == nil {
+						continue
+					}
+					if propSchema, ok := propSchemaRaw.(map[string]interface{}); ok {
+						if issues := validateSchemaBasic(child, propSchema); len(issues) > 0 {
+							return issues
+						}
+					}
+				}
+			}
 		}
 	case "string":
 		if node.Kind != yaml.ScalarNode || node.Tag != "!!str" {

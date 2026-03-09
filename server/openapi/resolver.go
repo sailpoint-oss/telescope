@@ -116,9 +116,8 @@ func (idx *Index) resolvePath(parts []string) (interface{}, error) {
 		return idx.Document.Paths, nil
 	}
 
-	path := "/" + strings.Join(parts[:1], "/")
 	// Path templates use ~1 encoding in JSON Pointer
-	path = unescapeJSONPointer(parts[0])
+	path := unescapeJSONPointer(parts[0])
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}

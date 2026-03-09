@@ -11,6 +11,9 @@ client/bin/
 server/telescope
 server/telescope.exe
 
+# Compiled Bun runner binaries (build artifacts, not committed)
+server/lsp/bun/runner/dist/
+
 # Go workspace (local development with gossip)
 go.work
 go.work.sum
