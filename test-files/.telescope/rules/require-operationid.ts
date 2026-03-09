@@ -15,7 +15,7 @@ import {
 	getValueAtPointer,
 	joinPointer,
 	splitPointer,
-} from "telescope-server";
+} from "@sailpoint-oss/telescope";
 
 export default defineRule({
 	meta: {

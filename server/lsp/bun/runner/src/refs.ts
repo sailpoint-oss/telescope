@@ -13,7 +13,7 @@ import type {
 	HeaderRef,
 	SecuritySchemeRef,
 	DocumentRef,
-} from "telescope-server";
+} from "@sailpoint-oss/telescope";
 import type { SerializedDoc } from "./types";
 
 export function buildRootRef(doc: SerializedDoc, ast: Record<string, unknown>): RootRef {

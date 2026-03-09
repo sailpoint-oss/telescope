@@ -10,7 +10,7 @@
  * - Work on any YAML/JSON document, not just OpenAPI
  * - Have access to raw text and parsed content
  */
-import { defineGenericRule } from "telescope-server";
+import { defineGenericRule } from "@sailpoint-oss/telescope";
 
 // Expected key order for OpenAPI documents
 const PREFERRED_KEY_ORDER = [

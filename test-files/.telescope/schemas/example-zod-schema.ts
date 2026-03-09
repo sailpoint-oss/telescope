@@ -1,4 +1,4 @@
-import { defineSchema } from "telescope-server";
+import { defineSchema } from "@sailpoint-oss/telescope";
 
 export default defineSchema((z) =>
 	z.object({

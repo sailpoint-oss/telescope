@@ -8,7 +8,7 @@
  *     - rule: example-custom-openapi-rule.ts
  */
 
-import { defineRule } from "telescope-server";
+import { defineRule } from "@sailpoint-oss/telescope";
 
 export default defineRule({
 	meta: {

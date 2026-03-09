@@ -2,6 +2,26 @@
 
 This guide covers building and publishing the Telescope VS Code extension to various marketplaces.
 
+## Automated Release Workflows
+
+Telescope publishes through GitHub Actions on `main`:
+
+- `.github/workflows/release.yml`:
+  - Builds bundled Go binaries and publishes VSIX artifacts to VS Code Marketplace + OpenVSX.
+  - Triggered only when release-relevant client/server/workspace files change.
+- `.github/workflows/release-go.yml`:
+  - Runs server build/vet/test plus Bun runner build, then tags/releases `server/vX.Y.Z`.
+- `.github/workflows/release-sdk.yml`:
+  - Publishes `@sailpoint-oss/telescope` to npm and creates `sdk/vX.Y.Z` GitHub release tags.
+  - Runs when `server/lsp/bun/telescope-server/**` changes on `main`.
+  - Publishes only when the package version is not already present on npm.
+
+### Required Repository Secrets
+
+- `VSCE_PAT` (VS Code Marketplace)
+- `OPEN_VSX_TOKEN` (OpenVSX)
+- `NPM_TOKEN` (npm publish for `@sailpoint-oss/telescope`)
+
 ## Prerequisites
 
 ### Install Dependencies

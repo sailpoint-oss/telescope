@@ -1,0 +1,90 @@
+name: Release SDK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/lsp/bun/telescope-server/**"
+      - ".github/workflows/release-sdk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-sdk
+  cancel-in-progress: false
+
+jobs:
+  publish-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Resolve SDK version
+        id: sdk
+        run: |
+          PKG_JSON="server/lsp/bun/telescope-server/package.json"
+          NAME=$(node -p "require('./${PKG_JSON}').name")
+          VERSION=$(node -p "require('./${PKG_JSON}').version")
+          TAG="sdk/v${VERSION}"
+          PUBLISHED=$(npm view "${NAME}" version 2>/dev/null || true)
+          SHOULD_PUBLISH="true"
+          if [ -n "${PUBLISHED}" ] && [ "${PUBLISHED}" = "${VERSION}" ]; then
+            SHOULD_PUBLISH="false"
+          fi
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "should_publish=${SHOULD_PUBLISH}" >> "$GITHUB_OUTPUT"
+          echo "published=${PUBLISHED}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${NAME}@${VERSION} (published: ${PUBLISHED:-none})"
+
+      - name: Ensure npm token is configured
+        if: steps.sdk.outputs.should_publish == 'true'
+        run: |
+          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "NPM_TOKEN is required to publish ${{ steps.sdk.outputs.name }}@${{ steps.sdk.outputs.version }}"
+            exit 1
+          fi
+
+      - name: Pack SDK tarball
+        if: steps.sdk.outputs.should_publish == 'true'
+        id: pack
+        run: |
+          cd server/lsp/bun/telescope-server
+          TARBALL=$(npm pack)
+          echo "tarball=server/lsp/bun/telescope-server/${TARBALL}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish SDK to npm
+        if: steps.sdk.outputs.should_publish == 'true'
+        run: |
+          cd server/lsp/bun/telescope-server
+          npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: steps.sdk.outputs.should_publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.sdk.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: "SDK ${{ steps.sdk.outputs.tag }}"
+          body: |
+            Published `${{ steps.sdk.outputs.name }}@${{ steps.sdk.outputs.version }}` to npm.
+          files: |
+            ${{ steps.pack.outputs.tarball }}
+
+      - name: Skip notice
+        if: steps.sdk.outputs.should_publish != 'true'
+        run: |
+          echo "SDK version already published (${{ steps.sdk.outputs.name }}@${{ steps.sdk.outputs.version }}); skipping npm/GitHub release."

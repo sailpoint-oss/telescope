@@ -11,7 +11,7 @@
  *       - rule: example-generic-rule.ts
  */
 
-import { defineGenericRule } from "telescope-server";
+import { defineGenericRule } from "@sailpoint-oss/telescope";
 
 export default defineGenericRule({
 	meta: {

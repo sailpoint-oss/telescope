@@ -4,6 +4,13 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "client/**"
+      - "server/**"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/release.yml"
   workflow_dispatch:
     inputs:
       version:
@@ -58,6 +65,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build Bun runner
+        run: bash lsp/bun/runner/build.sh
+        working-directory: server
 
       - name: Build binary
         env:
