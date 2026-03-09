@@ -12,7 +12,7 @@ import type {
 	RuleContext,
 	GenericRuleContext,
 	AnyRef,
-} from "telescope-server";
+} from "@sailpoint-oss/telescope";
 
 const SEVERITY_MAP: Record<string, number> = {
 	error: 1,

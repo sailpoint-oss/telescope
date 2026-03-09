@@ -32,12 +32,21 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      GONOSUMCHECK: github.com/sailpoint-oss/telescope/server
+      GONOSUMDB: github.com/sailpoint-oss/telescope/server
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build Bun runner
+        run: bash lsp/bun/runner/build.sh
+        working-directory: server
 
       - name: Build
         run: go build ./...
@@ -56,6 +65,9 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    env:
+      GONOSUMCHECK: github.com/sailpoint-oss/telescope/server
+      GONOSUMDB: github.com/sailpoint-oss/telescope/server
 
     steps:
       - uses: actions/checkout@v4

@@ -274,6 +274,28 @@ When adding or changing fixtures:
 
 7. **Address review feedback** promptly
 
+## Release Workflows
+
+- **Extension release**: `.github/workflows/release.yml`
+  - Publishes VSIX artifacts to VS Code Marketplace and OpenVSX.
+  - Triggers on `main` changes affecting release surfaces (`client/**`, `server/**`, workspace lock/config files).
+  - Supports skip marker in commit message: `[skip publish]`.
+- **Go module release**: `.github/workflows/release-go.yml`
+  - Runs CI-equivalent server checks (including Bun runner build) before tagging `server/v*`.
+  - Publishes a GitHub release for the `github.com/sailpoint-oss/telescope/server` module tag.
+- **TS SDK release**: `.github/workflows/release-sdk.yml`
+  - Publishes `@sailpoint-oss/telescope` to npm and creates `sdk/v*` GitHub releases.
+  - Triggers on `main` when `server/lsp/bun/telescope-server/**` changes.
+  - Skips publish if the same version already exists on npm.
+
+### Required GitHub Secrets
+
+- `VSCE_PAT`: VS Code Marketplace publishing token.
+- `OPEN_VSX_TOKEN`: OpenVSX publishing token.
+- `NPM_TOKEN`: npm token for publishing `@sailpoint-oss/telescope`.
+
+Keep secrets scoped to repository-level release maintainers and rotate them periodically.
+
 ### Review Criteria
 
 - Code follows project style guidelines

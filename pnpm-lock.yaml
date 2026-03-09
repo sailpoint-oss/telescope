@@ -59,6 +59,9 @@ importers:
 
   server/lsp/bun/runner:
     dependencies:
+      '@sailpoint-oss/telescope':
+        specifier: file:../telescope-server
+        version: link:../telescope-server
       '@stoplight/spectral-core':
         specifier: ^1.21.0
         version: 1.21.0
@@ -68,9 +71,6 @@ importers:
       '@stoplight/spectral-rulesets':
         specifier: ^1.22.0
         version: 1.22.0
-      telescope-server:
-        specifier: workspace:*
-        version: link:../telescope-server
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -79,7 +79,7 @@ importers:
 
   test-files:
     dependencies:
-      telescope-server:
+      '@sailpoint-oss/telescope':
         specifier: workspace:*
         version: link:../server/lsp/bun/telescope-server
 

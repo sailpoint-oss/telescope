@@ -1,4 +1,4 @@
-import type { OpenAPIVisitors, GenericVisitors, RuleContext, GenericRuleContext } from "telescope-server";
+import type { OpenAPIVisitors, GenericVisitors, RuleContext, GenericRuleContext } from "@sailpoint-oss/telescope";
 import type { SerializedDoc, SerializedProjectIndex, LoadedRule, RunRulesRequest } from "./types";
 import type { ContextInternal } from "./context";
 import {
