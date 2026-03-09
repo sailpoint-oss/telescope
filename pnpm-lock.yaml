@@ -57,12 +57,6 @@ importers:
         specifier: ^2.0.1
         version: 2.0.1
 
-  packages/telescope-server:
-    dependencies:
-      zod:
-        specifier: ^3.23.0
-        version: 3.25.76
-
   server/lsp/bun/runner:
     dependencies:
       '@stoplight/spectral-core':
@@ -75,17 +69,19 @@ importers:
         specifier: ^1.22.0
         version: 1.22.0
       telescope-server:
-        specifier: file:../../../../packages/telescope-server
-        version: link:../../../../packages/telescope-server
+        specifier: workspace:*
+        version: link:../telescope-server
       zod:
         specifier: ^3.23.0
         version: 3.25.76
+
+  server/lsp/bun/telescope-server: {}
 
   test-files:
     dependencies:
       telescope-server:
         specifier: workspace:*
-        version: link:../packages/telescope-server
+        version: link:../server/lsp/bun/telescope-server
 
 packages:
 

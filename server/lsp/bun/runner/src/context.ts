@@ -71,6 +71,7 @@ function offsetToRangeFromText(
 
 export interface ContextInternal {
 	_diagnostics: SerializedDiagnostic[];
+	_defaultCode?: string;
 }
 
 export function buildRuleContext(req: RunRulesRequest): RuleContext & ContextInternal {
@@ -109,7 +110,7 @@ export function buildRuleContext(req: RunRulesRequest): RuleContext & ContextInt
 				endLine: opts.range.end.line,
 				endChar: opts.range.end.character,
 				severity: SEVERITY_MAP[opts.severity ?? "warning"] ?? 2,
-				code: opts.code ?? "",
+				code: opts.code ?? ctx._defaultCode ?? "",
 				message: opts.message,
 				source: "telescope-custom",
 			});
@@ -161,7 +162,7 @@ export function buildGenericContext(
 				endLine: opts.range.end.line,
 				endChar: opts.range.end.character,
 				severity: SEVERITY_MAP[opts.severity ?? "warning"] ?? 2,
-				code: opts.code ?? "",
+				code: opts.code ?? ctx._defaultCode ?? "",
 				message: opts.message,
 				source: "telescope-custom",
 			});

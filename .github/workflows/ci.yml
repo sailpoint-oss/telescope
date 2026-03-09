@@ -144,6 +144,9 @@ jobs:
       - name: Build extension
         run: pnpm --filter ./client run build
 
+      - name: Run client unit tests
+        run: pnpm --filter ./client run test
+
   e2e:
     name: E2E (${{ matrix.os }})
     needs: [go, typescript]
@@ -184,6 +187,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Build Bun runner
+        run: bash server/lsp/bun/runner/build.sh
+
       - name: Build and compile E2E
         run: pnpm --filter ./client test:e2e:compile
 
@@ -201,3 +207,4 @@ jobs:
         run: |
           pnpm --filter ./client test:e2e:run:single
           pnpm --filter ./client test:e2e:run:multi
+          pnpm --filter ./client test:e2e:run:sidecar
