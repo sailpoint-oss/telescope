@@ -1,7 +1,5 @@
 package rulesets
 
-import "github.com/LukasParke/gossip/protocol"
-
 // Merge combines multiple rulesets, with later rulesets taking priority.
 func Merge(rulesets ...*RuleSet) *RuleSet {
 	merged := &RuleSet{
@@ -48,7 +46,7 @@ func BuildSeverityOverrides(rs *RuleSet) []SeverityOverride {
 		overrides = append(overrides, SeverityOverride{
 			RuleID:   id,
 			Severity: sev,
-			Disabled: sev == protocol.DiagnosticSeverity(0),
+			Disabled: sev == 0,
 		})
 	}
 	return overrides

@@ -6,6 +6,8 @@ import (
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -13,7 +15,7 @@ import (
 var unresolvedRefMeta = rules.RuleMeta{
 	ID:          "unresolved-ref",
 	Description: "Reports $ref values that cannot be resolved.",
-	Severity:    protocol.SeverityError,
+	Severity:    ctypes.SeverityError,
 	Category:    rules.CategoryReferences,
 	Recommended: true,
 	HowToFix:    "Check the $ref path and ensure the target component exists.",
@@ -70,7 +72,7 @@ func unresolvedRefAnalyzer() (string, treesitter.Analyzer) {
 				}
 			}
 
-			return r.Diagnostics()
+			return adapt.DiagnosticsToProtocol(r.Diagnostics())
 		},
 	}
 }

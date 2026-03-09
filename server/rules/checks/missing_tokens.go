@@ -6,13 +6,14 @@ import (
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
 var missingTokenMeta = rules.RuleMeta{
 	ID:          "missing-token",
 	Description: "Reports tokens the parser expected but did not find (e.g., a missing closing brace).",
-	Severity:    protocol.SeverityError,
+	Severity:    ctypes.SeverityError,
 	Category:    rules.CategorySyntax,
 	Recommended: true,
 	HowToFix:    "Add the missing token indicated by the diagnostic.",

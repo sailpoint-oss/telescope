@@ -1,9 +1,12 @@
 package openapi
 
 import (
+	"strconv"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,9 +76,51 @@ func ParseAndIndex(content []byte) *Index {
 		idx.Tags[doc.Tags[i].Name] = &doc.Tags[i]
 	}
 
+	// Collect refs using yaml.v3 AST traversal so project-mode indexing
+	// matches parser semantics and captures stable locations.
+	collectRefsFromYAMLNode(idx, mapping, nil)
+
 	idx.Version = doc.ParsedVersion
 
 	return idx
+}
+
+func collectRefsFromYAMLNode(idx *Index, node *yaml.Node, path []string) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind {
+	case yaml.DocumentNode:
+		if len(node.Content) > 0 {
+			collectRefsFromYAMLNode(idx, node.Content[0], path)
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			keyNode := node.Content[i]
+			valueNode := node.Content[i+1]
+			keyText := yamlStr(keyNode)
+			if keyText == "$ref" && valueNode != nil && valueNode.Kind == yaml.ScalarNode {
+				target := yamlStr(valueNode)
+				usage := RefUsage{
+					Loc:    yamlLoc(valueNode),
+					Target: target,
+					From:   "/" + strings.Join(path, "/"),
+				}
+				idx.Refs[target] = append(idx.Refs[target], usage)
+				idx.AllRefs = append(idx.AllRefs, usage)
+				continue
+			}
+
+			childPath := append(path, escapeJSONPointer(keyText))
+			collectRefsFromYAMLNode(idx, valueNode, childPath)
+		}
+	case yaml.SequenceNode:
+		for i, child := range node.Content {
+			childPath := append(path, strconv.Itoa(i))
+			collectRefsFromYAMLNode(idx, child, childPath)
+		}
+	}
 }
 
 // standaloneParser builds the OpenAPI model from yaml.Node without tree-sitter.
@@ -97,14 +142,25 @@ func yamlLoc(n *yaml.Node) Loc {
 	}
 	endCol := col
 	if n.Kind == yaml.ScalarNode {
-		endCol = col + len(n.Value)
+		endCol = col + utf16Len(n.Value)
 	}
 	return Loc{
-		Range: protocol.Range{
-			Start: protocol.Position{Line: uint32(line), Character: uint32(col)},   //nolint:gosec
-			End:   protocol.Position{Line: uint32(line), Character: uint32(endCol)}, //nolint:gosec
+		Range: ctypes.Range{
+			Start: ctypes.Position{Line: uint32(line), Character: uint32(col)},    //nolint:gosec
+			End:   ctypes.Position{Line: uint32(line), Character: uint32(endCol)}, //nolint:gosec
 		},
 	}
+}
+
+// utf16Len returns the number of UTF-16 code units needed to represent s.
+func utf16Len(s string) int {
+	n := 0
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		s = s[size:]
+		n += utf16.RuneLen(r)
+	}
+	return n
 }
 
 func yamlStr(n *yaml.Node) string {
@@ -333,8 +389,10 @@ func (p *standaloneParser) parsePathItem(n *yaml.Node) *PathItem {
 
 	methods := []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}
 	for _, m := range methods {
+		keyNode := yamlMapKeyNode(n, m)
 		if opNode := yamlMapGet(n, m); opNode != nil {
 			op := p.parseOperation(opNode)
+			op.MethodLoc = yamlLoc(keyNode)
 			switch m {
 			case "get":
 				item.Get = op
@@ -387,6 +445,9 @@ func (p *standaloneParser) parseOperation(n *yaml.Node) *Operation {
 		op.OperationIDLoc = yamlLoc(opIdNode)
 	}
 
+	if paramsKey := yamlMapKeyNode(n, "parameters"); paramsKey != nil {
+		op.ParametersLoc = yamlLoc(paramsKey)
+	}
 	if params := yamlMapGet(n, "parameters"); params != nil {
 		op.Parameters = p.parseParameters(params)
 	}
@@ -395,10 +456,15 @@ func (p *standaloneParser) parseOperation(n *yaml.Node) *Operation {
 		op.RequestBody = p.parseRequestBody(rb)
 	}
 
+	if responsesKey := yamlMapKeyNode(n, "responses"); responsesKey != nil {
+		op.ResponsesLoc = yamlLoc(responsesKey)
+	}
 	if responses := yamlMapGet(n, "responses"); responses != nil && responses.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(responses.Content); i += 2 {
 			code := responses.Content[i].Value
-			op.Responses[code] = p.parseResponse(responses.Content[i+1])
+			resp := p.parseResponse(responses.Content[i+1])
+			resp.CodeLoc = yamlLoc(responses.Content[i])
+			op.Responses[code] = resp
 		}
 	}
 
@@ -506,25 +572,32 @@ func (p *standaloneParser) parseHeader(n *yaml.Node) *Header {
 }
 
 func (p *standaloneParser) parseSchema(n *yaml.Node) *Schema {
+	return p.parseSchemaDepth(n, 0)
+}
+
+func (p *standaloneParser) parseSchemaDepth(n *yaml.Node, depth int) *Schema {
 	if n == nil {
+		return nil
+	}
+	if depth > maxSchemaDepth {
 		return nil
 	}
 
 	s := &Schema{
-		Type:                 yamlStr(yamlMapGet(n, "type")),
-		Format:               yamlStr(yamlMapGet(n, "format")),
-		Title:                yamlStr(yamlMapGet(n, "title")),
-		Description:          yamlDescription(n),
-		Default:              yamlNodeToNode(yamlMapGet(n, "default")),
-		Pattern:              yamlStr(yamlMapGet(n, "pattern")),
-		Deprecated:           yamlStr(yamlMapGet(n, "deprecated")) == "true",
-		ReadOnly:             yamlStr(yamlMapGet(n, "readOnly")) == "true",
-		WriteOnly:            yamlStr(yamlMapGet(n, "writeOnly")) == "true",
-		Nullable:             yamlStr(yamlMapGet(n, "nullable")) == "true",
-		Ref:                  yamlStr(yamlMapGet(n, "$ref")),
-		Extensions:           yamlExtensions(n),
-		Loc:                  yamlLoc(n),
-		Properties:           make(map[string]*Schema),
+		Type:        yamlStr(yamlMapGet(n, "type")),
+		Format:      yamlStr(yamlMapGet(n, "format")),
+		Title:       yamlStr(yamlMapGet(n, "title")),
+		Description: yamlDescription(n),
+		Default:     yamlNodeToNode(yamlMapGet(n, "default")),
+		Pattern:     yamlStr(yamlMapGet(n, "pattern")),
+		Deprecated:  yamlStr(yamlMapGet(n, "deprecated")) == "true",
+		ReadOnly:    yamlStr(yamlMapGet(n, "readOnly")) == "true",
+		WriteOnly:   yamlStr(yamlMapGet(n, "writeOnly")) == "true",
+		Nullable:    yamlStr(yamlMapGet(n, "nullable")) == "true",
+		Ref:         yamlStr(yamlMapGet(n, "$ref")),
+		Extensions:  yamlExtensions(n),
+		Loc:         yamlLoc(n),
+		Properties:  make(map[string]*Schema),
 	}
 
 	if typeNode := yamlMapGet(n, "type"); typeNode != nil {
@@ -534,35 +607,35 @@ func (p *standaloneParser) parseSchema(n *yaml.Node) *Schema {
 	if props := yamlMapGet(n, "properties"); props != nil && props.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(props.Content); i += 2 {
 			name := props.Content[i].Value
-			s.Properties[name] = p.parseSchema(props.Content[i+1])
+			s.Properties[name] = p.parseSchemaDepth(props.Content[i+1], depth+1)
 		}
 	}
 
 	if items := yamlMapGet(n, "items"); items != nil {
-		s.Items = p.parseSchema(items)
+		s.Items = p.parseSchemaDepth(items, depth+1)
 	}
 
 	if allOf := yamlMapGet(n, "allOf"); allOf != nil && allOf.Kind == yaml.SequenceNode {
 		for _, c := range allOf.Content {
-			s.AllOf = append(s.AllOf, p.parseSchema(c))
+			s.AllOf = append(s.AllOf, p.parseSchemaDepth(c, depth+1))
 		}
 	}
 	if anyOf := yamlMapGet(n, "anyOf"); anyOf != nil && anyOf.Kind == yaml.SequenceNode {
 		for _, c := range anyOf.Content {
-			s.AnyOf = append(s.AnyOf, p.parseSchema(c))
+			s.AnyOf = append(s.AnyOf, p.parseSchemaDepth(c, depth+1))
 		}
 	}
 	if oneOf := yamlMapGet(n, "oneOf"); oneOf != nil && oneOf.Kind == yaml.SequenceNode {
 		for _, c := range oneOf.Content {
-			s.OneOf = append(s.OneOf, p.parseSchema(c))
+			s.OneOf = append(s.OneOf, p.parseSchemaDepth(c, depth+1))
 		}
 	}
 	if not := yamlMapGet(n, "not"); not != nil {
-		s.Not = p.parseSchema(not)
+		s.Not = p.parseSchemaDepth(not, depth+1)
 	}
 	if addl := yamlMapGet(n, "additionalProperties"); addl != nil {
 		if addl.Kind == yaml.MappingNode {
-			s.AdditionalProperties = p.parseSchema(addl)
+			s.AdditionalProperties = p.parseSchemaDepth(addl, depth+1)
 		}
 	}
 
@@ -588,6 +661,7 @@ func (p *standaloneParser) parseTags(n *yaml.Node) []Tag {
 		tag := Tag{
 			Name:        yamlStr(yamlMapGet(t, "name")),
 			Description: yamlDescription(t),
+			Extensions:  yamlExtensions(t),
 			Loc:         yamlLoc(t),
 		}
 		if nameNode := yamlMapGet(t, "name"); nameNode != nil {
@@ -602,11 +676,15 @@ func (p *standaloneParser) parseTags(n *yaml.Node) []Tag {
 }
 
 func (p *standaloneParser) parseExternalDocs(n *yaml.Node) *ExternalDocs {
-	return &ExternalDocs{
+	ed := &ExternalDocs{
 		Description: yamlDescription(n),
 		URL:         yamlStr(yamlMapGet(n, "url")),
 		Loc:         yamlLoc(n),
 	}
+	if urlNode := yamlMapGet(n, "url"); urlNode != nil {
+		ed.URLLoc = yamlLoc(urlNode)
+	}
+	return ed
 }
 
 func (p *standaloneParser) parseComponents(n *yaml.Node) *Components {
@@ -632,7 +710,10 @@ func (p *standaloneParser) parseComponents(n *yaml.Node) *Components {
 	if responses := yamlMapGet(n, "responses"); responses != nil && responses.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(responses.Content); i += 2 {
 			name := responses.Content[i].Value
-			comp.Responses[name] = p.parseResponse(responses.Content[i+1])
+			resp := p.parseResponse(responses.Content[i+1])
+			resp.CodeLoc = yamlLoc(responses.Content[i])
+			resp.NameLoc = yamlLoc(responses.Content[i])
+			comp.Responses[name] = resp
 		}
 	}
 
@@ -648,6 +729,7 @@ func (p *standaloneParser) parseComponents(n *yaml.Node) *Components {
 				Ref:         yamlStr(yamlMapGet(pNode, "$ref")),
 				Extensions:  yamlExtensions(pNode),
 				Loc:         yamlLoc(pNode),
+				NameLoc:     yamlLoc(params.Content[i]),
 			}
 			comp.Parameters[name] = param
 		}
@@ -656,28 +738,36 @@ func (p *standaloneParser) parseComponents(n *yaml.Node) *Components {
 	if rbs := yamlMapGet(n, "requestBodies"); rbs != nil && rbs.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(rbs.Content); i += 2 {
 			name := rbs.Content[i].Value
-			comp.RequestBodies[name] = p.parseRequestBody(rbs.Content[i+1])
+			rb := p.parseRequestBody(rbs.Content[i+1])
+			rb.NameLoc = yamlLoc(rbs.Content[i])
+			comp.RequestBodies[name] = rb
 		}
 	}
 
 	if headers := yamlMapGet(n, "headers"); headers != nil && headers.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(headers.Content); i += 2 {
 			name := headers.Content[i].Value
-			comp.Headers[name] = p.parseHeader(headers.Content[i+1])
+			h := p.parseHeader(headers.Content[i+1])
+			h.NameLoc = yamlLoc(headers.Content[i])
+			comp.Headers[name] = h
 		}
 	}
 
 	if ss := yamlMapGet(n, "securitySchemes"); ss != nil && ss.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(ss.Content); i += 2 {
 			name := ss.Content[i].Value
-			comp.SecuritySchemes[name] = p.parseSecurityScheme(ss.Content[i+1])
+			scheme := p.parseSecurityScheme(ss.Content[i+1])
+			scheme.NameLoc = yamlLoc(ss.Content[i])
+			comp.SecuritySchemes[name] = scheme
 		}
 	}
 
 	if examples := yamlMapGet(n, "examples"); examples != nil && examples.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(examples.Content); i += 2 {
 			name := examples.Content[i].Value
-			comp.Examples[name] = p.parseExample(examples.Content[i+1])
+			ex := p.parseExample(examples.Content[i+1])
+			ex.NameLoc = yamlLoc(examples.Content[i])
+			comp.Examples[name] = ex
 		}
 	}
 

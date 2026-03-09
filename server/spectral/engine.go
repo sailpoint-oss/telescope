@@ -3,6 +3,8 @@ package spectral
 import (
 	"log/slog"
 	"sync"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
@@ -104,15 +106,15 @@ func (e *Engine) evaluateRule(rule Rule, root *yaml.Node) []protocol.Diagnostic 
 				}
 
 				funcOpts := then.FunctionOptions
-			if then.Function == "unreferencedReusableObject" {
-				funcOpts = make(map[string]interface{})
-				for k, v := range then.FunctionOptions {
-					funcOpts[k] = v
+				if then.Function == "unreferencedReusableObject" {
+					funcOpts = make(map[string]interface{})
+					for k, v := range then.FunctionOptions {
+						funcOpts[k] = v
+					}
+					funcOpts["__root__"] = root
 				}
-				funcOpts["__root__"] = root
-			}
 
-			issues := fn(matchNode, then.Field, funcOpts)
+				issues := fn(matchNode, then.Field, funcOpts)
 				for _, iss := range issues {
 					reportNode := iss.Node
 					if reportNode == nil {
@@ -137,7 +139,7 @@ func (e *Engine) evaluateRule(rule Rule, root *yaml.Node) []protocol.Diagnostic 
 
 					diags = append(diags, protocol.Diagnostic{
 						Range:    nodeToRange(reportNode),
-						Severity: rule.Severity,
+						Severity: protocol.DiagnosticSeverity(rule.Severity),
 						Source:   "spectral",
 						Code:     rule.ID,
 						Message:  msg,
@@ -174,13 +176,23 @@ func nodeToRange(node *yaml.Node) protocol.Range {
 
 	endCol := col
 	if node.Kind == yaml.ScalarNode {
-		endCol = col + len(node.Value)
+		endCol = col + spectralUTF16Len(node.Value)
 	}
 
 	return protocol.Range{
 		Start: protocol.Position{Line: uint32(line), Character: uint32(col)},    //nolint:gosec
 		End:   protocol.Position{Line: uint32(line), Character: uint32(endCol)}, //nolint:gosec
 	}
+}
+
+func spectralUTF16Len(s string) int {
+	n := 0
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		s = s[size:]
+		n += utf16.RuneLen(r)
+	}
+	return n
 }
 
 func scalarValueString(node *yaml.Node) string {

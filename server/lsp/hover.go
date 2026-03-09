@@ -7,6 +7,7 @@ import (
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/markdown"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
@@ -16,9 +17,31 @@ const maxHoverDescriptionLen = 500
 // NewHoverHandler returns a handler that provides hover information for
 // $ref targets, schema types, parameters, responses, security schemes,
 // tags, operationIds, and path items.
-func NewHoverHandler(cache *openapi.IndexCache) gossip.HoverHandler {
+func NewHoverHandler(cache *openapi.IndexCache, bridge *GraphBridge) gossip.HoverHandler {
 	return func(ctx *gossip.Context, params *protocol.HoverParams) (*protocol.Hover, error) {
 		uri := params.TextDocument.URI
+
+		// Check for virtual document at this position
+		if bridge != nil {
+			pos := adapt.PositionFromProtocol(params.Position)
+			if vdoc := bridge.VirtualDocManager().FindAtPosition(string(uri), pos); vdoc != nil {
+				for _, p := range bridge.VirtualDocManager().Providers() {
+					if p.LanguageID() == vdoc.LanguageID {
+						vpos := vdoc.Mapper.ToVirtual(pos)
+						result, err := p.Hover(*vdoc, vpos)
+						if err == nil && result != nil {
+							return &protocol.Hover{
+								Contents: protocol.MarkupContent{
+									Kind:  protocol.Markdown,
+									Value: result.Contents,
+								},
+							}, nil
+						}
+					}
+				}
+			}
+		}
+
 		idx := cache.Get(uri)
 		if idx == nil || !idx.IsOpenAPI() {
 			return nil, nil
@@ -30,66 +53,118 @@ func NewHoverHandler(cache *openapi.IndexCache) gossip.HoverHandler {
 		}
 
 		word := doc.WordAt(params.Position)
+		line := doc.LineAt(params.Position.Line)
+
+		// $ref value hover — extract the full ref from the line since WordAt()
+		// breaks on #, /, etc. and returns fragments.
+		if strings.Contains(line, "$ref") {
+			refTarget := extractRefFromLine(line)
+			if refTarget != "" {
+				if target, err := idx.Resolve(refTarget); err == nil {
+					content := formatRefHover(refTarget, target)
+					return &protocol.Hover{
+						Contents: protocol.MarkupContent{Kind: protocol.Markdown, Value: content},
+					}, nil
+				}
+
+				// Cross-file $ref hover: resolve via graph bridge + index cache
+				if bridge != nil {
+					if targetURI, targetPtr, ok := bridge.LookupDefinition(string(uri), refTarget); ok {
+						normTarget := protocol.NormalizeURI(protocol.DocumentURI(targetURI))
+						if targetIdx := cache.Get(normTarget); targetIdx != nil && targetPtr != "" {
+							if target, err := targetIdx.Resolve("#" + targetPtr); err == nil {
+								content := formatRefHover(refTarget, target)
+								return &protocol.Hover{
+									Contents: protocol.MarkupContent{Kind: protocol.Markdown, Value: content},
+								}, nil
+							}
+						}
+					}
+				}
+			}
+		}
+
 		if word == "" {
 			return nil, nil
 		}
 
-		line := doc.LineAt(params.Position.Line)
-
-		// $ref value hover
-		if strings.Contains(line, "$ref") {
-			refTarget := strings.Trim(word, "\"' ")
-			if target, err := idx.Resolve(refTarget); err == nil {
-				content := formatRefHover(refTarget, target)
-				return &protocol.Hover{
-					Contents: protocol.MarkupContent{Kind: protocol.Markdown, Value: content},
-				}, nil
-			}
-		}
-
-		// Component schema
-		if schema, ok := idx.Schemas[word]; ok {
+		// Component schema — only at definition site (NameLoc)
+		if schema, ok := idx.Schemas[word]; ok && isAtLoc(params.Position, schema.NameLoc) {
 			return markdownHover(formatSchemaHover(word, schema)), nil
 		}
 
-		// Component parameter
-		if param, ok := idx.Parameters[word]; ok {
+		// Component parameter — only at definition site (NameLoc)
+		if param, ok := idx.Parameters[word]; ok && isAtLoc(params.Position, param.NameLoc) {
 			return markdownHover(formatParameterHover(word, param)), nil
 		}
 
-		// Component response
-		if resp, ok := idx.Responses[word]; ok {
+		// Component response — only at definition site (NameLoc)
+		if resp, ok := idx.Responses[word]; ok && isAtLoc(params.Position, resp.NameLoc) {
 			return markdownHover(formatResponseHover(word, resp)), nil
 		}
 
-		// Security scheme
+		// Security scheme — at definition site OR in security: context
 		if ss, ok := idx.SecuritySchemes[word]; ok {
-			return markdownHover(formatSecuritySchemeHover(word, ss)), nil
+			if isAtLoc(params.Position, ss.NameLoc) || isSecurityContext(line) {
+				return markdownHover(formatSecuritySchemeHover(word, ss, idx)), nil
+			}
 		}
 
-		// Tag
+		// Tag — at root tag definition OR in operation tags: array
 		if tag, ok := idx.Tags[word]; ok {
-			return markdownHover(formatTagHover(tag)), nil
+			if isAtLoc(params.Position, tag.NameLoc) || isTagUsageAt(idx, word, params.Position) {
+				return markdownHover(formatTagHover(tag, idx)), nil
+			}
 		}
 
-		// operationId
+		// operationId — only on operationId: lines or Link operationId references
 		if opRef, ok := idx.Operations[word]; ok {
-			return markdownHover(fmt.Sprintf(
-				"**%s** `%s %s`\n\n%s",
-				opRef.Operation.OperationID,
-				strings.ToUpper(opRef.Method),
-				opRef.Path,
-				opRef.Operation.Summary,
-			)), nil
+			if strings.Contains(line, "operationId") {
+				return markdownHover(formatOperationHover(opRef, idx)), nil
+			}
 		}
 
-		// Path item
-		if item, ok := idx.Document.Paths[word]; ok {
-			return markdownHover(formatPathItemHover(word, item)), nil
+		// Path item — only for path-shaped words
+		if strings.HasPrefix(word, "/") {
+			if item, ok := idx.Document.Paths[word]; ok {
+				return markdownHover(formatPathItemHover(word, item)), nil
+			}
 		}
 
 		return nil, nil
 	}
+}
+
+// isAtLoc checks if the given position falls within the loc's range on the same line.
+func isAtLoc(pos protocol.Position, loc openapi.Loc) bool {
+	r := adapt.RangeToProtocol(loc.Range)
+	if isZeroRange(r) {
+		return false
+	}
+	if pos.Line < r.Start.Line || pos.Line > r.End.Line {
+		return false
+	}
+	if pos.Line == r.Start.Line && pos.Character < r.Start.Character {
+		return false
+	}
+	if pos.Line == r.End.Line && pos.Character > r.End.Character {
+		return false
+	}
+	return true
+}
+
+// isTagUsageAt checks if the given position matches any tag usage location in operations.
+func isTagUsageAt(idx *openapi.Index, name string, pos protocol.Position) bool {
+	for _, item := range idx.Document.Paths {
+		for _, mo := range item.Operations() {
+			for _, t := range mo.Operation.Tags {
+				if t.Name == name && isAtLoc(pos, t.Loc) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func markdownHover(content string) *protocol.Hover {
@@ -104,13 +179,55 @@ func formatRefHover(ref string, target interface{}) string {
 
 	switch t := target.(type) {
 	case *openapi.Schema:
-		sb.WriteString(formatSchemaHover("", t))
+		if t.Type == "" && t.Ref != "" && len(t.Properties) == 0 && len(t.AllOf) == 0 && len(t.OneOf) == 0 && len(t.AnyOf) == 0 {
+			sb.WriteString(fmt.Sprintf("**Schema** → `%s`\n\n*Defined in external file*\n", t.Ref))
+		} else {
+			sb.WriteString(formatSchemaHover("", t))
+		}
 	case *openapi.Response:
-		sb.WriteString(fmt.Sprintf("**Response:** %s", formatDescription(t.Description.Text)))
+		if t.Ref != "" && t.Description.Text == "" && len(t.Content) == 0 {
+			sb.WriteString(fmt.Sprintf("**Response** → `%s`\n\n*Defined in external file*\n", t.Ref))
+		} else {
+			sb.WriteString(formatResponseHover("", t))
+		}
 	case *openapi.Parameter:
-		sb.WriteString(formatParameterHover("", t))
+		if t.Ref != "" && t.Name == "" {
+			sb.WriteString(fmt.Sprintf("**Parameter** → `%s`\n\n*Defined in external file*\n", t.Ref))
+		} else {
+			sb.WriteString(formatParameterHover("", t))
+		}
 	case *openapi.SecurityScheme:
-		sb.WriteString(formatSecuritySchemeHover("", t))
+		if t.Type == "" && t.Ref != "" {
+			sb.WriteString(fmt.Sprintf("**Security Scheme** → `%s`\n\n*Defined in external file*\n", t.Ref))
+		} else {
+			sb.WriteString(formatSecuritySchemeHover("", t, nil))
+		}
+	case *openapi.RequestBody:
+		if t.Ref != "" && len(t.Content) == 0 {
+			sb.WriteString(fmt.Sprintf("**Request Body** → `%s`\n\n*Defined in external file*\n", t.Ref))
+		} else {
+			sb.WriteString(formatRequestBodyHover("", t))
+		}
+	case *openapi.Header:
+		if t.Ref != "" && t.Description.Text == "" {
+			sb.WriteString(fmt.Sprintf("**Header** → `%s`\n\n*Defined in external file*\n", t.Ref))
+		} else {
+			sb.WriteString(formatHeaderHover("", t))
+		}
+	case *openapi.Link:
+		if t.Ref != "" && t.OperationID == "" && t.OperationRef == "" {
+			sb.WriteString(fmt.Sprintf("**Link** → `%s`\n\n*Defined in external file*\n", t.Ref))
+		} else {
+			sb.WriteString(formatLinkHover("", t))
+		}
+	case *openapi.Example:
+		if t.Ref != "" && t.Summary == "" && t.Value == nil {
+			sb.WriteString(fmt.Sprintf("**Example** → `%s`\n\n*Defined in external file*\n", t.Ref))
+		} else {
+			sb.WriteString(formatExampleHover("", t))
+		}
+	case *openapi.PathItem:
+		sb.WriteString(formatPathItemHover("", t))
 	default:
 		sb.WriteString("*(resolved)*")
 	}
@@ -129,6 +246,9 @@ func formatSchemaHover(name string, schema *openapi.Schema) string {
 		return sb.String()
 	}
 
+	if schema.Title != "" && schema.Title != name {
+		sb.WriteString(fmt.Sprintf("*%s*\n\n", schema.Title))
+	}
 	if schema.Type != "" {
 		sb.WriteString(fmt.Sprintf("**Type:** `%s`", schema.Type))
 		if schema.Format != "" {
@@ -136,12 +256,24 @@ func formatSchemaHover(name string, schema *openapi.Schema) string {
 		}
 		sb.WriteString("\n\n")
 	}
+	if flags := formatSchemaFlags(schema); flags != "" {
+		sb.WriteString(flags)
+	}
 	if schema.Description.Text != "" {
 		sb.WriteString("---\n\n")
 		sb.WriteString(formatDescription(schema.Description.Text) + "\n\n")
 	}
 	if len(schema.Enum) > 0 {
 		sb.WriteString(fmt.Sprintf("**Enum:** `%s`\n\n", strings.Join(schema.Enum, "`, `")))
+	}
+	if constraints := formatSchemaConstraints(schema); constraints != "" {
+		sb.WriteString(constraints)
+	}
+	if schema.Default != nil && schema.Default.Value != "" {
+		sb.WriteString(fmt.Sprintf("**Default:** `%s`\n\n", truncate(schema.Default.Value, 100)))
+	}
+	if schema.Example != nil && schema.Example.Value != "" {
+		sb.WriteString(fmt.Sprintf("**Example:** `%s`\n\n", truncate(schema.Example.Value, 100)))
 	}
 	if len(schema.Required) > 0 {
 		sb.WriteString(fmt.Sprintf("**Required:** %s\n\n", strings.Join(schema.Required, ", ")))
@@ -332,12 +464,21 @@ func formatParameterHover(name string, param *openapi.Parameter) string {
 	if param.Required {
 		sb.WriteString("**Required:** yes\n\n")
 	}
+	if param.Deprecated {
+		sb.WriteString("**Deprecated**\n\n")
+	}
 	if param.Schema != nil && param.Schema.Type != "" {
 		sb.WriteString(fmt.Sprintf("**Type:** `%s`", param.Schema.Type))
 		if param.Schema.Format != "" {
 			sb.WriteString(fmt.Sprintf(" (`%s`)", param.Schema.Format))
 		}
 		sb.WriteString("\n\n")
+	}
+	if param.Schema != nil && len(param.Schema.Enum) > 0 {
+		sb.WriteString(fmt.Sprintf("**Enum:** `%s`\n\n", strings.Join(param.Schema.Enum, "`, `")))
+	}
+	if param.Example != nil && param.Example.Value != "" {
+		sb.WriteString(fmt.Sprintf("**Example:** `%s`\n\n", truncate(param.Example.Value, 100)))
 	}
 	if param.Description.Text != "" {
 		sb.WriteString("---\n\n" + formatDescription(param.Description.Text) + "\n")
@@ -347,14 +488,20 @@ func formatParameterHover(name string, param *openapi.Parameter) string {
 
 func formatResponseHover(name string, resp *openapi.Response) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("### Response: %s\n\n", name))
+	if name != "" {
+		sb.WriteString(fmt.Sprintf("### Response: %s\n\n", name))
+	}
 	if resp.Description.Text != "" {
 		sb.WriteString(formatDescription(resp.Description.Text) + "\n\n")
 	}
 	if len(resp.Content) > 0 {
 		sb.WriteString("**Content types:**\n")
-		for mt := range resp.Content {
-			sb.WriteString(fmt.Sprintf("- `%s`\n", mt))
+		for mt, mediaType := range resp.Content {
+			typeStr := ""
+			if mediaType != nil && mediaType.Schema != nil {
+				typeStr = " → " + schemaTypeString(mediaType.Schema, 0)
+			}
+			sb.WriteString(fmt.Sprintf("- `%s`%s\n", mt, typeStr))
 		}
 	}
 	if len(resp.Headers) > 0 {
@@ -366,7 +513,7 @@ func formatResponseHover(name string, resp *openapi.Response) string {
 	return sb.String()
 }
 
-func formatSecuritySchemeHover(name string, ss *openapi.SecurityScheme) string {
+func formatSecuritySchemeHover(name string, ss *openapi.SecurityScheme, idx *openapi.Index) string {
 	var sb strings.Builder
 	if name != "" {
 		sb.WriteString(fmt.Sprintf("### Security Scheme: %s\n\n", name))
@@ -402,17 +549,74 @@ func formatSecuritySchemeHover(name string, ss *openapi.SecurityScheme) string {
 			sb.WriteString("- Authorization Code\n")
 		}
 	}
+	// Usage context
+	if name != "" && idx != nil {
+		var ops []string
+		isGlobal := false
+		for _, req := range idx.Document.Security {
+			if _, ok := req.HasScheme(name); ok {
+				isGlobal = true
+				break
+			}
+		}
+		if isGlobal {
+			sb.WriteString("\n**Scope:** Global (all operations)\n")
+		} else {
+			for path, item := range idx.Document.Paths {
+				for _, mo := range item.Operations() {
+					for _, req := range mo.Operation.Security {
+						if _, ok := req.HasScheme(name); ok {
+							ops = append(ops, fmt.Sprintf("`%s %s`", strings.ToUpper(mo.Method), path))
+						}
+					}
+				}
+			}
+			if len(ops) > 0 {
+				sort.Strings(ops)
+				sb.WriteString(fmt.Sprintf("\n**Used by** (%d operations):\n", len(ops)))
+				for _, op := range ops {
+					sb.WriteString("- " + op + "\n")
+				}
+			}
+		}
+	}
 	return sb.String()
 }
 
-func formatTagHover(tag *openapi.Tag) string {
+func formatTagHover(tag *openapi.Tag, idx *openapi.Index) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("### Tag: %s\n\n", tag.Name))
 	if tag.Description.Text != "" {
 		sb.WriteString(formatDescription(tag.Description.Text) + "\n\n")
 	}
-	if tag.ExternalDocs != nil {
-		sb.WriteString(fmt.Sprintf("**External Docs:** [%s](%s)\n", tag.ExternalDocs.Description.Text, tag.ExternalDocs.URL))
+	if tag.ExternalDocs != nil && tag.ExternalDocs.URL != "" {
+		desc := tag.ExternalDocs.Description.Text
+		if desc == "" {
+			desc = tag.ExternalDocs.URL
+		}
+		sb.WriteString(fmt.Sprintf("**External Docs:** [%s](%s)\n\n", desc, tag.ExternalDocs.URL))
+	}
+	// Operations using this tag
+	if idx != nil {
+		var ops []string
+		for path, item := range idx.Document.Paths {
+			for _, mo := range item.Operations() {
+				if _, ok := mo.Operation.HasTag(tag.Name); ok {
+					entry := fmt.Sprintf("`%s %s`", strings.ToUpper(mo.Method), path)
+					if mo.Operation.Summary != "" {
+						entry += " — " + mo.Operation.Summary
+					}
+					ops = append(ops, entry)
+				}
+			}
+		}
+		if len(ops) > 0 {
+			sort.Strings(ops)
+			sb.WriteString(fmt.Sprintf("**Operations** (%d):\n", len(ops)))
+			for _, op := range ops {
+				sb.WriteString("- " + op + "\n")
+			}
+		}
 	}
 	return sb.String()
 }
@@ -432,6 +636,228 @@ func formatPathItemHover(path string, item *openapi.PathItem) string {
 				name += " - " + mo.Operation.Summary
 			}
 			sb.WriteString(fmt.Sprintf("- `%s`\n", name))
+		}
+	}
+	return sb.String()
+}
+
+// formatSchemaFlags returns a line of flags (deprecated, nullable, etc.) or "".
+func formatSchemaFlags(schema *openapi.Schema) string {
+	var flags []string
+	if schema.Deprecated {
+		flags = append(flags, "deprecated")
+	}
+	if schema.Nullable {
+		flags = append(flags, "nullable")
+	}
+	if schema.ReadOnly {
+		flags = append(flags, "readOnly")
+	}
+	if schema.WriteOnly {
+		flags = append(flags, "writeOnly")
+	}
+	if schema.HasConst {
+		flags = append(flags, "const")
+	}
+	if len(flags) == 0 {
+		return ""
+	}
+	return "**Flags:** " + strings.Join(flags, ", ") + "\n\n"
+}
+
+// formatSchemaConstraints returns a constraints line for a schema, or "".
+func formatSchemaConstraints(schema *openapi.Schema) string {
+	var parts []string
+	if schema.MinLength != nil {
+		parts = append(parts, fmt.Sprintf("minLength: %d", *schema.MinLength))
+	}
+	if schema.MaxLength != nil {
+		parts = append(parts, fmt.Sprintf("maxLength: %d", *schema.MaxLength))
+	}
+	if schema.Minimum != nil {
+		parts = append(parts, fmt.Sprintf("minimum: %g", *schema.Minimum))
+	}
+	if schema.Maximum != nil {
+		parts = append(parts, fmt.Sprintf("maximum: %g", *schema.Maximum))
+	}
+	if schema.ExclusiveMinimum != nil {
+		parts = append(parts, fmt.Sprintf("exclusiveMinimum: %g", *schema.ExclusiveMinimum))
+	}
+	if schema.ExclusiveMaximum != nil {
+		parts = append(parts, fmt.Sprintf("exclusiveMaximum: %g", *schema.ExclusiveMaximum))
+	}
+	if schema.MinItems != nil {
+		parts = append(parts, fmt.Sprintf("minItems: %d", *schema.MinItems))
+	}
+	if schema.MaxItems != nil {
+		parts = append(parts, fmt.Sprintf("maxItems: %d", *schema.MaxItems))
+	}
+	if schema.MaxProperties != nil {
+		parts = append(parts, fmt.Sprintf("maxProperties: %d", *schema.MaxProperties))
+	}
+	if schema.Pattern != "" {
+		parts = append(parts, fmt.Sprintf("pattern: `%s`", schema.Pattern))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "**Constraints:** " + strings.Join(parts, " | ") + "\n\n"
+}
+
+func formatRequestBodyHover(name string, rb *openapi.RequestBody) string {
+	var sb strings.Builder
+	if name != "" {
+		sb.WriteString(fmt.Sprintf("### Request Body: %s\n\n", name))
+	}
+	if rb.Required {
+		sb.WriteString("**Required:** yes\n\n")
+	}
+	if rb.Description.Text != "" {
+		sb.WriteString(formatDescription(rb.Description.Text) + "\n\n")
+	}
+	if len(rb.Content) > 0 {
+		sb.WriteString("**Content types:**\n")
+		for mt, mediaType := range rb.Content {
+			typeStr := ""
+			if mediaType != nil && mediaType.Schema != nil {
+				typeStr = " → " + schemaTypeString(mediaType.Schema, 0)
+			}
+			sb.WriteString(fmt.Sprintf("- `%s`%s\n", mt, typeStr))
+		}
+	}
+	return sb.String()
+}
+
+func formatHeaderHover(name string, h *openapi.Header) string {
+	var sb strings.Builder
+	if name != "" {
+		sb.WriteString(fmt.Sprintf("### Header: %s\n\n", name))
+	}
+	if h.Required {
+		sb.WriteString("**Required:** yes\n\n")
+	}
+	if h.Deprecated {
+		sb.WriteString("**Deprecated**\n\n")
+	}
+	if h.Schema != nil && h.Schema.Type != "" {
+		sb.WriteString(fmt.Sprintf("**Type:** `%s`", h.Schema.Type))
+		if h.Schema.Format != "" {
+			sb.WriteString(fmt.Sprintf(" (`%s`)", h.Schema.Format))
+		}
+		sb.WriteString("\n\n")
+	}
+	if h.Description.Text != "" {
+		sb.WriteString("---\n\n" + formatDescription(h.Description.Text) + "\n")
+	}
+	return sb.String()
+}
+
+func formatLinkHover(name string, l *openapi.Link) string {
+	var sb strings.Builder
+	if name != "" {
+		sb.WriteString(fmt.Sprintf("### Link: %s\n\n", name))
+	}
+	if l.OperationRef != "" {
+		sb.WriteString(fmt.Sprintf("**operationRef:** `%s`\n\n", l.OperationRef))
+	}
+	if l.OperationID != "" {
+		sb.WriteString(fmt.Sprintf("**operationId:** `%s`\n\n", l.OperationID))
+	}
+	if l.Description.Text != "" {
+		sb.WriteString("---\n\n" + formatDescription(l.Description.Text) + "\n")
+	}
+	return sb.String()
+}
+
+func formatExampleHover(name string, ex *openapi.Example) string {
+	var sb strings.Builder
+	if name != "" {
+		sb.WriteString(fmt.Sprintf("### Example: %s\n\n", name))
+	}
+	if ex.Summary != "" {
+		sb.WriteString(ex.Summary + "\n\n")
+	}
+	if ex.Description.Text != "" {
+		sb.WriteString(formatDescription(ex.Description.Text) + "\n\n")
+	}
+	if ex.Value != nil && ex.Value.Value != "" {
+		sb.WriteString(fmt.Sprintf("```\n%s\n```\n", truncate(ex.Value.Value, 200)))
+	}
+	if ex.ExternalValue != "" {
+		sb.WriteString(fmt.Sprintf("**External:** `%s`\n", ex.ExternalValue))
+	}
+	return sb.String()
+}
+
+// formatOperationHover renders a rich hover for an operation.
+func formatOperationHover(opRef *openapi.OperationRef, idx *openapi.Index) string {
+	op := opRef.Operation
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("### `%s %s`\n\n", strings.ToUpper(opRef.Method), opRef.Path))
+
+	if op.Deprecated {
+		sb.WriteString("**DEPRECATED**\n\n")
+	}
+	if op.OperationID != "" {
+		sb.WriteString(fmt.Sprintf("**operationId:** `%s`\n\n", op.OperationID))
+	}
+	if op.Summary != "" {
+		sb.WriteString(op.Summary + "\n\n")
+	}
+	if op.Description.Text != "" {
+		sb.WriteString("---\n\n" + formatDescription(op.Description.Text) + "\n\n")
+	}
+	if len(op.Tags) > 0 {
+		names := op.TagNames()
+		sb.WriteString(fmt.Sprintf("**Tags:** %s\n\n", strings.Join(names, ", ")))
+	}
+	if len(op.Parameters) > 0 {
+		counts := map[string]int{}
+		for _, p := range op.Parameters {
+			counts[p.In]++
+		}
+		var paramParts []string
+		for _, loc := range []string{"path", "query", "header", "cookie"} {
+			if n, ok := counts[loc]; ok {
+				paramParts = append(paramParts, fmt.Sprintf("%d %s", n, loc))
+			}
+		}
+		sb.WriteString(fmt.Sprintf("**Parameters:** %s\n\n", strings.Join(paramParts, ", ")))
+	}
+	if len(op.Responses) > 0 {
+		codes := make([]string, 0, len(op.Responses))
+		for code := range op.Responses {
+			codes = append(codes, code)
+		}
+		sort.Strings(codes)
+		sb.WriteString(fmt.Sprintf("**Responses:** `%s`\n", strings.Join(codes, "`, `")))
+	}
+	// Sibling operations sharing the same tags
+	if idx != nil && len(op.Tags) > 0 {
+		for _, tagUsage := range op.Tags {
+			var siblings []string
+			for path, item := range idx.Document.Paths {
+				for _, mo := range item.Operations() {
+					if mo.Operation.OperationID == op.OperationID && opRef.Path == path {
+						continue
+					}
+					if _, ok := mo.Operation.HasTag(tagUsage.Name); ok {
+						entry := fmt.Sprintf("`%s %s`", strings.ToUpper(mo.Method), path)
+						if mo.Operation.Summary != "" {
+							entry += " — " + mo.Operation.Summary
+						}
+						siblings = append(siblings, entry)
+					}
+				}
+			}
+			if len(siblings) > 0 && len(siblings) <= 10 {
+				sort.Strings(siblings)
+				sb.WriteString(fmt.Sprintf("\n**Other %s operations:**\n", tagUsage.Name))
+				for _, s := range siblings {
+					sb.WriteString("- " + s + "\n")
+				}
+			}
 		}
 	}
 	return sb.String()

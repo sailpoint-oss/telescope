@@ -4,13 +4,7 @@
 		{
 			"label": "build:server",
 			"type": "shell",
-			"command": "go",
-			"args": [
-				"build",
-				"-o",
-				"${workspaceFolder}/client/bin/telescope",
-				"."
-			],
+			"command": "rm -f ${workspaceFolder}/client/bin/telescope && go build -v -ldflags \"-X 'github.com/sailpoint-oss/telescope/server/lsp.Version=dev-$(date +%H:%M:%S)'\" -o ${workspaceFolder}/client/bin/telescope .",
 			"options": {
 				"cwd": "${workspaceFolder}/server"
 			},

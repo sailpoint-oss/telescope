@@ -7,6 +7,7 @@ import (
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -17,7 +18,7 @@ var (
 
 // NewInlayHintHandler provides inline hints for $ref types, required fields,
 // deprecated markers, and parameter locations.
-func NewInlayHintHandler(cache *openapi.IndexCache) gossip.InlayHintHandler {
+func NewInlayHintHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.InlayHintHandler {
 	return func(ctx *gossip.Context, params *protocol.InlayHintParams) ([]protocol.InlayHint, error) {
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
@@ -28,7 +29,7 @@ func NewInlayHintHandler(cache *openapi.IndexCache) gossip.InlayHintHandler {
 
 		// $ref type resolution hints
 		for _, ref := range idx.AllRefs {
-			r := ref.Loc.Range
+			r := adapt.RangeToProtocol(ref.Loc.Range)
 			if !rangeOverlaps(r, params.Range) {
 				continue
 			}
@@ -47,7 +48,7 @@ func NewInlayHintHandler(cache *openapi.IndexCache) gossip.InlayHintHandler {
 		// Required property markers on schemas
 		if idx.Document.Components != nil {
 			for _, schema := range idx.Document.Components.Schemas {
-				if !rangeOverlaps(schema.Loc.Range, params.Range) {
+				if !rangeOverlaps(adapt.RangeToProtocol(schema.Loc.Range), params.Range) {
 					continue
 				}
 				requiredSet := make(map[string]bool, len(schema.Required))
@@ -58,11 +59,12 @@ func NewInlayHintHandler(cache *openapi.IndexCache) gossip.InlayHintHandler {
 					if !requiredSet[propName] {
 						continue
 					}
-					if isZeroRange(prop.Loc.Range) {
+					propRange := adapt.RangeToProtocol(prop.Loc.Range)
+					if isZeroRange(propRange) {
 						continue
 					}
 					hints = append(hints, protocol.InlayHint{
-						Position:     prop.Loc.Range.Start,
+						Position:     propRange.Start,
 						Label:        "*",
 						PaddingRight: true,
 						Tooltip: &protocol.MarkupContent{
@@ -74,40 +76,19 @@ func NewInlayHintHandler(cache *openapi.IndexCache) gossip.InlayHintHandler {
 			}
 		}
 
-		// Deprecated operation markers
-		for _, item := range idx.Document.Paths {
-			for _, mo := range item.Operations() {
-				if !mo.Operation.Deprecated {
-					continue
-				}
-				opLoc := mo.Operation.Loc.Range
-				if !rangeOverlaps(opLoc, params.Range) {
-					continue
-				}
-				hints = append(hints, protocol.InlayHint{
-					Position:    opLoc.Start,
-					Label:       "deprecated",
-					PaddingRight: true,
-					Tooltip: &protocol.MarkupContent{
-						Kind:  protocol.PlainText,
-						Value: "This operation is deprecated",
-					},
-				})
-			}
-		}
-
 		// Parameter "in:" hints
 		for _, item := range idx.Document.Paths {
 			for _, mo := range item.Operations() {
 				for _, p := range mo.Operation.Parameters {
-					if p.In == "" || isZeroRange(p.NameLoc.Range) {
+					pRange := adapt.RangeToProtocol(p.NameLoc.Range)
+					if p.In == "" || isZeroRange(pRange) {
 						continue
 					}
-					if !rangeOverlaps(p.NameLoc.Range, params.Range) {
+					if !rangeOverlaps(pRange, params.Range) {
 						continue
 					}
 					hints = append(hints, protocol.InlayHint{
-						Position:    p.NameLoc.Range.End,
+						Position:    pRange.End,
 						Label:       fmt.Sprintf(" in: %s", p.In),
 						Kind:        &inlayKindParam,
 						PaddingLeft: true,
@@ -119,7 +100,7 @@ func NewInlayHintHandler(cache *openapi.IndexCache) gossip.InlayHintHandler {
 		// Composition (allOf/anyOf/oneOf) summary hints on component schemas
 		if idx.Document.Components != nil {
 			for _, schema := range idx.Document.Components.Schemas {
-				if !rangeOverlaps(schema.Loc.Range, params.Range) {
+				if !rangeOverlaps(adapt.RangeToProtocol(schema.Loc.Range), params.Range) {
 					continue
 				}
 				if hint := compositionHint(schema, idx); hint != nil {
@@ -141,10 +122,11 @@ func compositionHint(schema *openapi.Schema, idx *openapi.Index) *protocol.Inlay
 		}
 		names := sortedPropertyNames(merged.Properties)
 		label := "merged: {" + truncateList(names, 60) + "}"
+		r := adapt.RangeToProtocol(schema.NameLoc.Range)
 		return &protocol.InlayHint{
-			Position:    schema.Loc.Range.Start,
+			Position:    r.End,
 			Label:       label,
-			PaddingRight: true,
+			PaddingLeft: true,
 			Tooltip: &protocol.MarkupContent{
 				Kind:  protocol.PlainText,
 				Value: fmt.Sprintf("allOf merges %d properties", len(names)),
@@ -158,20 +140,22 @@ func compositionHint(schema *openapi.Schema, idx *openapi.Index) *protocol.Inlay
 		if schema.Discriminator != nil && schema.Discriminator.PropertyName != "" {
 			label = fmt.Sprintf("discriminator: %s → %s", schema.Discriminator.PropertyName, strings.Join(variants, ", "))
 		}
+		r := adapt.RangeToProtocol(schema.NameLoc.Range)
 		return &protocol.InlayHint{
-			Position:    schema.Loc.Range.Start,
+			Position:    r.End,
 			Label:       label,
-			PaddingRight: true,
+			PaddingLeft: true,
 		}
 	}
 
 	if len(schema.AnyOf) > 0 {
 		variants := compositionVariantNames(schema.AnyOf)
 		label := "anyOf: " + strings.Join(variants, " | ")
+		r := adapt.RangeToProtocol(schema.NameLoc.Range)
 		return &protocol.InlayHint{
-			Position:    schema.Loc.Range.Start,
+			Position:    r.End,
 			Label:       label,
-			PaddingRight: true,
+			PaddingLeft: true,
 		}
 	}
 

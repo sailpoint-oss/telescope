@@ -3,13 +3,13 @@ package openapi
 import (
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 )
 
 // Loc tracks source location for any model element, linking back to the
 // tree-sitter node that produced it.
 type Loc struct {
-	Range protocol.Range
+	Range ctypes.Range
 	Node  *tree_sitter.Node
 }
 
@@ -21,9 +21,9 @@ func LocFromNode(node *tree_sitter.Node) Loc {
 	start := node.StartPosition()
 	end := node.EndPosition()
 	return Loc{
-		Range: protocol.Range{
-			Start: protocol.Position{Line: uint32(start.Row), Character: uint32(start.Column)},
-			End:   protocol.Position{Line: uint32(end.Row), Character: uint32(end.Column)},
+		Range: ctypes.Range{
+			Start: ctypes.Position{Line: uint32(start.Row), Character: uint32(start.Column)},
+			End:   ctypes.Position{Line: uint32(end.Row), Character: uint32(end.Column)},
 		},
 		Node: node,
 	}
@@ -51,6 +51,7 @@ type Document struct {
 	Security      []SecurityRequirement
 	Tags          []Tag
 	ExternalDocs  *ExternalDocs
+	Schemes       []string // OAS 2.0 only: ["http","https"]
 	Extensions    map[string]*Node
 	Loc           Loc
 }
@@ -88,6 +89,7 @@ type Server struct {
 	URL         string
 	Description DescriptionValue
 	Variables   map[string]*ServerVariable
+	Extensions  map[string]*Node
 	Loc         Loc
 	URLLoc      Loc
 }
@@ -176,8 +178,11 @@ type Operation struct {
 	ExternalDocs *ExternalDocs
 	Extensions   map[string]*Node
 	Loc            Loc
+	MethodLoc      Loc // location of the HTTP method key (e.g. "get", "post")
 	OperationIDLoc Loc
 	TagsLoc        Loc
+	ResponsesLoc   Loc // location of the "responses" key
+	ParametersLoc  Loc // location of the "parameters" key
 }
 
 // TagNames returns the tag names as a plain string slice.
@@ -223,6 +228,7 @@ type RequestBody struct {
 	Required    bool
 	Ref         string
 	Loc         Loc
+	NameLoc     Loc // location of the request body name key in components
 }
 
 // MediaType describes a media type with schema and examples.
@@ -242,6 +248,9 @@ type Response struct {
 	Ref         string
 	Extensions  map[string]*Node
 	Loc         Loc
+	CodeLoc     Loc // location of the status code key (e.g. "200", "default")
+	NameLoc     Loc // location of the response name key in components
+	HeadersLoc  Loc // location of the "headers" key
 }
 
 type Header struct {
@@ -251,6 +260,7 @@ type Header struct {
 	Schema      *Schema
 	Ref         string
 	Loc         Loc
+	NameLoc     Loc // location of the header name key in components
 }
 
 type Link struct {
@@ -259,43 +269,52 @@ type Link struct {
 	Description  DescriptionValue
 	Ref          string
 	Loc          Loc
+	NameLoc      Loc // location of the link name key in components
+	OperationIDLoc Loc // location of the operationId value
 }
 
 // Schema describes a data type.
 type Schema struct {
-	Type                 string
-	Format               string
-	Title                string
-	Description          DescriptionValue
-	Default              *Node
-	Enum                 []string
-	Required             []string
-	Properties           map[string]*Schema
-	AdditionalProperties *Schema
-	AllOf                []*Schema
-	AnyOf                []*Schema
-	OneOf                []*Schema
-	Not                  *Schema
-	Items                *Schema
-	MinLength            *int
-	MaxLength            *int
-	Minimum              *float64
-	Maximum              *float64
-	MinItems             *int
-	MaxItems             *int
-	Pattern              string
-	Nullable             bool
-	ReadOnly             bool
-	WriteOnly            bool
-	Deprecated           bool
-	Example              *Node
-	ExternalDocs         *ExternalDocs
-	Discriminator        *Discriminator
-	Ref                  string
-	Extensions           map[string]*Node
-	Loc                  Loc
-	TypeLoc              Loc
-	NameLoc              Loc // location of the schema name key in components
+	Type                        string
+	Format                      string
+	Title                       string
+	Description                 DescriptionValue
+	Default                     *Node
+	Enum                        []string
+	Required                    []string
+	Properties                  map[string]*Schema
+	AdditionalProperties        *Schema
+	AdditionalPropertiesFalse   bool // true when additionalProperties is explicitly false
+	UnevaluatedProperties       *Schema
+	UnevaluatedPropertiesFalse  bool // true when unevaluatedProperties is explicitly false
+	AllOf                       []*Schema
+	AnyOf                       []*Schema
+	OneOf                       []*Schema
+	Not                         *Schema
+	Items                       *Schema
+	MinLength                   *int
+	MaxLength                   *int
+	Minimum                     *float64
+	Maximum                     *float64
+	ExclusiveMinimum            *float64 // OAS 3.1+: numeric value
+	ExclusiveMaximum            *float64 // OAS 3.1+: numeric value
+	MinItems                    *int
+	MaxItems                    *int
+	MaxProperties               *int
+	Pattern                     string
+	HasConst                    bool // true when const is present
+	Nullable                    bool
+	ReadOnly                    bool
+	WriteOnly                   bool
+	Deprecated                  bool
+	Example                     *Node
+	ExternalDocs                *ExternalDocs
+	Discriminator               *Discriminator
+	Ref                         string
+	Extensions                  map[string]*Node
+	Loc                         Loc
+	TypeLoc                     Loc
+	NameLoc                     Loc // location of the schema name key in components
 }
 
 type Discriminator struct {
@@ -326,6 +345,7 @@ type Example struct {
 	ExternalValue string
 	Ref           string
 	Loc           Loc
+	NameLoc       Loc // location of the example name key in components
 }
 
 // SecurityScheme defines a security mechanism.
@@ -341,6 +361,7 @@ type SecurityScheme struct {
 	Ref              string
 	Extensions       map[string]*Node
 	Loc              Loc
+	NameLoc          Loc // location of the security scheme name key in components
 }
 
 type OAuthFlows struct {
@@ -402,6 +423,7 @@ type Tag struct {
 	Name         string
 	Description  DescriptionValue
 	ExternalDocs *ExternalDocs
+	Extensions   map[string]*Node
 	Loc          Loc
 	NameLoc      Loc
 }
@@ -410,6 +432,16 @@ type ExternalDocs struct {
 	Description DescriptionValue
 	URL         string
 	Loc         Loc
+	URLLoc      Loc
+}
+
+// LocOrFallback returns primary if it has a non-zero range, otherwise fallback.
+func LocOrFallback(primary, fallback Loc) Loc {
+	if primary.Range.Start.Line == 0 && primary.Range.Start.Character == 0 &&
+		primary.Range.End.Line == 0 && primary.Range.End.Character == 0 {
+		return fallback
+	}
+	return primary
 }
 
 // Node is a lightweight wrapper for raw tree-sitter values that haven't been

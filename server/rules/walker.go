@@ -85,16 +85,24 @@ func walkPaths(doc *openapi.Document, idx *openapi.Index, v Visitors, r *Reporte
 
 			if v.Parameter != nil {
 				for _, p := range mo.Operation.Parameters {
+					if p.Ref != "" {
+						continue
+					}
 					v.Parameter(p, r)
 				}
 			}
 
 			if v.RequestBody != nil && mo.Operation.RequestBody != nil {
-				v.RequestBody(path, mo.Method, mo.Operation.RequestBody, r)
+				if mo.Operation.RequestBody.Ref == "" {
+					v.RequestBody(path, mo.Method, mo.Operation.RequestBody, r)
+				}
 			}
 
 			if v.Response != nil {
 				for code, resp := range mo.Operation.Responses {
+					if resp.Ref != "" {
+						continue
+					}
 					v.Response(code, resp, r)
 				}
 			}
@@ -103,6 +111,9 @@ func walkPaths(doc *openapi.Document, idx *openapi.Index, v Visitors, r *Reporte
 		// Path-level parameters
 		if v.Parameter != nil {
 			for _, p := range item.Parameters {
+				if p.Ref != "" {
+					continue
+				}
 				v.Parameter(p, r)
 			}
 		}
@@ -154,20 +165,20 @@ func walkComponentSchemas(doc *openapi.Document, idx *openapi.Index, v Visitors,
 		for _, mo := range item.Operations() {
 			for _, p := range mo.Operation.Parameters {
 				if p.Schema != nil {
-					visitSchema("", p.Schema, fmt.Sprintf("paths/%s/%s/parameters/%s", path, mo.Method, p.Name))
+					visitSchema("", p.Schema, fmt.Sprintf("paths%s/%s/parameters/%s", path, mo.Method, p.Name))
 				}
 			}
 			if mo.Operation.RequestBody != nil {
 				for mt, media := range mo.Operation.RequestBody.Content {
 					if media.Schema != nil {
-						visitSchema("", media.Schema, fmt.Sprintf("paths/%s/%s/requestBody/%s", path, mo.Method, mt))
+						visitSchema("", media.Schema, fmt.Sprintf("paths%s/%s/requestBody/%s", path, mo.Method, mt))
 					}
 				}
 			}
 			for code, resp := range mo.Operation.Responses {
 				for mt, media := range resp.Content {
 					if media.Schema != nil {
-						visitSchema("", media.Schema, fmt.Sprintf("paths/%s/%s/responses/%s/%s", path, mo.Method, code, mt))
+						visitSchema("", media.Schema, fmt.Sprintf("paths%s/%s/responses/%s/%s", path, mo.Method, code, mt))
 					}
 				}
 			}
@@ -196,6 +207,9 @@ func walkSchemaRecursive(schema *openapi.Schema, name, pointer string, fn func(s
 	}
 	if schema.AdditionalProperties != nil {
 		walkSchemaRecursive(schema.AdditionalProperties, "", pointer+"/additionalProperties", fn, r, depth+1, visited)
+	}
+	if schema.UnevaluatedProperties != nil {
+		walkSchemaRecursive(schema.UnevaluatedProperties, "", pointer+"/unevaluatedProperties", fn, r, depth+1, visited)
 	}
 	for i, sub := range schema.AllOf {
 		walkSchemaRecursive(sub, "", fmt.Sprintf("%s/allOf/%d", pointer, i), fn, r, depth+1, visited)

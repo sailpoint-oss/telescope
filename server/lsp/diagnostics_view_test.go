@@ -11,6 +11,7 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/lsp"
+	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/testutil/specs"
 )
 
@@ -75,6 +76,21 @@ func TestViewDiagnostics(t *testing.T) {
 				)
 			}
 			t.Logf("  Total: %d diagnostics", len(diags))
+
+			// Regression: YAML specs tagged as having issues should produce diagnostics.
+			// JSON syntax-only specs are excluded (syntax errors require child LSPs).
+			expectDiags := false
+			if spec.Format != openapi.FormatJSON {
+				for _, tag := range spec.Tags {
+					if tag == "invalid" || tag == "warnings" || tag == "duplicates" || tag == "ascii" {
+						expectDiags = true
+						break
+					}
+				}
+			}
+			if expectDiags && len(diags) == 0 {
+				t.Errorf("spec %q has tags %v — expected diagnostics but got none", spec.Name, spec.Tags)
+			}
 		})
 	}
 }
@@ -129,6 +145,11 @@ func TestViewDiagnosticsForSpec(t *testing.T) {
 				)
 			}
 			t.Logf("\n  Total: %d diagnostics\n", len(diags))
+
+			// Regression: all named specs here are known-bad and should produce diagnostics.
+			if len(diags) == 0 {
+				t.Errorf("spec %q should produce diagnostics but got none", specName)
+			}
 		})
 	}
 }

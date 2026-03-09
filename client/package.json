@@ -31,7 +31,9 @@
 	"activationEvents": [
 		"onLanguage:yaml",
 		"onLanguage:json",
-		"onLanguage:jsonc"
+		"onLanguage:jsonc",
+		"onLanguage:openapi-yaml",
+		"onLanguage:openapi-json"
 	],
 	"contributes": {
 		"languages": [
@@ -319,6 +321,50 @@
 			{
 				"command": "telescope.showReferences",
 				"title": "Telescope: Show References"
+			},
+			{
+				"command": "telescope.restartServer",
+				"title": "Telescope: Restart Server"
+			},
+			{
+				"command": "telescope.rescanWorkspace",
+				"title": "Telescope: Rescan Workspace"
+			},
+			{
+				"command": "telescope.showOpenAPIFiles",
+				"title": "Telescope: Show OpenAPI Files"
+			},
+			{
+				"command": "telescope.reclassifyDocument",
+				"title": "Telescope: Reclassify Current Document"
+			},
+			{
+				"command": "telescope.sortTags",
+				"title": "Telescope: Sort Tags"
+			},
+			{
+				"command": "telescope.sortPaths",
+				"title": "Telescope: Sort Paths"
+			},
+			{
+				"command": "telescope.generateResponseSkeletons",
+				"title": "Telescope: Generate Response Skeletons"
+			},
+			{
+				"command": "telescope.graphInfo",
+				"title": "Telescope: Show Graph Info"
+			},
+			{
+				"command": "telescope.rulePerf",
+				"title": "Telescope: Show Rule Performance"
+			},
+			{
+				"command": "telescope.bundlePreview",
+				"title": "Telescope: Bundle Preview"
+			},
+			{
+				"command": "telescope.validateExamples",
+				"title": "Telescope: Validate Examples"
 			}
 		],
 		"menus": {
@@ -364,8 +410,37 @@
 					"command": "telescope.convertYamlToJsonCopy",
 					"when": "resourceExtname == .yaml || resourceExtname == .yml",
 					"group": "1_modification@2"
+				},
+				{
+					"command": "telescope.sortTags",
+					"when": "editorLangId == openapi-yaml || editorLangId == openapi-json || editorLangId == yaml || editorLangId == json",
+					"group": "2_refactor@1"
+				},
+				{
+					"command": "telescope.sortPaths",
+					"when": "editorLangId == openapi-yaml || editorLangId == openapi-json || editorLangId == yaml || editorLangId == json",
+					"group": "2_refactor@2"
+				},
+				{
+					"command": "telescope.generateResponseSkeletons",
+					"when": "editorLangId == openapi-yaml || editorLangId == openapi-json || editorLangId == yaml || editorLangId == json",
+					"group": "2_refactor@3"
+				},
+				{
+					"command": "telescope.bundlePreview",
+					"when": "editorLangId == openapi-yaml || editorLangId == openapi-json || editorLangId == yaml || editorLangId == json",
+					"group": "2_refactor@4"
 				}
 			]
+		},
+		"configurationDefaults": {
+			"editor.semanticTokenColorCustomizations": {
+				"rules": {
+					"*.deprecated": {
+						"strikethrough": false
+					}
+				}
+			}
 		},
 		"configuration": {
 			"title": "Telescope",
@@ -406,9 +481,11 @@
 		"test:e2e:compile": "pnpm run test:e2e:build-server && pnpm run build && tsc -p tsconfig.e2e.json",
 		"test:e2e:run:single": "node out/test/runTest.js",
 		"test:e2e:run:multi": "node out/test/runTest.multiRoot.js",
+		"test:e2e:run:sidecar": "node out/test/runTest.sidecar.js",
 		"test:e2e:single": "pnpm run test:e2e:compile && pnpm run test:e2e:run:single",
 		"test:e2e:multi": "pnpm run test:e2e:compile && pnpm run test:e2e:run:multi",
-		"test:e2e:all": "pnpm run test:e2e:compile && pnpm run test:e2e:run:single && pnpm run test:e2e:run:multi",
+		"test:e2e:sidecar": "pnpm run test:e2e:compile && pnpm run test:e2e:run:sidecar",
+		"test:e2e:all": "pnpm run test:e2e:compile && pnpm run test:e2e:run:single && pnpm run test:e2e:run:multi && pnpm run test:e2e:run:sidecar",
 		"test:e2e": "pnpm run test:e2e:all"
 	},
 	"devDependencies": {

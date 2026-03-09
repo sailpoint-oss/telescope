@@ -518,3 +518,70 @@ paths:
 		t.Error("example 'archived' not found")
 	}
 }
+
+func TestParseYAML_UTF16RangeAccuracy(t *testing.T) {
+	mgr, store := setupManager(t)
+	// The title "café" starts at byte column 10 ("  title: c" = 10 bytes)
+	// but "café" in UTF-8 is 5 bytes (c=1, a=1, f=1, é=2), so the end
+	// byte col is 15, while UTF-16 end col is 14 (each char = 1 UTF-16 unit).
+	// "  title: " is 9 bytes; the value node starts at col 9.
+	// end col in UTF-16: 9 + 4 (c, a, f, é each = 1 UTF-16 code unit) = 13
+	// end col in bytes:  9 + 5 = 14
+	content := "openapi: \"3.1.0\"\ninfo:\n  title: caf\xc3\xa9\n  version: \"1.0\"\npaths: {}\n"
+	uri := protocol.DocumentURI("file:///utf16-test.yaml")
+	openYAML(t, store, uri, content)
+
+	tree := mgr.GetTree(uri)
+	if tree == nil {
+		t.Fatal("GetTree returned nil")
+	}
+
+	parser := openapi.NewParser(tree, openapi.FormatYAML)
+	doc := parser.Parse()
+	if doc.Info == nil {
+		t.Fatal("Info is nil")
+	}
+
+	titleRange := doc.Info.TitleLoc.Range
+	if titleRange.Start.Line != 2 {
+		t.Errorf("TitleLoc.Start.Line = %d, want 2", titleRange.Start.Line)
+	}
+	// "café" starts after "  title: " => UTF-16 character 9
+	if titleRange.Start.Character != 9 {
+		t.Errorf("TitleLoc.Start.Character = %d, want 9", titleRange.Start.Character)
+	}
+	// "café" = 4 UTF-16 code units, so end character = 13
+	if titleRange.End.Character != 13 {
+		t.Errorf("TitleLoc.End.Character = %d, want 13 (UTF-16)", titleRange.End.Character)
+	}
+}
+
+func TestParseYAML_UTF16RangeEmoji(t *testing.T) {
+	mgr, store := setupManager(t)
+	// 🚀 is U+1F680 = 4 UTF-8 bytes = 2 UTF-16 code units (surrogate pair)
+	content := "openapi: \"3.1.0\"\ninfo:\n  title: \xf0\x9f\x9a\x80test\n  version: \"1.0\"\npaths: {}\n"
+	uri := protocol.DocumentURI("file:///emoji-test.yaml")
+	openYAML(t, store, uri, content)
+
+	tree := mgr.GetTree(uri)
+	if tree == nil {
+		t.Fatal("GetTree returned nil")
+	}
+
+	parser := openapi.NewParser(tree, openapi.FormatYAML)
+	doc := parser.Parse()
+	if doc.Info == nil {
+		t.Fatal("Info is nil")
+	}
+
+	titleRange := doc.Info.TitleLoc.Range
+	// "🚀test" starts at col 9 (after "  title: ")
+	if titleRange.Start.Character != 9 {
+		t.Errorf("Start.Character = %d, want 9", titleRange.Start.Character)
+	}
+	// "🚀" = 2 UTF-16 units, "test" = 4 => total 6, end = 9 + 6 = 15
+	// But raw byte end would be 9 + 8 = 17 (4 bytes for 🚀 + 4 for test)
+	if titleRange.End.Character != 15 {
+		t.Errorf("End.Character = %d, want 15 (UTF-16)", titleRange.End.Character)
+	}
+}

@@ -1,12 +1,15 @@
 package analyzers
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/jsonschema"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/schemas"
@@ -15,7 +18,7 @@ import (
 var structuralMeta = rules.RuleMeta{
 	ID:          "oas3-schema",
 	Description: "Validates the document structure against the OpenAPI JSON Schema.",
-	Severity:    protocol.SeverityError,
+	Severity:    ctypes.SeverityError,
 	Category:    rules.CategoryStructure,
 	Recommended: true,
 	HowToFix:    "Fix the invalid or unknown properties flagged by the validator.",
@@ -44,10 +47,12 @@ func loadSchemas() {
 	for ver, path := range schemaFiles {
 		data, err := schemas.FS.ReadFile(path)
 		if err != nil {
+			slog.Warn("failed to read OpenAPI schema file", "path", path, "version", ver, "error", err)
 			continue
 		}
 		compiled, err := jsonschema.Load(data)
 		if err != nil {
+			slog.Warn("failed to compile OpenAPI schema", "path", path, "version", ver, "error", err)
 			continue
 		}
 		compiledCache[ver] = compiled
@@ -73,15 +78,21 @@ func loadSchemas() {
 			path := "generated/openapi-" + versionPrefix + "-" + suffix + ".json"
 			data, err := schemas.FS.ReadFile(path)
 			if err != nil {
+				slog.Warn("failed to read fragment schema file", "path", path, "version", ver, "error", err)
 				continue
 			}
 			compiled, err := jsonschema.Load(data)
 			if err != nil {
+				slog.Warn("failed to compile fragment schema", "path", path, "version", ver, "error", err)
 				continue
 			}
 			vmap[fragType] = compiled
 		}
 		fragmentCache[ver] = vmap
+	}
+
+	if len(compiledCache) == 0 {
+		slog.Error("no OpenAPI schemas loaded — structural validation disabled")
 	}
 }
 
@@ -131,7 +142,7 @@ func registerStructuralValidation(s *gossip.Server) {
 				}
 				result := jsonschema.Validate(ctx.Tree, schema, jsonschema.ValidateOptions{
 					Source:         "oas3-schema",
-					Severity:       protocol.SeverityError,
+					Severity:       adapt.SeverityToProtocol(ctypes.SeverityError),
 					MaxDiagnostics: 100,
 				})
 				return result.Diagnostics
@@ -163,7 +174,7 @@ func registerStructuralValidation(s *gossip.Server) {
 			}
 			result := jsonschema.Validate(ctx.Tree, fragSchema, jsonschema.ValidateOptions{
 				Source:         "oas3-schema",
-				Severity:       protocol.SeverityWarning,
+				Severity:       adapt.SeverityToProtocol(ctypes.SeverityWarning),
 				MaxDiagnostics: 100,
 			})
 			return result.Diagnostics

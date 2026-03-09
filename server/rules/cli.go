@@ -6,6 +6,8 @@ import (
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -55,11 +57,29 @@ func CollectAnalyzers(fn func(s *gossip.Server)) []NamedAnalyzer {
 }
 
 // RunAnalyzers runs all provided analyzers against an openapi.Index and returns
-// the combined diagnostics. When tree is non-nil, it is passed through the
-// AnalysisContext so tree-dependent analyzers (like oas3-schema) can execute.
-// The optional targetVersion is used for fragment validation when the file's
-// version cannot be determined from its content.
-func RunAnalyzers(analyzers []NamedAnalyzer, idx *openapi.Index, docURI string, tree *treesitter.Tree, opts ...AnalyzerOption) []protocol.Diagnostic {
+// the combined diagnostics as protocol-independent core types. When tree is
+// non-nil, it is passed through the AnalysisContext so tree-dependent
+// analyzers (like oas3-schema) can execute.
+func RunAnalyzers(analyzers []NamedAnalyzer, idx *openapi.Index, docURI string, tree *treesitter.Tree, opts ...AnalyzerOption) []ctypes.Diagnostic {
+	var diags []ctypes.Diagnostic
+	data := &AnalysisData{Index: idx, DocURI: docURI}
+	for _, opt := range opts {
+		opt(data)
+	}
+	for _, na := range analyzers {
+		actx := &treesitter.AnalysisContext{
+			UserData: data,
+			Tree:     tree,
+		}
+		protoDiags := na.Analyzer.Run(actx)
+		diags = append(diags, adapt.DiagnosticsFromProtocol(protoDiags)...)
+	}
+	return diags
+}
+
+// RunAnalyzersProto is like RunAnalyzers but returns protocol.Diagnostic
+// for backward compatibility with consumers that need protocol types directly.
+func RunAnalyzersProto(analyzers []NamedAnalyzer, idx *openapi.Index, docURI string, tree *treesitter.Tree, opts ...AnalyzerOption) []protocol.Diagnostic {
 	var diags []protocol.Diagnostic
 	data := &AnalysisData{Index: idx, DocURI: docURI}
 	for _, opt := range opts {
@@ -86,8 +106,15 @@ func WithTargetVersion(v openapi.Version) AnalyzerOption {
 }
 
 // RunChecks executes pattern-based tree-sitter checks against the given tree
-// and returns the combined diagnostics.
-func RunChecks(checks []NamedCheck, tree *treesitter.Tree, lang *tree_sitter.Language) []protocol.Diagnostic {
+// and returns the combined diagnostics as core types.
+func RunChecks(checks []NamedCheck, tree *treesitter.Tree, lang *tree_sitter.Language) []ctypes.Diagnostic {
+	protoDiags := RunChecksProto(checks, tree, lang)
+	return adapt.DiagnosticsFromProtocol(protoDiags)
+}
+
+// RunChecksProto executes pattern-based tree-sitter checks and returns
+// protocol diagnostics for backward compatibility.
+func RunChecksProto(checks []NamedCheck, tree *treesitter.Tree, lang *tree_sitter.Language) []protocol.Diagnostic {
 	if tree == nil || lang == nil {
 		return nil
 	}

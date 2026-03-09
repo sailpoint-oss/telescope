@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
@@ -13,7 +15,7 @@ import (
 // NewFormattingHandler provides document formatting for JSON OpenAPI files.
 // JSON files are re-formatted with consistent indentation via json.MarshalIndent.
 // YAML files are given a trailing-newline normalization pass.
-func NewFormattingHandler(cache *openapi.IndexCache) gossip.FormattingHandler {
+func NewFormattingHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.FormattingHandler {
 	return func(ctx *gossip.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
 		idx := cache.Get(params.TextDocument.URI)
 		doc := ctx.Documents.Get(params.TextDocument.URI)
@@ -46,9 +48,10 @@ func NewFormattingHandler(cache *openapi.IndexCache) gossip.FormattingHandler {
 		lastLine := uint32(lines)
 		lastChar := uint32(0)
 		if nlIdx := strings.LastIndex(original, "\n"); nlIdx >= 0 {
-			lastChar = uint32(len(original) - nlIdx - 1)
+			tail := original[nlIdx+1:]
+			lastChar = utf16Len(tail)
 		} else {
-			lastChar = uint32(len(original))
+			lastChar = utf16Len(original)
 		}
 
 		return []protocol.TextEdit{{
@@ -90,4 +93,15 @@ func normalizeYAML(text string) string {
 		result += "\n"
 	}
 	return result
+}
+
+// utf16Len returns the number of UTF-16 code units needed to represent s.
+func utf16Len(s string) uint32 {
+	n := uint32(0)
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		s = s[size:]
+		n += uint32(utf16.RuneLen(r))
+	}
+	return n
 }

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -14,7 +14,7 @@ var (
 	deprecatedDescriptionMeta = rules.RuleMeta{
 		ID:          "deprecated-description",
 		Description: "Deprecated items should include a description explaining the deprecation.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryDocumentation,
 		Recommended: true,
 		HowToFix:    "Add a description to the deprecated item explaining why it is deprecated and what to use instead.",
@@ -24,7 +24,7 @@ var (
 	enumDescriptionMeta = rules.RuleMeta{
 		ID:          "enum-description",
 		Description: "Enum schemas should include a description.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryDocumentation,
 		Recommended: true,
 		HowToFix:    "Add a description explaining the enum values.",
@@ -34,7 +34,7 @@ var (
 	deprecatedOperationMeta = rules.RuleMeta{
 		ID:          "deprecated-operation",
 		Description: "Deprecated operations are marked with strikethrough in the IDE.",
-		Severity:    protocol.SeverityHint,
+		Severity:    ctypes.SeverityHint,
 		Category:    rules.CategoryDocumentation,
 		Recommended: true,
 		DocURL:      rules.DocBaseURL + "deprecated-operation",
@@ -43,7 +43,7 @@ var (
 	deprecatedSchemaMeta = rules.RuleMeta{
 		ID:          "deprecated-schema",
 		Description: "Deprecated schemas are marked with strikethrough in the IDE.",
-		Severity:    protocol.SeverityHint,
+		Severity:    ctypes.SeverityHint,
 		Category:    rules.CategoryDocumentation,
 		Recommended: true,
 		DocURL:      rules.DocBaseURL + "deprecated-schema",
@@ -52,7 +52,7 @@ var (
 	deprecatedRefUsageMeta = rules.RuleMeta{
 		ID:          "deprecated-ref-usage",
 		Description: "References to deprecated components are flagged.",
-		Severity:    protocol.SeverityInformation,
+		Severity:    ctypes.SeverityInfo,
 		Category:    rules.CategoryDocumentation,
 		Recommended: true,
 		HowToFix:    "Consider migrating to a non-deprecated alternative.",
@@ -86,7 +86,7 @@ func registerDocumentationAnalyzers(s *gossip.Server) {
 	rules.Define("deprecated-operation", deprecatedOperationMeta).
 		Operations(func(path, method string, op *openapi.Operation, r *rules.Reporter) {
 			if op.Deprecated {
-				r.WithTags(protocol.DiagnosticTagDeprecated).
+				r.WithTags(ctypes.DiagnosticTagDeprecated).
 					At(op.Loc, "Operation %s %s is deprecated", strings.ToUpper(method), path)
 			}
 		}).
@@ -96,7 +96,7 @@ func registerDocumentationAnalyzers(s *gossip.Server) {
 	rules.Define("deprecated-schema", deprecatedSchemaMeta).
 		Schemas(func(name string, schema *openapi.Schema, pointer string, r *rules.Reporter) {
 			if name != "" && schema.Deprecated {
-				r.WithTags(protocol.DiagnosticTagDeprecated).
+				r.WithTags(ctypes.DiagnosticTagDeprecated).
 					At(schema.NameLoc, "Schema '%s' is deprecated", name)
 			}
 		}).
@@ -132,7 +132,7 @@ func registerDocumentationAnalyzers(s *gossip.Server) {
 					if replacement != "" {
 						msg += fmt.Sprintf(". Consider using '%s' instead", replacement)
 					}
-					r.WithTags(protocol.DiagnosticTagDeprecated).At(usage.Loc, "%s", msg)
+					r.WithTags(ctypes.DiagnosticTagDeprecated).At(usage.Loc, "%s", msg)
 				}
 			}
 		}).

@@ -2,7 +2,7 @@ package analyzers
 
 import (
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -11,7 +11,7 @@ var (
 	additionalPropertiesMeta = rules.RuleMeta{
 		ID:          "additional-properties",
 		Description: "Object schemas should define additionalProperties explicitly.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Add 'additionalProperties: false' or define allowed additional properties.",
@@ -21,7 +21,7 @@ var (
 	allOfMixedTypesMeta = rules.RuleMeta{
 		ID:          "allof-mixed-types",
 		Description: "allOf should not combine schemas of different types.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Ensure all schemas in allOf have compatible types.",
@@ -31,7 +31,7 @@ var (
 	allOfStructureMeta = rules.RuleMeta{
 		ID:          "allof-structure",
 		Description: "allOf schemas must be structurally valid.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Review the allOf composition for structural issues.",
@@ -41,7 +41,7 @@ var (
 	arrayItemsMeta = rules.RuleMeta{
 		ID:          "array-items",
 		Description: "Array schemas must define items.",
-		Severity:    protocol.SeverityError,
+		Severity:    ctypes.SeverityError,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Add an 'items' definition to the array schema.",
@@ -51,7 +51,7 @@ var (
 	discriminatorMappingMeta = rules.RuleMeta{
 		ID:          "discriminator-mapping",
 		Description: "Discriminator mapping values must reference valid schemas.",
-		Severity:    protocol.SeverityError,
+		Severity:    ctypes.SeverityError,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Ensure each discriminator mapping value references an existing schema.",
@@ -61,7 +61,7 @@ var (
 	requestBodyContentMeta = rules.RuleMeta{
 		ID:          "request-body-content",
 		Description: "Request bodies must have content defined.",
-		Severity:    protocol.SeverityError,
+		Severity:    ctypes.SeverityError,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Add a 'content' section to the request body.",
@@ -71,7 +71,7 @@ var (
 	typeRequiredMeta = rules.RuleMeta{
 		ID:          "type-required",
 		Description: "Schemas should have a 'type' field defined.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Add the 'type' field to the schema.",

@@ -5,8 +5,9 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rulesets"
 	"github.com/sailpoint-oss/telescope/server/spectral"
@@ -59,7 +60,7 @@ func LoadYAMLPlugin(path string, logger *slog.Logger) (*YAMLRulePlugin, error) {
 	var spectralRules []spectral.Rule
 
 	for id, def := range rs.Rules {
-		sev := protocol.SeverityWarning
+		sev := ctypes.SeverityWarning
 		if s, ok := rulesets.ParseSeverity(def.Severity); ok && s > 0 {
 			sev = s
 		}
@@ -91,7 +92,7 @@ func LoadYAMLPlugin(path string, logger *slog.Logger) (*YAMLRulePlugin, error) {
 			finalMsg := msg
 			plugin.checks[id] = treesitter.Check{
 				Pattern:  pattern,
-				Severity: sev,
+				Severity: adapt.SeverityToProtocol(sev),
 				Source:   rules.Source,
 				Code:     id,
 				Message: func(c treesitter.Capture) string {

@@ -1,7 +1,7 @@
 package rulesets
 
 import (
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
@@ -70,24 +70,31 @@ func owaspRuleSet() *RuleSet {
 }
 
 func strictRuleSet() *RuleSet {
+	recommended := recommendedRuleSet()
+	owasp := owaspRuleSet()
 	rs := &RuleSet{
 		Name:        "Telescope Strict",
 		Description: "Recommended rules plus OWASP with stricter severities.",
-		Extends:     []interface{}{Recommended, OWASP},
-		Rules:       make(map[string]RuleDefinition),
+		Rules:       make(map[string]RuleDefinition, len(recommended.Rules)+len(owasp.Rules)),
+	}
+	for id, def := range recommended.Rules {
+		rs.Rules[id] = def
+	}
+	for id, def := range owasp.Rules {
+		rs.Rules[id] = def
 	}
 	return rs
 }
 
-func severityString(s protocol.DiagnosticSeverity) string {
+func severityString(s ctypes.Severity) string {
 	switch s {
-	case protocol.SeverityError:
+	case ctypes.SeverityError:
 		return "error"
-	case protocol.SeverityWarning:
+	case ctypes.SeverityWarning:
 		return "warn"
-	case protocol.SeverityInformation:
+	case ctypes.SeverityInfo:
 		return "info"
-	case protocol.SeverityHint:
+	case ctypes.SeverityHint:
 		return "hint"
 	default:
 		return "warn"

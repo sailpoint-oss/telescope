@@ -2,19 +2,15 @@
 package testutil
 
 import (
-	_ "embed"
 	"testing"
 	"unsafe"
 
+	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
 
 	"github.com/sailpoint-oss/telescope/server/testutil/specs"
 )
-
-//go:embed fixtures/petstore.yaml
-var PetstoreYAML []byte
 
 // AllSpecs returns every registered test specification from the specs registry.
 func AllSpecs() []specs.Spec { return specs.All() }

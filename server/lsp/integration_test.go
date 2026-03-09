@@ -79,7 +79,10 @@ paths:
 	dumpDiags(t, "broken-indent", diags)
 
 	// Verify server is still responsive after processing malformed content.
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 func TestBrokenYAML_MissingColon(t *testing.T) {
@@ -103,7 +106,10 @@ paths:
 	dumpDiags(t, "missing-colon", diags)
 
 	// Server stays alive after processing broken YAML.
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 func TestBrokenYAML_UnterminatedString(t *testing.T) {
@@ -137,7 +143,10 @@ func TestBrokenYAML_TabCharacters(t *testing.T) {
 	dumpDiags(t, "tab-characters", diags)
 
 	// Tab detection is a child LSP feature; here we verify no crash.
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 func TestBrokenYAML_DuplicateKeysAtRoot(t *testing.T) {
@@ -179,7 +188,10 @@ func TestBrokenYAML_EmptyDocument(t *testing.T) {
 	dumpDiags(t, "empty-doc", diags)
 
 	// No crash on empty input.
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +218,10 @@ func TestBrokenJSON_TrailingComma(t *testing.T) {
 	dumpDiags(t, "trailing-comma", diags)
 
 	// JSON trailing comma detection is a child LSP feature; verify no crash.
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 func TestBrokenJSON_MissingClosingBrace(t *testing.T) {
@@ -230,7 +245,10 @@ func TestBrokenJSON_MissingClosingBrace(t *testing.T) {
 	diags := c.LatestDiagnostics(uri)
 	dumpDiags(t, "missing-brace", diags)
 
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 func TestBrokenJSON_MissingClosingBracket(t *testing.T) {
@@ -248,7 +266,10 @@ func TestBrokenJSON_MissingClosingBracket(t *testing.T) {
 	diags := c.LatestDiagnostics(uri)
 	dumpDiags(t, "missing-bracket", diags)
 
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 func TestBrokenJSON_UnquotedKey(t *testing.T) {
@@ -264,7 +285,10 @@ func TestBrokenJSON_UnquotedKey(t *testing.T) {
 	diags := c.LatestDiagnostics(uri)
 	dumpDiags(t, "unquoted-key", diags)
 
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 func TestBrokenJSON_SingleQuotes(t *testing.T) {
@@ -280,7 +304,10 @@ func TestBrokenJSON_SingleQuotes(t *testing.T) {
 	diags := c.LatestDiagnostics(uri)
 	dumpDiags(t, "single-quotes", diags)
 
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
 }
 
 func TestBrokenJSON_DuplicateKeys(t *testing.T) {
@@ -411,7 +438,74 @@ paths: {}
 
 	// Without "openapi:" key, the document isn't recognized as OpenAPI.
 	// The server should handle this gracefully without panicking.
-	_, _ = c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Errorf("server should handle hover gracefully: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// URI Normalization Roundtrip Tests
+// ---------------------------------------------------------------------------
+
+func TestURINormalization_Roundtrip(t *testing.T) {
+	c := newTestServer(t)
+
+	// Open a document with a clean URI.
+	canonical := "file:///home/user/api.yaml"
+	content := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /test:
+    get:
+      operationId: getTest
+      summary: A test
+      description: Test endpoint
+      responses:
+        "200":
+          description: OK
+`
+	c.OpenWithLanguage(canonical, "yaml", content)
+	_ = c.WaitForDiagnostics(canonical, 5*time.Second)
+
+	// Hover using a URI with dot segments — should resolve to the same document.
+	variant := "file:///home/user/sub/../api.yaml"
+	hover, err := c.Hover(variant, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Fatalf("hover with variant URI failed: %v", err)
+	}
+	if hover == nil {
+		t.Log("hover returned nil (document not found via variant URI) -- may be expected if gossiptest client doesn't normalize request URIs")
+	}
+}
+
+func TestURINormalization_DiagnosticLookupVariant(t *testing.T) {
+	c := newTestServer(t)
+
+	uri := "file:///home/user/norm.yaml"
+	content := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /UPPER_CASE:
+    get:
+      operationId: getUpper
+      summary: Upper case path
+      description: Should trigger kebab-case
+      responses:
+        "200":
+          description: OK
+`
+	c.OpenWithLanguage(uri, "yaml", content)
+	diags := c.WaitForDiagnostics(uri, 5*time.Second)
+	dumpDiags(t, "uri-normalization", diags)
+
+	if !hasDiagWithCode(diags, "kebab-case") {
+		t.Error("expected kebab-case diagnostic for /UPPER_CASE path")
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -564,5 +658,125 @@ tags:
 	}
 	if !hasDiagWithCode(diags, "kebab-case") {
 		t.Error("expected kebab-case diagnostic for /INVALID_PATH")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// URI Normalization — Variant URI Tests
+// ---------------------------------------------------------------------------
+
+func TestURINormalization_HoverWithVariantURI(t *testing.T) {
+	c := newTestServer(t)
+
+	canonical := "file:///home/user/api.yaml"
+	content := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /test:
+    get:
+      operationId: getTest
+      summary: A test endpoint
+      description: Test endpoint
+      responses:
+        "200":
+          description: OK
+`
+	c.OpenWithLanguage(canonical, "yaml", content)
+	_ = c.WaitForDiagnostics(canonical, 5*time.Second)
+
+	// Hover using a URI with dot segments — should resolve to the same document.
+	variant := "file:///home/user/sub/../api.yaml"
+	hover, err := c.Hover(variant, protocol.Position{Line: 0, Character: 0})
+	if err != nil {
+		t.Fatalf("hover with variant URI failed: %v", err)
+	}
+	if hover == nil {
+		t.Error("hover with variant URI should resolve to the same document, got nil")
+	}
+}
+
+func TestURINormalization_DefinitionWithVariantURI(t *testing.T) {
+	c := newTestServer(t)
+
+	canonical := "file:///home/user/def.yaml"
+	content := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      summary: List pets
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name:
+          type: string
+`
+	c.OpenWithLanguage(canonical, "yaml", content)
+	_ = c.WaitForDiagnostics(canonical, 5*time.Second)
+
+	// Definition using a variant URI with dot segments
+	variant := "file:///home/user/sub/../def.yaml"
+	refLine := 15 // 0-indexed line with $ref: '#/components/schemas/Pet'
+	locs, err := c.Definition(variant, protocol.Position{Line: uint32(refLine), Character: 20})
+	if err != nil {
+		t.Fatalf("definition with variant URI failed: %v", err)
+	}
+	if len(locs) == 0 {
+		t.Error("definition with variant URI should resolve the $ref, got no locations")
+	} else {
+		normTarget := string(protocol.NormalizeURI(locs[0].URI))
+		if normTarget != canonical {
+			t.Errorf("expected definition to point to %s, got %s", canonical, normTarget)
+		}
+	}
+}
+
+func TestURINormalization_DiagnosticsContinuity(t *testing.T) {
+	c := newTestServer(t)
+
+	uri := "file:///home/user/diag-cont.yaml"
+	content := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /UPPER_CASE:
+    get:
+      operationId: getUpper
+      summary: Upper case path
+      description: Should trigger kebab-case
+      responses:
+        "200":
+          description: OK
+`
+	c.OpenWithLanguage(uri, "yaml", content)
+	diags := c.WaitForDiagnostics(uri, 5*time.Second)
+
+	if !hasDiagWithCode(diags, "kebab-case") {
+		t.Fatal("expected initial kebab-case diagnostic")
+	}
+
+	// Request hover using variant URI — should not break diagnostics
+	variant := "file:///home/user/sub/../diag-cont.yaml"
+	_, _ = c.Hover(variant, protocol.Position{Line: 0, Character: 0})
+
+	// Original URI should still yield diagnostics
+	diags2 := c.WaitForDiagnostics(uri, 5*time.Second)
+	if !hasDiagWithCode(diags2, "kebab-case") {
+		t.Error("diagnostics should remain after hover with variant URI")
 	}
 }

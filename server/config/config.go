@@ -2,6 +2,8 @@
 package config
 
 import (
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sailpoint-oss/telescope/server/rulesets"
@@ -10,19 +12,31 @@ import (
 // Config represents the Telescope configuration.
 type Config struct {
 	Extends              string                       `yaml:"extends,omitempty"`
+	Roots                []string                     `yaml:"roots,omitempty"`
 	Rules                map[string]string            `yaml:"rules,omitempty"`
 	Plugins              []string                     `yaml:"plugins,omitempty"`
 	Include              []string                     `yaml:"include,omitempty"`
 	Exclude              []string                     `yaml:"exclude,omitempty"`
+	SpectralRulesets     []string                     `yaml:"spectralRulesets,omitempty"`
 	OpenAPI              OpenAPIConfig                `yaml:"openapi,omitempty"`
 	AdditionalValidation map[string]ValidationGroup   `yaml:"additionalValidation,omitempty"`
 	Output               OutputConfig                 `yaml:"output,omitempty"`
 	LSP                  LSPConfig                    `yaml:"lsp,omitempty"`
 }
 
+// RuleRef references a custom rule or schema file in .telescope/.
+type RuleRef struct {
+	Rule     string         `yaml:"rule,omitempty" json:"rule,omitempty"`
+	Severity string         `yaml:"severity,omitempty" json:"severity,omitempty"`
+	Runner   string         `yaml:"runner,omitempty" json:"runner,omitempty"` // "bun", "auto" (default: auto)
+	Options  map[string]any `yaml:"options,omitempty" json:"options,omitempty"`
+}
+
 // OpenAPIConfig holds OpenAPI-specific configuration.
 type OpenAPIConfig struct {
 	TargetVersion string           `yaml:"targetVersion,omitempty"` // "3.0", "3.1", or "3.2"
+	Patterns      []string         `yaml:"patterns,omitempty"`
+	Rules         []RuleRef        `yaml:"rules,omitempty"`
 	Extensions    ExtensionsConfig `yaml:"extensions,omitempty"`
 }
 
@@ -32,10 +46,11 @@ type ExtensionsConfig struct {
 	Required []string `yaml:"required,omitempty"` // extension names that must be present
 }
 
-// ValidationGroup defines file patterns and schemas for additional validation.
+// ValidationGroup defines file patterns, schemas, and rules for additional validation.
 type ValidationGroup struct {
 	Patterns []string               `yaml:"patterns" json:"patterns"`
 	Schemas  []SchemaPatternMapping `yaml:"schemas,omitempty" json:"schemas,omitempty"`
+	Rules    []RuleRef              `yaml:"rules,omitempty" json:"rules,omitempty"`
 }
 
 // SchemaPatternMapping maps a JSON Schema to file patterns.
@@ -71,6 +86,62 @@ func DefaultConfig() *Config {
 			MaxFileSize: 5 * 1024 * 1024, // 5MB
 		},
 	}
+}
+
+// CustomRuleFiles returns all custom rule .ts file paths declared in the config.
+func (c *Config) CustomRuleFiles() []RuleRef {
+	var refs []RuleRef
+	refs = append(refs, c.OpenAPI.Rules...)
+	for _, g := range c.AdditionalValidation {
+		refs = append(refs, g.Rules...)
+	}
+	return refs
+}
+
+// HasCustomRules reports whether the config declares any custom TS rules or Zod schemas.
+func (c *Config) HasCustomRules() bool {
+	if len(c.OpenAPI.Rules) > 0 {
+		return true
+	}
+	for _, g := range c.AdditionalValidation {
+		if len(g.Rules) > 0 {
+			return true
+		}
+		for _, s := range g.Schemas {
+			if len(s.Schema) > 3 && s.Schema[len(s.Schema)-3:] == ".ts" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// HasSpectralRulesets reports whether the config declares any Spectral rulesets.
+func (c *Config) HasSpectralRulesets() bool {
+	return len(c.SpectralRulesets) > 0
+}
+
+// NeedsBunSidecar reports whether the config requires the Bun sidecar to be started
+// (custom rules, Zod schemas, or Spectral rulesets).
+func (c *Config) NeedsBunSidecar() bool {
+	return c.HasCustomRules() || c.HasSpectralRulesets()
+}
+
+// ResolveRunner determines the runner for a rule reference.
+// "auto" or empty resolves to "bun" for .ts/.js files.
+func ResolveRunner(ref RuleRef) string {
+	runner := strings.ToLower(ref.Runner)
+	if runner == "bun" {
+		return "bun"
+	}
+	if runner != "" && runner != "auto" {
+		return runner
+	}
+	ext := strings.ToLower(filepath.Ext(ref.Rule))
+	if ext == ".ts" || ext == ".js" || ext == ".mts" || ext == ".mjs" {
+		return "bun"
+	}
+	return "native"
 }
 
 // BuildEnabledRules resolves rule enables/disables from config + ruleset.

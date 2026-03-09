@@ -6,7 +6,7 @@ package rulesets
 import (
 	"fmt"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -108,21 +108,21 @@ func intToSeverity(s string) string {
 // SeverityOverride maps rule IDs to their overridden severity.
 type SeverityOverride struct {
 	RuleID   string
-	Severity protocol.DiagnosticSeverity
+	Severity ctypes.Severity
 	Disabled bool
 }
 
-// ParseSeverity converts a severity string to an LSP DiagnosticSeverity.
-func ParseSeverity(s string) (protocol.DiagnosticSeverity, bool) {
+// ParseSeverity converts a severity string to a core Severity.
+func ParseSeverity(s string) (ctypes.Severity, bool) {
 	switch s {
 	case "error":
-		return protocol.SeverityError, true
+		return ctypes.SeverityError, true
 	case "warn", "warning":
-		return protocol.SeverityWarning, true
+		return ctypes.SeverityWarning, true
 	case "info", "information":
-		return protocol.SeverityInformation, true
+		return ctypes.SeverityInfo, true
 	case "hint":
-		return protocol.SeverityHint, true
+		return ctypes.SeverityHint, true
 	case "off", "false":
 		return 0, true
 	default:

@@ -102,7 +102,7 @@ func main() {
 		Category:    sdk.Documentation,
 		HowToFix:    "Add a 'description' field to the parameter.",
 	}).Parameters(func(param *sdk.Parameter, r *sdk.Reporter) {
-		if param.Description.Text == "" {
+		if param.Description.Text == "" && param.Ref == "" {
 			r.At(param.Loc, "Parameter %q is missing a description", param.Name)
 		}
 	}).Register(p)
@@ -115,7 +115,7 @@ func main() {
 		Category:    sdk.Documentation,
 		HowToFix:    "Add a 'description' field to the response.",
 	}).Responses(func(code string, resp *sdk.Response, r *sdk.Reporter) {
-		if resp.Description.Text == "" {
+		if resp.Description.Text == "" && resp.Ref == "" {
 			r.At(resp.Loc, "Response %q is missing a description", code)
 		}
 	}).Register(p)

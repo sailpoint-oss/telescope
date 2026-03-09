@@ -4,15 +4,19 @@ package lsp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
+	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 	"unsafe"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
-	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/middleware"
@@ -20,7 +24,10 @@ import (
 	"github.com/LukasParke/gossip/treesitter"
 
 	"github.com/sailpoint-oss/telescope/server/config"
+	"github.com/sailpoint-oss/telescope/server/core/graph"
 	"github.com/sailpoint-oss/telescope/server/extensions"
+	"github.com/sailpoint-oss/telescope/server/lsp/bun"
+	"github.com/sailpoint-oss/telescope/server/lsp/observe"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/plugin"
 	"github.com/sailpoint-oss/telescope/server/project"
@@ -35,7 +42,7 @@ var Version = "dev"
 
 // telescopeSetup is a gossip Option that wires the OpenAPI index and rules
 // after the tree-sitter manager has been initialized by WithTreeSitter.
-func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, pluginHost *plugin.Host, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, childMgr *ChildLSPManager) gossip.Option {
+func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, pluginHost *plugin.Host, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, childMgr *ChildLSPManager, graphBridge *GraphBridge, bunMgr *bun.Manager, workspaceRootPtr *string) gossip.Option {
 	return func(s *gossip.Server) {
 		// Bind the DiagnosticEngine now that WithTreeSitter has been applied.
 		// This must happen here (inside an Option) because gossip.NewServer
@@ -44,6 +51,22 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 
 		// Wire the project manager's publish function to use PublishDirect.
 		projMgr.SetPublish(s.DiagnosticEngine().PublishDirect)
+		projMgr.SetShouldPublish(func(uri string) bool {
+			// Open documents are diagnosed by the tree-sitter diagnostic engine.
+			// Suppress project-manager publishes for them to avoid competing updates.
+			return s.Documents().Get(protocol.DocumentURI(uri)) == nil
+		})
+
+		// Register a builder so cache.Get() builds the index on-demand
+		// if it hasn't been cached yet (handles the init race window).
+		indexCache.SetBuilder(func(uri protocol.DocumentURI) *openapi.Index {
+			doc := s.Documents().Get(uri)
+			tree := s.TreeSitter().GetTree(uri)
+			if doc == nil || tree == nil {
+				return nil
+			}
+			return openapi.BuildIndex(tree, doc)
+		})
 
 		// Wire UserData so Analyzers receive the OpenAPI index and an
 		// optional cross-file resolver from the project manager.
@@ -58,6 +81,23 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 			}
 			idx := openapi.BuildIndex(tree, doc)
 			indexCache.Set(uri, idx)
+
+			// Sync edges from the newly built index into the V2 graph engine
+			// and build a fresh snapshot for sync request handlers.
+			graphBridge.SyncEdgesFromIndex(string(uri), idx)
+			graphBridge.BuildSnapshot()
+
+			// Send deprecated ranges notification to the client.
+			if conn := s.Conn(); conn != nil {
+				deprecatedRanges := collectDeprecatedRanges(idx)
+				if deprecatedRanges == nil {
+					deprecatedRanges = []DeprecatedRange{}
+				}
+				_ = conn.Notify(context.Background(), "telescope/deprecatedRanges", DeprecatedRangesParams{
+					URI:    string(uri),
+					Ranges: deprecatedRanges,
+				})
+			}
 
 			data := &rules.AnalysisData{
 				Index:  idx,
@@ -92,6 +132,11 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		// Register additional validation analyzer (non-OpenAPI files)
 		s.DiagnosticEngine().RegisterAnalyzer("additional-validation", addlValidator.Analyzer())
 
+		// Register Bun sidecar analyzer for custom TS rules and Spectral rulesets
+		if bunMgr != nil {
+			s.DiagnosticEngine().RegisterAnalyzer("bun-sidecar", bunSidecarAnalyzer(bunMgr, cfg, graphBridge, workspaceRootPtr))
+		}
+
 		// Set the Telescope config on the manager for merge priority
 		rsMgr.SetTelescopeConfig(cfg)
 
@@ -105,6 +150,8 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 	yamlLang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
 	jsonLang := tree_sitter.NewLanguage(unsafe.Pointer(ts_json.Language()))
 
+	var workspaceRootStr string
+
 	indexCache := openapi.NewIndexCache()
 
 	// Create a temporary RulesetManager; it gets the real engine during
@@ -114,6 +161,12 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 	extRegistry := extensions.NewRegistry()
 	addlValidator := validation.NewAdditionalValidator(logger)
 	projMgr := project.NewManager(indexCache, logger)
+	bunMgr := bun.NewManager(logger)
+
+	// V2 graph engine: runs alongside the existing IndexCache/ProjectManager
+	// during the migration period. Handlers can opt-in to using graphBridge.
+	graphBridge := NewGraphBridge(logger)
+	rulePerfTracker := observe.NewRulePerfTracker()
 
 	// The ChildLSPManager publishes merged diagnostics. The publish function
 	// is nil initially; it gets wired to the real ClientProxy in OnInitialized
@@ -129,42 +182,84 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 					LanguageID: "yaml",
 				},
 				{
+					Language:   yamlLang,
+					LanguageID: "openapi-yaml",
+				},
+				{
 					Language:   jsonLang,
 					Extensions: []string{".json"},
 					LanguageID: "json",
 				},
+				{
+					Language:   jsonLang,
+					LanguageID: "openapi-json",
+				},
 			},
 		}),
 		gossip.WithLogger(logger),
-		gossip.WithMiddleware(middleware.Logging(logger), middleware.Recovery()),
+		gossip.WithMiddleware(middleware.Logging(logger), middleware.Recovery(), observe.TraceID(logger)),
 		gossip.WithCompletionTriggerCharacters("$", "/", "#", ":"),
 		gossip.WithSemanticTokensLegend(semanticTokensLegend),
-		telescopeSetup(cfg, indexCache, rsMgr, pluginHost, extRegistry, addlValidator, projMgr, childMgr),
+		telescopeSetup(cfg, indexCache, rsMgr, pluginHost, extRegistry, addlValidator, projMgr, childMgr, graphBridge, bunMgr, &workspaceRootStr),
 	)
 
-	// Register document sync handlers to forward to child LSPs.
+	// Register document sync handlers to forward to child LSPs and update
+	// the V2 graph engine.
 	s.OnDidOpen(func(ctx *gossip.Context, params *protocol.DidOpenTextDocumentParams) error {
+		logger.Debug("telescope.didOpen", "uri", params.TextDocument.URI, "languageID", params.TextDocument.LanguageID)
 		childMgr.DidOpen(context.Background(), params)
+		uri := string(params.TextDocument.URI)
+		content := []byte(params.TextDocument.Text)
+		graphBridge.OnDocumentOpen(uri, content)
+		sendClassifyNotification(ctx, graphBridge, uri, content)
 		return nil
 	})
 	s.OnDidChange(func(ctx *gossip.Context, params *protocol.DidChangeTextDocumentParams) error {
+		logger.Debug("telescope.didChange", "uri", params.TextDocument.URI)
 		childMgr.DidChange(context.Background(), params)
+		if doc := ctx.Documents.Get(params.TextDocument.URI); doc != nil {
+			uri := string(params.TextDocument.URI)
+			content := []byte(doc.Text())
+			graphBridge.OnDocumentChange(uri, content)
+			sendClassifyNotification(ctx, graphBridge, uri, content)
+		}
 		return nil
 	})
 	s.OnDidClose(func(ctx *gossip.Context, params *protocol.DidCloseTextDocumentParams) error {
+		logger.Debug("telescope.didClose", "uri", params.TextDocument.URI)
 		childMgr.DidClose(context.Background(), params)
+		graphBridge.OnDocumentClose(string(params.TextDocument.URI))
 		return nil
 	})
 
 	// Register an initialization hook that loads rulesets from the workspace,
 	// registers dynamic file watchers, and starts child LSPs.
 	s.OnInitialized(func(ctx *gossip.Context) {
+		workspaceRootStr = protocol.URIToPath(protocol.NormalizeURI(ctx.WorkspaceRoot()))
+		logger.Info("telescope server initialized",
+			"version", Version,
+			"workspace", string(ctx.WorkspaceRoot()),
+		)
+
+		// Register snapshot callback for observability
+		graphBridge.OnSnapshot(func(snap *graph.Snapshot) {
+			logger.Debug("graph snapshot built",
+				"id", snap.ID,
+				"nodes", len(snap.Nodes),
+				"roots", len(snap.Roots),
+			)
+		})
+
 		// Wire the aggregator's publish to the real client proxy, and redirect
 		// the diagnostic engine's output through the aggregator so telescope's
 		// own diagnostics are merged with child LSP diagnostics.
 		childMgr.Aggregator().SetPublishFunc(ctx.Client.PublishDiagnostics)
+		childMgr.Aggregator().SetLogger(logger)
 		ctx.Server().DiagnosticEngine().SetPublish(func(bgCtx context.Context, params *protocol.PublishDiagnosticsParams) error {
-			childMgr.Aggregator().Set(params.URI, "telescope", params.Diagnostics)
+			logger.Debug("telescope.diagToAggregator", "uri", params.URI, "count", len(params.Diagnostics))
+			// Enrich diagnostics with RelatedInformation for $ref context
+			enrichedDiags := enrichDiagsWithRefContext(graphBridge, string(params.URI), params.Diagnostics)
+			childMgr.Aggregator().Set(params.URI, "telescope", enrichedDiags)
 			return nil
 		})
 
@@ -225,51 +320,408 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 				}
 			}
 
+			// Start Bun sidecar for custom TS rules, Zod schemas, and Spectral rulesets
+			if cfg.NeedsBunSidecar() && bunMgr != nil {
+				telescopeDir := filepath.Join(rootPath, ".telescope")
+				go func() {
+					if err := bunMgr.Start(context.Background()); err != nil {
+						logger.Warn("failed to start bun sidecar", "error", err)
+						return
+					}
+					loadReq := buildLoadRulesRequest(cfg, telescopeDir)
+					if loadReq != nil {
+						if err := bunMgr.LoadRules(context.Background(), loadReq); err != nil {
+							logger.Warn("failed to load custom rules", "error", err)
+						}
+					}
+					if s.DiagnosticEngine() != nil {
+						s.DiagnosticEngine().InvalidateAll()
+					}
+					bunMgr.WatchRules(context.Background(), telescopeDir, func() {
+						reloadReq := buildLoadRulesRequest(cfg, telescopeDir)
+						if reloadReq != nil {
+							if err := bunMgr.LoadRules(context.Background(), reloadReq); err != nil {
+								logger.Warn("failed to reload custom rules", "error", err)
+							}
+						}
+						if s.DiagnosticEngine() != nil {
+							s.DiagnosticEngine().InvalidateAll()
+						}
+					})
+				}()
+			}
+
 			// Start child YAML/JSON language servers for enhanced syntax and
 			// schema diagnostics. Runs in background to avoid blocking init.
 			go childMgr.Start(context.Background(), root)
 
+			// Collect analyzers for startup diagnostics on all discovered files.
+			collectedAnalyzers := rules.CollectAnalyzers(analyzers.RegisterAll)
+			projMgr.SetAnalyzers(collectedAnalyzers)
+
 			// Start background workspace scan and project building.
-			go projMgr.Initialize(rootPath, cfg.Exclude)
+			go func() {
+				start := time.Now()
+				projMgr.Initialize(rootPath, cfg.Exclude)
+				logger.Info("project initialization complete", "elapsed", time.Since(start).String())
+			}()
 		}
 		registerFileWatchers(ctx)
+
+		// Force re-evaluation of any documents that were opened during the
+		// initialized race window. This ensures their indexes are built and
+		// cached even if their initial onTreeUpdate ran before SetPublish.
+		if s.DiagnosticEngine() != nil {
+			s.DiagnosticEngine().InvalidateAll()
+		}
 	})
 
 	// Register LSP feature handlers (these don't need tree-sitter to be initialized)
-	s.OnHover(NewHoverHandler(indexCache))
-	s.OnCompletion(NewCompletionHandler(indexCache))
-	s.OnDefinition(NewDefinitionHandler(indexCache))
-	s.OnReferences(NewReferencesHandler(indexCache))
-	s.OnCodeAction(NewCodeActionHandler(indexCache))
-	s.OnDocumentSymbol(NewSymbolHandler(indexCache))
-	s.OnCodeLens(NewCodeLensHandler(indexCache))
-	s.OnDocumentLink(NewDocumentLinkHandler(indexCache))
-	s.OnRename(NewRenameHandler(indexCache))
-	s.OnPrepareRename(NewPrepareRenameHandler(indexCache))
-	s.OnInlayHint(NewInlayHintHandler(indexCache))
-	s.OnSemanticTokens(NewSemanticTokensHandler(indexCache))
-	s.OnFoldingRange(NewFoldingRangeHandler(indexCache))
-	s.OnExecuteCommand(NewExecuteCommandHandler(indexCache))
-	s.OnCompletionResolve(NewCompletionResolveHandler(indexCache))
-	s.OnDocumentHighlight(NewDocumentHighlightHandler(indexCache))
-	s.OnWorkspaceSymbol(NewWorkspaceSymbolHandler(indexCache))
-	s.OnPrepareCallHierarchy(NewPrepareCallHierarchyHandler(indexCache))
-	s.OnCallHierarchyIncoming(NewCallHierarchyIncomingHandler(indexCache))
-	s.OnCallHierarchyOutgoing(NewCallHierarchyOutgoingHandler(indexCache))
-	s.OnSelectionRange(NewSelectionRangeHandler(indexCache))
-	s.OnLinkedEditingRange(NewLinkedEditingRangeHandler(indexCache))
-	s.OnSemanticTokensRange(NewSemanticTokensRangeHandler(indexCache))
-	s.OnFormatting(NewFormattingHandler(indexCache))
-	s.OnTypeDefinition(NewTypeDefinitionHandler(indexCache))
+	s.OnHover(NewHoverHandler(indexCache, graphBridge))
+	s.OnCompletion(NewCompletionHandler(indexCache, graphBridge))
+	s.OnDefinition(NewDefinitionHandler(indexCache, projMgr, graphBridge))
+	s.OnReferences(NewReferencesHandler(indexCache, graphBridge))
+	s.OnCodeAction(NewCodeActionHandler(indexCache, graphBridge))
+	s.OnDocumentSymbol(NewSymbolHandler(indexCache, graphBridge))
+	s.OnCodeLens(NewCodeLensHandler(indexCache, graphBridge))
+	s.OnDocumentLink(NewDocumentLinkHandler(indexCache, graphBridge))
+	s.OnRename(NewRenameHandler(indexCache, graphBridge))
+	s.OnPrepareRename(NewPrepareRenameHandler(indexCache, graphBridge))
+	s.OnInlayHint(NewInlayHintHandler(indexCache, graphBridge))
+	s.OnSemanticTokens(NewSemanticTokensHandler(indexCache, graphBridge))
+	s.OnFoldingRange(NewFoldingRangeHandler(indexCache, graphBridge))
+	s.OnExecuteCommand(NewExecuteCommandHandler(indexCache, graphBridge))
+	s.OnCompletionResolve(NewCompletionResolveHandler(indexCache, graphBridge))
+	s.OnDocumentHighlight(NewDocumentHighlightHandler(indexCache, graphBridge))
+	s.OnWorkspaceSymbol(NewWorkspaceSymbolHandler(indexCache, graphBridge))
+	s.OnPrepareCallHierarchy(NewPrepareCallHierarchyHandler(indexCache, graphBridge))
+	s.OnCallHierarchyIncoming(NewCallHierarchyIncomingHandler(indexCache, graphBridge))
+	s.OnCallHierarchyOutgoing(NewCallHierarchyOutgoingHandler(indexCache, graphBridge))
+	s.OnSelectionRange(NewSelectionRangeHandler(indexCache, graphBridge))
+	s.OnLinkedEditingRange(NewLinkedEditingRangeHandler(indexCache, graphBridge))
+	s.OnSemanticTokensRange(NewSemanticTokensRangeHandler(indexCache, graphBridge))
+	s.OnFormatting(NewFormattingHandler(indexCache, graphBridge))
+	s.OnTypeDefinition(NewTypeDefinitionHandler(indexCache, projMgr, graphBridge))
+
+	// Custom observability requests for debug tooling
+	s.HandleRequest("$/telescope/graphInfo", func(ctx *gossip.Context, _ json.RawMessage) (any, error) {
+		info := observe.CollectGraphInfo(graphBridge.Graph(), graphBridge.CurrentSnapshot())
+		return info, nil
+	})
+	s.HandleRequest("$/telescope/rulePerf", func(ctx *gossip.Context, _ json.RawMessage) (any, error) {
+		perf := rulePerfTracker.Collect()
+		return perf, nil
+	})
 
 	return s
 }
 
+// bunSidecarAnalyzer creates a gossip Analyzer that delegates to the Bun sidecar
+// for custom TypeScript rules and Spectral rulesets.
+func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *GraphBridge, workspaceRoot *string) treesitter.Analyzer {
+	type ruleWithPatterns struct {
+		id       string
+		patterns []string
+	}
+
+	var allRules []ruleWithPatterns
+	for _, r := range cfg.OpenAPI.Rules {
+		if r.Rule != "" {
+			allRules = append(allRules, ruleWithPatterns{
+				id:       strings.TrimSuffix(r.Rule, filepath.Ext(r.Rule)),
+				patterns: cfg.OpenAPI.Patterns,
+			})
+		}
+	}
+	for _, g := range cfg.AdditionalValidation {
+		for _, r := range g.Rules {
+			if r.Rule != "" {
+				allRules = append(allRules, ruleWithPatterns{
+					id:       strings.TrimSuffix(r.Rule, filepath.Ext(r.Rule)),
+					patterns: g.Patterns,
+				})
+			}
+		}
+	}
+
+	spectralRulesets := cfg.SpectralRulesets
+
+	return treesitter.Analyzer{
+		Scope: treesitter.ScopeFile,
+		Run: func(ctx *treesitter.AnalysisContext) []protocol.Diagnostic {
+			if !bunMgr.Available() || ctx.Document == nil {
+				return nil
+			}
+			if len(allRules) == 0 && len(spectralRulesets) == 0 {
+				return nil
+			}
+
+			uri := string(ctx.Document.URI())
+
+			var ruleIDs []string
+			for _, r := range allRules {
+				if matchesFilePatterns(uri, *workspaceRoot, r.patterns) {
+					ruleIDs = append(ruleIDs, r.id)
+				}
+			}
+
+			if len(ruleIDs) == 0 && len(spectralRulesets) == 0 {
+				return nil
+			}
+
+			content := ctx.Document.Text()
+			format := "yaml"
+			if strings.HasSuffix(uri, ".json") {
+				format = "json"
+			}
+
+			snap := graphBridge.CurrentSnapshot()
+			node := graphBridge.Graph().Node(uri)
+
+			var doc bun.SerializedDoc
+			if node != nil && node.Raw != nil {
+				doc = bun.SerializeDoc(uri, node, snap)
+			} else {
+				ast, err := bun.SerializeRawContent([]byte(content), format)
+				if err != nil {
+					return nil
+				}
+				version := ""
+				if v, ok := ast["openapi"]; ok {
+					version, _ = v.(string)
+				}
+				doc = bun.SerializedDoc{
+					URI:      uri,
+					AST:      ast,
+					RawText:  content,
+					Format:   format,
+					Version:  version,
+					Pointers: make(map[string][4]uint32),
+				}
+			}
+
+			var allDiags []protocol.Diagnostic
+
+			if len(ruleIDs) > 0 {
+				projectIdx := bun.SerializeIndex(snap)
+				req := &bun.RunRulesRequest{
+					DocumentURI: uri,
+					RuleIDs:     ruleIDs,
+					Document:    doc,
+					Project:     projectIdx,
+				}
+				resp, err := bunMgr.RunRules(context.Background(), req)
+				if err == nil && resp != nil {
+					allDiags = append(allDiags, sidecarDiagsToProtocol(resp.Diagnostics)...)
+				}
+			}
+
+			if len(spectralRulesets) > 0 {
+				req := &bun.RunSpectralRequest{
+					DocumentURI:  uri,
+					Document:     doc,
+					RulesetPaths: spectralRulesets,
+				}
+				resp, err := bunMgr.RunSpectral(context.Background(), req)
+				if err == nil && resp != nil {
+					allDiags = append(allDiags, sidecarDiagsToProtocol(resp.Diagnostics)...)
+				}
+			}
+
+			return allDiags
+		},
+	}
+}
+
+// matchesFilePatterns checks if a document URI matches any of the given glob patterns
+// relative to the workspace root. Used to scope sidecar rules to their configured files.
+func matchesFilePatterns(docURI, workspaceRoot string, patterns []string) bool {
+	if len(patterns) == 0 {
+		return true
+	}
+	docPath := protocol.URIToPath(protocol.NormalizeURI(protocol.DocumentURI(docURI)))
+	relPath := strings.TrimPrefix(docPath, workspaceRoot)
+	relPath = strings.TrimPrefix(relPath, "/")
+	for _, pattern := range patterns {
+		if matched, _ := filepath.Match(pattern, relPath); matched {
+			return true
+		}
+		if matched, _ := doubleStarMatch(pattern, relPath); matched {
+			return true
+		}
+	}
+	return false
+}
+
+// doubleStarMatch handles ** glob patterns by expanding them to match any path segment.
+func doubleStarMatch(pattern, path string) (bool, error) {
+	if !strings.Contains(pattern, "**") {
+		return filepath.Match(pattern, path)
+	}
+	parts := strings.SplitN(pattern, "**", 2)
+	prefix := parts[0]
+	suffix := strings.TrimPrefix(parts[1], "/")
+	if prefix != "" {
+		if !strings.HasPrefix(path, prefix) {
+			return false, nil
+		}
+		path = path[len(prefix):]
+	}
+	if suffix == "" {
+		return true, nil
+	}
+	for i := 0; i <= len(path); i++ {
+		if matched, _ := filepath.Match(suffix, path[i:]); matched {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func sidecarDiagsToProtocol(diags []bun.SidecarDiagnostic) []protocol.Diagnostic {
+	result := make([]protocol.Diagnostic, 0, len(diags))
+	for _, d := range diags {
+		sev := protocol.DiagnosticSeverity(d.Severity)
+		if sev < protocol.SeverityError || sev > protocol.SeverityHint {
+			sev = protocol.SeverityWarning
+		}
+		pd := protocol.Diagnostic{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: d.StartLine, Character: d.StartChar},
+				End:   protocol.Position{Line: d.EndLine, Character: d.EndChar},
+			},
+			Severity: sev,
+			Source:   d.Source,
+			Message:  d.Message,
+		}
+		if d.Code != "" {
+			pd.Code = d.Code
+		}
+		result = append(result, pd)
+	}
+	return result
+}
+
+// buildLoadRulesRequest creates a LoadRulesRequest from the config.
+func buildLoadRulesRequest(cfg *config.Config, telescopeDir string) *bun.LoadRulesRequest {
+	var rules []bun.RuleConfig
+
+	for _, r := range cfg.OpenAPI.Rules {
+		if r.Rule == "" {
+			continue
+		}
+		rules = append(rules, bun.RuleConfig{
+			ID:       strings.TrimSuffix(r.Rule, filepath.Ext(r.Rule)),
+			Path:     filepath.Join(telescopeDir, "rules", r.Rule),
+			Kind:     "openapi",
+			Severity: r.Severity,
+			Options:  r.Options,
+		})
+	}
+
+	for _, g := range cfg.AdditionalValidation {
+		for _, r := range g.Rules {
+			if r.Rule == "" {
+				continue
+			}
+			rules = append(rules, bun.RuleConfig{
+				ID:       strings.TrimSuffix(r.Rule, filepath.Ext(r.Rule)),
+				Path:     filepath.Join(telescopeDir, "rules", r.Rule),
+				Kind:     "generic",
+				Severity: r.Severity,
+				Patterns: g.Patterns,
+				Options:  r.Options,
+			})
+		}
+		for _, s := range g.Schemas {
+			if s.Schema == "" {
+				continue
+			}
+			ext := filepath.Ext(s.Schema)
+			if ext == ".ts" || ext == ".js" {
+				rules = append(rules, bun.RuleConfig{
+					ID:       strings.TrimSuffix(s.Schema, ext),
+					Path:     filepath.Join(telescopeDir, "schemas", s.Schema),
+					Kind:     "schema",
+					Patterns: g.Patterns,
+				})
+			}
+		}
+	}
+
+	if len(rules) == 0 {
+		return nil
+	}
+
+	return &bun.LoadRulesRequest{
+		Rules:   rules,
+		WorkDir: filepath.Dir(telescopeDir),
+	}
+}
+
 func uriToFSPath(uri string) string {
-	if strings.HasPrefix(uri, "file://") {
-		return strings.TrimPrefix(uri, "file://")
+	u, err := url.Parse(uri)
+	if err != nil {
+		if strings.HasPrefix(uri, "file://") {
+			return strings.TrimPrefix(uri, "file://")
+		}
+		return uri
+	}
+	if u.Scheme == "file" {
+		return filepath.FromSlash(u.Path)
 	}
 	return uri
+}
+
+// enrichDiagsWithRefContext adds RelatedInformation to diagnostics when the
+// document is referenced via $ref from other documents.
+func enrichDiagsWithRefContext(bridge *GraphBridge, uri string, diags []protocol.Diagnostic) []protocol.Diagnostic {
+	if bridge == nil {
+		return diags
+	}
+	refEdges := bridge.EdgesTo(uri)
+	if len(refEdges) == 0 {
+		return diags
+	}
+	for i := range diags {
+		for _, edge := range refEdges {
+			if edge.SourceURI == uri {
+				continue // skip self-references from local $ref
+			}
+			diags[i].RelatedInformation = append(diags[i].RelatedInformation, protocol.DiagnosticRelatedInformation{
+				Location: protocol.Location{
+					URI:   protocol.DocumentURI(edge.SourceURI),
+					Range: protocol.FileStartRange,
+				},
+				Message: fmt.Sprintf("Referenced via $ref: %s", edge.RefValue),
+			})
+		}
+	}
+	return diags
+}
+
+// classifyNotification is the payload sent for $/telescope/classify.
+type classifyNotification struct {
+	URI        string  `json:"uri"`
+	IsOpenAPI  bool    `json:"isOpenAPI"`
+	Version    string  `json:"version"`
+	IsFragment bool    `json:"isFragment"`
+	Confidence float64 `json:"confidence"`
+}
+
+func sendClassifyNotification(ctx *gossip.Context, bridge *GraphBridge, uri string, content []byte) {
+	classification := bridge.Classifier().Classify(uri, content, false)
+	conn := ctx.Server().Conn()
+	if conn == nil {
+		return
+	}
+	conn.Notify(ctx, "$/telescope/classify", classifyNotification{
+		URI:        uri,
+		IsOpenAPI:  classification.IsOpenAPI,
+		Version:    classification.OpenAPIVersion,
+		IsFragment: classification.IsFragment,
+		Confidence: classification.Confidence,
+	})
 }
 
 var semanticTokensLegend = protocol.SemanticTokensLegend{

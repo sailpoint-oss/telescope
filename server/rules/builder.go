@@ -4,6 +4,7 @@ import (
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -123,7 +124,7 @@ func (b *RuleBuilder) Meta() RuleMeta {
 }
 
 // Build returns the rule ID and a treesitter.Analyzer ready for registration.
-// Useful when you need to register manually or in tests.
+// This is the boundary where core types are converted to protocol types.
 func (b *RuleBuilder) Build() (string, treesitter.Analyzer) {
 	v := b.v
 	meta := b.meta
@@ -138,7 +139,7 @@ func (b *RuleBuilder) Build() (string, treesitter.Analyzer) {
 			}
 			r := NewReporter(id, meta.Severity)
 			Walk(idx, v, r)
-			return r.Diagnostics()
+			return adapt.DiagnosticsToProtocol(r.Diagnostics())
 		},
 	}
 }

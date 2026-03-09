@@ -29,12 +29,27 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build Bun runner
+        run: bash lsp/bun/runner/build.sh
+        working-directory: server
+
       - name: Build
         run: go build ./...
         working-directory: server
 
       - name: Vet
         run: go vet ./...
+        working-directory: server
+
+      - name: Dep guard (core has no LSP deps)
+        run: |
+          if go list -deps ./core/... 2>/dev/null | grep -qE 'protocol|jsonrpc'; then
+            echo "ERROR: core/ packages must not depend on protocol or jsonrpc"
+            go list -deps ./core/... | grep -E 'protocol|jsonrpc'
+            exit 1
+          fi
         working-directory: server
 
       - name: Test
@@ -52,6 +67,58 @@ jobs:
         with:
           name: go-coverage
           path: server/coverage.out
+
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build Bun runner
+        run: bash lsp/bun/runner/build.sh
+        working-directory: server
+
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run benchmarks (current)
+        run: go test -bench=. -benchmem -count=5 -timeout 10m ./bench/ | tee bench-new.txt
+        working-directory: server
+
+      - name: Run benchmarks (base)
+        if: github.event_name == 'pull_request'
+        run: |
+          git stash
+          git checkout ${{ github.event.pull_request.base.sha }}
+          go test -bench=. -benchmem -count=5 -timeout 10m ./bench/ | tee bench-old.txt || true
+          git checkout -
+          git stash pop || true
+        working-directory: server
+
+      - name: Compare with benchstat
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -f bench-old.txt ]; then
+            echo "## Benchmark Comparison" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            benchstat bench-old.txt bench-new.txt | tee -a $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+        working-directory: server
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: server/bench-new.txt
 
   typescript:
     name: TypeScript
@@ -127,6 +194,7 @@ jobs:
           sudo apt-get install -y xvfb
           xvfb-run -a pnpm --filter ./client test:e2e:run:single
           xvfb-run -a pnpm --filter ./client test:e2e:run:multi
+          xvfb-run -a pnpm --filter ./client test:e2e:run:sidecar
 
       - name: Run E2E tests (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'

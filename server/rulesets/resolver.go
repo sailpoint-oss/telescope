@@ -8,6 +8,10 @@ import (
 
 // Resolve fully resolves a ruleset including its extends chain.
 func Resolve(rs *RuleSet, basePath string) (*RuleSet, error) {
+	return resolveWithVisited(rs, basePath, make(map[string]bool))
+}
+
+func resolveWithVisited(rs *RuleSet, basePath string, visited map[string]bool) (*RuleSet, error) {
 	resolved := &RuleSet{
 		Name:        rs.Name,
 		Description: rs.Description,
@@ -15,7 +19,7 @@ func Resolve(rs *RuleSet, basePath string) (*RuleSet, error) {
 	}
 
 	if rs.Extends != nil {
-		bases, err := resolveExtends(rs.Extends, basePath)
+		bases, err := resolveExtends(rs.Extends, basePath, visited)
 		if err != nil {
 			return nil, err
 		}
@@ -34,7 +38,7 @@ func Resolve(rs *RuleSet, basePath string) (*RuleSet, error) {
 	return resolved, nil
 }
 
-func resolveExtends(extends interface{}, basePath string) ([]*RuleSet, error) {
+func resolveExtends(extends interface{}, basePath string, visited map[string]bool) ([]*RuleSet, error) {
 	var names []string
 
 	switch v := extends.(type) {
@@ -57,11 +61,26 @@ func resolveExtends(extends interface{}, basePath string) ([]*RuleSet, error) {
 
 	var rulesets []*RuleSet
 	for _, name := range names {
+		// Compute canonical key for cycle detection
+		key := name
+		if !strings.HasPrefix(name, "telescope:") && !strings.HasPrefix(name, "spectral:") {
+			absPath := name
+			if !filepath.IsAbs(absPath) {
+				absPath = filepath.Join(basePath, absPath)
+			}
+			key = absPath
+		}
+
+		if visited[key] {
+			return nil, fmt.Errorf("circular extends: %s", key)
+		}
+		visited[key] = true
+
 		rs, err := loadExtend(name, basePath)
 		if err != nil {
 			return nil, err
 		}
-		resolved, err := Resolve(rs, basePath)
+		resolved, err := resolveWithVisited(rs, basePath, visited)
 		if err != nil {
 			return nil, err
 		}

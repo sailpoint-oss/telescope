@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/spectral"
 )
 
@@ -19,7 +19,7 @@ func TestEngine_Execute_Truthy(t *testing.T) {
 		{
 			ID:       "info-contact",
 			Message:  "Info object should have a contact field",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$.info"},
 			Then: []spectral.FunctionCall{
 				{Field: "contact", Function: "truthy"},
@@ -66,7 +66,7 @@ func TestEngine_Execute_Pattern(t *testing.T) {
 		{
 			ID:       "version-semver",
 			Message:  "Version must be semantic versioning",
-			Severity: protocol.SeverityError,
+			Severity: ctypes.SeverityError,
 			Given:    []string{"$.info.version"},
 			Then: []spectral.FunctionCall{
 				{Function: "pattern", FunctionOptions: map[string]interface{}{
@@ -110,7 +110,7 @@ func TestEngine_Execute_Length(t *testing.T) {
 		{
 			ID:       "min-tags",
 			Message:  "API should have at least 1 tag",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$.tags"},
 			Then: []spectral.FunctionCall{
 				{Function: "length", FunctionOptions: map[string]interface{}{
@@ -156,7 +156,7 @@ func TestEngine_Execute_Enumeration(t *testing.T) {
 	rules := []spectral.Rule{
 		{
 			ID:       "api-scheme",
-			Severity: protocol.SeverityError,
+			Severity: ctypes.SeverityError,
 			Given:    []string{"$.schemes[*]"},
 			Then: []spectral.FunctionCall{
 				{Function: "enumeration", FunctionOptions: map[string]interface{}{
@@ -185,7 +185,7 @@ func TestEngine_Execute_MultipleThen(t *testing.T) {
 	rules := []spectral.Rule{
 		{
 			ID:       "info-check",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$.info"},
 			Then: []spectral.FunctionCall{
 				{Field: "title", Function: "truthy"},
@@ -220,7 +220,7 @@ func TestEngine_SetRules(t *testing.T) {
 	engine.SetRules([]spectral.Rule{
 		{
 			ID:       "info-description",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$.info"},
 			Then: []spectral.FunctionCall{
 				{Field: "description", Function: "truthy"},
@@ -238,7 +238,7 @@ func TestEngine_Execute_UnknownFunction(t *testing.T) {
 	rules := []spectral.Rule{
 		{
 			ID:       "unknown-fn",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$.info"},
 			Then: []spectral.FunctionCall{
 				{Function: "doesNotExist"},
@@ -264,7 +264,7 @@ func TestEngine_Execute_MalformedJSONPath(t *testing.T) {
 	rules := []spectral.Rule{
 		{
 			ID:       "bad-path",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$[[[invalid"},
 			Then: []spectral.FunctionCall{
 				{Function: "truthy"},
@@ -291,7 +291,7 @@ func TestEngine_Execute_Casing(t *testing.T) {
 		{
 			ID:       "kebab-paths",
 			Message:  "Path keys must be kebab-case",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$.info.title"},
 			Then: []spectral.FunctionCall{
 				{Function: "casing", FunctionOptions: map[string]interface{}{
@@ -331,7 +331,7 @@ func TestEngine_Execute_Defined(t *testing.T) {
 		{
 			ID:       "info-description-defined",
 			Message:  "Info must have a description",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$.info"},
 			Then: []spectral.FunctionCall{
 				{Field: "description", Function: "defined"},
@@ -372,7 +372,7 @@ func TestEngine_Execute_EmptyDocument(t *testing.T) {
 	rules := []spectral.Rule{
 		{
 			ID:       "any-rule",
-			Severity: protocol.SeverityWarning,
+			Severity: ctypes.SeverityWarning,
 			Given:    []string{"$.info"},
 			Then: []spectral.FunctionCall{
 				{Function: "truthy"},
@@ -402,7 +402,7 @@ func TestEngine_Execute_MessageTemplate(t *testing.T) {
 		{
 			ID:       "version-format",
 			Message:  "{{property}} has invalid value {{value}}",
-			Severity: protocol.SeverityError,
+			Severity: ctypes.SeverityError,
 			Given:    []string{"$.info"},
 			Then: []spectral.FunctionCall{
 				{Field: "version", Function: "pattern", FunctionOptions: map[string]interface{}{

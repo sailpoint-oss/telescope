@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -14,7 +14,7 @@ var (
 	missingErrorResponsesMeta = rules.RuleMeta{
 		ID:          "missing-error-responses",
 		Description: "Operations should define at least one error response (4xx or 5xx).",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Add error response definitions (e.g., 400, 404, 500) to the operation.",
@@ -24,7 +24,7 @@ var (
 	responseBodyOnDeleteMeta = rules.RuleMeta{
 		ID:          "response-body-on-delete",
 		Description: "DELETE operations typically should not return a response body.",
-		Severity:    protocol.SeverityInformation,
+		Severity:    ctypes.SeverityInfo,
 		Category:    rules.CategoryStructure,
 		Recommended: false,
 		HowToFix:    "Use a 204 No Content response for DELETE operations.",
@@ -34,7 +34,7 @@ var (
 	requestBodyOnGetMeta = rules.RuleMeta{
 		ID:          "no-request-body-on-get",
 		Description: "GET and HEAD operations should not have request bodies.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryStructure,
 		Recommended: true,
 		HowToFix:    "Remove the request body from the GET/HEAD operation. Use query parameters instead.",
@@ -44,7 +44,7 @@ var (
 	missingPaginationMeta = rules.RuleMeta{
 		ID:          "missing-pagination",
 		Description: "List endpoints returning arrays should include pagination parameters.",
-		Severity:    protocol.SeverityInformation,
+		Severity:    ctypes.SeverityInfo,
 		Category:    rules.CategoryStructure,
 		Recommended: false,
 		HowToFix:    "Add pagination query parameters (e.g., page, pageSize, limit, offset).",
@@ -54,7 +54,7 @@ var (
 	inconsistentErrorShapeMeta = rules.RuleMeta{
 		ID:          "inconsistent-error-shape",
 		Description: "Error responses should use a consistent schema across operations.",
-		Severity:    protocol.SeverityInformation,
+		Severity:    ctypes.SeverityInfo,
 		Category:    rules.CategoryStructure,
 		Recommended: false,
 		HowToFix:    "Define a shared error schema in components and reference it in all error responses.",
@@ -77,7 +77,7 @@ func registerCompletenessAnalyzers(s *gossip.Server) {
 				}
 			}
 			if !hasError {
-				r.At(op.Loc, "Operation %s %s has no error responses (4xx/5xx)", strings.ToUpper(method), path)
+				r.At(openapi.LocOrFallback(op.ResponsesLoc, op.Loc), "Operation %s %s has no error responses (4xx/5xx)", strings.ToUpper(method), path)
 			}
 		}).
 		Register(s)
@@ -145,7 +145,7 @@ func registerCompletenessAnalyzers(s *gossip.Server) {
 					return
 				}
 			}
-			r.At(op.Loc, "GET %s returns an array but has no pagination parameters", path)
+			r.At(openapi.LocOrFallback(op.ParametersLoc, op.Loc), "GET %s returns an array but has no pagination parameters", path)
 		}).
 		Register(s)
 

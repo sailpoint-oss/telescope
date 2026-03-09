@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -14,7 +14,7 @@ var (
 	exampleTypeMismatchMeta = rules.RuleMeta{
 		ID:          "example-type-mismatch",
 		Description: "Example values should match the declared schema type.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryTypes,
 		Recommended: true,
 		HowToFix:    "Update the example value to match the schema type.",
@@ -24,7 +24,7 @@ var (
 	exampleEnumMismatchMeta = rules.RuleMeta{
 		ID:          "example-enum-mismatch",
 		Description: "Example values should be one of the declared enum values.",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryTypes,
 		Recommended: true,
 		HowToFix:    "Use one of the declared enum values in the example.",

@@ -86,7 +86,7 @@ func BenchmarkHover(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewHoverHandler(env.cache)
+			handler := lsp.NewHoverHandler(env.cache, nil)
 			params := &protocol.HoverParams{
 				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -107,7 +107,7 @@ func BenchmarkCompletion(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewCompletionHandler(env.cache)
+			handler := lsp.NewCompletionHandler(env.cache, nil)
 			params := &protocol.CompletionParams{
 				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -128,7 +128,7 @@ func BenchmarkDefinition(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewDefinitionHandler(env.cache)
+			handler := lsp.NewDefinitionHandler(env.cache, nil, nil)
 			params := &protocol.DefinitionParams{
 				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -149,7 +149,7 @@ func BenchmarkReferences(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewReferencesHandler(env.cache)
+			handler := lsp.NewReferencesHandler(env.cache, nil)
 			params := &protocol.ReferenceParams{
 				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -170,7 +170,7 @@ func BenchmarkDocumentSymbol(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewSymbolHandler(env.cache)
+			handler := lsp.NewSymbolHandler(env.cache, nil)
 			params := &protocol.DocumentSymbolParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 			}
@@ -188,7 +188,7 @@ func BenchmarkCodeAction(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewCodeActionHandler(env.cache)
+			handler := lsp.NewCodeActionHandler(env.cache, nil)
 			params := &protocol.CodeActionParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 				Range: protocol.Range{
@@ -220,7 +220,7 @@ func BenchmarkFoldingRange(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewFoldingRangeHandler(env.cache)
+			handler := lsp.NewFoldingRangeHandler(env.cache, nil)
 			params := &protocol.FoldingRangeParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 			}
@@ -238,7 +238,7 @@ func BenchmarkCodeLens(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewCodeLensHandler(env.cache)
+			handler := lsp.NewCodeLensHandler(env.cache, nil)
 			params := &protocol.CodeLensParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 			}
@@ -256,7 +256,7 @@ func BenchmarkInlayHints(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewInlayHintHandler(env.cache)
+			handler := lsp.NewInlayHintHandler(env.cache, nil)
 			params := &protocol.InlayHintParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 				Range: protocol.Range{
@@ -278,7 +278,7 @@ func BenchmarkSemanticTokens(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewSemanticTokensHandler(env.cache)
+			handler := lsp.NewSemanticTokensHandler(env.cache, nil)
 			params := &protocol.SemanticTokensParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 			}
@@ -296,7 +296,7 @@ func BenchmarkRename(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewRenameHandler(env.cache)
+			handler := lsp.NewRenameHandler(env.cache, nil)
 			params := &protocol.RenameParams{
 				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -318,7 +318,7 @@ func BenchmarkPrepareRename(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewPrepareRenameHandler(env.cache)
+			handler := lsp.NewPrepareRenameHandler(env.cache, nil)
 			params := &protocol.PrepareRenameParams{
 				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -339,7 +339,7 @@ func BenchmarkFormatting(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewFormattingHandler(env.cache)
+			handler := lsp.NewFormattingHandler(env.cache, nil)
 			params := &protocol.DocumentFormattingParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 				Options: protocol.FormattingOptions{
@@ -361,7 +361,7 @@ func BenchmarkDocumentLinks(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewDocumentLinkHandler(env.cache)
+			handler := lsp.NewDocumentLinkHandler(env.cache, nil)
 			params := &protocol.DocumentLinkParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 			}
@@ -379,7 +379,7 @@ func BenchmarkDocumentHighlight(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewDocumentHighlightHandler(env.cache)
+			handler := lsp.NewDocumentHighlightHandler(env.cache, nil)
 			params := &protocol.DocumentHighlightParams{
 				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -400,7 +400,7 @@ func BenchmarkTypeDefinition(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewTypeDefinitionHandler(env.cache)
+			handler := lsp.NewTypeDefinitionHandler(env.cache, nil, nil)
 			params := &protocol.TypeDefinitionParams{
 				TextDocumentPositionParams: protocol.TextDocumentPositionParams{
 					TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},

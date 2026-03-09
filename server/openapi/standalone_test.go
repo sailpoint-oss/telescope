@@ -156,3 +156,129 @@ func TestParseAndIndexInvalidYAML(t *testing.T) {
 		t.Errorf("DocType = %d, want unknown", idx.Document.DocType)
 	}
 }
+
+func TestParseAndIndexDepthLimit(t *testing.T) {
+	// Build a YAML string with 70 levels of nested properties (exceeds maxSchemaDepth=64)
+	var yaml string
+	yaml = "openapi: \"3.1.0\"\ninfo:\n  title: Deep\n  version: \"1.0\"\ncomponents:\n  schemas:\n    Root:\n"
+	indent := "      "
+	for i := 0; i < 70; i++ {
+		yaml += indent + "type: object\n"
+		yaml += indent + "properties:\n"
+		yaml += indent + "  nested:\n"
+		indent += "    "
+	}
+	yaml += indent + "type: string\n"
+
+	// Should not panic
+	idx := openapi.ParseAndIndex([]byte(yaml))
+	if idx == nil {
+		t.Fatal("ParseAndIndex returned nil")
+	}
+
+	// Walk down to verify depth limit: eventually a schema will be nil
+	schema := idx.Schemas["Root"]
+	if schema == nil {
+		t.Fatal("Root schema is nil")
+	}
+	depth := 0
+	for schema != nil {
+		depth++
+		schema = schema.Properties["nested"]
+	}
+	// We should have stopped before reaching 70 levels
+	if depth > 66 {
+		t.Errorf("parsed %d levels deep, expected depth limit around 64", depth)
+	}
+}
+
+func TestHasPathNilSafety(t *testing.T) {
+	var nilIdx *openapi.Index
+	if nilIdx.HasPath("/test") {
+		t.Error("HasPath should return false for nil index")
+	}
+
+	nilDocIdx := &openapi.Index{Document: nil}
+	if nilDocIdx.HasPath("/test") {
+		t.Error("HasPath should return false for nil document")
+	}
+
+	validIdx := openapi.ParseAndIndex([]byte(`openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /users:
+    get:
+      operationId: test`))
+	if !validIdx.HasPath("/users") {
+		t.Error("HasPath should return true for existing path")
+	}
+	if validIdx.HasPath("/nonexistent") {
+		t.Error("HasPath should return false for non-existing path")
+	}
+}
+
+func TestParseAndIndexTagExtensions(t *testing.T) {
+	spec := []byte(`openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+tags:
+  - name: Users
+    description: User management
+    x-display-name: User Operations`)
+
+	idx := openapi.ParseAndIndex(spec)
+	if idx == nil {
+		t.Fatal("ParseAndIndex returned nil")
+	}
+	tag, ok := idx.Tags["Users"]
+	if !ok {
+		t.Fatal("Users tag not found")
+	}
+	if tag.Extensions == nil {
+		t.Fatal("Tag.Extensions is nil")
+	}
+	ext, ok := tag.Extensions["x-display-name"]
+	if !ok {
+		t.Fatal("x-display-name extension not found on tag")
+	}
+	if ext.Value != "User Operations" {
+		t.Errorf("x-display-name = %q, want %q", ext.Value, "User Operations")
+	}
+}
+
+func TestParseAndIndexCollectsRefsForHyphenatedParameters(t *testing.T) {
+	spec := []byte(`openapi: "3.1.0"
+info:
+  title: Plex Test
+  version: "1.0"
+paths:
+  /:
+    get:
+      parameters:
+        - $ref: "#/components/parameters/X-Plex-Client-Identifier"
+components:
+  parameters:
+    X-Plex-Client-Identifier:
+      name: X-Plex-Client-Identifier
+      in: header
+      schema:
+        type: string`)
+
+	idx := openapi.ParseAndIndex(spec)
+	if idx == nil {
+		t.Fatal("ParseAndIndex returned nil")
+	}
+
+	target := "#/components/parameters/X-Plex-Client-Identifier"
+	usages := idx.Refs[target]
+	if len(usages) != 1 {
+		t.Fatalf("expected 1 ref usage for %q, got %d", target, len(usages))
+	}
+
+	if usages[0].Loc.Range.Start.Line == 0 {
+		t.Fatalf("expected parser-based ref location to be captured, got line %d", usages[0].Loc.Range.Start.Line)
+	}
+}

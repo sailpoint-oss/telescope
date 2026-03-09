@@ -101,6 +101,84 @@ const schemas: Record<string, z.ZodType> = {
 const outDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "generated");
 mkdirSync(outDir, { recursive: true });
 
+/**
+ * Replace permissive `additionalProperties` with `false` on OpenAPI object schemas.
+ *
+ * Zod's `looseObject()` emits `additionalProperties: {}` (allow anything).
+ * In practice, the generated schemas use `$defs` with `$ref` pointers, so the
+ * pattern is: `"additionalProperties": { "$ref": "#/$defs/__schemaNN" }` where
+ * the referenced def is `{}` (empty = allow everything).
+ *
+ * In OpenAPI, the only "extra" properties an object should allow are `x-*`
+ * vendor extensions, which the Go validator already exempts by convention.
+ * Setting `additionalProperties: false` lets the validator flag genuinely
+ * unknown / mistyped keys.
+ *
+ * Objects that legitimately map arbitrary keys (paths, responses, components)
+ * use `additionalProperties: { "$ref": ... }` pointing to a NON-empty schema,
+ * so they are unaffected.
+ */
+function tightenAdditionalProperties(schema: Record<string, unknown>): Record<string, unknown> {
+	const defs = (schema.$defs ?? schema.definitions ?? {}) as Record<string, unknown>;
+
+	// Build a set of def names that are empty schemas (i.e., `{}`)
+	const emptyDefs = new Set<string>();
+	for (const [name, def] of Object.entries(defs)) {
+		if (
+			def !== null &&
+			typeof def === "object" &&
+			!Array.isArray(def) &&
+			Object.keys(def as Record<string, unknown>).length === 0
+		) {
+			emptyDefs.add(name);
+		}
+	}
+
+	function isEmptySchemaRef(val: unknown): boolean {
+		if (val === null || typeof val !== "object" || Array.isArray(val)) return false;
+		const obj = val as Record<string, unknown>;
+		const ref = obj.$ref;
+		if (typeof ref !== "string") return false;
+		const match = ref.match(/^#\/\$defs\/(.+)$/);
+		if (!match) return false;
+		return emptyDefs.has(match[1]);
+	}
+
+	function walk(obj: unknown): unknown {
+		if (Array.isArray(obj)) return obj.map(walk);
+		if (obj !== null && typeof obj === "object") {
+			const out: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+				if (k === "additionalProperties" && (isEmptySchemaRef(v) || isEmptyObj(v))) {
+					out[k] = false;
+				} else {
+					out[k] = walk(v);
+				}
+			}
+			return out;
+		}
+		return obj;
+	}
+
+	function isEmptyObj(v: unknown): boolean {
+		return v !== null && typeof v === "object" && !Array.isArray(v) &&
+			Object.keys(v as Record<string, unknown>).length === 0;
+	}
+
+	const result = walk(schema) as Record<string, unknown>;
+
+	// Remove the now-unused empty defs
+	if (result.$defs && typeof result.$defs === "object") {
+		const cleanedDefs = { ...(result.$defs as Record<string, unknown>) };
+		for (const name of emptyDefs) {
+			delete cleanedDefs[name];
+		}
+		result.$defs = cleanedDefs;
+	}
+
+	return result;
+}
+
 let count = 0;
 for (const [key, zodSchema] of Object.entries(schemas)) {
 	const jsonSchema = z.toJSONSchema(zodSchema, {
@@ -109,8 +187,9 @@ for (const [key, zodSchema] of Object.entries(schemas)) {
 		unrepresentable: "any",
 	});
 
+	const tightened = tightenAdditionalProperties(jsonSchema as Record<string, unknown>);
 	const outPath = resolve(outDir, `${key}.json`);
-	writeFileSync(outPath, JSON.stringify(jsonSchema, null, 2) + "\n");
+	writeFileSync(outPath, JSON.stringify(tightened, null, 2) + "\n");
 	count++;
 	console.log(`  exported: ${key}.json`);
 }

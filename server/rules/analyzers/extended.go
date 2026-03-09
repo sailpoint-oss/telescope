@@ -2,22 +2,22 @@ package analyzers
 
 import (
 	"github.com/LukasParke/gossip"
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
 var (
-	operationDescriptionMeta = rules.RuleMeta{ID: "operation-description", Description: "Operations should have descriptions.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "operation-description"}
-	operationTagsMeta        = rules.RuleMeta{ID: "operation-tags", Description: "Operations should have at least one tag.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "operation-tags"}
-	operationOperationIDMeta = rules.RuleMeta{ID: "operation-operationId", Description: "Operations should have operationId.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "operation-operationId"}
-	infoDescriptionMeta      = rules.RuleMeta{ID: "info-description", Description: "Info should have a description.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "info-description"}
-	infoContactMeta          = rules.RuleMeta{ID: "info-contact", Description: "Info should have contact information.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "info-contact"}
-	infoLicenseMeta          = rules.RuleMeta{ID: "info-license", Description: "Info should have license information.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "info-license"}
-	tagDescriptionMeta       = rules.RuleMeta{ID: "tag-description", Description: "Tags should have descriptions.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "tag-description"}
-	parameterDescriptionMeta = rules.RuleMeta{ID: "parameter-description", Description: "Parameters should have descriptions.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: false, DocURL: rules.DocBaseURL + "parameter-description"}
-	responseDescriptionMeta  = rules.RuleMeta{ID: "response-description", Description: "Responses should have descriptions.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "response-description"}
-	schemaDescriptionMeta    = rules.RuleMeta{ID: "schema-description", Description: "Component schemas should have descriptions.", Severity: protocol.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: false, DocURL: rules.DocBaseURL + "schema-description"}
+	operationDescriptionMeta = rules.RuleMeta{ID: "operation-description", Description: "Operations should have descriptions.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "operation-description"}
+	operationTagsMeta        = rules.RuleMeta{ID: "operation-tags", Description: "Operations should have at least one tag.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "operation-tags"}
+	operationOperationIDMeta = rules.RuleMeta{ID: "operation-operationId", Description: "Operations should have operationId.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "operation-operationId"}
+	infoDescriptionMeta      = rules.RuleMeta{ID: "info-description", Description: "Info should have a description.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "info-description"}
+	infoContactMeta          = rules.RuleMeta{ID: "info-contact", Description: "Info should have contact information.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "info-contact"}
+	infoLicenseMeta          = rules.RuleMeta{ID: "info-license", Description: "Info should have license information.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "info-license"}
+	tagDescriptionMeta       = rules.RuleMeta{ID: "tag-description", Description: "Tags should have descriptions.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "tag-description"}
+	parameterDescriptionMeta = rules.RuleMeta{ID: "parameter-description", Description: "Parameters should have descriptions.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: false, DocURL: rules.DocBaseURL + "parameter-description"}
+	responseDescriptionMeta  = rules.RuleMeta{ID: "response-description", Description: "Responses should have descriptions.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: true, DocURL: rules.DocBaseURL + "response-description"}
+	schemaDescriptionMeta    = rules.RuleMeta{ID: "schema-description", Description: "Component schemas should have descriptions.", Severity: ctypes.SeverityWarning, Category: rules.CategoryDocumentation, Recommended: false, DocURL: rules.DocBaseURL + "schema-description"}
 )
 
 func registerExtendedAnalyzers(s *gossip.Server) {
@@ -32,7 +32,7 @@ func registerExtendedAnalyzers(s *gossip.Server) {
 	rules.Define("operation-tags", operationTagsMeta).Operations(
 		func(path, method string, op *openapi.Operation, r *rules.Reporter) {
 			if len(op.Tags) == 0 {
-				r.At(op.Loc, "Operation %s %s should have at least one tag", method, path)
+				r.At(openapi.LocOrFallback(op.TagsLoc, op.Loc), "Operation %s %s should have at least one tag", method, path)
 			}
 		},
 	).Register(s)

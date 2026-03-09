@@ -307,35 +307,30 @@ export class Session implements vscode.Disposable {
 	 * Start the language client.
 	 */
 	private async startClient(): Promise<void> {
+		const env: Record<string, string> = {};
+		if (process.env.TELESCOPE_DEV) {
+			env.TELESCOPE_DEV = process.env.TELESCOPE_DEV;
+		}
 		const serverOptions: ServerOptions = {
 			run: {
 				command: this.serverPath,
 				args: ["serve"],
+				options: { env: { ...process.env, ...env } },
 			},
 			debug: {
 				command: this.serverPath,
 				args: ["serve"],
+				options: { env: { ...process.env, ...env } },
 			},
 		};
 
+		const folderPattern = new vscode.RelativePattern(this.workspaceFolder, "**/*");
 		const clientOptions: LanguageClientOptions = {
 			documentSelector: [
-				{
-					language: "yaml",
-					pattern: `${this.workspaceFolder.uri.fsPath}/**/*`,
-				},
-				{
-					language: "json",
-					pattern: `${this.workspaceFolder.uri.fsPath}/**/*`,
-				},
-				{
-					language: "openapi-json",
-					pattern: `${this.workspaceFolder.uri.fsPath}/**/*`,
-				},
-				{
-					language: "openapi-yaml",
-					pattern: `${this.workspaceFolder.uri.fsPath}/**/*`,
-				},
+				{ language: "yaml", pattern: folderPattern },
+				{ language: "json", pattern: folderPattern },
+				{ language: "openapi-json", pattern: folderPattern },
+				{ language: "openapi-yaml", pattern: folderPattern },
 			],
 			workspaceFolder: this.workspaceFolder,
 			outputChannel: this.outputChannel,
@@ -348,11 +343,6 @@ export class Session implements vscode.Disposable {
 			},
 			synchronize: {
 				configurationSection: ["telescope"],
-			},
-			diagnosticPullOptions: {
-				filter: (doc) => !this.isDocumentInOpenAPIScope(doc.uri),
-				onTabs: true,
-				match: (_selector, resource) => this.isDocumentInOpenAPIScope(resource),
 			},
 		};
 
@@ -368,8 +358,44 @@ export class Session implements vscode.Disposable {
 
 		this.applyTraceSetting();
 		await this.client.start();
+
+		// Listen for deprecated ranges notifications from the server
+		this.client.onNotification(
+			"telescope/deprecatedRanges",
+			(params: {
+				uri: string;
+				ranges: Array<{
+					range: {
+						start: { line: number; character: number };
+						end: { line: number; character: number };
+					};
+					name: string;
+					kind: string;
+				}>;
+			}) => {
+				if (this.onDeprecatedRanges) {
+					this.onDeprecatedRanges(params);
+				}
+			},
+		);
+
 		this.log(`Language client started`);
 	}
+
+	/** Callback for deprecated ranges notifications, set by the extension. */
+	onDeprecatedRanges:
+		| ((params: {
+				uri: string;
+				ranges: Array<{
+					range: {
+						start: { line: number; character: number };
+						end: { line: number; character: number };
+					};
+					name: string;
+					kind: string;
+				}>;
+		  }) => void)
+		| null = null;
 
 	/**
 	 * Apply current Telescope configuration to the running language client.
@@ -396,9 +422,9 @@ export class Session implements vscode.Disposable {
 	 * Execute a server refactor command for this session.
 	 * The server applies the resulting WorkspaceEdit via `workspace/applyEdit`.
 	 */
-	async executeServerCommand(command: string, args: unknown[]): Promise<void> {
-		if (!this.client || this._state !== SessionState.Running) return;
-		await this.client.sendRequest("workspace/executeCommand", {
+	async executeServerCommand(command: string, args: unknown[]): Promise<unknown> {
+		if (!this.client || this._state !== SessionState.Running) return undefined;
+		return this.client.sendRequest("workspace/executeCommand", {
 			command,
 			arguments: args,
 		});
@@ -446,6 +472,7 @@ export class Session implements vscode.Disposable {
 		fileWatcher.onDidDelete((uri) => {
 			if (this.ownsUri(uri)) {
 				this.scanner?.invalidate(uri.toString());
+				this.scanner?.recount();
 				this.classifiedDocuments.delete(uri.toString());
 			}
 		});
@@ -453,6 +480,7 @@ export class Session implements vscode.Disposable {
 		fileWatcher.onDidCreate(async (uri) => {
 			if (this.ownsUri(uri) && this.matchesOpenAPIPatterns(uri)) {
 				await this.scanner?.classifyFile(uri);
+				this.scanner?.recount();
 			}
 		});
 

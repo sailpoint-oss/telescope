@@ -11,6 +11,7 @@ import (
 	"github.com/LukasParke/gossip/jsonschema"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
@@ -110,7 +111,7 @@ func TestStructural_AnalyzerDoesNotPanic(t *testing.T) {
 					MaxDiagnostics: 100,
 				},
 			)
-			_ = result
+			t.Logf("diagnostics: %d", len(result.Diagnostics))
 		})
 	}
 }
@@ -383,8 +384,8 @@ schema:
 			hasDiag = true
 		}
 	}
-	if !hasDiag && len(diags) == 0 {
-		t.Log("schema may allow additional properties; checking for any diagnostics")
+	if !hasDiag {
+		t.Skip("schema allows additional properties in fragment mode; no diagnostic produced")
 	}
 }
 
@@ -402,7 +403,7 @@ func TestFragment_AnalyzerViaRunAnalyzers(t *testing.T) {
 	diags := rules.RunAnalyzers(allAnalyzers, nil, "file:///test/path-item.yaml", tree)
 
 	for _, d := range diags {
-		if d.Source == "oas3-schema" && d.Severity != protocol.SeverityWarning {
+		if d.Source == "oas3-schema" && d.Severity != ctypes.SeverityWarning {
 			t.Errorf("fragment oas3-schema diagnostics should be warnings, got severity %d", d.Severity)
 		}
 	}
@@ -548,6 +549,158 @@ operationId: listUsers`
 	for _, d := range diags {
 		if strings.Contains(d.Message, "responses") && strings.Contains(d.Message, "missing") {
 			t.Error("3.2 should NOT require 'responses' on Operation")
+		}
+	}
+}
+
+// --- Structural validation coverage tests ---
+
+func TestStructural_UnknownRootKey(t *testing.T) {
+	yamlSrc := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+inof: wrong`
+
+	na := collectOas3SchemaAnalyzer(t)
+	tree := parseTree(t, yamlSrc, yamlLang())
+	defer tree.Close()
+
+	ctx := &treesitter.AnalysisContext{
+		Tree: tree,
+		UserData: &rules.AnalysisData{
+			Index: &openapi.Index{
+				Document: &openapi.Document{DocType: openapi.DocTypeRoot},
+				Version:  openapi.Version31,
+				Format:   openapi.FormatYAML,
+			},
+			DocURI: "file:///test/root.yaml",
+		},
+	}
+	diags := na.Analyzer.Run(ctx)
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "inof") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected diagnostic about unknown property 'inof'")
+		for _, d := range diags {
+			t.Logf("  L%d: %s", d.Range.Start.Line, d.Message)
+		}
+	}
+}
+
+func TestStructural_UnknownInfoKey(t *testing.T) {
+	yamlSrc := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+  unknownField: hello`
+
+	na := collectOas3SchemaAnalyzer(t)
+	tree := parseTree(t, yamlSrc, yamlLang())
+	defer tree.Close()
+
+	ctx := &treesitter.AnalysisContext{
+		Tree: tree,
+		UserData: &rules.AnalysisData{
+			Index: &openapi.Index{
+				Document: &openapi.Document{DocType: openapi.DocTypeRoot},
+				Version:  openapi.Version31,
+				Format:   openapi.FormatYAML,
+			},
+			DocURI: "file:///test/root.yaml",
+		},
+	}
+	diags := na.Analyzer.Run(ctx)
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "unknownField") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected diagnostic about unknown property 'unknownField' in info")
+		for _, d := range diags {
+			t.Logf("  L%d: %s", d.Range.Start.Line, d.Message)
+		}
+	}
+}
+
+func TestStructural_ExtensionKeysAllowed(t *testing.T) {
+	yamlSrc := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+  x-custom-field: allowed
+x-global-ext: also-allowed`
+
+	na := collectOas3SchemaAnalyzer(t)
+	tree := parseTree(t, yamlSrc, yamlLang())
+	defer tree.Close()
+
+	ctx := &treesitter.AnalysisContext{
+		Tree: tree,
+		UserData: &rules.AnalysisData{
+			Index: &openapi.Index{
+				Document: &openapi.Document{DocType: openapi.DocTypeRoot},
+				Version:  openapi.Version31,
+				Format:   openapi.FormatYAML,
+			},
+			DocURI: "file:///test/root.yaml",
+		},
+	}
+	diags := na.Analyzer.Run(ctx)
+	for _, d := range diags {
+		if strings.Contains(d.Message, "x-custom") || strings.Contains(d.Message, "x-global") {
+			t.Errorf("x-* extension keys should be allowed, got: %s", d.Message)
+		}
+	}
+}
+
+func TestStructural_MissingResponseDescription(t *testing.T) {
+	yamlSrc := `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object`
+
+	na := collectOas3SchemaAnalyzer(t)
+	tree := parseTree(t, yamlSrc, yamlLang())
+	defer tree.Close()
+
+	ctx := &treesitter.AnalysisContext{
+		Tree: tree,
+		UserData: &rules.AnalysisData{
+			Index: &openapi.Index{
+				Document: &openapi.Document{DocType: openapi.DocTypeRoot},
+				Version:  openapi.Version31,
+				Format:   openapi.FormatYAML,
+			},
+			DocURI: "file:///test/root.yaml",
+		},
+	}
+	diags := na.Analyzer.Run(ctx)
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "description") && strings.Contains(d.Message, "missing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected diagnostic about missing 'description' in response")
+		for _, d := range diags {
+			t.Logf("  L%d: %s", d.Range.Start.Line, d.Message)
 		}
 	}
 }

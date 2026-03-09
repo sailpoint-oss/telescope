@@ -310,9 +310,9 @@ func TestSeverityConversions(t *testing.T) {
 
 	for _, tt := range tests {
 		sev := stringToSeverity(tt.input)
-		result := severityToString(sev)
+		result := severityFromInt(int(sev))
 		if result != tt.expected {
-			t.Errorf("stringToSeverity(%q) -> severityToString = %q, want %q", tt.input, result, tt.expected)
+			t.Errorf("stringToSeverity(%q) -> severityFromInt = %q, want %q", tt.input, result, tt.expected)
 		}
 	}
 }

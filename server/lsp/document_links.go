@@ -7,13 +7,14 @@ import (
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/markdown"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
 // NewDocumentLinkHandler provides clickable $ref links, URLs extracted from
 // description fields, and externalDocs.url links.
-func NewDocumentLinkHandler(cache *openapi.IndexCache) gossip.DocumentLinkHandler {
+func NewDocumentLinkHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.DocumentLinkHandler {
 	return func(ctx *gossip.Context, params *protocol.DocumentLinkParams) ([]protocol.DocumentLink, error) {
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil {
@@ -28,7 +29,7 @@ func NewDocumentLinkHandler(cache *openapi.IndexCache) gossip.DocumentLinkHandle
 		for _, ref := range idx.AllRefs {
 			target := resolveRefTarget(docURI, ref.Target)
 			links = append(links, protocol.DocumentLink{
-				Range:   ref.Loc.Range,
+				Range:   adapt.RangeToProtocol(ref.Loc.Range),
 				Target:  target,
 				Tooltip: ref.Target,
 			})
@@ -176,8 +177,12 @@ func externalDocsLinks(idx *openapi.Index) []protocol.DocumentLink {
 		if tooltip == "" {
 			tooltip = ed.URL
 		}
+		linkRange := adapt.RangeToProtocol(ed.URLLoc.Range)
+		if isZeroRange(linkRange) {
+			linkRange = adapt.RangeToProtocol(ed.Loc.Range)
+		}
 		links = append(links, protocol.DocumentLink{
-			Range:   ed.Loc.Range,
+			Range:   linkRange,
 			Target:  &target,
 			Tooltip: tooltip,
 		})

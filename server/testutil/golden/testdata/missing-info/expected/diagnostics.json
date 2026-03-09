@@ -1,0 +1,9 @@
+[
+  {
+    "file": "api.yaml",
+    "line": 0,
+    "code": "missing-info",
+    "severity": "error",
+    "message": "must have an 'info' object"
+  }
+]

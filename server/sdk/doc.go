@@ -1,12 +1,42 @@
-// Package sdk provides a batteries-included SDK for building Telescope
-// plugins as standalone Go binaries.
+// Package sdk provides the public Go API for using Telescope as a library.
+// It includes two main surfaces:
+//
+//  1. Workspace API — Programmatic linting for CLI tools and external consumers (e.g. Cartographer)
+//  2. Plugin API — Building custom rules as standalone Go binaries (hashicorp/go-plugin RPC)
+//
+// # Workspace API (Programmatic Linting)
+//
+// Use [Workspace] to lint OpenAPI specs without running the LSP server:
+//
+//	ws, err := sdk.New()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer ws.Close()
+//
+//	// Add files from disk or synthetic content
+//	ws.AddSource(graph.NewFilesystemSource("openapi.yaml", graph.ClassificationHint{}))
+//	// Or: ws.AddSource(graph.NewSyntheticSource("file:///spec.yaml", content, graph.ClassificationHint{}))
+//
+//	result, err := ws.Analyze(ctx)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//
+//	for uri, diags := range result.Diagnostics {
+//	    for _, d := range diags {
+//	        fmt.Printf("%s:%d: [%s] %s\n", uri, d.Range.Start.Line+1, d.Code, d.Message)
+//	    }
+//	}
+//
+// See docs/SDK.md for the full guide.
+//
+// # Plugin API (Custom Rules)
 //
 // Plugins are compiled Go programs that communicate with the Telescope
 // host over RPC (via hashicorp/go-plugin). The SDK re-exports all
 // necessary types from the openapi and rules packages so plugin authors
 // only need a single import.
-//
-// # Quick Start
 //
 //	package main
 //

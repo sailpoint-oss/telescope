@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -23,9 +25,15 @@ type Manager struct {
 	projects  map[string]*ProjectContext // rootURI -> project
 	cache     *openapi.IndexCache
 	publish   PublishFunc
-	logger    *slog.Logger
+	// shouldPublish gates project-level diagnostic publishing per URI.
+	// It allows the LSP layer to suppress project diagnostics for open files
+	// that are already handled by the incremental analyzer pipeline.
+	shouldPublish func(uri string) bool
+	analyzers     []rules.NamedAnalyzer
+	logger        *slog.Logger
 
 	workspaceRoot string
+	ready         chan struct{} // closed when Initialize completes
 }
 
 // NewManager creates a project Manager.
@@ -34,6 +42,18 @@ func NewManager(indexCache *openapi.IndexCache, logger *slog.Logger) *Manager {
 		projects: make(map[string]*ProjectContext),
 		cache:    indexCache,
 		logger:   logger,
+		ready:    make(chan struct{}),
+	}
+}
+
+// WaitReady blocks until project initialization has completed or the timeout
+// elapses. Returns true if the manager is ready, false on timeout.
+func (m *Manager) WaitReady(timeout time.Duration) bool {
+	select {
+	case <-m.ready:
+		return true
+	case <-time.After(timeout):
+		return false
 	}
 }
 
@@ -44,9 +64,26 @@ func (m *Manager) SetPublish(fn PublishFunc) {
 	m.publish = fn
 }
 
+// SetShouldPublish sets a URI-level filter for project diagnostic publishing.
+// When nil, all URIs are publishable.
+func (m *Manager) SetShouldPublish(fn func(uri string) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.shouldPublish = fn
+}
+
+// SetAnalyzers sets the rule analyzers to run during startup diagnostics.
+func (m *Manager) SetAnalyzers(a []rules.NamedAnalyzer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.analyzers = a
+}
+
 // Initialize performs workspace discovery and builds project contexts for all
 // root documents. Call this on server initialized.
 func (m *Manager) Initialize(workspaceRoot string, exclude []string) {
+	defer close(m.ready)
+
 	m.mu.Lock()
 	m.workspaceRoot = workspaceRoot
 	m.discovery = NewDiscovery(exclude)
@@ -58,10 +95,58 @@ func (m *Manager) Initialize(workspaceRoot string, exclude []string) {
 	}
 
 	roots := m.discovery.Roots()
-	m.logger.Info("workspace scan complete", "files", len(m.discovery.AllFiles()), "roots", len(roots))
+	allFiles := m.discovery.AllFiles()
+	m.logger.Info("workspace scan complete", "files", len(allFiles), "roots", len(roots))
 
 	for _, rootURI := range roots {
 		m.buildProject(rootURI)
+	}
+
+	// Diagnose fragment files that are not part of any project.
+	m.diagnoseStandaloneFragments()
+}
+
+// diagnoseStandaloneFragments finds fragment files not part of any project
+// and runs full diagnostics on them.
+func (m *Manager) diagnoseStandaloneFragments() {
+	m.mu.RLock()
+	publishFn := m.publish
+	shouldPublishFn := m.shouldPublish
+	analyzers := m.analyzers
+	m.mu.RUnlock()
+
+	if publishFn == nil || len(analyzers) == 0 {
+		return
+	}
+
+	allFiles := m.discovery.AllFiles()
+	count := 0
+	for _, df := range allFiles {
+		if df.Role != RoleFragment {
+			continue
+		}
+		if m.ProjectForFile(df.URI) != nil {
+			continue // already covered by a project
+		}
+
+		if !m.canPublishURI(df.URI, shouldPublishFn) {
+			continue
+		}
+
+		idx, err := indexFromDisk(df.URI)
+		if err != nil || idx == nil || idx.Document == nil {
+			continue
+		}
+
+		diags := rules.RunAnalyzers(analyzers, idx, df.URI, nil)
+		if err := publishFn(context.Background(), protocol.DocumentURI(df.URI), adapt.DiagnosticsToProtocol(diags)); err != nil {
+			m.logger.Warn("failed to publish fragment diagnostics", "uri", df.URI, "error", err)
+		}
+		count++
+	}
+
+	if count > 0 {
+		m.logger.Info("diagnosed standalone fragments", "count", count)
 	}
 }
 
@@ -87,11 +172,13 @@ func (m *Manager) buildProject(rootURI string) {
 	m.runProjectDiagnostics(pctx)
 }
 
-// runProjectDiagnostics runs the unresolved-ref check across all files in a
-// project context and publishes diagnostics for each file.
+// runProjectDiagnostics runs all analyzers across all files in a project
+// context and publishes diagnostics for each file.
 func (m *Manager) runProjectDiagnostics(pctx *ProjectContext) {
 	m.mu.RLock()
 	publishFn := m.publish
+	shouldPublishFn := m.shouldPublish
+	analyzers := m.analyzers
 	m.mu.RUnlock()
 
 	if publishFn == nil {
@@ -99,7 +186,18 @@ func (m *Manager) runProjectDiagnostics(pctx *ProjectContext) {
 	}
 
 	for uri, idx := range pctx.Docs {
+		if !m.canPublishURI(uri, shouldPublishFn) {
+			continue
+		}
+
 		diags := m.diagnoseFile(uri, idx, pctx)
+
+		// Run full analyzer suite if available.
+		if len(analyzers) > 0 && idx.Document != nil {
+			analyzerDiags := rules.RunAnalyzers(analyzers, idx, uri, nil)
+			diags = append(diags, adapt.DiagnosticsToProtocol(analyzerDiags)...)
+		}
+
 		if err := publishFn(context.Background(), protocol.DocumentURI(uri), diags); err != nil {
 			m.logger.Warn("failed to publish project diagnostics", "uri", uri, "error", err)
 		}
@@ -119,7 +217,7 @@ func (m *Manager) diagnoseFile(uri string, idx *openapi.Index, pctx *ProjectCont
 		if strings.HasPrefix(target, "#") {
 			for _, usage := range usages {
 				diags = append(diags, protocol.Diagnostic{
-					Range:    usage.Loc.Range,
+					Range:    adapt.RangeToProtocol(usage.Loc.Range),
 					Severity: protocol.SeverityError,
 					Source:   "unresolved-ref",
 					Message:  "Cannot resolve $ref: " + target,
@@ -135,7 +233,7 @@ func (m *Manager) diagnoseFile(uri string, idx *openapi.Index, pctx *ProjectCont
 
 		for _, usage := range usages {
 			diags = append(diags, protocol.Diagnostic{
-				Range:    usage.Loc.Range,
+				Range:    adapt.RangeToProtocol(usage.Loc.Range),
 				Severity: protocol.SeverityError,
 				Source:   "unresolved-ref",
 				Message:  "Cannot resolve $ref: " + target,
@@ -152,8 +250,9 @@ func (m *Manager) diagnoseFile(uri string, idx *openapi.Index, pctx *ProjectCont
 func (m *Manager) ProjectForFile(uri string) *ProjectContext {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	norm := openapi.NormalizeURI(uri)
 	for _, pctx := range m.projects {
-		if pctx.ContainsFile(uri) {
+		if pctx.ContainsFile(norm) {
 			return pctx
 		}
 	}
@@ -174,8 +273,9 @@ func (m *Manager) ResolverForFile(uri string) rules.CrossRefResolver {
 // OnFileChanged should be called when a file is modified. It rebuilds the
 // affected project indexes and re-publishes diagnostics.
 func (m *Manager) OnFileChanged(uri string) {
+	norm := openapi.NormalizeURI(uri)
 	m.mu.RLock()
-	projects := m.affectedProjects(uri)
+	projects := m.affectedProjects(norm)
 	m.mu.RUnlock()
 
 	for _, pctx := range projects {
@@ -189,6 +289,7 @@ func (m *Manager) OnFileChanged(uri string) {
 
 		m.mu.RLock()
 		publishFn := m.publish
+		shouldPublishFn := m.shouldPublish
 		m.mu.RUnlock()
 
 		if publishFn == nil {
@@ -196,6 +297,10 @@ func (m *Manager) OnFileChanged(uri string) {
 		}
 
 		for _, affURI := range affected {
+			if !m.canPublishURI(affURI, shouldPublishFn) {
+				continue
+			}
+
 			idx, ok := pctx.Docs[affURI]
 			if !ok {
 				continue
@@ -206,6 +311,13 @@ func (m *Manager) OnFileChanged(uri string) {
 			}
 		}
 	}
+}
+
+func (m *Manager) canPublishURI(uri string, shouldPublishFn func(uri string) bool) bool {
+	if shouldPublishFn == nil {
+		return true
+	}
+	return shouldPublishFn(uri)
 }
 
 // OnFileCreated should be called when a new file appears. It may need to
@@ -225,17 +337,19 @@ func (m *Manager) OnFileCreated(path string) {
 		return
 	}
 
-	// Check if this file is referenced by existing projects
+	// Collect roots that reference this file, then rebuild outside the lock.
 	m.mu.RLock()
+	var rebuildRoots []string
 	for rootURI, pctx := range m.projects {
-		deps := pctx.Graph.DependentsOf(df.URI)
-		if len(deps) > 0 {
-			m.mu.RUnlock()
-			m.buildProject(rootURI) // rebuild to include new file
-			m.mu.RLock()
+		if deps := pctx.Graph.DependentsOf(df.URI); len(deps) > 0 {
+			rebuildRoots = append(rebuildRoots, rootURI)
 		}
 	}
 	m.mu.RUnlock()
+
+	for _, rootURI := range rebuildRoots {
+		m.buildProject(rootURI)
+	}
 }
 
 // OnFileDeleted should be called when a file is removed.
@@ -252,9 +366,27 @@ func (m *Manager) OnFileDeleted(path string) {
 	uri := df.URI
 	m.discovery.RemoveFile(path)
 
-	m.mu.Lock()
-	delete(m.projects, uri)
-	m.mu.Unlock()
+	if df.Role == RoleRoot {
+		m.mu.Lock()
+		delete(m.projects, uri)
+		m.mu.Unlock()
+		return
+	}
+
+	// For fragment files, rebuild every project that contained the deleted file
+	// so that stale Docs/Graph entries are cleaned up.
+	m.mu.RLock()
+	var rebuildRoots []string
+	for rootURI, pctx := range m.projects {
+		if pctx.ContainsFile(uri) {
+			rebuildRoots = append(rebuildRoots, rootURI)
+		}
+	}
+	m.mu.RUnlock()
+
+	for _, rootURI := range rebuildRoots {
+		m.buildProject(rootURI)
+	}
 }
 
 func (m *Manager) affectedProjects(uri string) []*ProjectContext {

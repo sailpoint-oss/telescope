@@ -2,17 +2,20 @@ package checks
 
 import (
 	"fmt"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
 var asciiMeta = rules.RuleMeta{
 	ID:          "ascii",
 	Description: "Reports non-ASCII characters in the document that may cause interoperability issues.",
-	Severity:    protocol.SeverityWarning,
+	Severity:    ctypes.SeverityWarning,
 	Category:    rules.CategorySyntax,
 	Recommended: true,
 	HowToFix:    "Replace non-ASCII characters with their ASCII equivalents or escape sequences.",
@@ -35,29 +38,37 @@ func registerASCII(s *gossip.Server) {
 
 			line := uint32(0)
 			col := uint32(0)
-			for i := 0; i < len(text); i++ {
+			for i := 0; i < len(text); {
 				b := text[i]
 				if b == '\n' {
 					line++
 					col = 0
+					i++
 					continue
 				}
-				if b > 127 {
-					diags = append(diags, protocol.Diagnostic{
-						Range: protocol.Range{
-							Start: protocol.Position{Line: line, Character: col},
-							End:   protocol.Position{Line: line, Character: col + 1},
-						},
-						Severity: protocol.SeverityWarning,
-						Source:   rules.Source,
-						Code:     "ascii",
-						CodeDescription: &protocol.CodeDescription{
-							Href: protocol.URI(asciiMeta.DocURL),
-						},
-						Message: fmt.Sprintf("Non-ASCII character (0x%02x) at line %d, column %d", b, line+1, col+1),
-					})
+				if b <= 127 {
+					col++
+					i++
+					continue
 				}
-				col++
+				// Non-ASCII: decode the full rune to compute its UTF-16 width
+				r, size := utf8.DecodeRuneInString(text[i:])
+				runeUTF16Len := uint32(utf16.RuneLen(r))
+				diags = append(diags, protocol.Diagnostic{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: line, Character: col},
+						End:   protocol.Position{Line: line, Character: col + runeUTF16Len},
+					},
+					Severity: protocol.SeverityWarning,
+					Source:   rules.Source,
+					Code:     "ascii",
+					CodeDescription: &protocol.CodeDescription{
+						Href: protocol.URI(asciiMeta.DocURL),
+					},
+					Message: fmt.Sprintf("Non-ASCII character (U+%04X) at line %d, column %d", r, line+1, col+1),
+				})
+				col += runeUTF16Len
+				i += size
 			}
 			return diags
 		},

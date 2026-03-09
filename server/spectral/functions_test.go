@@ -480,6 +480,101 @@ components:
 	})
 }
 
+func TestFuncSchemaEnum(t *testing.T) {
+	t.Run("valid enum value passes", func(t *testing.T) {
+		node := yamlNode(t, `https`)
+		opts := map[string]interface{}{
+			"schema": map[string]interface{}{
+				"type": "string",
+				"enum": []interface{}{"http", "https"},
+			},
+		}
+		issues := funcSchema(node, "", opts)
+		if len(issues) != 0 {
+			t.Errorf("expected no issues, got %d: %s", len(issues), issues[0].Message)
+		}
+	})
+
+	t.Run("invalid enum value fails", func(t *testing.T) {
+		node := yamlNode(t, `ftp`)
+		opts := map[string]interface{}{
+			"schema": map[string]interface{}{
+				"type": "string",
+				"enum": []interface{}{"http", "https"},
+			},
+		}
+		issues := funcSchema(node, "", opts)
+		if len(issues) == 0 {
+			t.Error("expected issue for invalid enum value")
+		}
+	})
+}
+
+func TestFuncSchemaRequired(t *testing.T) {
+	t.Run("required fields present", func(t *testing.T) {
+		node := yamlNode(t, "name: hello\nversion: 1\n")
+		opts := map[string]interface{}{
+			"schema": map[string]interface{}{
+				"type":     "object",
+				"required": []interface{}{"name", "version"},
+			},
+		}
+		issues := funcSchema(node, "", opts)
+		if len(issues) != 0 {
+			t.Errorf("expected no issues, got %d: %s", len(issues), issues[0].Message)
+		}
+	})
+
+	t.Run("required field missing", func(t *testing.T) {
+		node := yamlNode(t, "name: hello\n")
+		opts := map[string]interface{}{
+			"schema": map[string]interface{}{
+				"type":     "object",
+				"required": []interface{}{"name", "version"},
+			},
+		}
+		issues := funcSchema(node, "", opts)
+		if len(issues) == 0 {
+			t.Error("expected issue for missing required field")
+		}
+	})
+}
+
+func TestFuncSchemaProperties(t *testing.T) {
+	t.Run("valid property type", func(t *testing.T) {
+		node := yamlNode(t, "name: hello\ncount: 42\n")
+		opts := map[string]interface{}{
+			"schema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"name":  map[string]interface{}{"type": "string"},
+					"count": map[string]interface{}{"type": "integer"},
+				},
+			},
+		}
+		issues := funcSchema(node, "", opts)
+		if len(issues) != 0 {
+			t.Errorf("expected no issues, got %d: %s", len(issues), issues[0].Message)
+		}
+	})
+
+	t.Run("invalid property type", func(t *testing.T) {
+		node := yamlNode(t, "name: hello\ncount: not-a-number\n")
+		opts := map[string]interface{}{
+			"schema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"count": map[string]interface{}{"type": "integer"},
+				},
+			},
+		}
+		issues := funcSchema(node, "", opts)
+		if len(issues) == 0 {
+			t.Error("expected issue for invalid property type")
+		}
+	})
+}
+
 // findPath navigates a YAML document node to a nested mapping value.
 func findPath(root *yaml.Node, keys ...string) *yaml.Node {
 	node := root

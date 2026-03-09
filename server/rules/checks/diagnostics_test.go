@@ -8,6 +8,7 @@ import (
 
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
@@ -44,7 +45,7 @@ func runFullPipelineYAML(t *testing.T, content []byte) []protocol.Diagnostic {
 	allAnalyzers, allChecks := rules.CollectAll(analyzers.RegisterAll, checks.RegisterAll)
 	diags := rules.RunAnalyzers(allAnalyzers, idx, uri, tree)
 	diags = append(diags, rules.RunChecks(allChecks, tree, lang)...)
-	return diags
+	return adapt.DiagnosticsToProtocol(diags)
 }
 
 // runFullPipelineJSON runs all analyzers and checks against JSON content.
@@ -57,7 +58,7 @@ func runFullPipelineJSON(t *testing.T, content []byte) []protocol.Diagnostic {
 	allAnalyzers, allChecks := rules.CollectAll(analyzers.RegisterAll, checks.RegisterAll)
 	diags := rules.RunAnalyzers(allAnalyzers, idx, uri, tree)
 	diags = append(diags, rules.RunChecks(allChecks, tree, lang)...)
-	return diags
+	return adapt.DiagnosticsToProtocol(diags)
 }
 
 func diagsByCode(diags []protocol.Diagnostic, code string) []protocol.Diagnostic {
@@ -313,8 +314,61 @@ func TestASCII_NonASCIICharacters(t *testing.T) {
 	}
 }
 
-// Tab-indentation and unterminated-string tests removed: syntax diagnostics
-// now come from child YAML/JSON language servers.
+func TestASCII_UTF16Columns(t *testing.T) {
+	// "café" contains 'é' (U+00E9, 2 UTF-8 bytes, 1 UTF-16 code unit).
+	// 🚀 (U+1F680) is 4 UTF-8 bytes, 2 UTF-16 code units.
+	// The first non-ASCII byte 'é' starts at byte column 14 but UTF-16 column 14
+	// (all preceding characters are ASCII). The 🚀 after "café " starts at
+	// byte 20 but UTF-16 column 19 (é collapsed from 2 bytes to 1 unit).
+	content := []byte("openapi: \"3.1.0\"\ninfo:\n  title: caf\xc3\xa9 \xf0\x9f\x9a\x80\n  version: \"1.0\"\npaths: {}\n")
+
+	diags := runFullPipelineYAML(t, content)
+	ascii := diagsByCode(diags, "ascii")
+	if len(ascii) < 2 {
+		dumpDiags(t, "ascii-utf16", diags)
+		t.Fatalf("expected at least 2 ascii diagnostics (é and 🚀), got %d", len(ascii))
+	}
+
+	// 'é' at line 2, after "  title: caf" = 12 ASCII chars => col 12
+	found := false
+	for _, d := range ascii {
+		if d.Range.Start.Line == 2 && d.Range.Start.Character == 12 {
+			found = true
+			// é = 1 UTF-16 code unit, so end = 13
+			if d.Range.End.Character != 13 {
+				t.Errorf("é end character = %d, want 13", d.Range.End.Character)
+			}
+			break
+		}
+	}
+	if !found {
+		dumpDiags(t, "ascii-utf16", ascii)
+		t.Error("did not find ascii diagnostic for 'é' at line 2, col 12")
+	}
+}
+
+func TestDuplicateKeys_UTF16Columns(t *testing.T) {
+	// Place a duplicate key after non-ASCII text to verify column positions
+	// use UTF-16 code units. "café" has é = 2 UTF-8 bytes but 1 UTF-16 unit.
+	content := []byte("openapi: \"3.1.0\"\ninfo:\n  title: Test\n  version: \"1.0\"\npaths:\n  /caf\xc3\xa9:\n    get:\n      summary: First\n    get:\n      summary: Second\n")
+
+	diags := runFullPipelineYAML(t, content)
+	dups := diagsByCode(diags, "duplicate-keys")
+	if len(dups) != 1 {
+		dumpDiags(t, "dup-keys-utf16", diags)
+		t.Fatalf("expected 1 duplicate-keys diagnostic, got %d", len(dups))
+	}
+
+	d := dups[0]
+	// The second "get" is on line 8 (0-based), col 4 (indented 4 spaces).
+	// This is all ASCII so the column should simply be 4.
+	if d.Range.Start.Line != 8 {
+		t.Errorf("duplicate key line = %d, want 8", d.Range.Start.Line)
+	}
+	if d.Range.Start.Character != 4 {
+		t.Errorf("duplicate key start character = %d, want 4", d.Range.Start.Character)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Cross-cutting severity tests

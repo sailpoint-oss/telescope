@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/LukasParke/gossip/treesitter"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 )
 
 // Parser builds an OpenAPI Document from a tree-sitter parse tree.
@@ -19,6 +20,19 @@ type Parser struct {
 // NewParser creates a parser for a given tree and file format.
 func NewParser(tree *treesitter.Tree, format FileFormat) *Parser {
 	return &Parser{tree: tree, format: format}
+}
+
+// locFromNode builds a Loc using the tree's encoder so that column offsets
+// are expressed in UTF-16 code units (as required by the LSP protocol)
+// rather than raw byte offsets.
+func (p *Parser) locFromNode(node *tree_sitter.Node) Loc {
+	if node == nil {
+		return Loc{}
+	}
+	return Loc{
+		Range: adapt.RangeFromProtocol(p.tree.NodeRange(node)),
+		Node:  node,
+	}
 }
 
 // Parse walks the tree-sitter tree and returns a typed OpenAPI Document.
@@ -45,7 +59,7 @@ func (p *Parser) Parse() *Document {
 	doc := &Document{
 		Paths:      make(map[string]*PathItem),
 		Extensions: make(map[string]*Node),
-		Loc:        LocFromNode(mappingNode),
+		Loc:        p.locFromNode(mappingNode),
 	}
 
 	p.walkMapping(mappingNode, func(key, value *tree_sitter.Node) {
@@ -69,9 +83,13 @@ func (p *Parser) Parse() *Document {
 			doc.Tags = p.parseTags(value)
 		case "externalDocs":
 			doc.ExternalDocs = p.parseExternalDocs(value)
+		case "schemes": // OAS 2.0
+			p.walkSequence(value, func(item *tree_sitter.Node) {
+				doc.Schemes = append(doc.Schemes, unquote(p.nodeText(item)))
+			})
 		default:
 			if strings.HasPrefix(k, "x-") {
-				doc.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+				doc.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 			}
 		}
 	})
@@ -90,20 +108,20 @@ func (p *Parser) parseInfo(node *tree_sitter.Node) *Info {
 	}
 	info := &Info{
 		Extensions: make(map[string]*Node),
-		Loc:        LocFromNode(node),
+		Loc:        p.locFromNode(node),
 	}
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
 		switch p.nodeText(key) {
 		case "title":
 			info.Title = unquote(p.nodeText(value))
-			info.TitleLoc = LocFromNode(value)
+			info.TitleLoc = p.locFromNode(value)
 		case "description":
 			info.Description = p.parseDescription(value)
 		case "termsOfService":
 			info.TermsOfService = unquote(p.nodeText(value))
 		case "version":
 			info.Version = unquote(p.nodeText(value))
-			info.VersionLoc = LocFromNode(value)
+			info.VersionLoc = p.locFromNode(value)
 		case "contact":
 			info.Contact = p.parseContact(value)
 		case "license":
@@ -111,7 +129,7 @@ func (p *Parser) parseInfo(node *tree_sitter.Node) *Info {
 		default:
 			k := p.nodeText(key)
 			if strings.HasPrefix(k, "x-") {
-				info.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+				info.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 			}
 		}
 	})
@@ -123,7 +141,7 @@ func (p *Parser) parseContact(node *tree_sitter.Node) *Contact {
 	if node == nil {
 		return nil
 	}
-	c := &Contact{Loc: LocFromNode(node)}
+	c := &Contact{Loc: p.locFromNode(node)}
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
 		switch p.nodeText(key) {
 		case "name":
@@ -142,7 +160,7 @@ func (p *Parser) parseLicense(node *tree_sitter.Node) *License {
 	if node == nil {
 		return nil
 	}
-	l := &License{Loc: LocFromNode(node)}
+	l := &License{Loc: p.locFromNode(node)}
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
 		switch p.nodeText(key) {
 		case "name":
@@ -171,19 +189,27 @@ func (p *Parser) parseServers(node *tree_sitter.Node) []Server {
 
 func (p *Parser) parseServer(node *tree_sitter.Node) Server {
 	node = p.unwrapValue(node)
-	s := Server{Loc: LocFromNode(node)}
+	s := Server{
+		Extensions: make(map[string]*Node),
+		Loc:        p.locFromNode(node),
+	}
 	if node == nil {
 		return s
 	}
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
-		switch p.nodeText(key) {
+		k := p.nodeText(key)
+		switch k {
 		case "url":
 			s.URL = unquote(p.nodeText(value))
-			s.URLLoc = LocFromNode(value)
+			s.URLLoc = p.locFromNode(value)
 		case "description":
 			s.Description = p.parseDescription(value)
 		case "variables":
 			s.Variables = p.parseServerVariables(value)
+		default:
+			if strings.HasPrefix(k, "x-") {
+				s.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
+			}
 		}
 	})
 	return s
@@ -197,7 +223,7 @@ func (p *Parser) parseServerVariables(node *tree_sitter.Node) map[string]*Server
 	vars := make(map[string]*ServerVariable)
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
 		name := unquote(p.nodeText(key))
-		sv := &ServerVariable{Loc: LocFromNode(value)}
+		sv := &ServerVariable{Loc: p.locFromNode(value)}
 		value = p.unwrapValue(value)
 		if value != nil {
 			p.walkMapping(value, func(k, v *tree_sitter.Node) {
@@ -227,7 +253,7 @@ func (p *Parser) parsePaths(node *tree_sitter.Node) map[string]*PathItem {
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
 		path := unquote(p.nodeText(key))
 		item := p.parsePathItem(value)
-		item.PathLoc = LocFromNode(key)
+		item.PathLoc = p.locFromNode(key)
 		paths[path] = item
 	})
 	return paths
@@ -237,7 +263,7 @@ func (p *Parser) parsePathItem(node *tree_sitter.Node) *PathItem {
 	node = p.unwrapValue(node)
 	item := &PathItem{
 		Extensions: make(map[string]*Node),
-		Loc:        LocFromNode(node),
+		Loc:        p.locFromNode(node),
 	}
 	if node == nil {
 		return item
@@ -251,27 +277,35 @@ func (p *Parser) parsePathItem(node *tree_sitter.Node) *PathItem {
 			item.Description = p.parseDescription(value)
 		case "get":
 			item.Get = p.parseOperation(value, "get")
+			item.Get.MethodLoc = p.locFromNode(key)
 		case "put":
 			item.Put = p.parseOperation(value, "put")
+			item.Put.MethodLoc = p.locFromNode(key)
 		case "post":
 			item.Post = p.parseOperation(value, "post")
+			item.Post.MethodLoc = p.locFromNode(key)
 		case "delete":
 			item.Delete = p.parseOperation(value, "delete")
+			item.Delete.MethodLoc = p.locFromNode(key)
 		case "options":
 			item.Options = p.parseOperation(value, "options")
+			item.Options.MethodLoc = p.locFromNode(key)
 		case "head":
 			item.Head = p.parseOperation(value, "head")
+			item.Head.MethodLoc = p.locFromNode(key)
 		case "patch":
 			item.Patch = p.parseOperation(value, "patch")
+			item.Patch.MethodLoc = p.locFromNode(key)
 		case "trace":
 			item.Trace = p.parseOperation(value, "trace")
+			item.Trace.MethodLoc = p.locFromNode(key)
 		case "parameters":
 			item.Parameters = p.parseParameters(value)
 		case "$ref":
 			item.Ref = unquote(p.nodeText(value))
 		default:
 			if strings.HasPrefix(k, "x-") {
-				item.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+				item.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 			}
 		}
 	})
@@ -283,7 +317,7 @@ func (p *Parser) parseOperation(node *tree_sitter.Node, method string) *Operatio
 	op := &Operation{
 		Responses:  make(map[string]*Response),
 		Extensions: make(map[string]*Node),
-		Loc:        LocFromNode(node),
+		Loc:        p.locFromNode(node),
 	}
 	if node == nil {
 		return op
@@ -293,24 +327,26 @@ func (p *Parser) parseOperation(node *tree_sitter.Node, method string) *Operatio
 		switch k {
 		case "operationId":
 			op.OperationID = unquote(p.nodeText(value))
-			op.OperationIDLoc = LocFromNode(value)
+			op.OperationIDLoc = p.locFromNode(value)
 		case "summary":
 			op.Summary = unquote(p.nodeText(value))
 		case "description":
 			op.Description = p.parseDescription(value)
 		case "tags":
-			op.TagsLoc = LocFromNode(value)
+			op.TagsLoc = p.locFromNode(value)
 			p.walkSequence(value, func(item *tree_sitter.Node) {
 				op.Tags = append(op.Tags, TagUsage{
 					Name: unquote(p.nodeText(item)),
-					Loc:  LocFromNode(item),
+					Loc:  p.locFromNode(item),
 				})
 			})
 		case "parameters":
+			op.ParametersLoc = p.locFromNode(key)
 			op.Parameters = p.parseParameters(value)
 		case "requestBody":
 			op.RequestBody = p.parseRequestBody(value)
 		case "responses":
+			op.ResponsesLoc = p.locFromNode(key)
 			op.Responses = p.parseResponses(value)
 		case "security":
 			op.Security = p.parseSecurityRequirements(value)
@@ -320,7 +356,7 @@ func (p *Parser) parseOperation(node *tree_sitter.Node, method string) *Operatio
 			op.ExternalDocs = p.parseExternalDocs(value)
 		default:
 			if strings.HasPrefix(k, "x-") {
-				op.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+				op.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 			}
 		}
 	})
@@ -343,7 +379,7 @@ func (p *Parser) parseParameter(node *tree_sitter.Node) *Parameter {
 	node = p.unwrapValue(node)
 	param := &Parameter{
 		Extensions: make(map[string]*Node),
-		Loc:        LocFromNode(node),
+		Loc:        p.locFromNode(node),
 	}
 	if node == nil {
 		return param
@@ -353,7 +389,7 @@ func (p *Parser) parseParameter(node *tree_sitter.Node) *Parameter {
 		switch k {
 		case "name":
 			param.Name = unquote(p.nodeText(value))
-			param.NameLoc = LocFromNode(value)
+			param.NameLoc = p.locFromNode(value)
 		case "in":
 			param.In = unquote(p.nodeText(value))
 		case "description":
@@ -367,14 +403,14 @@ func (p *Parser) parseParameter(node *tree_sitter.Node) *Parameter {
 		case "schema":
 			param.Schema = p.parseSchema(value, "")
 		case "example":
-			param.Example = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+			param.Example = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 		case "examples":
 			param.Examples = p.parseExampleMap(value)
 		case "$ref":
 			param.Ref = unquote(p.nodeText(value))
 		default:
 			if strings.HasPrefix(k, "x-") {
-				param.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+				param.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 			}
 		}
 	})
@@ -383,7 +419,7 @@ func (p *Parser) parseParameter(node *tree_sitter.Node) *Parameter {
 
 func (p *Parser) parseRequestBody(node *tree_sitter.Node) *RequestBody {
 	node = p.unwrapValue(node)
-	rb := &RequestBody{Loc: LocFromNode(node)}
+	rb := &RequestBody{Loc: p.locFromNode(node)}
 	if node == nil {
 		return rb
 	}
@@ -409,7 +445,7 @@ func (p *Parser) parseContent(node *tree_sitter.Node) map[string]*MediaType {
 	}
 	content := make(map[string]*MediaType)
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
-		mt := &MediaType{Loc: LocFromNode(value)}
+		mt := &MediaType{Loc: p.locFromNode(value)}
 		value = p.unwrapValue(value)
 		if value != nil {
 			p.walkMapping(value, func(k, v *tree_sitter.Node) {
@@ -417,7 +453,7 @@ func (p *Parser) parseContent(node *tree_sitter.Node) map[string]*MediaType {
 				case "schema":
 					mt.Schema = p.parseSchema(v, "")
 				case "example":
-					mt.Example = &Node{Value: p.nodeText(v), RawNode: v, Loc: LocFromNode(v)}
+					mt.Example = &Node{Value: p.nodeText(v), RawNode: v, Loc: p.locFromNode(v)}
 				case "examples":
 					mt.Examples = p.parseExampleMap(v)
 				}
@@ -437,6 +473,7 @@ func (p *Parser) parseResponses(node *tree_sitter.Node) map[string]*Response {
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
 		code := unquote(p.nodeText(key))
 		resp := p.parseResponse(value)
+		resp.CodeLoc = p.locFromNode(key)
 		responses[code] = resp
 	})
 	return responses
@@ -446,7 +483,7 @@ func (p *Parser) parseResponse(node *tree_sitter.Node) *Response {
 	node = p.unwrapValue(node)
 	resp := &Response{
 		Extensions: make(map[string]*Node),
-		Loc:        LocFromNode(node),
+		Loc:        p.locFromNode(node),
 	}
 	if node == nil {
 		return resp
@@ -459,12 +496,24 @@ func (p *Parser) parseResponse(node *tree_sitter.Node) *Response {
 		case "content":
 			resp.Content = p.parseContent(value)
 		case "headers":
+			resp.HeadersLoc = p.locFromNode(key)
 			resp.Headers = p.parseHeaders(value)
+		case "links":
+			v := p.unwrapValue(value)
+			if v != nil {
+				resp.Links = make(map[string]*Link)
+				p.walkMapping(v, func(lk, lv *tree_sitter.Node) {
+					name := unquote(p.nodeText(lk))
+					l := p.parseLink(lv)
+					l.NameLoc = p.locFromNode(lk)
+					resp.Links[name] = l
+				})
+			}
 		case "$ref":
 			resp.Ref = unquote(p.nodeText(value))
 		default:
 			if strings.HasPrefix(k, "x-") {
-				resp.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+				resp.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 			}
 		}
 	})
@@ -478,7 +527,7 @@ func (p *Parser) parseHeaders(node *tree_sitter.Node) map[string]*Header {
 	}
 	headers := make(map[string]*Header)
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
-		h := &Header{Loc: LocFromNode(value)}
+		h := &Header{Loc: p.locFromNode(value)}
 		value = p.unwrapValue(value)
 		if value != nil {
 			p.walkMapping(value, func(k, v *tree_sitter.Node) {
@@ -512,7 +561,7 @@ func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int
 	s := &Schema{
 		Properties: make(map[string]*Schema),
 		Extensions: make(map[string]*Node),
-		Loc:        LocFromNode(node),
+		Loc:        p.locFromNode(node),
 	}
 	if node == nil || depth > maxSchemaDepth {
 		return s
@@ -522,7 +571,7 @@ func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int
 		switch k {
 		case "type":
 			s.Type = unquote(p.nodeText(value))
-			s.TypeLoc = LocFromNode(value)
+			s.TypeLoc = p.locFromNode(value)
 		case "format":
 			s.Format = unquote(p.nodeText(value))
 		case "title":
@@ -530,7 +579,7 @@ func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int
 		case "description":
 			s.Description = p.parseDescription(value)
 		case "default":
-			s.Default = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+			s.Default = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 		case "enum":
 			p.walkSequence(value, func(item *tree_sitter.Node) {
 				s.Enum = append(s.Enum, unquote(p.nodeText(item)))
@@ -543,8 +592,17 @@ func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int
 			s.Properties = p.parseSchemaMapDepth(value, depth+1)
 		case "additionalProperties":
 			t := p.nodeText(value)
-			if t != "true" && t != "false" {
+			if t == "false" {
+				s.AdditionalPropertiesFalse = true
+			} else if t != "true" {
 				s.AdditionalProperties = p.parseSchemaDepth(value, "", depth+1)
+			}
+		case "unevaluatedProperties":
+			t := p.nodeText(value)
+			if t == "false" {
+				s.UnevaluatedPropertiesFalse = true
+			} else if t != "true" {
+				s.UnevaluatedProperties = p.parseSchemaDepth(value, "", depth+1)
 			}
 		case "allOf":
 			s.AllOf = p.parseSchemaListDepth(value, depth+1)
@@ -572,6 +630,14 @@ func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int
 			if v := parseFloat(p.nodeText(value)); v != nil {
 				s.Maximum = v
 			}
+		case "exclusiveMinimum":
+			if v := parseFloat(p.nodeText(value)); v != nil {
+				s.ExclusiveMinimum = v
+			}
+		case "exclusiveMaximum":
+			if v := parseFloat(p.nodeText(value)); v != nil {
+				s.ExclusiveMaximum = v
+			}
 		case "minItems":
 			if v := parseInt(p.nodeText(value)); v >= 0 {
 				s.MinItems = &v
@@ -580,8 +646,14 @@ func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int
 			if v := parseInt(p.nodeText(value)); v >= 0 {
 				s.MaxItems = &v
 			}
+		case "maxProperties":
+			if v := parseInt(p.nodeText(value)); v >= 0 {
+				s.MaxProperties = &v
+			}
 		case "pattern":
 			s.Pattern = unquote(p.nodeText(value))
+		case "const":
+			s.HasConst = true
 		case "nullable":
 			s.Nullable = p.nodeText(value) == "true"
 		case "readOnly":
@@ -591,7 +663,7 @@ func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int
 		case "deprecated":
 			s.Deprecated = p.nodeText(value) == "true"
 		case "example":
-			s.Example = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+			s.Example = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 		case "externalDocs":
 			s.ExternalDocs = p.parseExternalDocs(value)
 		case "discriminator":
@@ -600,7 +672,7 @@ func (p *Parser) parseSchemaDepth(node *tree_sitter.Node, name string, depth int
 			s.Ref = unquote(p.nodeText(value))
 		default:
 			if strings.HasPrefix(k, "x-") {
-				s.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+				s.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 			}
 		}
 	})
@@ -620,7 +692,7 @@ func (p *Parser) parseSchemaMapDepth(node *tree_sitter.Node, depth int) map[stri
 	p.walkMapping(node, func(key, value *tree_sitter.Node) {
 		name := unquote(p.nodeText(key))
 		s := p.parseSchemaDepth(value, name, depth)
-		s.NameLoc = LocFromNode(key)
+		s.NameLoc = p.locFromNode(key)
 		schemas[name] = s
 	})
 	return schemas
@@ -644,7 +716,7 @@ func (p *Parser) parseSchemaListDepth(node *tree_sitter.Node, depth int) []*Sche
 
 func (p *Parser) parseDiscriminator(node *tree_sitter.Node) *Discriminator {
 	node = p.unwrapValue(node)
-	d := &Discriminator{Loc: LocFromNode(node)}
+	d := &Discriminator{Loc: p.locFromNode(node)}
 	if node == nil {
 		return d
 	}
@@ -675,7 +747,7 @@ func (p *Parser) parseComponents(node *tree_sitter.Node) *Components {
 		Links:           make(map[string]*Link),
 		Callbacks:       make(map[string]*Callback),
 		PathItems:       make(map[string]*PathItem),
-		Loc:             LocFromNode(node),
+		Loc:             p.locFromNode(node),
 	}
 	if node == nil {
 		return c
@@ -688,7 +760,7 @@ func (p *Parser) parseComponents(node *tree_sitter.Node) *Components {
 				p.walkMapping(value, func(k, v *tree_sitter.Node) {
 					name := unquote(p.nodeText(k))
 					s := p.parseSchema(v, name)
-					s.NameLoc = LocFromNode(k)
+					s.NameLoc = p.locFromNode(k)
 					c.Schemas[name] = s
 				})
 			}
@@ -696,44 +768,85 @@ func (p *Parser) parseComponents(node *tree_sitter.Node) *Components {
 			value = p.unwrapValue(value)
 			if value != nil {
 				p.walkMapping(value, func(k, v *tree_sitter.Node) {
-					c.Responses[unquote(p.nodeText(k))] = p.parseResponse(v)
+					name := unquote(p.nodeText(k))
+					resp := p.parseResponse(v)
+					resp.CodeLoc = p.locFromNode(k)
+					resp.NameLoc = p.locFromNode(k)
+					c.Responses[name] = resp
 				})
 			}
 		case "parameters":
 			value = p.unwrapValue(value)
 			if value != nil {
 				p.walkMapping(value, func(k, v *tree_sitter.Node) {
-					c.Parameters[unquote(p.nodeText(k))] = p.parseParameter(v)
+					name := unquote(p.nodeText(k))
+					param := p.parseParameter(v)
+					param.NameLoc = p.locFromNode(k)
+					c.Parameters[name] = param
 				})
 			}
 		case "examples":
 			value = p.unwrapValue(value)
 			if value != nil {
 				p.walkMapping(value, func(k, v *tree_sitter.Node) {
-					c.Examples[unquote(p.nodeText(k))] = p.parseExample(v)
+					name := unquote(p.nodeText(k))
+					ex := p.parseExample(v)
+					ex.NameLoc = p.locFromNode(k)
+					c.Examples[name] = ex
 				})
 			}
 		case "requestBodies":
 			value = p.unwrapValue(value)
 			if value != nil {
 				p.walkMapping(value, func(k, v *tree_sitter.Node) {
-					c.RequestBodies[unquote(p.nodeText(k))] = p.parseRequestBody(v)
+					name := unquote(p.nodeText(k))
+					rb := p.parseRequestBody(v)
+					rb.NameLoc = p.locFromNode(k)
+					c.RequestBodies[name] = rb
 				})
 			}
 		case "headers":
-			c.Headers = p.parseHeaders(value)
+			hValue := p.unwrapValue(value)
+			if hValue != nil {
+				p.walkMapping(hValue, func(k, v *tree_sitter.Node) {
+					h := &Header{Loc: p.locFromNode(v)}
+					inner := p.unwrapValue(v)
+					if inner != nil {
+						p.walkMapping(inner, func(hk, hv *tree_sitter.Node) {
+							switch p.nodeText(hk) {
+							case "description":
+								h.Description = p.parseDescription(hv)
+							case "required":
+								h.Required = p.nodeText(hv) == "true"
+							case "schema":
+								h.Schema = p.parseSchema(hv, "")
+							case "$ref":
+								h.Ref = unquote(p.nodeText(hv))
+							}
+						})
+					}
+					h.NameLoc = p.locFromNode(k)
+					c.Headers[unquote(p.nodeText(k))] = h
+				})
+			}
 		case "securitySchemes":
 			value = p.unwrapValue(value)
 			if value != nil {
 				p.walkMapping(value, func(k, v *tree_sitter.Node) {
-					c.SecuritySchemes[unquote(p.nodeText(k))] = p.parseSecurityScheme(v)
+					name := unquote(p.nodeText(k))
+					ss := p.parseSecurityScheme(v)
+					ss.NameLoc = p.locFromNode(k)
+					c.SecuritySchemes[name] = ss
 				})
 			}
 		case "links":
 			value = p.unwrapValue(value)
 			if value != nil {
 				p.walkMapping(value, func(k, v *tree_sitter.Node) {
-					c.Links[unquote(p.nodeText(k))] = p.parseLink(v)
+					name := unquote(p.nodeText(k))
+					l := p.parseLink(v)
+					l.NameLoc = p.locFromNode(k)
+					c.Links[name] = l
 				})
 			}
 		case "callbacks":
@@ -766,7 +879,7 @@ func (p *Parser) parseSecurityScheme(node *tree_sitter.Node) *SecurityScheme {
 	node = p.unwrapValue(node)
 	ss := &SecurityScheme{
 		Extensions: make(map[string]*Node),
-		Loc:        LocFromNode(node),
+		Loc:        p.locFromNode(node),
 	}
 	if node == nil {
 		return ss
@@ -794,7 +907,7 @@ func (p *Parser) parseSecurityScheme(node *tree_sitter.Node) *SecurityScheme {
 			ss.Ref = unquote(p.nodeText(value))
 		default:
 			if strings.HasPrefix(k, "x-") {
-				ss.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+				ss.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 			}
 		}
 	})
@@ -803,7 +916,7 @@ func (p *Parser) parseSecurityScheme(node *tree_sitter.Node) *SecurityScheme {
 
 func (p *Parser) parseOAuthFlows(node *tree_sitter.Node) *OAuthFlows {
 	node = p.unwrapValue(node)
-	flows := &OAuthFlows{Loc: LocFromNode(node)}
+	flows := &OAuthFlows{Loc: p.locFromNode(node)}
 	if node == nil {
 		return flows
 	}
@@ -824,7 +937,7 @@ func (p *Parser) parseOAuthFlows(node *tree_sitter.Node) *OAuthFlows {
 
 func (p *Parser) parseOAuthFlow(node *tree_sitter.Node) *OAuthFlow {
 	node = p.unwrapValue(node)
-	f := &OAuthFlow{Loc: LocFromNode(node)}
+	f := &OAuthFlow{Loc: p.locFromNode(node)}
 	if node == nil {
 		return f
 	}
@@ -832,10 +945,10 @@ func (p *Parser) parseOAuthFlow(node *tree_sitter.Node) *OAuthFlow {
 		switch p.nodeText(key) {
 		case "authorizationUrl":
 			f.AuthorizationURL = unquote(p.nodeText(value))
-			f.AuthorizationURLLoc = LocFromNode(value)
+			f.AuthorizationURLLoc = p.locFromNode(value)
 		case "tokenUrl":
 			f.TokenURL = unquote(p.nodeText(value))
-			f.TokenURLLoc = LocFromNode(value)
+			f.TokenURLLoc = p.locFromNode(value)
 		case "refreshUrl":
 			f.RefreshURL = unquote(p.nodeText(value))
 		case "scopes":
@@ -855,7 +968,7 @@ func (p *Parser) parseSecurityRequirements(node *tree_sitter.Node) []SecurityReq
 	}
 	var reqs []SecurityRequirement
 	p.walkSequence(node, func(item *tree_sitter.Node) {
-		req := SecurityRequirement{Loc: LocFromNode(item)}
+		req := SecurityRequirement{Loc: p.locFromNode(item)}
 		inner := p.unwrapValue(item)
 		if inner != nil {
 			p.walkMapping(inner, func(key, value *tree_sitter.Node) {
@@ -867,7 +980,7 @@ func (p *Parser) parseSecurityRequirements(node *tree_sitter.Node) []SecurityReq
 				req.Entries = append(req.Entries, SecurityRequirementEntry{
 					Name:    name,
 					Scopes:  scopes,
-					NameLoc: LocFromNode(key),
+					NameLoc: p.locFromNode(key),
 				})
 			})
 		}
@@ -883,18 +996,26 @@ func (p *Parser) parseTags(node *tree_sitter.Node) []Tag {
 	}
 	var tags []Tag
 	p.walkSequence(node, func(item *tree_sitter.Node) {
-		t := Tag{Loc: LocFromNode(item)}
+		t := Tag{
+			Extensions: make(map[string]*Node),
+			Loc:        p.locFromNode(item),
+		}
 		item = p.unwrapValue(item)
 		if item != nil {
 			p.walkMapping(item, func(key, value *tree_sitter.Node) {
-				switch p.nodeText(key) {
+				k := p.nodeText(key)
+				switch k {
 				case "name":
 					t.Name = unquote(p.nodeText(value))
-					t.NameLoc = LocFromNode(value)
+					t.NameLoc = p.locFromNode(value)
 				case "description":
 					t.Description = p.parseDescription(value)
 				case "externalDocs":
 					t.ExternalDocs = p.parseExternalDocs(value)
+				default:
+					if strings.HasPrefix(k, "x-") {
+						t.Extensions[k] = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
+					}
 				}
 			})
 		}
@@ -905,7 +1026,7 @@ func (p *Parser) parseTags(node *tree_sitter.Node) []Tag {
 
 func (p *Parser) parseExternalDocs(node *tree_sitter.Node) *ExternalDocs {
 	node = p.unwrapValue(node)
-	ed := &ExternalDocs{Loc: LocFromNode(node)}
+	ed := &ExternalDocs{Loc: p.locFromNode(node)}
 	if node == nil {
 		return ed
 	}
@@ -915,6 +1036,7 @@ func (p *Parser) parseExternalDocs(node *tree_sitter.Node) *ExternalDocs {
 			ed.Description = p.parseDescription(value)
 		case "url":
 			ed.URL = unquote(p.nodeText(value))
+			ed.URLLoc = p.locFromNode(value)
 		}
 	})
 	return ed
@@ -934,7 +1056,7 @@ func (p *Parser) parseExampleMap(node *tree_sitter.Node) map[string]*Example {
 
 func (p *Parser) parseExample(node *tree_sitter.Node) *Example {
 	node = p.unwrapValue(node)
-	ex := &Example{Loc: LocFromNode(node)}
+	ex := &Example{Loc: p.locFromNode(node)}
 	if node == nil {
 		return ex
 	}
@@ -945,7 +1067,7 @@ func (p *Parser) parseExample(node *tree_sitter.Node) *Example {
 		case "description":
 			ex.Description = p.parseDescription(value)
 		case "value":
-			ex.Value = &Node{Value: p.nodeText(value), RawNode: value, Loc: LocFromNode(value)}
+			ex.Value = &Node{Value: p.nodeText(value), RawNode: value, Loc: p.locFromNode(value)}
 		case "externalValue":
 			ex.ExternalValue = unquote(p.nodeText(value))
 		case "$ref":
@@ -957,7 +1079,7 @@ func (p *Parser) parseExample(node *tree_sitter.Node) *Example {
 
 func (p *Parser) parseLink(node *tree_sitter.Node) *Link {
 	node = p.unwrapValue(node)
-	l := &Link{Loc: LocFromNode(node)}
+	l := &Link{Loc: p.locFromNode(node)}
 	if node == nil {
 		return l
 	}
@@ -967,6 +1089,7 @@ func (p *Parser) parseLink(node *tree_sitter.Node) *Link {
 			l.OperationRef = unquote(p.nodeText(value))
 		case "operationId":
 			l.OperationID = unquote(p.nodeText(value))
+			l.OperationIDLoc = p.locFromNode(value)
 		case "description":
 			l.Description = p.parseDescription(value)
 		case "$ref":
@@ -1155,7 +1278,7 @@ func (p *Parser) parseDescription(node *tree_sitter.Node) DescriptionValue {
 		return DescriptionValue{}
 	}
 	raw := p.nodeText(node)
-	loc := LocFromNode(node)
+	loc := p.locFromNode(node)
 	text, lineOffset, indentCols := decodeYAMLDescription(raw)
 	return DescriptionValue{Text: text, Loc: loc, LineOffset: lineOffset, IndentCols: indentCols}
 }

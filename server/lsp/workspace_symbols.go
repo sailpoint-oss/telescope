@@ -5,15 +5,17 @@ import (
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
 // NewWorkspaceSymbolHandler queries operations, schemas, parameters, and
 // responses across all cached indexes.
-func NewWorkspaceSymbolHandler(cache *openapi.IndexCache) gossip.WorkspaceSymbolHandler {
+func NewWorkspaceSymbolHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.WorkspaceSymbolHandler {
 	return func(ctx *gossip.Context, params *protocol.WorkspaceSymbolParams) ([]protocol.SymbolInformation, error) {
 		query := strings.ToLower(params.Query)
 		var symbols []protocol.SymbolInformation
+		const maxWorkspaceSymbols = 500
 
 		for uri, idx := range cache.All() {
 			if idx == nil || !idx.IsOpenAPI() {
@@ -34,9 +36,12 @@ func NewWorkspaceSymbolHandler(cache *openapi.IndexCache) gossip.WorkspaceSymbol
 							Kind: protocol.SymbolMethod,
 							Location: protocol.Location{
 								URI:   uri,
-								Range: mo.Operation.Loc.Range,
+								Range: adapt.RangeToProtocol(mo.Operation.Loc.Range),
 							},
 						})
+						if len(symbols) >= maxWorkspaceSymbols {
+							return symbols, nil
+						}
 					}
 				}
 			}
@@ -53,9 +58,12 @@ func NewWorkspaceSymbolHandler(cache *openapi.IndexCache) gossip.WorkspaceSymbol
 						Kind: protocol.SymbolClass,
 						Location: protocol.Location{
 							URI:   uri,
-							Range: schema.Loc.Range,
+							Range: adapt.RangeToProtocol(schema.Loc.Range),
 						},
 					})
+					if len(symbols) >= maxWorkspaceSymbols {
+						return symbols, nil
+					}
 				}
 			}
 
@@ -67,9 +75,12 @@ func NewWorkspaceSymbolHandler(cache *openapi.IndexCache) gossip.WorkspaceSymbol
 						Kind: protocol.SymbolVariable,
 						Location: protocol.Location{
 							URI:   uri,
-							Range: param.Loc.Range,
+							Range: adapt.RangeToProtocol(param.Loc.Range),
 						},
 					})
+					if len(symbols) >= maxWorkspaceSymbols {
+						return symbols, nil
+					}
 				}
 			}
 
@@ -81,9 +92,12 @@ func NewWorkspaceSymbolHandler(cache *openapi.IndexCache) gossip.WorkspaceSymbol
 						Kind: protocol.SymbolField,
 						Location: protocol.Location{
 							URI:   uri,
-							Range: resp.Loc.Range,
+							Range: adapt.RangeToProtocol(resp.Loc.Range),
 						},
 					})
+					if len(symbols) >= maxWorkspaceSymbols {
+						return symbols, nil
+					}
 				}
 			}
 
@@ -95,9 +109,12 @@ func NewWorkspaceSymbolHandler(cache *openapi.IndexCache) gossip.WorkspaceSymbol
 						Kind: protocol.SymbolProperty,
 						Location: protocol.Location{
 							URI:   uri,
-							Range: ss.Loc.Range,
+							Range: adapt.RangeToProtocol(ss.Loc.Range),
 						},
 					})
+					if len(symbols) >= maxWorkspaceSymbols {
+						return symbols, nil
+					}
 				}
 			}
 		}

@@ -212,15 +212,32 @@ go test ./rules/analyzers -run TestName # Single test
 go test -bench=. ./openapi              # Benchmarks
 
 # E2E tests (from repo root)
-pnpm --filter telescope-client test:e2e:compile
-pnpm --filter telescope-client test:e2e:run:single
-pnpm --filter telescope-client test:e2e:run:multi
+pnpm --filter ./client test:e2e:compile
+pnpm --filter ./client test:e2e:run:single
+pnpm --filter ./client test:e2e:run:multi
+pnpm --filter ./client test:e2e:run:sidecar
 ```
 
 ### Test Fixtures
 
-- Go fixtures: `server/testutil/specs/` for OpenAPI test documents
-- TypeScript fixtures: `test-files/openapi/` for integration testing
+- Canonical shared OpenAPI fixtures: `server/testutil/specs/`
+- Sidecar E2E workspace fixtures: `test-files/`
+- Fixture ownership + lifecycle map: `test-files/fixture-manifest.yaml`
+
+If a fixture is mirrored between `server/testutil/specs/` and
+`test-files/openapi/`, keep it byte-identical and run:
+
+```bash
+cd server
+go test ./testutil/specs -run TestMirroredFixturesStayInSync
+```
+
+When adding or changing fixtures:
+
+- assign an owner (`sidecar-e2e`, `server-go-tests`, `ci-smoke-only`)
+- document expected diagnostics in tests (code/severity intent)
+- update `test-files/fixture-manifest.yaml`
+- avoid introducing fixture files with no explicit test ownership
 
 ### Writing Tests
 

@@ -20,7 +20,7 @@ A fast, extensible OpenAPI linter and language server written in Go.
 ## Features
 
 - **Tree-sitter native** -- YAML/JSON parsed by tree-sitter with incremental re-parsing; no double-parsing overhead
-- **65+ built-in rules** -- Comprehensive OpenAPI validation covering naming, structure, security, paths, and OWASP
+- **88 built-in rules** -- Comprehensive OpenAPI validation covering naming, structure, security, paths, and OWASP
 - **LSP server** -- Full Language Server Protocol support with hover, completion, go-to-definition, references, rename, code actions, and more
 - **CLI** -- Lint files from the command line with multiple output formats (text, JSON, SARIF, GitHub annotations)
 - **CI integration** -- Diff-aware linting with GitHub PR comments and quality gating
@@ -125,10 +125,10 @@ lsp:
 
 | Ruleset | Description |
 |---|---|
-| `telescope:recommended` | ~35 curated rules for most projects |
-| `telescope:all` | All ~65 rules enabled |
-| `telescope:owasp` | 15 OWASP security rules |
-| `telescope:strict` | Recommended + OWASP with stricter severities |
+| `telescope:recommended` | 50 curated rules for most projects |
+| `telescope:all` | All 56 non-OWASP rules |
+| `telescope:owasp` | 32 OWASP API security rules |
+| `telescope:strict` | Recommended + OWASP combined |
 
 ---
 

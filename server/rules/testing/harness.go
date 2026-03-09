@@ -29,25 +29,27 @@ import (
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
 // Severity constants for test expectations.
 const (
-	Error = protocol.SeverityError
-	Warn  = protocol.SeverityWarning
-	Info  = protocol.SeverityInformation
-	Hint  = protocol.SeverityHint
+	Error = ctypes.SeverityError
+	Warn  = ctypes.SeverityWarning
+	Info  = ctypes.SeverityInfo
+	Hint  = ctypes.SeverityHint
 )
 
 // Diag describes an expected diagnostic.
 type Diag struct {
-	Line     uint32                      // 0-based line
-	Col      uint32                      // 0-based character (optional, 0 means any)
-	Code     string                      // rule ID
-	Severity protocol.DiagnosticSeverity // expected severity
-	Message  string                      // optional substring match
+	Line     uint32             // 0-based line
+	Col      uint32             // 0-based character (optional, 0 means any)
+	Code     string             // rule ID
+	Severity ctypes.Severity    // expected severity
+	Message  string             // optional substring match
 }
 
 // Case is a single test scenario for a rule.
@@ -77,7 +79,7 @@ func Run(t *testing.T, analyzer treesitter.Analyzer, cases ...Case) {
 
 // RunVisitors executes a rule's visitors directly against test cases.
 // This is useful for testing rules by their visitor functions.
-func RunVisitors(t *testing.T, ruleID string, severity protocol.DiagnosticSeverity, v rules.Visitors, cases ...Case) {
+func RunVisitors(t *testing.T, ruleID string, severity ctypes.Severity, v rules.Visitors, cases ...Case) {
 	t.Helper()
 
 	for _, tc := range cases {
@@ -86,7 +88,7 @@ func RunVisitors(t *testing.T, ruleID string, severity protocol.DiagnosticSeveri
 			idx := buildTestIndex(t, tc.Spec)
 			r := rules.NewReporter(ruleID, severity)
 			rules.Walk(idx, v, r)
-			assertDiagnostics(t, r.Diagnostics(), tc.Expect)
+			assertDiagnostics(t, adapt.DiagnosticsToProtocol(r.Diagnostics()), tc.Expect)
 		})
 	}
 }
@@ -175,7 +177,7 @@ func assertDiagnostics(t *testing.T, actual []protocol.Diagnostic, expected []Di
 			t.Errorf("diagnostic #%d code: got %q, want %q",
 				i, diagnosticCode(d), exp.Code)
 		}
-		if exp.Severity != 0 && exp.Severity != d.Severity {
+		if exp.Severity != 0 && int(exp.Severity) != int(d.Severity) {
 			t.Errorf("diagnostic #%d severity: got %d, want %d",
 				i, d.Severity, exp.Severity)
 		}

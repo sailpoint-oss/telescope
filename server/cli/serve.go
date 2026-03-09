@@ -44,6 +44,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	cfg, err := loadConfig()
 	if err != nil {
+		logger.Warn("failed to load config, using defaults", "error", err)
 		cfg = config.DefaultConfig()
 	}
 

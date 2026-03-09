@@ -5,7 +5,7 @@ package rules
 import (
 	"sync"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -30,7 +30,7 @@ const (
 type RuleMeta struct {
 	ID          string
 	Description string
-	Severity    protocol.DiagnosticSeverity
+	Severity    ctypes.Severity
 	Category    Category
 	Recommended bool
 	Formats     []openapi.Format // which spec versions this rule applies to

@@ -9,13 +9,20 @@ import (
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/jsonschema"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
 )
 
+// lineEndCharUTF16 returns the length of the line in UTF-16 code units,
+// suitable for use as an LSP Position.Character at end-of-line.
+func lineEndCharUTF16(line string) uint32 {
+	return utf16LenStr(line)
+}
+
 // NewCodeActionHandler provides quick fixes, rule suppression, and refactoring actions.
-func NewCodeActionHandler(cache *openapi.IndexCache) gossip.CodeActionHandler {
+func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.CodeActionHandler {
 	return func(ctx *gossip.Context, params *protocol.CodeActionParams) ([]protocol.CodeAction, error) {
 		uri := params.TextDocument.URI
 		idx := cache.Get(uri)
@@ -41,9 +48,11 @@ func NewCodeActionHandler(cache *openapi.IndexCache) gossip.CodeActionHandler {
 				continue
 			}
 
-			// Markdown heading fix code actions
-			if action := markdownHeadingQuickFix(uri, doc, diag); action != nil {
-				actions = append(actions, *action)
+			// Markdown heading fix code actions (doc may be nil if the document was closed)
+			if doc != nil {
+				if action := markdownHeadingQuickFix(uri, doc, diag); action != nil {
+					actions = append(actions, *action)
+				}
 			}
 
 			ruleID := ""
@@ -110,23 +119,37 @@ func NewCodeActionHandler(cache *openapi.IndexCache) gossip.CodeActionHandler {
 		line := doc.LineAt(params.Range.Start.Line)
 		isYAML := idx.Format == openapi.FormatYAML
 
+		// Example/schema validation action for quick manual verification while authoring.
+		trimmedLine := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmedLine, "example:") || strings.HasPrefix(trimmedLine, "examples:") {
+			actions = append(actions, protocol.CodeAction{
+				Title: "Validate examples against schema types",
+				Kind:  "quickfix",
+				Command: &protocol.Command{
+					Title:     "Validate examples",
+					Command:   "telescope.validateExamples",
+					Arguments: []interface{}{string(uri)},
+				},
+			})
+		}
+
 		// Check if we're inside an operation
 		for path, item := range idx.Document.Paths {
 			for _, mo := range item.Operations() {
 				op := mo.Operation
-				opRange := op.Loc.Range
+				opRange := adapt.RangeToProtocol(op.Loc.Range)
 				if !rangeContains(opRange, params.Range) {
 					continue
 				}
 
 				// Add description if missing
 				if op.Description.Text == "" {
-					actions = append(actions, addFieldAction(uri, "Add description", "description", opRange, isYAML))
+					actions = append(actions, addFieldAction(uri, "Add description", "description", adapt.RangeToProtocol(op.Loc.Range), isYAML))
 				}
 
 				// Add summary if missing
 				if op.Summary == "" {
-					actions = append(actions, addFieldAction(uri, "Add summary", "summary", opRange, isYAML))
+					actions = append(actions, addFieldAction(uri, "Add summary", "summary", adapt.RangeToProtocol(op.Loc.Range), isYAML))
 				}
 
 				// Add operationId if missing
@@ -164,7 +187,7 @@ func NewCodeActionHandler(cache *openapi.IndexCache) gossip.CodeActionHandler {
 					Edit: &protocol.WorkspaceEdit{
 						Changes: map[protocol.DocumentURI][]protocol.TextEdit{
 							uri: {{
-								Range:   item.PathLoc.Range,
+								Range:   adapt.RangeToProtocol(item.PathLoc.Range),
 								NewText: kebab,
 							}},
 						},
@@ -255,7 +278,7 @@ func markdownHeadingQuickFix(uri protocol.DocumentURI, doc interface{ LineAt(uin
 					uri: {{
 						Range: protocol.Range{
 							Start: protocol.Position{Line: diag.Range.Start.Line, Character: 0},
-							End:   protocol.Position{Line: diag.Range.Start.Line, Character: uint32(len(line))},
+							End:   protocol.Position{Line: diag.Range.Start.Line, Character: lineEndCharUTF16(line)},
 						},
 						NewText: newLine,
 					}},
@@ -371,14 +394,14 @@ func scaffoldingActions(uri protocol.DocumentURI, idx *openapi.Index, doc interf
 		if !strings.Contains(line, path) {
 			continue
 		}
-		if !rangeContains(item.Loc.Range, params.Range) {
+		if !rangeContains(adapt.RangeToProtocol(item.Loc.Range), params.Range) {
 			continue
 		}
 
 		// Offer "Add standard error responses" for operations missing error responses
 		for _, mo := range item.Operations() {
 			op := mo.Operation
-			if !rangeContains(op.Loc.Range, params.Range) {
+			if !rangeContains(adapt.RangeToProtocol(op.Loc.Range), params.Range) {
 				continue
 			}
 

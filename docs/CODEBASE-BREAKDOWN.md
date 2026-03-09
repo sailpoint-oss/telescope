@@ -2,9 +2,9 @@
 
 ## What is Telescope?
 
-Telescope is an **OpenAPI linting and language-support tool** built on the Language Server Protocol (LSP). It ships as a VS Code extension, a standalone Go language server, and a CLI for CI pipelines. It supports Swagger 2.0 and OpenAPI 3.0.x through 3.2.x, with 65+ built-in rules. Licensed MIT by SailPoint Technologies.
+Telescope is an **OpenAPI linting and language-support tool** built on the Language Server Protocol (LSP). It ships as a VS Code extension, a standalone Go language server, and a CLI for CI pipelines. It supports Swagger 2.0 and OpenAPI 3.0.x through 3.2.x, with 88 built-in rules. Licensed MIT by SailPoint Technologies.
 
-The codebase has two major components:
+The codebase has three major components:
 
 - **Go server** (`server/`) -- Primary implementation. Tree-sitter-based LSP server, CLI, and linting engine.
 - **VS Code client** (`client/`) -- TypeScript VS Code extension.

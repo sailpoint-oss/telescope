@@ -2,10 +2,12 @@ package lsp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -18,7 +20,7 @@ type callHierarchyData struct {
 
 // NewPrepareCallHierarchyHandler identifies the component at cursor and returns
 // a CallHierarchyItem for it.
-func NewPrepareCallHierarchyHandler(cache *openapi.IndexCache) gossip.PrepareCallHierarchyHandler {
+func NewPrepareCallHierarchyHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.PrepareCallHierarchyHandler {
 	return func(ctx *gossip.Context, params *protocol.CallHierarchyPrepareParams) ([]protocol.CallHierarchyItem, error) {
 		uri := params.TextDocument.URI
 		idx := cache.Get(uri)
@@ -66,7 +68,7 @@ func NewPrepareCallHierarchyHandler(cache *openapi.IndexCache) gossip.PrepareCal
 }
 
 // NewCallHierarchyIncomingHandler returns all $ref usages pointing to the item.
-func NewCallHierarchyIncomingHandler(cache *openapi.IndexCache) gossip.CallHierarchyIncomingHandler {
+func NewCallHierarchyIncomingHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.CallHierarchyIncomingHandler {
 	return func(ctx *gossip.Context, params *protocol.CallHierarchyIncomingCallsParams) ([]protocol.CallHierarchyIncomingCall, error) {
 		data := extractCallData(params.Item.Data)
 		if data == nil {
@@ -74,26 +76,45 @@ func NewCallHierarchyIncomingHandler(cache *openapi.IndexCache) gossip.CallHiera
 		}
 
 		var calls []protocol.CallHierarchyIncomingCall
+		seen := make(map[string]struct{})
+		candidateDocs := make(map[protocol.DocumentURI]struct{})
+		if graphBridge != nil && data.URI != "" {
+			for _, edge := range graphBridge.EdgesTo(data.URI) {
+				candidateDocs[protocol.DocumentURI(edge.SourceURI)] = struct{}{}
+			}
+			candidateDocs[protocol.DocumentURI(data.URI)] = struct{}{}
+		}
 
 		for docURI, idx := range cache.All() {
+			if len(candidateDocs) > 0 {
+				if _, ok := candidateDocs[docURI]; !ok {
+					continue
+				}
+			}
 			for _, usage := range idx.RefsTo(data.RefPath) {
 				// Find which component this ref lives in
-				container := findContainingComponent(idx, usage.Loc.Range)
+				usageRange := adapt.RangeToProtocol(usage.Loc.Range)
+				container := findContainingComponent(idx, usageRange)
 				if container == nil {
 					container = &protocol.CallHierarchyItem{
 						Name:           "(document)",
 						Kind:           protocol.SymbolFile,
 						URI:            docURI,
-						Range:          usage.Loc.Range,
-						SelectionRange: usage.Loc.Range,
+						Range:          usageRange,
+						SelectionRange: usageRange,
 					}
 				} else {
 					container.URI = docURI
 				}
+				key := fmt.Sprintf("%s|%s|%d:%d", container.URI, container.Name, usageRange.Start.Line, usageRange.Start.Character)
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
 
 				calls = append(calls, protocol.CallHierarchyIncomingCall{
 					From:       *container,
-					FromRanges: []protocol.Range{usage.Loc.Range},
+					FromRanges: []protocol.Range{usageRange},
 				})
 			}
 		}
@@ -103,7 +124,7 @@ func NewCallHierarchyIncomingHandler(cache *openapi.IndexCache) gossip.CallHiera
 }
 
 // NewCallHierarchyOutgoingHandler returns all $ref targets from within the item.
-func NewCallHierarchyOutgoingHandler(cache *openapi.IndexCache) gossip.CallHierarchyOutgoingHandler {
+func NewCallHierarchyOutgoingHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.CallHierarchyOutgoingHandler {
 	return func(ctx *gossip.Context, params *protocol.CallHierarchyOutgoingCallsParams) ([]protocol.CallHierarchyOutgoingCall, error) {
 		data := extractCallData(params.Item.Data)
 		if data == nil {
@@ -117,23 +138,33 @@ func NewCallHierarchyOutgoingHandler(cache *openapi.IndexCache) gossip.CallHiera
 
 		itemRange := params.Item.Range
 		var calls []protocol.CallHierarchyOutgoingCall
+		resolvedLoc := make(map[string]*protocol.Location)
+		seen := make(map[string]struct{})
 
 		for target, usages := range idx.Refs {
 			for _, usage := range usages {
-				if !rangeContains(itemRange, usage.Loc.Range) {
+				if !rangeContains(itemRange, adapt.RangeToProtocol(usage.Loc.Range)) {
 					continue
 				}
 
 				// Resolve the target to get its location
-				resolved, err := idx.Resolve(target)
-				if err != nil {
-					continue
+				loc := resolvedLoc[target]
+				if loc == nil {
+					resolved, err := idx.Resolve(target)
+					if err != nil {
+						continue
+					}
+					loc = locationFromTarget(protocol.DocumentURI(data.URI), resolved)
+					resolvedLoc[target] = loc
 				}
-
-				loc := locationFromTarget(protocol.DocumentURI(data.URI), resolved)
 				if loc == nil {
 					continue
 				}
+				dedupeKey := string(loc.URI) + "|" + target
+				if _, ok := seen[dedupeKey]; ok {
+					continue
+				}
+				seen[dedupeKey] = struct{}{}
 
 				targetName := target
 				if parts := strings.Split(target, "/"); len(parts) > 0 {
@@ -153,7 +184,7 @@ func NewCallHierarchyOutgoingHandler(cache *openapi.IndexCache) gossip.CallHiera
 						SelectionRange: loc.Range,
 						Data:           json.RawMessage(toData),
 					},
-					FromRanges: []protocol.Range{usage.Loc.Range},
+					FromRanges: []protocol.Range{adapt.RangeToProtocol(usage.Loc.Range)},
 				})
 			}
 		}
@@ -189,25 +220,25 @@ func findContainingComponent(idx *openapi.Index, r protocol.Range) *protocol.Cal
 	}
 
 	for name, schema := range idx.Document.Components.Schemas {
-		if rangeContains(schema.Loc.Range, r) {
+		if rangeContains(adapt.RangeToProtocol(schema.Loc.Range), r) {
 			return &protocol.CallHierarchyItem{
 				Name:           name,
 				Kind:           protocol.SymbolClass,
-				Range:          schema.Loc.Range,
-				SelectionRange: schema.NameLoc.Range,
+				Range:          adapt.RangeToProtocol(schema.Loc.Range),
+				SelectionRange: adapt.RangeToProtocol(schema.NameLoc.Range),
 			}
 		}
 	}
 
 	for _, item := range idx.Document.Paths {
-		if rangeContains(item.Loc.Range, r) {
+		if rangeContains(adapt.RangeToProtocol(item.Loc.Range), r) {
 			for _, mo := range item.Operations() {
-				if rangeContains(mo.Operation.Loc.Range, r) {
+				if rangeContains(adapt.RangeToProtocol(mo.Operation.Loc.Range), r) {
 					return &protocol.CallHierarchyItem{
 						Name:           strings.ToUpper(mo.Method),
 						Kind:           protocol.SymbolMethod,
-						Range:          mo.Operation.Loc.Range,
-						SelectionRange: mo.Operation.Loc.Range,
+						Range:          adapt.RangeToProtocol(mo.Operation.Loc.Range),
+						SelectionRange: adapt.RangeToProtocol(mo.Operation.Loc.Range),
 					}
 				}
 			}

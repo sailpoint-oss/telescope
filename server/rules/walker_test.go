@@ -3,7 +3,7 @@ package rules
 import (
 	"testing"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -35,7 +35,7 @@ func TestWalk_CircularSchemaReference(t *testing.T) {
 	idx := &openapi.Index{Document: doc}
 
 	var visited int
-	r := NewReporter("test-circular", protocol.SeverityWarning)
+	r := NewReporter("test-circular", ctypes.SeverityWarning)
 	Walk(idx, Visitors{
 		RecursiveSchema: func(name string, schema *openapi.Schema, pointer string, r *Reporter) {
 			visited++
@@ -80,7 +80,7 @@ func TestWalk_DeeplyNestedSchema(t *testing.T) {
 	idx := &openapi.Index{Document: doc}
 
 	var visited int
-	r := NewReporter("test-deep", protocol.SeverityWarning)
+	r := NewReporter("test-deep", ctypes.SeverityWarning)
 	Walk(idx, Visitors{
 		RecursiveSchema: func(name string, schema *openapi.Schema, pointer string, r *Reporter) {
 			visited++
@@ -98,7 +98,7 @@ func TestWalk_DeeplyNestedSchema(t *testing.T) {
 
 func TestWalk_NilIndex(t *testing.T) {
 	// Walk with nil index must not panic.
-	r := NewReporter("test-nil", protocol.SeverityWarning)
+	r := NewReporter("test-nil", ctypes.SeverityWarning)
 	Walk(nil, Visitors{
 		Document: func(doc *openapi.Document, r *Reporter) {
 			t.Error("Document visitor should not be called for nil index")
@@ -109,7 +109,7 @@ func TestWalk_NilIndex(t *testing.T) {
 func TestWalk_NilDocument(t *testing.T) {
 	// Walk with nil document must not panic.
 	idx := &openapi.Index{Document: nil}
-	r := NewReporter("test-nil-doc", protocol.SeverityWarning)
+	r := NewReporter("test-nil-doc", ctypes.SeverityWarning)
 	Walk(idx, Visitors{
 		Document: func(doc *openapi.Document, r *Reporter) {
 			t.Error("Document visitor should not be called for nil document")

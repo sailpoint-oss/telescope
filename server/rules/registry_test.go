@@ -3,7 +3,7 @@ package rules_test
 import (
 	"testing"
 
-	"github.com/LukasParke/gossip/protocol"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
@@ -13,7 +13,7 @@ func TestRegistry_RegisterAndGet(t *testing.T) {
 	meta := rules.RuleMeta{
 		ID:          "test-rule",
 		Description: "Test rule",
-		Severity:    protocol.SeverityWarning,
+		Severity:    ctypes.SeverityWarning,
 		Category:    rules.CategoryNaming,
 		Recommended: true,
 		Formats:     []openapi.Format{openapi.FormatOAS3},
@@ -28,7 +28,7 @@ func TestRegistry_RegisterAndGet(t *testing.T) {
 	if got.ID != "test-rule" {
 		t.Errorf("ID = %q", got.ID)
 	}
-	if got.Severity != protocol.SeverityWarning {
+	if got.Severity != ctypes.SeverityWarning {
 		t.Errorf("Severity = %d", got.Severity)
 	}
 }
