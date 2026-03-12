@@ -34,14 +34,15 @@ jobs:
         run: bash server/lsp/bun/runner/build.sh
 
       - name: Run Telescope (CI)
+        working-directory: server
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
         run: |
-          go run ./server ci \
-            test-files/openapi/ \
+          go run . ci \
+            ../test-files/openapi/ \
             --comment-pr \
-            --report-md telescope-report.md
+            --report-md ../telescope-report.md
 
       - name: Upload Telescope report artifact
         if: always()
