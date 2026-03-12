@@ -29,10 +29,16 @@ jobs:
       - name: Install benchstat
         run: go install golang.org/x/perf/cmd/benchstat@latest
 
-      - name: Benchmark main
+      - name: Benchmark base
+        id: bench-base
+        continue-on-error: true
         run: |
-          git checkout main
-          cd server && go test ./... -run='^$' -bench=. -benchmem -count=5 -timeout=30m > ../main.txt
+          git checkout ${{ github.event.pull_request.base.sha }}
+          if [ -f server/go.mod ]; then
+            cd server && go test ./... -run='^$' -bench=. -benchmem -count=5 -timeout=30m > ../main.txt
+          else
+            echo "No Go server on base branch, skipping base benchmark"
+          fi
 
       - name: Benchmark PR
         run: |
@@ -42,7 +48,11 @@ jobs:
       - name: Compare with benchstat
         id: benchstat
         run: |
-          result=$(benchstat main.txt pr.txt 2>&1 || true)
+          if [ -f main.txt ]; then
+            result=$(benchstat main.txt pr.txt 2>&1 || true)
+          else
+            result="No base benchmark available (base branch has no Go server). PR benchmarks completed successfully."
+          fi
           echo "result<<EOF" >> $GITHUB_OUTPUT
           echo "$result" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT

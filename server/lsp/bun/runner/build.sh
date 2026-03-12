@@ -8,4 +8,4 @@ echo "Installing dependencies..."
 bun install --frozen-lockfile 2>/dev/null || bun install
 
 echo "Building runner binaries..."
-bun run build.ts
+bun run build.ts "$@"

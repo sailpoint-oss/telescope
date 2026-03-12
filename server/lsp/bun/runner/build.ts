@@ -51,7 +51,7 @@ if (!bundleResult.success) {
 }
 console.log(`  Bundled into ${bundlePath}`);
 
-const targets = [
+const allTargets = [
 	"bun-linux-x64",
 	"bun-linux-arm64",
 	"bun-darwin-x64",
@@ -59,7 +59,20 @@ const targets = [
 	"bun-windows-x64",
 ];
 
-console.log("Step 2: Compiling standalone binaries...");
+// Determine which targets to build:
+// --all builds all platforms (for releases), otherwise just the current platform.
+const buildAll = process.argv.includes("--all");
+const currentPlatform = `bun-${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+const targets = buildAll
+	? allTargets
+	: allTargets.filter((t) => t === currentPlatform);
+
+if (targets.length === 0) {
+	console.warn(`  Warning: no matching target for ${currentPlatform}, building all`);
+	targets.push(...allTargets);
+}
+
+console.log(`Step 2: Compiling standalone binaries (${buildAll ? "all platforms" : currentPlatform})...`);
 for (const target of targets) {
 	const outname = `telescope-runner-${target.replace("bun-", "")}`;
 	const outpath = join(distDir, outname);
