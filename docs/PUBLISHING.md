@@ -55,7 +55,7 @@ pnpm --filter ./client run build
 ### Verify Build
 
 ```bash
-test -f client/dist/extension.js && echo "Client build complete"
+test -f client/dist/client.js && echo "Client build complete"
 ```
 
 ## Packaging
@@ -315,10 +315,10 @@ Ensure these fields exist in `package.json`:
 
 **Issue**: Server path not found
 
-The extension expects the bundled server at `dist/server.js`. Ensure:
+The extension expects a server binary at `client/bin/telescope` (or `telescope.exe` on Windows). Ensure:
 
-1. Both packages are built (`pnpm build`)
-2. The `dist/` directory contains both `client.js` and `server.js`
+1. The server build step ran (`pnpm --filter ./client run test:e2e:build-server` or equivalent packaging pipeline)
+2. `client/bin/` contains the platform binary
 
 ### Publishing Errors
 

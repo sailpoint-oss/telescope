@@ -20,12 +20,12 @@ func NewFormattingHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Form
 		idx := cache.Get(params.TextDocument.URI)
 		doc := ctx.Documents.Get(params.TextDocument.URI)
 		if doc == nil {
-			return nil, nil
+			return []protocol.TextEdit{}, nil
 		}
 
 		original := doc.Text()
 		if original == "" {
-			return nil, nil
+			return []protocol.TextEdit{}, nil
 		}
 
 		var formatted string
@@ -41,7 +41,7 @@ func NewFormattingHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Form
 		}
 
 		if formatted == original {
-			return nil, nil
+			return []protocol.TextEdit{}, nil
 		}
 
 		lines := strings.Count(original, "\n")

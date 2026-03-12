@@ -6,11 +6,7 @@ export type MessageType =
 	| "ruleError"
 	| "runSpectral"
 	| "spectralResult"
-	| "runZod"
-	| "zodResult"
 	| "ready"
-	| "health"
-	| "healthResponse"
 	| "ping"
 	| "pong"
 	| "shutdown";
@@ -24,7 +20,7 @@ export interface Envelope {
 export interface RuleConfig {
 	id: string;
 	path: string;
-	kind: "openapi" | "generic" | "schema";
+	kind: "openapi" | "generic";
 	severity?: string;
 	patterns?: string[];
 	options?: Record<string, unknown>;
@@ -84,22 +80,11 @@ export interface RuleRunError {
 export interface LoadedRule {
 	config: RuleConfig;
 	rule: unknown;
-	kind: "openapi" | "generic" | "schema";
+	kind: "openapi" | "generic";
 }
 
 export interface RunSpectralRequest {
 	documentURI: string;
 	document: SerializedDoc;
 	rulesetPaths: string[];
-}
-
-export interface RunZodRequest {
-	documentURI: string;
-	document: SerializedDoc;
-	schemas: ZodSchemaConfig[];
-}
-
-export interface ZodSchemaConfig {
-	schemaPath: string;
-	pointers?: string[];
 }

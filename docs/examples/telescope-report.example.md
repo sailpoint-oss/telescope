@@ -14,11 +14,10 @@ In this repository, we intentionally run Telescope against `test-files/` so PRs 
 
 | Metric | Value |
 | --- | --- |
-| Workspace | `file:///home/runner/work/telescope/telescope/test-files` |
-| Generated | `2026-01-01T00:00:00.000Z` |
-| Roots | 0 |
+| Workspace | `/home/runner/work/telescope/telescope` |
+| Generated | `2026-01-01T00:00:00Z` |
 | Diagnostics | 3 (errors: 1, warnings: 2, other: 0) |
-| Project hash | `example` |
+| Files with issues | 2 |
 
 ## Files
 
@@ -63,5 +62,3 @@ In this repository, we intentionally run Telescope against `test-files/` so PRs 
 | warning | [`test-files/openapi/test-warnings.yaml`](test-files/openapi/test-warnings.yaml) | [L7](test-files/openapi/test-warnings.yaml#L7) | API should define security schemes in components/securitySchemes |
 
 </details>
-
-

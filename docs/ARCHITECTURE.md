@@ -82,7 +82,7 @@ flowchart TB
 | `sdk` | Public Go API: `Workspace`, `Option`, `AnalysisResult`, plugin SDK |
 | `lsp` | LSP server wiring, handlers, graph bridge |
 | `lsp/adapt` | Type conversion: `core/types` ↔ `gossip/protocol` |
-| `lsp/bun` | Bun sidecar for TypeScript/JavaScript rules (future) |
+| `lsp/bun` | Bun sidecar for TypeScript/JavaScript custom rules and Spectral rulesets |
 | `lsp/observe` | Observability: `GraphInfo`, `RulePerf`, `$/telescope/*` notifications |
 | `rules` | Rule registry, `RuleBuilder`, `Reporter`, `Walker` |
 | `rules/analyzers` | Built-in analyzers (structural, naming, documentation, security, OWASP) |
@@ -105,7 +105,7 @@ flowchart TB
 2. **Classify** — `FileClassifier` uses heuristics (root key, fingerprint, extension, config override, graph membership) to determine if the file is OpenAPI and whether it is a root or fragment.
 3. **Parse** — `RawStage` reads content from the source; `ParseStage` runs tree-sitter and builds a semantic index.
 4. **Lint** — Structural validation, duplicate keys, ASCII checks. No `$ref` resolution yet.
-5. **Bind** — `$ref` resolution; edges materialized in the graph (`EdgeRef`, `EdgeComponent`, `EdgeExternal`).
+5. **Bind** — `$ref` resolution; edges materialized in the graph (`EdgeRef`, `EdgePathRef`, `EdgeExternal`).
 6. **Validate** — JSON Schema validation against version-specific schemas (OpenAPI 3.0, 3.1, 3.2).
 7. **Analyze** — Cross-document: unused components, breaking changes, bundle preview.
 8. **Diagnostics** — Stored per-node; aggregated in `Snapshot` for LSP/CLI output.
@@ -218,6 +218,6 @@ Custom LSP notifications:
 | Extension | Description |
 |-----------|-------------|
 | **Go plugins** | Compiled binaries in `.telescope/plugins/`, RPC via `hashicorp/go-plugin`. Use `sdk.Rule()` and `sdk.NewPlugin()` to define rules. |
-| **Spectral rulesets** | YAML files with JSONPath + built-in functions. No JS execution. Configure via `.telescope.yaml` `plugins` field. |
-| **Bun sidecar** | TypeScript/JavaScript rules run in a Bun subprocess with health checks, crash recovery, and lazy `sync.Once` initialization. IPC protocol in `lsp/bun/protocol.go`. |
-| **Zod overlay schemas** | Custom Zod-based validation for specific JSON pointer targets. Schemas loaded dynamically by the Bun sidecar. |
+| **Spectral rulesets** | YAML files with JSONPath + built-in functions. No JS execution. Configure via `.telescope.yaml` `spectralRulesets` field. |
+| **Bun sidecar** | TypeScript/JavaScript rules run in a Bun subprocess with health checks and crash recovery. IPC protocol in `lsp/bun/protocol.go`. |
+| **Additional JSON Schema** | Non-OpenAPI schema validation handled by the Go validator via `additionalValidation.schemas`. |

@@ -175,7 +175,15 @@ func TestRunRulesReturnNilWhenNotAvailable(t *testing.T) {
 func TestLoadRulesReturnNilWhenNotAvailable(t *testing.T) {
 	m := NewManager(slog.Default())
 	err := m.LoadRules(context.Background(), &LoadRulesRequest{})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error when sidecar is not available")
+	}
+}
+
+func TestSendReturnsErrorWhenConnMissing(t *testing.T) {
+	m := NewManager(slog.Default())
+	err := m.send(&Envelope{ID: "1", Type: MsgPing})
+	if err == nil {
+		t.Fatal("expected send to fail when connection is missing")
 	}
 }

@@ -129,7 +129,7 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		// Register the extension validation analyzer
 		s.DiagnosticEngine().RegisterAnalyzer("extension-validation", extensions.Analyzer(extRegistry))
 
-		// Register additional validation analyzer (non-OpenAPI files)
+		// Register additional validation analyzer (non-OpenAPI files).
 		s.DiagnosticEngine().RegisterAnalyzer("additional-validation", addlValidator.Analyzer())
 
 		// Register Bun sidecar analyzer for custom TS rules and Spectral rulesets
@@ -320,7 +320,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 				}
 			}
 
-			// Start Bun sidecar for custom TS rules, Zod schemas, and Spectral rulesets
+			// Start Bun sidecar for custom rules and Spectral rulesets
 			if cfg.NeedsBunSidecar() && bunMgr != nil {
 				telescopeDir := filepath.Join(rootPath, ".telescope")
 				go func() {
@@ -425,6 +425,7 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 	}
 
 	var allRules []ruleWithPatterns
+
 	for _, r := range cfg.OpenAPI.Rules {
 		if r.Rule != "" {
 			allRules = append(allRules, ruleWithPatterns{
@@ -452,10 +453,9 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 			if !bunMgr.Available() || ctx.Document == nil {
 				return nil
 			}
-			if len(allRules) == 0 && len(spectralRulesets) == 0 {
+			if workspaceRoot == nil || *workspaceRoot == "" {
 				return nil
 			}
-
 			uri := string(ctx.Document.URI())
 
 			var ruleIDs []string
@@ -490,6 +490,11 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 				if v, ok := ast["openapi"]; ok {
 					version, _ = v.(string)
 				}
+				if version == "" {
+					if v, ok := ast["swagger"]; ok {
+						version, _ = v.(string)
+					}
+				}
 				doc = bun.SerializedDoc{
 					URI:      uri,
 					AST:      ast,
@@ -497,6 +502,11 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 					Format:   format,
 					Version:  version,
 					Pointers: make(map[string][4]uint32),
+				}
+			}
+			if doc.Version == "" {
+				if v, ok := doc.AST["swagger"]; ok {
+					doc.Version, _ = v.(string)
 				}
 			}
 
@@ -632,20 +642,6 @@ func buildLoadRulesRequest(cfg *config.Config, telescopeDir string) *bun.LoadRul
 				Patterns: g.Patterns,
 				Options:  r.Options,
 			})
-		}
-		for _, s := range g.Schemas {
-			if s.Schema == "" {
-				continue
-			}
-			ext := filepath.Ext(s.Schema)
-			if ext == ".ts" || ext == ".js" {
-				rules = append(rules, bun.RuleConfig{
-					ID:       strings.TrimSuffix(s.Schema, ext),
-					Path:     filepath.Join(telescopeDir, "schemas", s.Schema),
-					Kind:     "schema",
-					Patterns: g.Patterns,
-				})
-			}
 		}
 	}
 

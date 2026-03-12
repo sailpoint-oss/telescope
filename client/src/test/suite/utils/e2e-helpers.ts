@@ -167,6 +167,27 @@ export function isSidecarWorkspace(): boolean {
 	return process.env.TELESCOPE_E2E_MODE === "sidecar";
 }
 
+export async function waitForSidecarReady(
+	folder: vscode.WorkspaceFolder,
+	options?: { timeoutMs?: number },
+): Promise<void> {
+	const probeUri = vscode.Uri.joinPath(
+		folder.uri,
+		"openapi/custom-openapi-invalid.yaml",
+	);
+	await openAndShow(probeUri);
+	await waitForDiagnostics(
+		probeUri,
+		(diags) =>
+			diags.some(
+				(d) =>
+					diagCode(d) === "custom-operation-summary" ||
+					d.source?.toLowerCase().includes("telescope"),
+			),
+		{ timeoutMs: options?.timeoutMs ?? 120000 },
+	);
+}
+
 
 export function diagCode(d: vscode.Diagnostic): string {
 	if (typeof d.code === "object" && d.code !== null) {

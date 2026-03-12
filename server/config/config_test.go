@@ -30,6 +30,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.LSP.Debounce == 0 {
 		t.Error("LSP.Debounce should not be zero")
 	}
+	if got := cfg.EffectiveSchemaValidationMode(); got != "go" {
+		t.Errorf("EffectiveSchemaValidationMode() = %q, want %q", got, "go")
+	}
 }
 
 func TestConfig_BuildEnabledRules(t *testing.T) {
@@ -59,5 +62,42 @@ func TestConfig_BuildEnabledRules_UnknownExtends(t *testing.T) {
 	// Should not panic; returns empty map (only user overrides apply)
 	if len(enabled) != 0 {
 		t.Errorf("unknown extends should produce empty enabled rules, got %d", len(enabled))
+	}
+}
+
+func TestConfig_EffectiveSchemaValidationMode(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	cfg.LSP.SchemaValidation.Mode = "bun"
+	if got := cfg.EffectiveSchemaValidationMode(); got != "go" {
+		t.Errorf("mode bun => %q, want go", got)
+	}
+
+	cfg.LSP.SchemaValidation.Mode = "compare"
+	if got := cfg.EffectiveSchemaValidationMode(); got != "go" {
+		t.Errorf("mode compare => %q, want go", got)
+	}
+
+	cfg.LSP.SchemaValidation.Mode = "invalid"
+	if got := cfg.EffectiveSchemaValidationMode(); got != "go" {
+		t.Errorf("invalid mode => %q, want go", got)
+	}
+}
+
+func TestConfig_NeedsBunSidecar(t *testing.T) {
+	cfg := config.DefaultConfig()
+	if cfg.NeedsBunSidecar() {
+		t.Fatal("default config should not require bun sidecar")
+	}
+
+	cfg.LSP.SchemaValidation.Mode = "bun"
+	if cfg.NeedsBunSidecar() {
+		t.Fatal("schema validation mode should not require bun sidecar")
+	}
+
+	cfg.LSP.SchemaValidation.Mode = "go"
+	cfg.SpectralRulesets = []string{"my-ruleset.yaml"}
+	if !cfg.NeedsBunSidecar() {
+		t.Fatal("spectral ruleset should require bun sidecar")
 	}
 }

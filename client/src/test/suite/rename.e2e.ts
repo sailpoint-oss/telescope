@@ -102,8 +102,10 @@ suite("Rename", () => {
 		// Position on a non-renameable field (openapi version string)
 		const pos = new vscode.Position(0, 10);
 
+		let result: unknown;
+		let threw = false;
 		try {
-			await vscode.commands.executeCommand(
+			result = await vscode.commands.executeCommand(
 				"vscode.executeDocumentRenameProvider",
 				uri,
 				pos,
@@ -111,10 +113,15 @@ suite("Rename", () => {
 			);
 		} catch {
 			// Expected — "The element can't be renamed" is fine
+			threw = true;
 		}
 
-		// If we get here without a crash, the test passes
-		assert.ok(true, "Rename provider handled non-renameable position gracefully");
+		if (!threw) {
+			assert.ok(
+				result === undefined || result === null || result instanceof vscode.WorkspaceEdit,
+				"Rename command should return null/undefined or a WorkspaceEdit",
+			);
+		}
 	});
 
 	test("Cross-file schema rename returns edits for definition and refs", async () => {

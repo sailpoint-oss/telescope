@@ -30,26 +30,28 @@ export const IntegerSchemaObject = BaseSchemaObjectSchema.extend({
 			examples: [100, 1000],
 		}),
 	exclusiveMinimum: z
-		.number()
+		.boolean()
 		.optional()
 		.meta({
 			title: "exclusiveMinimum",
-			description: "Exclusive lower bound (instance must be > this value).",
-			examples: [0, 1],
+			description:
+				"When true, the minimum value is exclusive (value must be > minimum).",
+			examples: [true, false],
 		}),
 	exclusiveMaximum: z
-		.number()
+		.boolean()
 		.optional()
 		.meta({
 			title: "exclusiveMaximum",
-			description: "Exclusive upper bound (instance must be < this value).",
-			examples: [100, 1000],
+			description:
+				"When true, the maximum value is exclusive (value must be < maximum).",
+			examples: [true, false],
 		}),
 }).meta({
 	title: "Integer Object",
 	description: "An Integer Object defines the shape of an integer value.",
 	examples: [
 		{ type: "integer", format: "int32" },
-		{ type: "integer", minimum: 0 },
+		{ type: "integer", minimum: 0, exclusiveMinimum: true },
 	],
 });

@@ -4,15 +4,13 @@ import type {
 	LoadRulesRequest,
 	RunRulesRequest,
 	RunSpectralRequest,
-	RunZodRequest,
 	SerializedDiagnostic,
 	RuleRunError,
 	LoadedRule,
 } from "./types";
 import { buildRuleContext, buildGenericContext } from "./context";
-import { runOpenAPIRule, runGenericRule, runSchemaRule } from "./engine";
+import { runOpenAPIRule, runGenericRule } from "./engine";
 import { runSpectralRulesets } from "./spectral";
-import { runZodOverlays } from "./zod";
 
 const socketPath = process.env.TELESCOPE_SOCKET;
 if (!socketPath) {
@@ -72,18 +70,8 @@ async function handleMessage(envelope: Envelope): Promise<void> {
 		case "runSpectral":
 			await handleRunSpectral(envelope);
 			break;
-		case "runZod":
-			await handleRunZod(envelope);
-			break;
 		case "ping":
 			send({ id: envelope.id, type: "pong" });
-			break;
-		case "health":
-			send({
-				id: envelope.id,
-				type: "healthResponse",
-				payload: { status: "ok", ruleCount: loadedRules.size },
-			});
 			break;
 		case "shutdown":
 			socket.end();
@@ -165,12 +153,6 @@ async function handleRunRules(envelope: Envelope): Promise<void> {
 					allDiagnostics.push(...ctx._diagnostics);
 					break;
 				}
-				case "schema": {
-					const schemaFn = (loaded.rule as Function);
-					const diags = await runSchemaRule(schemaFn, req.document);
-					allDiagnostics.push(...diags);
-					break;
-				}
 			}
 			timings[ruleID] = performance.now() - start;
 		} catch (err) {
@@ -212,18 +194,3 @@ async function handleRunSpectral(envelope: Envelope): Promise<void> {
 	});
 }
 
-async function handleRunZod(envelope: Envelope): Promise<void> {
-	const req = envelope.payload as RunZodRequest;
-	const result = await runZodOverlays(req.document, req.schemas);
-
-	send({
-		id: envelope.id,
-		type: "zodResult",
-		payload: {
-			documentURI: req.documentURI,
-			diagnostics: result.diagnostics,
-			timings: result.timings,
-			errors: result.errors,
-		},
-	});
-}

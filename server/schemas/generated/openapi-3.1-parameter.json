@@ -6,6 +6,15 @@
     },
     {
       "$ref": "#/$defs/__schema8"
+    },
+    {
+      "$ref": "#/$defs/__schema220"
+    },
+    {
+      "$ref": "#/$defs/__schema236"
+    },
+    {
+      "$ref": "#/$defs/__schema253"
     }
   ],
   "title": "Parameter",
@@ -155,13 +164,13 @@
           "$ref": "#/$defs/__schema22"
         },
         "example": {
-          "$ref": "#/$defs/__schema157"
+          "$ref": "#/$defs/__schema161"
         },
         "examples": {
-          "$ref": "#/$defs/__schema158"
+          "$ref": "#/$defs/__schema162"
         },
         "content": {
-          "$ref": "#/$defs/__schema167"
+          "$ref": "#/$defs/__schema171"
         }
       },
       "required": [
@@ -169,13 +178,12 @@
         "in"
       ],
       "additionalProperties": false,
-      "title": "Parameter",
-      "description": "Describes a single operation parameter.",
+      "title": "Query Parameter",
+      "description": "A query string parameter (?name=value).",
       "examples": [
         {
-          "name": "id",
-          "in": "path",
-          "required": true,
+          "name": "page",
+          "in": "query",
           "schema": {
             "type": "integer"
           }
@@ -186,37 +194,26 @@
       "type": "string",
       "title": "name",
       "examples": [
-        "id",
         "page",
         "limit",
-        "Authorization",
-        "X-Request-ID",
+        "filter",
+        "sort",
         "status"
       ],
-      "description": "The name of the parameter. Case-sensitive."
+      "description": "The name of the query parameter. Case-sensitive."
     },
     "__schema10": {
       "type": "string",
-      "enum": [
-        "query",
-        "header",
-        "path",
-        "cookie"
-      ],
+      "const": "query",
       "title": "in",
       "examples": [
-        "query",
-        "path",
-        "header",
-        "cookie"
-      ],
-      "description": "Location of the parameter. 'path' parameters must have required=true."
+        "query"
+      ]
     },
     "__schema11": {
       "type": "string",
       "title": "description",
       "examples": [
-        "Unique identifier",
         "Page number for pagination",
         "Maximum items to return"
       ],
@@ -246,7 +243,7 @@
       "type": "boolean"
     },
     "__schema16": {
-      "description": "For query parameters only. Allows empty values (?param=).",
+      "description": "Allows empty values (?param=). Deprecated in favor of schema-level validation.",
       "title": "allowEmptyValue",
       "examples": [
         true
@@ -259,23 +256,19 @@
     "__schema18": {
       "type": "string",
       "enum": [
-        "matrix",
-        "label",
         "form",
-        "simple",
         "spaceDelimited",
         "pipeDelimited",
         "deepObject"
       ],
       "title": "style",
       "examples": [
-        "simple",
         "form",
-        "matrix",
-        "label",
+        "spaceDelimited",
+        "pipeDelimited",
         "deepObject"
       ],
-      "description": "Serialization style. Defaults vary by 'in': query/cookie='form', path/header='simple'."
+      "description": "Serialization style. Default: 'form'."
     },
     "__schema19": {
       "type": "boolean",
@@ -287,7 +280,7 @@
       "description": "For arrays/objects. When true, each value gets its own parameter."
     },
     "__schema20": {
-      "description": "For query parameters. When true, allows reserved characters without encoding.",
+      "description": "When true, allows reserved characters without percent-encoding.",
       "title": "allowReserved",
       "examples": [
         true
@@ -313,25 +306,25 @@
           "$ref": "#/$defs/__schema62"
         },
         {
-          "$ref": "#/$defs/__schema70"
+          "$ref": "#/$defs/__schema74"
         },
         {
-          "$ref": "#/$defs/__schema83"
-        },
-        {
-          "$ref": "#/$defs/__schema96"
-        },
-        {
-          "$ref": "#/$defs/__schema98"
+          "$ref": "#/$defs/__schema87"
         },
         {
           "$ref": "#/$defs/__schema100"
         },
         {
-          "$ref": "#/$defs/__schema118"
+          "$ref": "#/$defs/__schema102"
         },
         {
-          "$ref": "#/$defs/__schema142"
+          "$ref": "#/$defs/__schema104"
+        },
+        {
+          "$ref": "#/$defs/__schema122"
+        },
+        {
+          "$ref": "#/$defs/__schema146"
         }
       ],
       "title": "Schema Object",
@@ -727,6 +720,12 @@
         },
         "maxLength": {
           "$ref": "#/$defs/__schema68"
+        },
+        "contentEncoding": {
+          "$ref": "#/$defs/__schema70"
+        },
+        "contentMediaType": {
+          "$ref": "#/$defs/__schema72"
         }
       },
       "required": [
@@ -835,6 +834,30 @@
       "maximum": 9007199254740991
     },
     "__schema70": {
+      "title": "contentEncoding",
+      "description": "Encoding for binary string content.",
+      "examples": [
+        "base64",
+        "base64url"
+      ],
+      "$ref": "#/$defs/__schema71"
+    },
+    "__schema71": {
+      "type": "string"
+    },
+    "__schema72": {
+      "title": "contentMediaType",
+      "description": "Media type of the encoded string content.",
+      "examples": [
+        "application/octet-stream",
+        "image/png"
+      ],
+      "$ref": "#/$defs/__schema73"
+    },
+    "__schema73": {
+      "type": "string"
+    },
+    "__schema74": {
       "type": "object",
       "properties": {
         "title": {
@@ -877,25 +900,25 @@
           "$ref": "#/$defs/__schema58"
         },
         "type": {
-          "$ref": "#/$defs/__schema71"
-        },
-        "format": {
-          "$ref": "#/$defs/__schema72"
-        },
-        "multipleOf": {
-          "$ref": "#/$defs/__schema73"
-        },
-        "minimum": {
           "$ref": "#/$defs/__schema75"
         },
-        "maximum": {
+        "format": {
+          "$ref": "#/$defs/__schema76"
+        },
+        "multipleOf": {
           "$ref": "#/$defs/__schema77"
         },
-        "exclusiveMinimum": {
+        "minimum": {
           "$ref": "#/$defs/__schema79"
         },
-        "exclusiveMaximum": {
+        "maximum": {
           "$ref": "#/$defs/__schema81"
+        },
+        "exclusiveMinimum": {
+          "$ref": "#/$defs/__schema83"
+        },
+        "exclusiveMaximum": {
+          "$ref": "#/$defs/__schema85"
         }
       },
       "required": [
@@ -925,11 +948,11 @@
         }
       ]
     },
-    "__schema71": {
+    "__schema75": {
       "type": "string",
       "const": "number"
     },
-    "__schema72": {
+    "__schema76": {
       "type": "string",
       "enum": [
         "float",
@@ -942,7 +965,7 @@
       ],
       "description": "Number precision format. Use 'float' for 32-bit single-precision or 'double' (default) for 64-bit double-precision IEEE 754."
     },
-    "__schema73": {
+    "__schema77": {
       "title": "multipleOf",
       "description": "Require the number to be a multiple of this value.",
       "examples": [
@@ -950,12 +973,12 @@
         1,
         10
       ],
-      "$ref": "#/$defs/__schema74"
+      "$ref": "#/$defs/__schema78"
     },
-    "__schema74": {
+    "__schema78": {
       "type": "number"
     },
-    "__schema75": {
+    "__schema79": {
       "title": "minimum",
       "description": "Inclusive lower bound for the number.",
       "examples": [
@@ -963,38 +986,14 @@
         1,
         -10
       ],
-      "$ref": "#/$defs/__schema76"
-    },
-    "__schema76": {
-      "type": "number"
-    },
-    "__schema77": {
-      "title": "maximum",
-      "description": "Inclusive upper bound for the number.",
-      "examples": [
-        100,
-        1000
-      ],
-      "$ref": "#/$defs/__schema78"
-    },
-    "__schema78": {
-      "type": "number"
-    },
-    "__schema79": {
-      "title": "exclusiveMinimum",
-      "description": "Exclusive lower bound (instance must be > this value).",
-      "examples": [
-        0,
-        1
-      ],
       "$ref": "#/$defs/__schema80"
     },
     "__schema80": {
       "type": "number"
     },
     "__schema81": {
-      "title": "exclusiveMaximum",
-      "description": "Exclusive upper bound (instance must be < this value).",
+      "title": "maximum",
+      "description": "Inclusive upper bound for the number.",
       "examples": [
         100,
         1000
@@ -1005,6 +1004,30 @@
       "type": "number"
     },
     "__schema83": {
+      "title": "exclusiveMinimum",
+      "description": "Exclusive lower bound (instance must be > this value).",
+      "examples": [
+        0,
+        1
+      ],
+      "$ref": "#/$defs/__schema84"
+    },
+    "__schema84": {
+      "type": "number"
+    },
+    "__schema85": {
+      "title": "exclusiveMaximum",
+      "description": "Exclusive upper bound (instance must be < this value).",
+      "examples": [
+        100,
+        1000
+      ],
+      "$ref": "#/$defs/__schema86"
+    },
+    "__schema86": {
+      "type": "number"
+    },
+    "__schema87": {
       "type": "object",
       "properties": {
         "title": {
@@ -1047,25 +1070,25 @@
           "$ref": "#/$defs/__schema58"
         },
         "type": {
-          "$ref": "#/$defs/__schema84"
-        },
-        "format": {
-          "$ref": "#/$defs/__schema85"
-        },
-        "multipleOf": {
-          "$ref": "#/$defs/__schema86"
-        },
-        "minimum": {
           "$ref": "#/$defs/__schema88"
         },
-        "maximum": {
+        "format": {
+          "$ref": "#/$defs/__schema89"
+        },
+        "multipleOf": {
           "$ref": "#/$defs/__schema90"
         },
-        "exclusiveMinimum": {
+        "minimum": {
           "$ref": "#/$defs/__schema92"
         },
-        "exclusiveMaximum": {
+        "maximum": {
           "$ref": "#/$defs/__schema94"
+        },
+        "exclusiveMinimum": {
+          "$ref": "#/$defs/__schema96"
+        },
+        "exclusiveMaximum": {
+          "$ref": "#/$defs/__schema98"
         }
       },
       "required": [
@@ -1085,11 +1108,11 @@
         }
       ]
     },
-    "__schema84": {
+    "__schema88": {
       "type": "string",
       "const": "integer"
     },
-    "__schema85": {
+    "__schema89": {
       "type": "string",
       "enum": [
         "int32",
@@ -1102,7 +1125,7 @@
       ],
       "description": "Integer size format. Use 'int32' for signed 32-bit (-2B to 2B) or 'int64' for signed 64-bit integers."
     },
-    "__schema86": {
+    "__schema90": {
       "title": "multipleOf",
       "description": "Require the integer to be a multiple of this value.",
       "examples": [
@@ -1110,12 +1133,12 @@
         2,
         10
       ],
-      "$ref": "#/$defs/__schema87"
+      "$ref": "#/$defs/__schema91"
     },
-    "__schema87": {
+    "__schema91": {
       "type": "number"
     },
-    "__schema88": {
+    "__schema92": {
       "title": "minimum",
       "description": "Inclusive lower bound for the integer.",
       "examples": [
@@ -1123,38 +1146,14 @@
         1,
         -10
       ],
-      "$ref": "#/$defs/__schema89"
-    },
-    "__schema89": {
-      "type": "number"
-    },
-    "__schema90": {
-      "title": "maximum",
-      "description": "Inclusive upper bound for the integer.",
-      "examples": [
-        100,
-        1000
-      ],
-      "$ref": "#/$defs/__schema91"
-    },
-    "__schema91": {
-      "type": "number"
-    },
-    "__schema92": {
-      "title": "exclusiveMinimum",
-      "description": "Exclusive lower bound (instance must be > this value).",
-      "examples": [
-        0,
-        1
-      ],
       "$ref": "#/$defs/__schema93"
     },
     "__schema93": {
       "type": "number"
     },
     "__schema94": {
-      "title": "exclusiveMaximum",
-      "description": "Exclusive upper bound (instance must be < this value).",
+      "title": "maximum",
+      "description": "Inclusive upper bound for the integer.",
       "examples": [
         100,
         1000
@@ -1165,128 +1164,28 @@
       "type": "number"
     },
     "__schema96": {
-      "type": "object",
-      "properties": {
-        "title": {
-          "$ref": "#/$defs/__schema25"
-        },
-        "description": {
-          "$ref": "#/$defs/__schema26"
-        },
-        "default": {
-          "$ref": "#/$defs/__schema27"
-        },
-        "example": {
-          "$ref": "#/$defs/__schema28"
-        },
-        "examples": {
-          "$ref": "#/$defs/__schema29"
-        },
-        "enum": {
-          "$ref": "#/$defs/__schema31"
-        },
-        "const": {
-          "$ref": "#/$defs/__schema33"
-        },
-        "discriminator": {
-          "$ref": "#/$defs/__schema34"
-        },
-        "xml": {
-          "$ref": "#/$defs/__schema41"
-        },
-        "externalDocs": {
-          "$ref": "#/$defs/__schema51"
-        },
-        "readOnly": {
-          "$ref": "#/$defs/__schema56"
-        },
-        "writeOnly": {
-          "$ref": "#/$defs/__schema57"
-        },
-        "deprecated": {
-          "$ref": "#/$defs/__schema58"
-        },
-        "type": {
-          "$ref": "#/$defs/__schema97"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "additionalProperties": false,
-      "title": "Boolean Object",
-      "description": "A Boolean Object defines the shape of a boolean value.",
+      "title": "exclusiveMinimum",
+      "description": "Exclusive lower bound (instance must be > this value).",
       "examples": [
-        {
-          "type": "boolean"
-        }
-      ]
+        0,
+        1
+      ],
+      "$ref": "#/$defs/__schema97"
     },
     "__schema97": {
-      "type": "string",
-      "const": "boolean"
+      "type": "number"
     },
     "__schema98": {
-      "type": "object",
-      "properties": {
-        "title": {
-          "$ref": "#/$defs/__schema25"
-        },
-        "description": {
-          "$ref": "#/$defs/__schema26"
-        },
-        "default": {
-          "$ref": "#/$defs/__schema27"
-        },
-        "example": {
-          "$ref": "#/$defs/__schema28"
-        },
-        "examples": {
-          "$ref": "#/$defs/__schema29"
-        },
-        "enum": {
-          "$ref": "#/$defs/__schema31"
-        },
-        "const": {
-          "$ref": "#/$defs/__schema33"
-        },
-        "discriminator": {
-          "$ref": "#/$defs/__schema34"
-        },
-        "xml": {
-          "$ref": "#/$defs/__schema41"
-        },
-        "externalDocs": {
-          "$ref": "#/$defs/__schema51"
-        },
-        "readOnly": {
-          "$ref": "#/$defs/__schema56"
-        },
-        "writeOnly": {
-          "$ref": "#/$defs/__schema57"
-        },
-        "deprecated": {
-          "$ref": "#/$defs/__schema58"
-        },
-        "type": {
-          "$ref": "#/$defs/__schema99"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "additionalProperties": false,
-      "title": "Null Object",
-      "description": "A Null Object defines the shape of a null value.",
+      "title": "exclusiveMaximum",
+      "description": "Exclusive upper bound (instance must be < this value).",
       "examples": [
-        {
-          "type": "null"
-        }
-      ]
+        100,
+        1000
+      ],
+      "$ref": "#/$defs/__schema99"
     },
     "__schema99": {
-      "type": "string",
-      "const": "null"
+      "type": "number"
     },
     "__schema100": {
       "type": "object",
@@ -1332,122 +1231,25 @@
         },
         "type": {
           "$ref": "#/$defs/__schema101"
-        },
-        "items": {
-          "$ref": "#/$defs/__schema102"
-        },
-        "prefixItems": {
-          "$ref": "#/$defs/__schema104"
-        },
-        "contains": {
-          "$ref": "#/$defs/__schema106"
-        },
-        "minItems": {
-          "$ref": "#/$defs/__schema108"
-        },
-        "maxItems": {
-          "$ref": "#/$defs/__schema110"
-        },
-        "minContains": {
-          "$ref": "#/$defs/__schema112"
-        },
-        "maxContains": {
-          "$ref": "#/$defs/__schema114"
-        },
-        "uniqueItems": {
-          "$ref": "#/$defs/__schema116"
         }
       },
       "required": [
         "type"
       ],
       "additionalProperties": false,
-      "title": "Array Object",
-      "description": "An Array Object defines the shape of an array value.",
+      "title": "Boolean Object",
+      "description": "A Boolean Object defines the shape of a boolean value.",
       "examples": [
         {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "type": "boolean"
         }
       ]
     },
     "__schema101": {
       "type": "string",
-      "const": "array"
+      "const": "boolean"
     },
     "__schema102": {
-      "title": "items",
-      "description": "Schema for array items.",
-      "$ref": "#/$defs/__schema103"
-    },
-    "__schema103": {
-      "$ref": "#/$defs/__schema23"
-    },
-    "__schema104": {
-      "title": "prefixItems",
-      "description": "Tuple validation: schemas for items by index (array position).",
-      "$ref": "#/$defs/__schema105"
-    },
-    "__schema105": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/__schema23"
-      }
-    },
-    "__schema106": {
-      "title": "contains",
-      "description": "Require the array to contain at least one item matching this subschema.",
-      "$ref": "#/$defs/__schema107"
-    },
-    "__schema107": {
-      "$ref": "#/$defs/__schema23"
-    },
-    "__schema108": {
-      "title": "minItems",
-      "$ref": "#/$defs/__schema109"
-    },
-    "__schema109": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 9007199254740991
-    },
-    "__schema110": {
-      "title": "maxItems",
-      "$ref": "#/$defs/__schema111"
-    },
-    "__schema111": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 9007199254740991
-    },
-    "__schema112": {
-      "title": "minContains",
-      "$ref": "#/$defs/__schema113"
-    },
-    "__schema113": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 9007199254740991
-    },
-    "__schema114": {
-      "title": "maxContains",
-      "$ref": "#/$defs/__schema115"
-    },
-    "__schema115": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 9007199254740991
-    },
-    "__schema116": {
-      "title": "uniqueItems",
-      "$ref": "#/$defs/__schema117"
-    },
-    "__schema117": {
-      "type": "boolean"
-    },
-    "__schema118": {
       "type": "object",
       "properties": {
         "title": {
@@ -1490,37 +1292,258 @@
           "$ref": "#/$defs/__schema58"
         },
         "type": {
-          "$ref": "#/$defs/__schema119"
+          "$ref": "#/$defs/__schema103"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "title": "Null Object",
+      "description": "A Null Object defines the shape of a null value.",
+      "examples": [
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "__schema103": {
+      "type": "string",
+      "const": "null"
+    },
+    "__schema104": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/__schema25"
+        },
+        "description": {
+          "$ref": "#/$defs/__schema26"
+        },
+        "default": {
+          "$ref": "#/$defs/__schema27"
+        },
+        "example": {
+          "$ref": "#/$defs/__schema28"
+        },
+        "examples": {
+          "$ref": "#/$defs/__schema29"
+        },
+        "enum": {
+          "$ref": "#/$defs/__schema31"
+        },
+        "const": {
+          "$ref": "#/$defs/__schema33"
+        },
+        "discriminator": {
+          "$ref": "#/$defs/__schema34"
+        },
+        "xml": {
+          "$ref": "#/$defs/__schema41"
+        },
+        "externalDocs": {
+          "$ref": "#/$defs/__schema51"
+        },
+        "readOnly": {
+          "$ref": "#/$defs/__schema56"
+        },
+        "writeOnly": {
+          "$ref": "#/$defs/__schema57"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/__schema58"
+        },
+        "type": {
+          "$ref": "#/$defs/__schema105"
+        },
+        "items": {
+          "$ref": "#/$defs/__schema106"
+        },
+        "prefixItems": {
+          "$ref": "#/$defs/__schema108"
+        },
+        "contains": {
+          "$ref": "#/$defs/__schema110"
+        },
+        "minItems": {
+          "$ref": "#/$defs/__schema112"
+        },
+        "maxItems": {
+          "$ref": "#/$defs/__schema114"
+        },
+        "minContains": {
+          "$ref": "#/$defs/__schema116"
+        },
+        "maxContains": {
+          "$ref": "#/$defs/__schema118"
+        },
+        "uniqueItems": {
+          "$ref": "#/$defs/__schema120"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "title": "Array Object",
+      "description": "An Array Object defines the shape of an array value.",
+      "examples": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "__schema105": {
+      "type": "string",
+      "const": "array"
+    },
+    "__schema106": {
+      "title": "items",
+      "description": "Schema for array items.",
+      "$ref": "#/$defs/__schema107"
+    },
+    "__schema107": {
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema108": {
+      "title": "prefixItems",
+      "description": "Tuple validation: schemas for items by index (array position).",
+      "$ref": "#/$defs/__schema109"
+    },
+    "__schema109": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema23"
+      }
+    },
+    "__schema110": {
+      "title": "contains",
+      "description": "Require the array to contain at least one item matching this subschema.",
+      "$ref": "#/$defs/__schema111"
+    },
+    "__schema111": {
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema112": {
+      "title": "minItems",
+      "$ref": "#/$defs/__schema113"
+    },
+    "__schema113": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema114": {
+      "title": "maxItems",
+      "$ref": "#/$defs/__schema115"
+    },
+    "__schema115": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema116": {
+      "title": "minContains",
+      "$ref": "#/$defs/__schema117"
+    },
+    "__schema117": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema118": {
+      "title": "maxContains",
+      "$ref": "#/$defs/__schema119"
+    },
+    "__schema119": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema120": {
+      "title": "uniqueItems",
+      "$ref": "#/$defs/__schema121"
+    },
+    "__schema121": {
+      "type": "boolean"
+    },
+    "__schema122": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "$ref": "#/$defs/__schema25"
+        },
+        "description": {
+          "$ref": "#/$defs/__schema26"
+        },
+        "default": {
+          "$ref": "#/$defs/__schema27"
+        },
+        "example": {
+          "$ref": "#/$defs/__schema28"
+        },
+        "examples": {
+          "$ref": "#/$defs/__schema29"
+        },
+        "enum": {
+          "$ref": "#/$defs/__schema31"
+        },
+        "const": {
+          "$ref": "#/$defs/__schema33"
+        },
+        "discriminator": {
+          "$ref": "#/$defs/__schema34"
+        },
+        "xml": {
+          "$ref": "#/$defs/__schema41"
+        },
+        "externalDocs": {
+          "$ref": "#/$defs/__schema51"
+        },
+        "readOnly": {
+          "$ref": "#/$defs/__schema56"
+        },
+        "writeOnly": {
+          "$ref": "#/$defs/__schema57"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/__schema58"
+        },
+        "type": {
+          "$ref": "#/$defs/__schema123"
         },
         "properties": {
-          "$ref": "#/$defs/__schema120"
-        },
-        "additionalProperties": {
-          "$ref": "#/$defs/__schema122"
-        },
-        "patternProperties": {
           "$ref": "#/$defs/__schema124"
         },
-        "propertyNames": {
+        "additionalProperties": {
           "$ref": "#/$defs/__schema126"
         },
-        "dependentSchemas": {
+        "patternProperties": {
           "$ref": "#/$defs/__schema128"
         },
-        "dependentRequired": {
+        "propertyNames": {
           "$ref": "#/$defs/__schema130"
         },
+        "dependentSchemas": {
+          "$ref": "#/$defs/__schema132"
+        },
+        "dependentRequired": {
+          "$ref": "#/$defs/__schema134"
+        },
         "required": {
-          "$ref": "#/$defs/__schema133"
-        },
-        "minProperties": {
-          "$ref": "#/$defs/__schema135"
-        },
-        "maxProperties": {
           "$ref": "#/$defs/__schema137"
         },
-        "unevaluatedProperties": {
+        "minProperties": {
           "$ref": "#/$defs/__schema139"
+        },
+        "maxProperties": {
+          "$ref": "#/$defs/__schema141"
+        },
+        "unevaluatedProperties": {
+          "$ref": "#/$defs/__schema143"
         }
       },
       "required": [
@@ -1540,36 +1563,9 @@
         }
       ]
     },
-    "__schema119": {
+    "__schema123": {
       "type": "string",
       "const": "object"
-    },
-    "__schema120": {
-      "type": "object",
-      "propertyNames": {
-        "$ref": "#/$defs/__schema121"
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema23"
-      },
-      "title": "properties"
-    },
-    "__schema121": {
-      "type": "string"
-    },
-    "__schema122": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/__schema123"
-        },
-        {
-          "$ref": "#/$defs/__schema23"
-        }
-      ],
-      "title": "additionalProperties"
-    },
-    "__schema123": {
-      "type": "boolean"
     },
     "__schema124": {
       "type": "object",
@@ -1579,17 +1575,24 @@
       "additionalProperties": {
         "$ref": "#/$defs/__schema23"
       },
-      "title": "patternProperties"
+      "title": "properties"
     },
     "__schema125": {
       "type": "string"
     },
     "__schema126": {
-      "title": "propertyNames",
-      "$ref": "#/$defs/__schema127"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/__schema127"
+        },
+        {
+          "$ref": "#/$defs/__schema23"
+        }
+      ],
+      "title": "additionalProperties"
     },
     "__schema127": {
-      "$ref": "#/$defs/__schema23"
+      "type": "boolean"
     },
     "__schema128": {
       "type": "object",
@@ -1599,76 +1602,96 @@
       "additionalProperties": {
         "$ref": "#/$defs/__schema23"
       },
-      "title": "dependentSchemas"
+      "title": "patternProperties"
     },
     "__schema129": {
       "type": "string"
     },
     "__schema130": {
+      "title": "propertyNames",
+      "$ref": "#/$defs/__schema131"
+    },
+    "__schema131": {
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema132": {
       "type": "object",
       "propertyNames": {
-        "$ref": "#/$defs/__schema131"
+        "$ref": "#/$defs/__schema133"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema132"
+        "$ref": "#/$defs/__schema23"
+      },
+      "title": "dependentSchemas"
+    },
+    "__schema133": {
+      "type": "string"
+    },
+    "__schema134": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema135"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema136"
       },
       "title": "dependentRequired"
     },
-    "__schema131": {
+    "__schema135": {
       "type": "string"
     },
-    "__schema132": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "__schema133": {
-      "title": "required",
-      "$ref": "#/$defs/__schema134"
-    },
-    "__schema134": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "__schema135": {
-      "title": "minProperties",
-      "$ref": "#/$defs/__schema136"
-    },
     "__schema136": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 9007199254740991
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     },
     "__schema137": {
-      "title": "maxProperties",
+      "title": "required",
       "$ref": "#/$defs/__schema138"
     },
     "__schema138": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "__schema139": {
+      "title": "minProperties",
+      "$ref": "#/$defs/__schema140"
+    },
+    "__schema140": {
       "type": "integer",
       "minimum": 0,
       "maximum": 9007199254740991
     },
-    "__schema139": {
+    "__schema141": {
+      "title": "maxProperties",
+      "$ref": "#/$defs/__schema142"
+    },
+    "__schema142": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema143": {
       "anyOf": [
         {
-          "$ref": "#/$defs/__schema140"
+          "$ref": "#/$defs/__schema144"
         },
         {
-          "$ref": "#/$defs/__schema141"
+          "$ref": "#/$defs/__schema145"
         }
       ],
       "title": "unevaluatedProperties"
     },
-    "__schema140": {
+    "__schema144": {
       "$ref": "#/$defs/__schema23"
     },
-    "__schema141": {
+    "__schema145": {
       "type": "boolean"
     },
-    "__schema142": {
+    "__schema146": {
       "type": "object",
       "properties": {
         "title": {
@@ -1711,25 +1734,25 @@
           "$ref": "#/$defs/__schema58"
         },
         "allOf": {
-          "$ref": "#/$defs/__schema143"
-        },
-        "anyOf": {
-          "$ref": "#/$defs/__schema145"
-        },
-        "oneOf": {
           "$ref": "#/$defs/__schema147"
         },
-        "not": {
+        "anyOf": {
           "$ref": "#/$defs/__schema149"
         },
-        "if": {
+        "oneOf": {
           "$ref": "#/$defs/__schema151"
         },
-        "then": {
+        "not": {
           "$ref": "#/$defs/__schema153"
         },
-        "else": {
+        "if": {
           "$ref": "#/$defs/__schema155"
+        },
+        "then": {
+          "$ref": "#/$defs/__schema157"
+        },
+        "else": {
+          "$ref": "#/$defs/__schema159"
         }
       },
       "additionalProperties": false,
@@ -1748,31 +1771,9 @@
         }
       ]
     },
-    "__schema143": {
+    "__schema147": {
       "title": "allOf",
       "description": "Require the instance to validate against all subschemas.",
-      "$ref": "#/$defs/__schema144"
-    },
-    "__schema144": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/__schema23"
-      }
-    },
-    "__schema145": {
-      "title": "anyOf",
-      "description": "Require the instance to validate against at least one subschema.",
-      "$ref": "#/$defs/__schema146"
-    },
-    "__schema146": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/__schema23"
-      }
-    },
-    "__schema147": {
-      "title": "oneOf",
-      "description": "Require the instance to validate against exactly one subschema.",
       "$ref": "#/$defs/__schema148"
     },
     "__schema148": {
@@ -1782,38 +1783,60 @@
       }
     },
     "__schema149": {
-      "title": "not",
-      "description": "Require the instance to NOT validate against the given subschema.",
+      "title": "anyOf",
+      "description": "Require the instance to validate against at least one subschema.",
       "$ref": "#/$defs/__schema150"
     },
     "__schema150": {
-      "$ref": "#/$defs/__schema23"
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema23"
+      }
     },
     "__schema151": {
-      "title": "if",
-      "description": "Conditional validation: if the instance matches this schema, apply then; otherwise apply else.",
+      "title": "oneOf",
+      "description": "Require the instance to validate against exactly one subschema.",
       "$ref": "#/$defs/__schema152"
     },
     "__schema152": {
-      "$ref": "#/$defs/__schema23"
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema23"
+      }
     },
     "__schema153": {
-      "title": "then",
-      "description": "Subschema applied when if matches.",
+      "title": "not",
+      "description": "Require the instance to NOT validate against the given subschema.",
       "$ref": "#/$defs/__schema154"
     },
     "__schema154": {
       "$ref": "#/$defs/__schema23"
     },
     "__schema155": {
-      "title": "else",
-      "description": "Subschema applied when if does not match.",
+      "title": "if",
+      "description": "Conditional validation: if the instance matches this schema, apply then; otherwise apply else.",
       "$ref": "#/$defs/__schema156"
     },
     "__schema156": {
       "$ref": "#/$defs/__schema23"
     },
     "__schema157": {
+      "title": "then",
+      "description": "Subschema applied when if matches.",
+      "$ref": "#/$defs/__schema158"
+    },
+    "__schema158": {
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema159": {
+      "title": "else",
+      "description": "Subschema applied when if does not match.",
+      "$ref": "#/$defs/__schema160"
+    },
+    "__schema160": {
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema161": {
       "title": "example",
       "examples": [
         123,
@@ -1825,27 +1848,27 @@
       ],
       "description": "Example value. Mutually exclusive with 'examples'."
     },
-    "__schema158": {
+    "__schema162": {
       "type": "object",
       "propertyNames": {
-        "$ref": "#/$defs/__schema159"
+        "$ref": "#/$defs/__schema163"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema160"
+        "$ref": "#/$defs/__schema164"
       },
       "title": "examples",
       "description": "Multiple named examples. Mutually exclusive with 'example'."
     },
-    "__schema159": {
+    "__schema163": {
       "type": "string"
     },
-    "__schema160": {
+    "__schema164": {
       "anyOf": [
         {
           "$ref": "#/$defs/__schema0"
         },
         {
-          "$ref": "#/$defs/__schema161"
+          "$ref": "#/$defs/__schema165"
         }
       ],
       "title": "Example",
@@ -1860,20 +1883,20 @@
         }
       ]
     },
-    "__schema161": {
+    "__schema165": {
       "type": "object",
       "properties": {
         "summary": {
-          "$ref": "#/$defs/__schema162"
+          "$ref": "#/$defs/__schema166"
         },
         "description": {
-          "$ref": "#/$defs/__schema163"
+          "$ref": "#/$defs/__schema167"
         },
         "value": {
-          "$ref": "#/$defs/__schema164"
+          "$ref": "#/$defs/__schema168"
         },
         "externalValue": {
-          "$ref": "#/$defs/__schema165"
+          "$ref": "#/$defs/__schema169"
         }
       },
       "additionalProperties": false,
@@ -1889,54 +1912,54 @@
         }
       ]
     },
-    "__schema162": {
+    "__schema166": {
       "type": "string",
       "title": "summary",
       "description": "Short description for the example."
     },
-    "__schema163": {
+    "__schema167": {
       "type": "string",
       "title": "description",
       "description": "Long description for the example."
     },
-    "__schema164": {
+    "__schema168": {
       "title": "value",
       "description": "Embedded literal example."
     },
-    "__schema165": {
+    "__schema169": {
       "type": "string",
       "format": "uri",
       "title": "externalValue",
       "description": "A URL that points to the literal example."
     },
-    "__schema167": {
+    "__schema171": {
       "type": "object",
       "propertyNames": {
-        "$ref": "#/$defs/__schema168"
+        "$ref": "#/$defs/__schema172"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema169"
+        "$ref": "#/$defs/__schema173"
       },
       "title": "content",
       "description": "For complex parameters. Mutually exclusive with 'schema'."
     },
-    "__schema168": {
+    "__schema172": {
       "type": "string"
     },
-    "__schema169": {
+    "__schema173": {
       "type": "object",
       "properties": {
         "schema": {
-          "$ref": "#/$defs/__schema170"
+          "$ref": "#/$defs/__schema174"
         },
         "example": {
-          "$ref": "#/$defs/__schema171"
+          "$ref": "#/$defs/__schema175"
         },
         "examples": {
-          "$ref": "#/$defs/__schema173"
+          "$ref": "#/$defs/__schema177"
         },
         "encoding": {
-          "$ref": "#/$defs/__schema175"
+          "$ref": "#/$defs/__schema179"
         }
       },
       "additionalProperties": false,
@@ -1953,57 +1976,57 @@
         }
       ]
     },
-    "__schema170": {
+    "__schema174": {
       "title": "schema",
       "$ref": "#/$defs/__schema23"
     },
-    "__schema171": {
-      "title": "example",
-      "$ref": "#/$defs/__schema172"
-    },
-    "__schema173": {
-      "type": "object",
-      "propertyNames": {
-        "$ref": "#/$defs/__schema174"
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema160"
-      },
-      "title": "examples"
-    },
-    "__schema174": {
-      "type": "string"
-    },
     "__schema175": {
-      "type": "object",
-      "propertyNames": {
-        "$ref": "#/$defs/__schema176"
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema177"
-      },
-      "title": "encoding"
-    },
-    "__schema176": {
-      "type": "string"
+      "title": "example",
+      "$ref": "#/$defs/__schema176"
     },
     "__schema177": {
       "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema178"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema164"
+      },
+      "title": "examples"
+    },
+    "__schema178": {
+      "type": "string"
+    },
+    "__schema179": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema180"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema181"
+      },
+      "title": "encoding"
+    },
+    "__schema180": {
+      "type": "string"
+    },
+    "__schema181": {
+      "type": "object",
       "properties": {
         "contentType": {
-          "$ref": "#/$defs/__schema178"
+          "$ref": "#/$defs/__schema182"
         },
         "headers": {
-          "$ref": "#/$defs/__schema179"
+          "$ref": "#/$defs/__schema183"
         },
         "style": {
-          "$ref": "#/$defs/__schema204"
+          "$ref": "#/$defs/__schema208"
         },
         "explode": {
-          "$ref": "#/$defs/__schema209"
+          "$ref": "#/$defs/__schema213"
         },
         "allowReserved": {
-          "$ref": "#/$defs/__schema211"
+          "$ref": "#/$defs/__schema215"
         }
       },
       "additionalProperties": false,
@@ -2016,71 +2039,71 @@
         }
       ]
     },
-    "__schema178": {
+    "__schema182": {
       "type": "string",
       "title": "contentType",
       "description": "The Content-Type for encoding a specific property."
     },
-    "__schema179": {
+    "__schema183": {
       "type": "object",
       "propertyNames": {
-        "$ref": "#/$defs/__schema180"
+        "$ref": "#/$defs/__schema184"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema181"
+        "$ref": "#/$defs/__schema185"
       },
       "title": "headers"
     },
-    "__schema180": {
+    "__schema184": {
       "type": "string"
     },
-    "__schema181": {
+    "__schema185": {
       "anyOf": [
         {
           "$ref": "#/$defs/__schema0"
         },
         {
-          "$ref": "#/$defs/__schema182"
+          "$ref": "#/$defs/__schema186"
         }
       ],
       "title": "Header",
       "description": "The Header Object follows the structure of the Parameter Object."
     },
-    "__schema182": {
+    "__schema186": {
       "type": "object",
       "properties": {
         "description": {
-          "$ref": "#/$defs/__schema183"
+          "$ref": "#/$defs/__schema187"
         },
         "required": {
-          "$ref": "#/$defs/__schema184"
-        },
-        "deprecated": {
-          "$ref": "#/$defs/__schema186"
-        },
-        "allowEmptyValue": {
           "$ref": "#/$defs/__schema188"
         },
-        "style": {
+        "deprecated": {
           "$ref": "#/$defs/__schema190"
         },
+        "allowEmptyValue": {
+          "$ref": "#/$defs/__schema192"
+        },
+        "style": {
+          "$ref": "#/$defs/__schema194"
+        },
         "explode": {
-          "$ref": "#/$defs/__schema191"
-        },
-        "allowReserved": {
-          "$ref": "#/$defs/__schema193"
-        },
-        "schema": {
           "$ref": "#/$defs/__schema195"
         },
+        "allowReserved": {
+          "$ref": "#/$defs/__schema197"
+        },
+        "schema": {
+          "$ref": "#/$defs/__schema199"
+        },
         "example": {
-          "$ref": "#/$defs/__schema196"
+          "$ref": "#/$defs/__schema200"
         },
         "examples": {
-          "$ref": "#/$defs/__schema198"
+          "$ref": "#/$defs/__schema202"
         },
         "content": {
-          "$ref": "#/$defs/__schema200"
+          "$ref": "#/$defs/__schema204"
         }
       },
       "additionalProperties": false,
@@ -2095,133 +2118,622 @@
         }
       ]
     },
-    "__schema183": {
+    "__schema187": {
       "type": "string",
       "title": "description",
       "description": "A brief description of the parameter."
     },
-    "__schema184": {
+    "__schema188": {
       "description": "Determines whether this parameter is mandatory.",
       "title": "required",
-      "$ref": "#/$defs/__schema185"
-    },
-    "__schema185": {
-      "type": "boolean"
-    },
-    "__schema186": {
-      "description": "Specifies that a parameter is deprecated.",
-      "title": "deprecated",
-      "$ref": "#/$defs/__schema187"
-    },
-    "__schema187": {
-      "type": "boolean"
-    },
-    "__schema188": {
-      "description": "Sets the ability to pass empty-valued parameters.",
-      "title": "allowEmptyValue",
       "$ref": "#/$defs/__schema189"
     },
     "__schema189": {
       "type": "boolean"
     },
     "__schema190": {
+      "description": "Specifies that a parameter is deprecated.",
+      "title": "deprecated",
+      "$ref": "#/$defs/__schema191"
+    },
+    "__schema191": {
+      "type": "boolean"
+    },
+    "__schema192": {
+      "description": "Sets the ability to pass empty-valued parameters.",
+      "title": "allowEmptyValue",
+      "$ref": "#/$defs/__schema193"
+    },
+    "__schema193": {
+      "type": "boolean"
+    },
+    "__schema194": {
       "type": "string",
       "const": "simple",
       "title": "style",
       "description": "Describes how the parameter value will be serialized."
     },
-    "__schema191": {
-      "title": "explode",
-      "$ref": "#/$defs/__schema192"
-    },
-    "__schema192": {
-      "type": "boolean"
-    },
-    "__schema193": {
-      "title": "allowReserved",
-      "$ref": "#/$defs/__schema194"
-    },
-    "__schema194": {
-      "type": "boolean"
-    },
     "__schema195": {
+      "title": "explode",
+      "$ref": "#/$defs/__schema196"
+    },
+    "__schema196": {
+      "type": "boolean"
+    },
+    "__schema197": {
+      "title": "allowReserved",
+      "$ref": "#/$defs/__schema198"
+    },
+    "__schema198": {
+      "type": "boolean"
+    },
+    "__schema199": {
       "title": "schema",
       "$ref": "#/$defs/__schema23"
     },
-    "__schema196": {
+    "__schema200": {
       "title": "example",
-      "$ref": "#/$defs/__schema197"
+      "$ref": "#/$defs/__schema201"
     },
-    "__schema198": {
+    "__schema202": {
       "type": "object",
       "propertyNames": {
-        "$ref": "#/$defs/__schema199"
+        "$ref": "#/$defs/__schema203"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema160"
+        "$ref": "#/$defs/__schema164"
       },
       "title": "examples"
     },
-    "__schema199": {
+    "__schema203": {
       "type": "string"
     },
-    "__schema200": {
+    "__schema204": {
       "type": "object",
       "propertyNames": {
-        "$ref": "#/$defs/__schema201"
+        "$ref": "#/$defs/__schema205"
       },
       "additionalProperties": false,
       "title": "content"
     },
-    "__schema201": {
+    "__schema205": {
       "type": "string"
     },
-    "__schema204": {
+    "__schema208": {
       "anyOf": [
         {
-          "$ref": "#/$defs/__schema205"
+          "$ref": "#/$defs/__schema209"
         },
         {
-          "$ref": "#/$defs/__schema206"
+          "$ref": "#/$defs/__schema210"
         },
         {
-          "$ref": "#/$defs/__schema207"
+          "$ref": "#/$defs/__schema211"
         },
         {
-          "$ref": "#/$defs/__schema208"
+          "$ref": "#/$defs/__schema212"
         }
       ],
       "title": "style"
     },
-    "__schema205": {
+    "__schema209": {
       "type": "string",
       "const": "form"
     },
-    "__schema206": {
+    "__schema210": {
       "type": "string",
       "const": "spaceDelimited"
     },
-    "__schema207": {
+    "__schema211": {
       "type": "string",
       "const": "pipeDelimited"
     },
-    "__schema208": {
+    "__schema212": {
       "type": "string",
       "const": "deepObject"
     },
-    "__schema209": {
+    "__schema213": {
       "title": "explode",
-      "$ref": "#/$defs/__schema210"
+      "$ref": "#/$defs/__schema214"
     },
-    "__schema210": {
+    "__schema214": {
       "type": "boolean"
     },
-    "__schema211": {
+    "__schema215": {
       "title": "allowReserved",
-      "$ref": "#/$defs/__schema212"
+      "$ref": "#/$defs/__schema216"
     },
-    "__schema212": {
+    "__schema216": {
       "type": "boolean"
+    },
+    "__schema220": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/__schema221"
+        },
+        "in": {
+          "$ref": "#/$defs/__schema222"
+        },
+        "description": {
+          "$ref": "#/$defs/__schema223"
+        },
+        "required": {
+          "$ref": "#/$defs/__schema224"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/__schema225"
+        },
+        "style": {
+          "$ref": "#/$defs/__schema227"
+        },
+        "explode": {
+          "$ref": "#/$defs/__schema228"
+        },
+        "schema": {
+          "$ref": "#/$defs/__schema229"
+        },
+        "example": {
+          "$ref": "#/$defs/__schema230"
+        },
+        "examples": {
+          "$ref": "#/$defs/__schema231"
+        },
+        "content": {
+          "$ref": "#/$defs/__schema233"
+        }
+      },
+      "required": [
+        "name",
+        "in",
+        "required"
+      ],
+      "additionalProperties": false,
+      "title": "Path Parameter",
+      "description": "A path parameter (/users/{id}).",
+      "examples": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer"
+          }
+        }
+      ]
+    },
+    "__schema221": {
+      "type": "string",
+      "title": "name",
+      "examples": [
+        "id",
+        "userId",
+        "slug"
+      ],
+      "description": "The name of the path parameter. Must match a template expression in the path."
+    },
+    "__schema222": {
+      "type": "string",
+      "const": "path",
+      "title": "in",
+      "examples": [
+        "path"
+      ]
+    },
+    "__schema223": {
+      "type": "string",
+      "title": "description",
+      "examples": [
+        "Unique identifier",
+        "Resource slug"
+      ],
+      "description": "A description of the parameter. CommonMark syntax MAY be used."
+    },
+    "__schema224": {
+      "type": "boolean",
+      "const": true,
+      "description": "Path parameters must always be required.",
+      "title": "required"
+    },
+    "__schema225": {
+      "description": "Marks the parameter as deprecated.",
+      "title": "deprecated",
+      "examples": [
+        true
+      ],
+      "$ref": "#/$defs/__schema226"
+    },
+    "__schema226": {
+      "type": "boolean"
+    },
+    "__schema227": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "matrix",
+        "label"
+      ],
+      "title": "style",
+      "examples": [
+        "simple",
+        "matrix",
+        "label"
+      ],
+      "description": "Serialization style. Default: 'simple'."
+    },
+    "__schema228": {
+      "type": "boolean",
+      "title": "explode",
+      "examples": [
+        true,
+        false
+      ],
+      "description": "For arrays/objects. When true, each value gets its own parameter."
+    },
+    "__schema229": {
+      "title": "schema",
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema230": {
+      "title": "example",
+      "examples": [
+        123,
+        "abc"
+      ],
+      "description": "Example value. Mutually exclusive with 'examples'."
+    },
+    "__schema231": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema232"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema164"
+      },
+      "title": "examples",
+      "description": "Multiple named examples. Mutually exclusive with 'example'."
+    },
+    "__schema232": {
+      "type": "string"
+    },
+    "__schema233": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema234"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema173"
+      },
+      "title": "content",
+      "description": "For complex parameters. Mutually exclusive with 'schema'."
+    },
+    "__schema234": {
+      "type": "string"
+    },
+    "__schema236": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/__schema237"
+        },
+        "in": {
+          "$ref": "#/$defs/__schema238"
+        },
+        "description": {
+          "$ref": "#/$defs/__schema239"
+        },
+        "required": {
+          "$ref": "#/$defs/__schema240"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/__schema242"
+        },
+        "style": {
+          "$ref": "#/$defs/__schema244"
+        },
+        "explode": {
+          "$ref": "#/$defs/__schema245"
+        },
+        "schema": {
+          "$ref": "#/$defs/__schema246"
+        },
+        "example": {
+          "$ref": "#/$defs/__schema247"
+        },
+        "examples": {
+          "$ref": "#/$defs/__schema248"
+        },
+        "content": {
+          "$ref": "#/$defs/__schema250"
+        }
+      },
+      "required": [
+        "name",
+        "in"
+      ],
+      "additionalProperties": false,
+      "title": "Header Parameter",
+      "description": "An HTTP header parameter.",
+      "examples": [
+        {
+          "name": "X-Request-ID",
+          "in": "header",
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ]
+    },
+    "__schema237": {
+      "type": "string",
+      "title": "name",
+      "examples": [
+        "X-Request-ID",
+        "X-Correlation-ID",
+        "Accept-Language"
+      ],
+      "description": "The name of the header. Case-insensitive."
+    },
+    "__schema238": {
+      "type": "string",
+      "const": "header",
+      "title": "in",
+      "examples": [
+        "header"
+      ]
+    },
+    "__schema239": {
+      "type": "string",
+      "title": "description",
+      "examples": [
+        "Request correlation ID",
+        "Preferred language"
+      ],
+      "description": "A description of the parameter. CommonMark syntax MAY be used."
+    },
+    "__schema240": {
+      "description": "Whether the header is required.",
+      "title": "required",
+      "examples": [
+        true,
+        false
+      ],
+      "$ref": "#/$defs/__schema241"
+    },
+    "__schema241": {
+      "type": "boolean"
+    },
+    "__schema242": {
+      "description": "Marks the parameter as deprecated.",
+      "title": "deprecated",
+      "examples": [
+        true
+      ],
+      "$ref": "#/$defs/__schema243"
+    },
+    "__schema243": {
+      "type": "boolean"
+    },
+    "__schema244": {
+      "type": "string",
+      "const": "simple",
+      "title": "style",
+      "examples": [
+        "simple"
+      ],
+      "description": "Serialization style. Only 'simple' is valid for headers."
+    },
+    "__schema245": {
+      "type": "boolean",
+      "title": "explode",
+      "examples": [
+        true,
+        false
+      ],
+      "description": "For arrays/objects. When true, each value gets its own parameter."
+    },
+    "__schema246": {
+      "title": "schema",
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema247": {
+      "title": "example",
+      "examples": [
+        "en-US",
+        "550e8400-e29b-41d4-a716-446655440000"
+      ],
+      "description": "Example value. Mutually exclusive with 'examples'."
+    },
+    "__schema248": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema249"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema164"
+      },
+      "title": "examples",
+      "description": "Multiple named examples. Mutually exclusive with 'example'."
+    },
+    "__schema249": {
+      "type": "string"
+    },
+    "__schema250": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema251"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema173"
+      },
+      "title": "content",
+      "description": "For complex parameters. Mutually exclusive with 'schema'."
+    },
+    "__schema251": {
+      "type": "string"
+    },
+    "__schema253": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/__schema254"
+        },
+        "in": {
+          "$ref": "#/$defs/__schema255"
+        },
+        "description": {
+          "$ref": "#/$defs/__schema256"
+        },
+        "required": {
+          "$ref": "#/$defs/__schema257"
+        },
+        "deprecated": {
+          "$ref": "#/$defs/__schema259"
+        },
+        "style": {
+          "$ref": "#/$defs/__schema261"
+        },
+        "explode": {
+          "$ref": "#/$defs/__schema262"
+        },
+        "schema": {
+          "$ref": "#/$defs/__schema263"
+        },
+        "example": {
+          "$ref": "#/$defs/__schema264"
+        },
+        "examples": {
+          "$ref": "#/$defs/__schema265"
+        },
+        "content": {
+          "$ref": "#/$defs/__schema267"
+        }
+      },
+      "required": [
+        "name",
+        "in"
+      ],
+      "additionalProperties": false,
+      "title": "Cookie Parameter",
+      "description": "A cookie parameter.",
+      "examples": [
+        {
+          "name": "session_id",
+          "in": "cookie",
+          "schema": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "__schema254": {
+      "type": "string",
+      "title": "name",
+      "examples": [
+        "session_id",
+        "csrf_token",
+        "debug"
+      ],
+      "description": "The name of the cookie."
+    },
+    "__schema255": {
+      "type": "string",
+      "const": "cookie",
+      "title": "in",
+      "examples": [
+        "cookie"
+      ]
+    },
+    "__schema256": {
+      "type": "string",
+      "title": "description",
+      "examples": [
+        "Session identifier",
+        "CSRF protection token"
+      ],
+      "description": "A description of the parameter. CommonMark syntax MAY be used."
+    },
+    "__schema257": {
+      "description": "Whether the cookie is required.",
+      "title": "required",
+      "examples": [
+        true,
+        false
+      ],
+      "$ref": "#/$defs/__schema258"
+    },
+    "__schema258": {
+      "type": "boolean"
+    },
+    "__schema259": {
+      "description": "Marks the parameter as deprecated.",
+      "title": "deprecated",
+      "examples": [
+        true
+      ],
+      "$ref": "#/$defs/__schema260"
+    },
+    "__schema260": {
+      "type": "boolean"
+    },
+    "__schema261": {
+      "type": "string",
+      "const": "form",
+      "title": "style",
+      "examples": [
+        "form"
+      ],
+      "description": "Serialization style. Only 'form' is valid for cookies."
+    },
+    "__schema262": {
+      "type": "boolean",
+      "title": "explode",
+      "examples": [
+        true,
+        false
+      ],
+      "description": "For arrays/objects. When true, each value gets its own parameter."
+    },
+    "__schema263": {
+      "title": "schema",
+      "$ref": "#/$defs/__schema23"
+    },
+    "__schema264": {
+      "title": "example",
+      "examples": [
+        "abc123",
+        true
+      ],
+      "description": "Example value. Mutually exclusive with 'examples'."
+    },
+    "__schema265": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema266"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema164"
+      },
+      "title": "examples",
+      "description": "Multiple named examples. Mutually exclusive with 'example'."
+    },
+    "__schema266": {
+      "type": "string"
+    },
+    "__schema267": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/__schema268"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema173"
+      },
+      "title": "content",
+      "description": "For complex parameters. Mutually exclusive with 'schema'."
+    },
+    "__schema268": {
+      "type": "string"
     }
   }
 }

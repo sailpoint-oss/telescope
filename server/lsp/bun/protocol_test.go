@@ -38,19 +38,6 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 				}),
 			},
 		},
-		{
-			name: "runZod request",
-			msg: Envelope{
-				ID:   "200",
-				Type: MsgRunZod,
-				Payload: mustMarshal(t, RunZodRequest{
-					DocumentURI: "file:///test.yaml",
-					Schemas: []ZodSchemaConfig{
-						{SchemaPath: "/rules/schema.ts", Pointers: []string{"/info"}},
-					},
-				}),
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -70,41 +57,6 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 				t.Errorf("Type: got %s, want %s", decoded.Type, tt.msg.Type)
 			}
 		})
-	}
-}
-
-func TestRunZodRequestPayload(t *testing.T) {
-	req := RunZodRequest{
-		DocumentURI: "file:///api.yaml",
-		Schemas: []ZodSchemaConfig{
-			{SchemaPath: "/rules/schema.ts", Pointers: []string{"/info/title"}},
-			{SchemaPath: "/rules/schema2.ts", Pointers: []string{"/paths"}},
-		},
-	}
-
-	data, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-
-	var decoded RunZodRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	if decoded.DocumentURI != req.DocumentURI {
-		t.Errorf("DocumentURI: got %q, want %q", decoded.DocumentURI, req.DocumentURI)
-	}
-	if len(decoded.Schemas) != len(req.Schemas) {
-		t.Fatalf("Schemas length: got %d, want %d", len(decoded.Schemas), len(req.Schemas))
-	}
-	for i, s := range decoded.Schemas {
-		if s.SchemaPath != req.Schemas[i].SchemaPath {
-			t.Errorf("Schemas[%d].SchemaPath: got %q, want %q", i, s.SchemaPath, req.Schemas[i].SchemaPath)
-		}
-		if len(s.Pointers) != len(req.Schemas[i].Pointers) {
-			t.Errorf("Schemas[%d].Pointers length: got %d, want %d", i, len(s.Pointers), len(req.Schemas[i].Pointers))
-		}
 	}
 }
 

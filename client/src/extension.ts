@@ -88,10 +88,6 @@ export async function activate(context: ExtensionContext) {
 			): { knownOpenAPIFiles: number; workspacePath: string | null } | null {
 				return null;
 			},
-			async getDiagnostics(): Promise<unknown> {
-				await fail();
-				return null;
-			},
 			getClientOpenApiFileCount(): number {
 				throw new Error(`Telescope activation failed: ${msg}`);
 			},

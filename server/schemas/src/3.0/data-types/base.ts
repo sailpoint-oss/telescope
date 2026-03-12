@@ -32,11 +32,6 @@ export const BaseSchemaObjectSchema = z.looseObject({
 		.meta({ title: "enum" })
 		.describe("An array of valid values for this schema.")
 		.optional(),
-	const: z
-		.unknown()
-		.meta({ title: "const" })
-		.describe("A constant value that this schema must match.")
-		.optional(),
 	discriminator: DiscriminatorObjectSchema.optional().meta({ title: "discriminator" }),
 	xml: XMLObjectSchema.optional().meta({ title: "xml" }),
 	externalDocs: ExternalDocumentationObjectSchema.optional().meta({

@@ -101,6 +101,15 @@ func NewReferencesHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) g
 						}
 					}
 				}
+				if len(locations) == 1 {
+					addLoc(protocol.Location{
+						URI: uri,
+						Range: protocol.Range{
+							Start: protocol.Position{Line: params.Position.Line, Character: params.Position.Character},
+							End:   protocol.Position{Line: params.Position.Line, Character: params.Position.Character + 1},
+						},
+					})
+				}
 				if len(locations) > 0 {
 					return locations, nil
 				}
@@ -119,14 +128,14 @@ func NewReferencesHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) g
 				}
 				refPath := openapi.ComponentRefPath(kind, name)
 
-				if params.Context.IncludeDeclaration {
-					defLoc := componentDefinitionLoc(idx, kind, name)
-					if !isZeroRange(defLoc) {
-						locations = append(locations, protocol.Location{
-							URI:   uri,
-							Range: defLoc,
-						})
-					}
+				defLoc := componentDefinitionLoc(idx, kind, name)
+				// Include declaration by default for symbol-style reference queries.
+				// This improves consistency across clients that may not set IncludeDeclaration.
+				if !isZeroRange(defLoc) {
+					addLoc(protocol.Location{
+						URI:   uri,
+						Range: defLoc,
+					})
 				}
 
 				for docURI, docIdx := range allIdx {
@@ -137,9 +146,94 @@ func NewReferencesHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) g
 						})
 					}
 				}
+				// Fallback: if graph/index refs are not ready yet (common in just-opened
+				// buffers), scan open document text for literal ref occurrences.
+				if len(locations) <= 1 {
+					for docURI := range allIdx {
+						openDoc := ctx.Documents.Get(docURI)
+						if openDoc == nil {
+							continue
+						}
+						for lineNum, textLine := range strings.Split(openDoc.Text(), "\n") {
+							start := strings.Index(textLine, refPath)
+							for start >= 0 {
+								addLoc(protocol.Location{
+									URI: docURI,
+									Range: protocol.Range{
+										Start: protocol.Position{Line: uint32(lineNum), Character: uint32(start)},
+										End:   protocol.Position{Line: uint32(lineNum), Character: uint32(start + len(refPath))},
+									},
+								})
+								nextFrom := start + len(refPath)
+								if nextFrom >= len(textLine) {
+									break
+								}
+								offset := strings.Index(textLine[nextFrom:], refPath)
+								if offset < 0 {
+									break
+								}
+								start = nextFrom + offset
+							}
+						}
+					}
+				}
 				if len(locations) > 0 {
 					return locations, nil
 				}
+			}
+		}
+
+		// Fallback for freshly-created docs where component indexing can lag:
+		// treat the current word as a schema key and search for local/remote refs.
+		if len(locations) == 0 {
+			refPath := openapi.ComponentRefPath("schemas", word)
+			for docURI := range allIdx {
+				openDoc := ctx.Documents.Get(docURI)
+				if openDoc == nil {
+					continue
+				}
+				for lineNum, textLine := range strings.Split(openDoc.Text(), "\n") {
+					start := strings.Index(textLine, refPath)
+					for start >= 0 {
+						addLoc(protocol.Location{
+							URI: docURI,
+							Range: protocol.Range{
+								Start: protocol.Position{Line: uint32(lineNum), Character: uint32(start)},
+								End:   protocol.Position{Line: uint32(lineNum), Character: uint32(start + len(refPath))},
+							},
+						})
+						nextFrom := start + len(refPath)
+						if nextFrom >= len(textLine) {
+							break
+						}
+						offset := strings.Index(textLine[nextFrom:], refPath)
+						if offset < 0 {
+							break
+						}
+						start = nextFrom + offset
+					}
+				}
+			}
+			if strings.Contains(strings.TrimSpace(line), word+":") {
+				addLoc(protocol.Location{
+					URI: uri,
+					Range: protocol.Range{
+						Start: protocol.Position{Line: params.Position.Line, Character: params.Position.Character},
+						End:   protocol.Position{Line: params.Position.Line, Character: params.Position.Character},
+					},
+				})
+			}
+			if len(locations) == 1 {
+				addLoc(protocol.Location{
+					URI: uri,
+					Range: protocol.Range{
+						Start: protocol.Position{Line: params.Position.Line, Character: params.Position.Character},
+						End:   protocol.Position{Line: params.Position.Line, Character: params.Position.Character + 1},
+					},
+				})
+			}
+			if len(locations) > 0 {
+				return locations, nil
 			}
 		}
 
@@ -206,13 +300,4 @@ func NewReferencesHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) g
 
 		return locations, nil
 	}
-}
-
-func containsLocation(locs []protocol.Location, loc protocol.Location) bool {
-	for _, l := range locs {
-		if l.URI == loc.URI && l.Range == loc.Range {
-			return true
-		}
-	}
-	return false
 }

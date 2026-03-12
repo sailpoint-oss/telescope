@@ -7,7 +7,6 @@
     "@stoplight/spectral-core": "^1.21.0",
     "@stoplight/spectral-parsers": "^1.0.5",
     "@stoplight/spectral-rulesets": "^1.22.0",
-    "@sailpoint-oss/telescope": "file:../telescope-server",
-    "zod": "^3.23.0"
+    "@sailpoint-oss/telescope": "file:../telescope-server"
   }
 }

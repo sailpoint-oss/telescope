@@ -12,6 +12,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
 function extractTargetUri(
@@ -42,6 +43,10 @@ suite("Providers", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
+		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
+			timeoutMs: 60000,
+			uri: folder.uri,
+		});
 
 		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		await openAndShow(warmupUri);
@@ -100,7 +105,7 @@ suite("Providers", () => {
 
 		const text = doc.getText();
 		const idx = text.indexOf("$ref:");
-		if (idx === -1) return;
+		assert.ok(idx !== -1, "Fixture should contain a $ref in ref-root.yaml");
 		const pos = doc.positionAt(idx + "$ref: ".length + 2);
 
 		const defs = await executeWithRetry<
@@ -112,10 +117,7 @@ suite("Providers", () => {
 			{ maxAttempts: 25 },
 		);
 
-		if (!defs || defs.length === 0) {
-			this.skip();
-			return;
-		}
+		assert.ok(defs && defs.length > 0, "Expected cross-file definition result");
 
 		const targetUri = extractTargetUri(defs[0]!);
 		assert.ok(
@@ -137,7 +139,7 @@ suite("Providers", () => {
 		const text = doc.getText();
 		const refStr = '#/components/schemas/User"';
 		const refIdx = text.indexOf(refStr);
-		assert.ok(refIdx !== -1);
+		assert.ok(refIdx !== -1, "Fixture should contain User schema ref");
 		const pos = doc.positionAt(refIdx + 2);
 
 		const refs = await executeWithRetry<vscode.Location[]>(

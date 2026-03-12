@@ -11,11 +11,9 @@ import (
 type EdgeKind int
 
 const (
-	EdgeRef       EdgeKind = iota // $ref relationship
-	EdgeComponent                 // component inclusion (schemas, parameters, etc.)
-	EdgeExternal                  // external document reference
-	EdgePathRef                   // file-relative $ref edge
-	EdgeAnchor                    // YAML $anchor reference edge
+	EdgeRef      EdgeKind = iota // $ref relationship
+	EdgeExternal                 // external document reference
+	EdgePathRef                  // file-relative $ref edge
 )
 
 // Edge represents a directed relationship between two documents.

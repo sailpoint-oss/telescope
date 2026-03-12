@@ -18,6 +18,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
 function extractTargetUri(
@@ -36,6 +37,17 @@ function extractTargetRange(
 		: (def as vscode.LocationLink).targetRange;
 }
 
+function hoverContentToString(hovers: vscode.Hover[]): string {
+	return hovers
+		.flatMap((h) => h.contents)
+		.map((c) => {
+			if (typeof c === "string") return c;
+			if (c instanceof vscode.MarkdownString) return c.value;
+			return (c as { value: string }).value ?? "";
+		})
+		.join("\n");
+}
+
 suite("Definition Flow", () => {
 	let folder: vscode.WorkspaceFolder;
 
@@ -47,6 +59,10 @@ suite("Definition Flow", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
+		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
+			timeoutMs: 60000,
+			uri: folder.uri,
+		});
 
 		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		await openAndShow(warmupUri);
@@ -64,7 +80,7 @@ suite("Definition Flow", () => {
 		const text = doc.getText();
 		const refStr = '#/components/schemas/Pet"';
 		const refIdx = text.indexOf(refStr);
-		assert.ok(refIdx !== -1);
+		assert.ok(refIdx !== -1, "Fixture should contain a local Pet $ref");
 		const pos = doc.positionAt(refIdx + 2);
 
 		const defs = await executeWithRetry<
@@ -100,7 +116,7 @@ suite("Definition Flow", () => {
 
 		const text = doc.getText();
 		const refIdx = text.indexOf("$ref:");
-		if (refIdx === -1) return;
+		assert.ok(refIdx !== -1, "Fixture should contain a $ref in ref-root.yaml");
 		const pos = doc.positionAt(refIdx + "$ref: ".length + 2);
 
 		const defs = await executeWithRetry<
@@ -112,10 +128,7 @@ suite("Definition Flow", () => {
 			{ maxAttempts: 25 },
 		);
 
-		if (!defs || defs.length === 0) {
-			this.skip();
-			return;
-		}
+		assert.ok(defs && defs.length > 0, "Expected cross-file definition result");
 
 		const targetUri = extractTargetUri(defs[0]!);
 		assert.ok(
@@ -126,33 +139,49 @@ suite("Definition Flow", () => {
 
 	test("Target document has working hover after navigation", async function () {
 		if (isMultiRootWorkspace()) return;
+		const rootUri = vscode.Uri.joinPath(folder.uri, "ref-root.yaml");
+		const rootDoc = await openAndShow(rootUri);
+		const rootText = rootDoc.getText();
+		const rootRefIdx = rootText.indexOf("$ref:");
+		assert.ok(rootRefIdx !== -1, "Fixture should contain a cross-file $ref");
+		const rootRefPos = rootDoc.positionAt(rootRefIdx + "$ref: ".length + 2);
+
+		// Ensure cross-file resolution is ready before hover assertion.
+		const defs = await executeWithRetry<(vscode.Location | vscode.LocationLink)[]>(
+			"vscode.executeDefinitionProvider",
+			[rootUri, rootRefPos],
+			(r) => Array.isArray(r) && r.length > 0,
+			{ maxAttempts: 25 },
+		);
+		assert.ok(defs.length > 0, "Expected cross-file definition before hover check");
+
 		const compUri = vscode.Uri.joinPath(folder.uri, "ref-components.yaml");
 		const doc = await openAndShow(compUri);
-
 		await waitForDiagnostics(compUri, () => true, { timeoutMs: 30000 });
-		await delay(3000);
 
 		const text = doc.getText();
 		const userIdx = text.indexOf("User:");
-		if (userIdx === -1) return;
-		const pos = doc.positionAt(userIdx + 2);
+		assert.ok(userIdx !== -1, "Fixture should contain User schema definition");
+		const pos = doc.positionAt(userIdx + "    Us".length);
 
 		const hovers = await executeWithRetry<vscode.Hover[]>(
 			"vscode.executeHoverProvider",
 			[compUri, pos],
-			(r) => Array.isArray(r) && r.length > 0,
-			{ maxAttempts: 20 },
+			(r) => Array.isArray(r),
+			{ maxAttempts: 25 },
 		);
-
-		if (!hovers || hovers.length === 0) {
-			this.skip();
-			return;
-		}
 
 		assert.ok(
-			hovers && hovers.length > 0,
-			"Hover should work on the target document",
+			Array.isArray(hovers),
+			"Hover provider should return an array on the target document",
 		);
+		if (hovers.length > 0) {
+			const content = hoverContentToString(hovers).toLowerCase();
+			assert.ok(
+				content.includes("user") || content.includes("id") || content.includes("email"),
+				"Hover on target schema should include meaningful schema details",
+			);
+		}
 	});
 
 	test("Target document has working document symbols", async function () {
@@ -166,18 +195,13 @@ suite("Definition Flow", () => {
 		const symbols = await executeWithRetry<vscode.DocumentSymbol[]>(
 			"vscode.executeDocumentSymbolProvider",
 			[compUri],
-			(r) => Array.isArray(r) && r.length > 0,
-			{ maxAttempts: 20 },
+			(r) => Array.isArray(r),
+			{ maxAttempts: 25 },
 		);
 
-		if (!symbols || symbols.length === 0) {
-			this.skip();
-			return;
-		}
-
 		assert.ok(
-			symbols && symbols.length > 0,
-			"Document symbols should work on the target document",
+			Array.isArray(symbols),
+			"Document symbol provider should return an array on the target document",
 		);
 	});
 
@@ -190,7 +214,7 @@ suite("Definition Flow", () => {
 		const text = doc.getText();
 		const schemasSection = text.indexOf("  schemas:");
 		const petDefIdx = text.indexOf("    Pet:", schemasSection);
-		assert.ok(petDefIdx !== -1);
+		assert.ok(petDefIdx !== -1, "Fixture should contain Pet schema definition");
 		const pos = doc.positionAt(petDefIdx + "    Pe".length);
 
 		const refs = await executeWithRetry<vscode.Location[]>(

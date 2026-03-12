@@ -4,29 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"unsafe"
-
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
-	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 
 	"github.com/LukasParke/gossip/protocol"
-	"github.com/LukasParke/gossip/treesitter"
 	"github.com/spf13/cobra"
 
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/lintengine"
-	"github.com/sailpoint-oss/telescope/server/lsp"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
-	"github.com/sailpoint-oss/telescope/server/openapi"
-	"github.com/sailpoint-oss/telescope/server/project"
-	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rulesets"
 )
 
@@ -40,11 +27,6 @@ var (
 	reportJSONPath string
 	saveBaseline   bool
 	failOnNew      bool
-)
-
-var (
-	yamlLang = tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
-	jsonLang = tree_sitter.NewLanguage(unsafe.Pointer(ts_json.Language()))
 )
 
 func newLintCmd() *cobra.Command {
@@ -138,7 +120,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	// Write reports if requested
 	if reportJSONPath != "" || reportMDPath != "" {
-		report := buildLintReport(wd, run.Files, allDiags)
+		report := buildLintReport(wd, allDiags)
 		if reportJSONPath != "" {
 			if err := writeJSONReport(reportJSONPath, report); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing JSON report: %v\n", err)
@@ -168,169 +150,6 @@ func countDiags(allDiags []fileDiagnostics) int {
 type fileDiagnostics struct {
 	Path        string
 	Diagnostics []protocol.Diagnostic
-}
-
-func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []rules.NamedAnalyzer, allChecks []rules.NamedCheck, projectContexts map[string]*project.ProjectContext, childLinter *lsp.ChildLSPLinter) []protocol.Diagnostic {
-	format := openapi.FormatFromURI(path)
-	if format == openapi.FormatUnknown {
-		return nil
-	}
-
-	uri := pathToFileURI(path)
-	langID := langIDForPath(path)
-
-	// Start child LSP analysis in the background so it runs concurrently
-	// with telescope's own analyzers and checks.
-	var childDiags []protocol.Diagnostic
-	var childWg sync.WaitGroup
-	if childLinter != nil && langID != "" {
-		childWg.Add(1)
-		go func() {
-			defer childWg.Done()
-			childDiags = childLinter.LintFile(
-				context.Background(),
-				protocol.DocumentURI(uri),
-				langID,
-				content,
-			)
-		}()
-	}
-
-	var diags []protocol.Diagnostic
-
-	idx := openapi.ParseAndIndex(content)
-
-	tree, lang := parseTreeSitter(path, content)
-	defer func() {
-		if tree != nil {
-			tree.Close()
-		}
-	}()
-
-	// Always run analyzers -- the oas3-schema analyzer handles both root
-	// documents (version-based) and fragments (heuristic-based).
-	var analyzerOpts []rules.AnalyzerOption
-	if cfg.OpenAPI.TargetVersion != "" {
-		analyzerOpts = append(analyzerOpts, rules.WithTargetVersion(openapi.Version(cfg.OpenAPI.TargetVersion)))
-	}
-	diags = adapt.DiagnosticsToProtocol(rules.RunAnalyzers(allAnalyzers, idx, uri, tree, analyzerOpts...))
-	diags = append(diags, adapt.DiagnosticsToProtocol(rules.RunChecks(allChecks, tree, lang))...)
-
-	if idx != nil && idx.Document != nil {
-		if pctx := findProjectContext(uri, projectContexts); pctx != nil {
-			diags = append(diags, diagnoseUnresolvedRefs(uri, idx, pctx)...)
-		}
-	}
-
-	childWg.Wait()
-	diags = append(diags, childDiags...)
-	return diags
-}
-
-// parseTreeSitter parses content into a tree-sitter tree based on file extension.
-func parseTreeSitter(path string, content []byte) (*treesitter.Tree, *tree_sitter.Language) {
-	ext := strings.ToLower(filepath.Ext(path))
-
-	var lang *tree_sitter.Language
-	switch ext {
-	case ".yaml", ".yml":
-		lang = yamlLang
-	case ".json":
-		lang = jsonLang
-	default:
-		return nil, nil
-	}
-
-	parser := tree_sitter.NewParser()
-	if err := parser.SetLanguage(lang); err != nil {
-		parser.Close()
-		return nil, nil
-	}
-
-	raw := parser.Parse(content, nil)
-	parser.Close()
-
-	if raw == nil {
-		return nil, nil
-	}
-
-	return treesitter.NewTree(raw, content), lang
-}
-
-// buildProjectContexts creates ProjectContexts for root files among the
-// collected files, enabling cross-file $ref resolution.
-func buildProjectContexts(files []string, logger *slog.Logger) map[string]*project.ProjectContext {
-	contexts := make(map[string]*project.ProjectContext)
-
-	for _, file := range files {
-		abs, _ := filepath.Abs(file)
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			continue
-		}
-		idx := openapi.ParseAndIndex(data)
-		if idx == nil || idx.Document == nil || idx.Document.DocType != openapi.DocTypeRoot {
-			continue
-		}
-		uri := pathToFileURI(abs)
-		pctx, err := project.BuildProjectContext(uri, nil, logger)
-		if err != nil {
-			logger.Warn("failed to build project context", "root", uri, "error", err)
-			continue
-		}
-		contexts[uri] = pctx
-	}
-
-	return contexts
-}
-
-// findProjectContext returns the ProjectContext that contains the given URI.
-func findProjectContext(uri string, contexts map[string]*project.ProjectContext) *project.ProjectContext {
-	if pctx, ok := contexts[uri]; ok {
-		return pctx
-	}
-	for _, pctx := range contexts {
-		if pctx.ContainsFile(uri) {
-			return pctx
-		}
-	}
-	return nil
-}
-
-// diagnoseUnresolvedRefs checks for $ref values that cannot be resolved within
-// the project context.
-func diagnoseUnresolvedRefs(uri string, idx *openapi.Index, pctx *project.ProjectContext) []protocol.Diagnostic {
-	var diags []protocol.Diagnostic
-	for target, usages := range idx.Refs {
-		if _, err := idx.Resolve(target); err == nil {
-			continue
-		}
-		if strings.HasPrefix(target, "#") {
-			for _, usage := range usages {
-				diags = append(diags, protocol.Diagnostic{
-					Range:    adapt.RangeToProtocol(usage.Loc.Range),
-					Severity: protocol.SeverityError,
-					Source:   "unresolved-ref",
-					Message:  "Cannot resolve $ref: " + target,
-					Code:     "unresolved-ref",
-				})
-			}
-			continue
-		}
-		if pctx.Resolver.CanResolve(uri, target) {
-			continue
-		}
-		for _, usage := range usages {
-			diags = append(diags, protocol.Diagnostic{
-				Range:    adapt.RangeToProtocol(usage.Loc.Range),
-				Severity: protocol.SeverityError,
-				Source:   "unresolved-ref",
-				Message:  "Cannot resolve $ref: " + target,
-				Code:     "unresolved-ref",
-			})
-		}
-	}
-	return diags
 }
 
 func shouldFail(sev protocol.DiagnosticSeverity) bool {
@@ -429,106 +248,6 @@ func collectFiles(args []string, cfg *config.Config) ([]string, error) {
 func isOpenAPIExtension(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".yaml" || ext == ".yml" || ext == ".json"
-}
-
-func pathToFileURI(path string) string {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		abs = path
-	}
-	u := &url.URL{Scheme: "file", Path: abs}
-	return u.String()
-}
-
-func langIDForPath(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".yaml", ".yml":
-		return "yaml"
-	case ".json":
-		return "json"
-	default:
-		return ""
-	}
-}
-
-// filterAnalyzers removes analyzers whose rule ID is explicitly disabled.
-func filterAnalyzers(all []rules.NamedAnalyzer, enabled map[string]bool) []rules.NamedAnalyzer {
-	if len(enabled) == 0 {
-		return all
-	}
-	var out []rules.NamedAnalyzer
-	for _, a := range all {
-		if v, ok := enabled[a.ID]; ok && !v {
-			continue // explicitly disabled
-		}
-		out = append(out, a)
-	}
-	return out
-}
-
-// filterChecks removes checks whose name is explicitly disabled.
-func filterChecks(all []rules.NamedCheck, enabled map[string]bool) []rules.NamedCheck {
-	if len(enabled) == 0 {
-		return all
-	}
-	var out []rules.NamedCheck
-	for _, c := range all {
-		if v, ok := enabled[c.Name]; ok && !v {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
-// buildSeverityOverrides creates a map of rule ID to overridden severity
-// from the config's extends + rules fields.
-func buildSeverityOverrides(cfg *config.Config) map[string]protocol.DiagnosticSeverity {
-	rs := rulesets.GetBuiltin(cfg.Extends)
-	if rs == nil {
-		rs = &rulesets.RuleSet{Rules: make(map[string]rulesets.RuleDefinition)}
-	}
-	for id, sev := range cfg.Rules {
-		rs.Rules[id] = rulesets.RuleDefinition{Severity: sev}
-	}
-	overrides := rulesets.BuildSeverityOverrides(rs)
-	m := make(map[string]protocol.DiagnosticSeverity, len(overrides))
-	for _, o := range overrides {
-		if !o.Disabled && o.Severity > 0 {
-			m[o.RuleID] = protocol.DiagnosticSeverity(o.Severity)
-		}
-	}
-	return m
-}
-
-// applySeverityOverrides adjusts diagnostic severities based on config overrides.
-func applySeverityOverrides(diags []protocol.Diagnostic, overrides map[string]protocol.DiagnosticSeverity) []protocol.Diagnostic {
-	if len(overrides) == 0 {
-		return diags
-	}
-	for i := range diags {
-		code, _ := diags[i].Code.(string)
-		if code == "" {
-			continue
-		}
-		if sev, ok := overrides[code]; ok {
-			diags[i].Severity = sev
-		}
-	}
-	return diags
-}
-
-// filterBySeverity keeps only diagnostics at or above the given severity.
-// LSP severities are: 1=Error, 2=Warning, 3=Info, 4=Hint (lower = more severe).
-func filterBySeverity(diags []protocol.Diagnostic, minSev protocol.DiagnosticSeverity) []protocol.Diagnostic {
-	var out []protocol.Diagnostic
-	for _, d := range diags {
-		if d.Severity <= minSev {
-			out = append(out, d)
-		}
-	}
-	return out
 }
 
 // matchesAnyPattern checks if a path matches any of the given glob patterns.

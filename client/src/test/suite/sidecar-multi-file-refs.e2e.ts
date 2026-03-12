@@ -10,11 +10,11 @@ import * as vscode from "vscode";
 import {
 	activateExtension,
 	deleteWorkspaceFile,
-	delay,
 	diagCode,
 	getTestApi,
 	isSidecarWorkspace,
 	openAndShow,
+	waitForSidecarReady,
 	waitForDiagnostics,
 	writeWorkspaceFile,
 } from "./utils/e2e-helpers";
@@ -30,21 +30,30 @@ suite("Sidecar: Multi-file Refs", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await delay(5000);
+		await waitForSidecarReady(folder);
 	});
 
 	test("Version-isolated external $ref resolves without unresolved-ref diagnostics", async () => {
 		if (!isSidecarWorkspace()) return;
+
+		const otherFileUri = vscode.Uri.joinPath(
+			folder.uri,
+			"openapi/test-multi-file-refs/version-ref-isolation-other.yaml",
+		);
+		await openAndShow(otherFileUri);
+		await waitForDiagnostics(otherFileUri, () => true, { timeoutMs: 120000 });
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
 			"openapi/test-multi-file-refs/version-ref-isolation-main.yaml",
 		);
 		await openAndShow(fileUri);
-		await waitForDiagnostics(fileUri, () => true, { timeoutMs: 120000 });
-		await delay(3000);
+		const diagnostics = await waitForDiagnostics(
+			fileUri,
+			(d) => !d.some((diag) => diagCode(diag) === "unresolved-ref"),
+			{ timeoutMs: 120000 },
+		);
 
-		const diagnostics = vscode.languages.getDiagnostics(fileUri);
 		const unresolvedRefs = diagnostics.filter(
 			(d) => diagCode(d) === "unresolved-ref",
 		);
@@ -79,7 +88,6 @@ suite("Sidecar: Multi-file Refs", () => {
 		try {
 			await openAndShow(uri);
 			await waitForDiagnostics(uri, () => true, { timeoutMs: 120000 });
-			await delay(3000);
 
 			const diagnostics = vscode.languages.getDiagnostics(uri);
 			const pathParamMismatches = diagnostics.filter(

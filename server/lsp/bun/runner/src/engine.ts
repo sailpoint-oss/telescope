@@ -212,29 +212,3 @@ export function runGenericRule(
 	}
 }
 
-export async function runSchemaRule(
-	schemaFactory: (z: typeof import("zod").z) => import("zod").ZodType<unknown>,
-	doc: SerializedDoc,
-): Promise<import("./types").SerializedDiagnostic[]> {
-	const { z } = await import("zod");
-	const schema = schemaFactory(z);
-	const result = schema.safeParse(doc.ast);
-	if (result.success) return [];
-
-	const diagnostics: import("./types").SerializedDiagnostic[] = [];
-	for (const issue of result.error.issues) {
-		const pointer = "/" + issue.path.join("/");
-		const coords = doc.pointers[pointer];
-		diagnostics.push({
-			startLine: coords?.[0] ?? 0,
-			startChar: coords?.[1] ?? 0,
-			endLine: coords?.[2] ?? 0,
-			endChar: coords?.[3] ?? 0,
-			severity: 1,
-			code: "zod-validation",
-			message: issue.message,
-			source: "telescope-zod",
-		});
-	}
-	return diagnostics;
-}

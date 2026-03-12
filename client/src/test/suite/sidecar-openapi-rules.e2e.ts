@@ -9,11 +9,11 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
 	diagCode,
 	getTestApi,
 	isSidecarWorkspace,
 	openAndShow,
+	waitForSidecarReady,
 	waitForDiagnostics,
 } from "./utils/e2e-helpers";
 
@@ -28,7 +28,7 @@ suite("Sidecar: Additional OpenAPI Rules", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await delay(5000);
+		await waitForSidecarReady(folder);
 	});
 
 	test("Missing operationId triggers custom-require-operationid diagnostic", async () => {
@@ -42,7 +42,12 @@ suite("Sidecar: Additional OpenAPI Rules", () => {
 
 		const diagnostics = await waitForDiagnostics(
 			fileUri,
-			(d) => d.length >= 0,
+			(d) =>
+				d.some(
+					(diag) =>
+						diagCode(diag) === "custom-require-operationid" ||
+						diag.message.toLowerCase().includes("operationid"),
+				),
 			{ timeoutMs: 120000 },
 		);
 

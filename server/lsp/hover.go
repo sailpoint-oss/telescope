@@ -13,6 +13,21 @@ import (
 )
 
 const maxHoverDescriptionLen = 500
+const maxHoverRefDepth = 3
+
+type hoverRenderContext struct {
+	resolveRef func(string) (interface{}, error)
+	visited    map[string]struct{}
+	maxDepth   int
+}
+
+func newHoverRenderContext(resolveRef func(string) (interface{}, error)) *hoverRenderContext {
+	return &hoverRenderContext{
+		resolveRef: resolveRef,
+		visited:    make(map[string]struct{}),
+		maxDepth:   maxHoverRefDepth,
+	}
+}
 
 // NewHoverHandler returns a handler that provides hover information for
 // $ref targets, schema types, parameters, responses, security schemes,
@@ -61,7 +76,7 @@ func NewHoverHandler(cache *openapi.IndexCache, bridge *GraphBridge) gossip.Hove
 			refTarget := extractRefFromLine(line)
 			if refTarget != "" {
 				if target, err := idx.Resolve(refTarget); err == nil {
-					content := formatRefHover(refTarget, target)
+					content := formatRefHoverWithContext(refTarget, target, newHoverRenderContext(idx.Resolve))
 					return &protocol.Hover{
 						Contents: protocol.MarkupContent{Kind: protocol.Markdown, Value: content},
 					}, nil
@@ -73,7 +88,7 @@ func NewHoverHandler(cache *openapi.IndexCache, bridge *GraphBridge) gossip.Hove
 						normTarget := protocol.NormalizeURI(protocol.DocumentURI(targetURI))
 						if targetIdx := cache.Get(normTarget); targetIdx != nil && targetPtr != "" {
 							if target, err := targetIdx.Resolve("#" + targetPtr); err == nil {
-								content := formatRefHover(refTarget, target)
+								content := formatRefHoverWithContext(refTarget, target, newHoverRenderContext(targetIdx.Resolve))
 								return &protocol.Hover{
 									Contents: protocol.MarkupContent{Kind: protocol.Markdown, Value: content},
 								}, nil
@@ -81,6 +96,13 @@ func NewHoverHandler(cache *openapi.IndexCache, bridge *GraphBridge) gossip.Hove
 						}
 					}
 				}
+
+				return &protocol.Hover{
+					Contents: protocol.MarkupContent{
+						Kind:  protocol.Markdown,
+						Value: formatUnresolvedRefHover(refTarget),
+					},
+				}, nil
 			}
 		}
 
@@ -90,7 +112,7 @@ func NewHoverHandler(cache *openapi.IndexCache, bridge *GraphBridge) gossip.Hove
 
 		// Component schema — only at definition site (NameLoc)
 		if schema, ok := idx.Schemas[word]; ok && isAtLoc(params.Position, schema.NameLoc) {
-			return markdownHover(formatSchemaHover(word, schema)), nil
+			return markdownHover(formatSchemaHoverWithContext(word, schema, newHoverRenderContext(idx.Resolve))), nil
 		}
 
 		// Component parameter — only at definition site (NameLoc)
@@ -174,55 +196,63 @@ func markdownHover(content string) *protocol.Hover {
 }
 
 func formatRefHover(ref string, target interface{}) string {
+	return formatRefHoverWithContext(ref, target, nil)
+}
+
+func formatUnresolvedRefHover(ref string) string {
+	return fmt.Sprintf("**$ref:** `%s`\n\n*Referenced object could not be resolved in the current workspace. If this points to an external file, preview is limited to the reference path.*\n", ref)
+}
+
+func formatRefHoverWithContext(ref string, target interface{}, renderCtx *hoverRenderContext) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("**$ref:** `%s`\n\n", ref))
 
 	switch t := target.(type) {
 	case *openapi.Schema:
 		if t.Type == "" && t.Ref != "" && len(t.Properties) == 0 && len(t.AllOf) == 0 && len(t.OneOf) == 0 && len(t.AnyOf) == 0 {
-			sb.WriteString(fmt.Sprintf("**Schema** → `%s`\n\n*Defined in external file*\n", t.Ref))
+			sb.WriteString(fmt.Sprintf("**Schema** → `%s`\n\n*Defined in external file (preview limited to reference path)*\n", t.Ref))
 		} else {
-			sb.WriteString(formatSchemaHover("", t))
+			sb.WriteString(formatSchemaHoverWithContext("", t, renderCtx))
 		}
 	case *openapi.Response:
 		if t.Ref != "" && t.Description.Text == "" && len(t.Content) == 0 {
-			sb.WriteString(fmt.Sprintf("**Response** → `%s`\n\n*Defined in external file*\n", t.Ref))
+			sb.WriteString(fmt.Sprintf("**Response** → `%s`\n\n*Defined in external file (preview limited to reference path)*\n", t.Ref))
 		} else {
 			sb.WriteString(formatResponseHover("", t))
 		}
 	case *openapi.Parameter:
 		if t.Ref != "" && t.Name == "" {
-			sb.WriteString(fmt.Sprintf("**Parameter** → `%s`\n\n*Defined in external file*\n", t.Ref))
+			sb.WriteString(fmt.Sprintf("**Parameter** → `%s`\n\n*Defined in external file (preview limited to reference path)*\n", t.Ref))
 		} else {
 			sb.WriteString(formatParameterHover("", t))
 		}
 	case *openapi.SecurityScheme:
 		if t.Type == "" && t.Ref != "" {
-			sb.WriteString(fmt.Sprintf("**Security Scheme** → `%s`\n\n*Defined in external file*\n", t.Ref))
+			sb.WriteString(fmt.Sprintf("**Security Scheme** → `%s`\n\n*Defined in external file (preview limited to reference path)*\n", t.Ref))
 		} else {
 			sb.WriteString(formatSecuritySchemeHover("", t, nil))
 		}
 	case *openapi.RequestBody:
 		if t.Ref != "" && len(t.Content) == 0 {
-			sb.WriteString(fmt.Sprintf("**Request Body** → `%s`\n\n*Defined in external file*\n", t.Ref))
+			sb.WriteString(fmt.Sprintf("**Request Body** → `%s`\n\n*Defined in external file (preview limited to reference path)*\n", t.Ref))
 		} else {
 			sb.WriteString(formatRequestBodyHover("", t))
 		}
 	case *openapi.Header:
 		if t.Ref != "" && t.Description.Text == "" {
-			sb.WriteString(fmt.Sprintf("**Header** → `%s`\n\n*Defined in external file*\n", t.Ref))
+			sb.WriteString(fmt.Sprintf("**Header** → `%s`\n\n*Defined in external file (preview limited to reference path)*\n", t.Ref))
 		} else {
 			sb.WriteString(formatHeaderHover("", t))
 		}
 	case *openapi.Link:
 		if t.Ref != "" && t.OperationID == "" && t.OperationRef == "" {
-			sb.WriteString(fmt.Sprintf("**Link** → `%s`\n\n*Defined in external file*\n", t.Ref))
+			sb.WriteString(fmt.Sprintf("**Link** → `%s`\n\n*Defined in external file (preview limited to reference path)*\n", t.Ref))
 		} else {
 			sb.WriteString(formatLinkHover("", t))
 		}
 	case *openapi.Example:
 		if t.Ref != "" && t.Summary == "" && t.Value == nil {
-			sb.WriteString(fmt.Sprintf("**Example** → `%s`\n\n*Defined in external file*\n", t.Ref))
+			sb.WriteString(fmt.Sprintf("**Example** → `%s`\n\n*Defined in external file (preview limited to reference path)*\n", t.Ref))
 		} else {
 			sb.WriteString(formatExampleHover("", t))
 		}
@@ -234,7 +264,7 @@ func formatRefHover(ref string, target interface{}) string {
 	return sb.String()
 }
 
-func formatSchemaHover(name string, schema *openapi.Schema) string {
+func formatSchemaHoverWithContext(name string, schema *openapi.Schema, renderCtx *hoverRenderContext) string {
 	var sb strings.Builder
 	if name != "" {
 		sb.WriteString(fmt.Sprintf("### %s\n\n", name))
@@ -242,7 +272,7 @@ func formatSchemaHover(name string, schema *openapi.Schema) string {
 
 	// Show composition summary for allOf/anyOf/oneOf schemas
 	if len(schema.AllOf) > 0 || len(schema.AnyOf) > 0 || len(schema.OneOf) > 0 {
-		sb.WriteString(formatCompositionHover(schema, 0))
+		sb.WriteString(formatCompositionHoverWithContext(schema, 0, renderCtx))
 		return sb.String()
 	}
 
@@ -279,14 +309,14 @@ func formatSchemaHover(name string, schema *openapi.Schema) string {
 		sb.WriteString(fmt.Sprintf("**Required:** %s\n\n", strings.Join(schema.Required, ", ")))
 	}
 	if len(schema.Properties) > 0 {
-		sb.WriteString(formatPropertyTable(schema, 0))
+		sb.WriteString(formatPropertyTable(schema, 0, renderCtx))
 	}
 	return sb.String()
 }
 
 // formatPropertyTable renders a markdown table of schema properties.
 // depth limits nested expansion; at depth >= 2 nested objects show "..." .
-func formatPropertyTable(schema *openapi.Schema, depth int) string {
+func formatPropertyTable(schema *openapi.Schema, depth int, renderCtx *hoverRenderContext) string {
 	if len(schema.Properties) == 0 {
 		return ""
 	}
@@ -308,7 +338,7 @@ func formatPropertyTable(schema *openapi.Schema, depth int) string {
 
 	for _, propName := range names {
 		prop := schema.Properties[propName]
-		typeStr := schemaTypeString(prop, depth)
+		typeStr := schemaTypeString(prop, depth, renderCtx)
 		req := ""
 		if requiredSet[propName] {
 			req = "**yes**"
@@ -326,29 +356,52 @@ func formatPropertyTable(schema *openapi.Schema, depth int) string {
 }
 
 // schemaTypeString returns a human-readable type string for a schema property.
-func schemaTypeString(schema *openapi.Schema, depth int) string {
+func schemaTypeString(schema *openapi.Schema, depth int, renderCtx *hoverRenderContext) string {
 	if schema.Ref != "" {
 		name := refBaseName(schema.Ref)
-		return fmt.Sprintf("`→ %s`", name)
+		if renderCtx == nil || renderCtx.resolveRef == nil {
+			return fmt.Sprintf("`→ %s`", name)
+		}
+		if depth >= renderCtx.maxDepth {
+			return fmt.Sprintf("`→ %s` `{...}`", name)
+		}
+		if _, seen := renderCtx.visited[schema.Ref]; seen {
+			return fmt.Sprintf("`→ %s` *(cycle)*", name)
+		}
+		target, err := renderCtx.resolveRef(schema.Ref)
+		if err != nil {
+			return fmt.Sprintf("`→ %s`", name)
+		}
+		refSchema, ok := target.(*openapi.Schema)
+		if !ok || refSchema == nil {
+			return fmt.Sprintf("`→ %s`", name)
+		}
+		renderCtx.visited[schema.Ref] = struct{}{}
+		defer delete(renderCtx.visited, schema.Ref)
+		summary := summarizeSchemaShape(refSchema, depth+1, renderCtx)
+		if summary == "" {
+			return fmt.Sprintf("`→ %s`", name)
+		}
+		return fmt.Sprintf("`→ %s` (%s)", name, summary)
 	}
 	if len(schema.AllOf) > 0 {
 		var parts []string
 		for _, s := range schema.AllOf {
-			parts = append(parts, schemaTypeString(s, depth+1))
+			parts = append(parts, schemaTypeString(s, depth+1, renderCtx))
 		}
 		return "allOf(" + strings.Join(parts, ", ") + ")"
 	}
 	if len(schema.OneOf) > 0 {
 		var parts []string
 		for _, s := range schema.OneOf {
-			parts = append(parts, schemaTypeString(s, depth+1))
+			parts = append(parts, schemaTypeString(s, depth+1, renderCtx))
 		}
 		return strings.Join(parts, " \\| ")
 	}
 	if len(schema.AnyOf) > 0 {
 		var parts []string
 		for _, s := range schema.AnyOf {
-			parts = append(parts, schemaTypeString(s, depth+1))
+			parts = append(parts, schemaTypeString(s, depth+1, renderCtx))
 		}
 		return strings.Join(parts, " \\| ")
 	}
@@ -357,7 +410,7 @@ func schemaTypeString(schema *openapi.Schema, depth int) string {
 		t = "any"
 	}
 	if t == "array" && schema.Items != nil {
-		itemType := schemaTypeString(schema.Items, depth+1)
+		itemType := schemaTypeString(schema.Items, depth+1, renderCtx)
 		return fmt.Sprintf("`%s[]`", itemType)
 	}
 	if schema.Format != "" {
@@ -369,15 +422,15 @@ func schemaTypeString(schema *openapi.Schema, depth int) string {
 	return fmt.Sprintf("`%s`", t)
 }
 
-// formatCompositionHover renders a merged view for allOf/anyOf/oneOf schemas.
-func formatCompositionHover(schema *openapi.Schema, depth int) string {
+// formatCompositionHoverWithContext renders a merged view for allOf/anyOf/oneOf schemas.
+func formatCompositionHoverWithContext(schema *openapi.Schema, depth int, renderCtx *hoverRenderContext) string {
 	var sb strings.Builder
 
 	if len(schema.AllOf) > 0 {
 		sb.WriteString("**Composition:** `allOf`\n\n")
 		merged := mergeAllOfProperties(schema.AllOf)
 		if len(merged.Properties) > 0 {
-			sb.WriteString(formatPropertyTable(merged, depth+1))
+			sb.WriteString(formatPropertyTable(merged, depth+1, renderCtx))
 		}
 		if schema.Description.Text != "" {
 			sb.WriteString("\n---\n\n")
@@ -392,7 +445,7 @@ func formatCompositionHover(schema *openapi.Schema, depth int) string {
 		}
 		sb.WriteString("**Variants:**\n")
 		for _, s := range schema.OneOf {
-			sb.WriteString(fmt.Sprintf("- %s\n", schemaTypeString(s, depth+1)))
+			sb.WriteString(fmt.Sprintf("- %s\n", schemaTypeString(s, depth+1, renderCtx)))
 		}
 		sb.WriteString("\n")
 	}
@@ -401,12 +454,56 @@ func formatCompositionHover(schema *openapi.Schema, depth int) string {
 		sb.WriteString("**Composition:** `anyOf`\n\n")
 		sb.WriteString("**Variants:**\n")
 		for _, s := range schema.AnyOf {
-			sb.WriteString(fmt.Sprintf("- %s\n", schemaTypeString(s, depth+1)))
+			sb.WriteString(fmt.Sprintf("- %s\n", schemaTypeString(s, depth+1, renderCtx)))
 		}
 		sb.WriteString("\n")
 	}
 
 	return sb.String()
+}
+
+func summarizeSchemaShape(schema *openapi.Schema, depth int, renderCtx *hoverRenderContext) string {
+	if schema == nil {
+		return ""
+	}
+	if schema.Type == "array" && schema.Items != nil {
+		return "array"
+	}
+	if schema.Type == "object" || len(schema.Properties) > 0 {
+		names := make([]string, 0, len(schema.Properties))
+		for n := range schema.Properties {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		if len(names) == 0 {
+			return "object"
+		}
+		const maxFields = 3
+		end := min(len(names), maxFields)
+		previewFields := make([]string, 0, end)
+		for _, propName := range names[:end] {
+			propPreview := propName
+			if prop := schema.Properties[propName]; prop != nil && prop.Ref != "" {
+				nested := schemaTypeString(prop, depth+1, renderCtx)
+				nested = strings.ReplaceAll(nested, "`", "")
+				nested = strings.ReplaceAll(nested, "*", "")
+				propPreview = propName + ":" + nested
+			}
+			previewFields = append(previewFields, propPreview)
+		}
+		preview := strings.Join(previewFields, ", ")
+		if len(names) > maxFields {
+			preview += ", ..."
+		}
+		return "{" + preview + "}"
+	}
+	if schema.Type != "" {
+		return schema.Type
+	}
+	if len(schema.Enum) > 0 {
+		return "enum"
+	}
+	return ""
 }
 
 // mergeAllOfProperties merges properties and required fields from all allOf sub-schemas
@@ -499,7 +596,7 @@ func formatResponseHover(name string, resp *openapi.Response) string {
 		for mt, mediaType := range resp.Content {
 			typeStr := ""
 			if mediaType != nil && mediaType.Schema != nil {
-				typeStr = " → " + schemaTypeString(mediaType.Schema, 0)
+				typeStr = " → " + schemaTypeString(mediaType.Schema, 0, nil)
 			}
 			sb.WriteString(fmt.Sprintf("- `%s`%s\n", mt, typeStr))
 		}
@@ -720,7 +817,7 @@ func formatRequestBodyHover(name string, rb *openapi.RequestBody) string {
 		for mt, mediaType := range rb.Content {
 			typeStr := ""
 			if mediaType != nil && mediaType.Schema != nil {
-				typeStr = " → " + schemaTypeString(mediaType.Schema, 0)
+				typeStr = " → " + schemaTypeString(mediaType.Schema, 0, nil)
 			}
 			sb.WriteString(fmt.Sprintf("- `%s`%s\n", mt, typeStr))
 		}

@@ -94,6 +94,8 @@ output:
 lsp:
   debounce: 300ms               # Diagnostic debounce delay
   maxFileSize: 5242880          # Max file size in bytes (5MB)
+  schemaValidation:
+    mode: go                    # go | bun | compare
 ```
 
 ## Top-Level Fields
@@ -295,7 +297,15 @@ Controls LSP server behavior.
 lsp:
   debounce: 300ms        # Diagnostic debounce delay (default: 300ms)
   maxFileSize: 5242880   # Max file size in bytes (default: 5MB)
+  schemaValidation:
+    mode: go             # Schema validation backend (default: go)
 ```
+
+`lsp.schemaValidation.mode` controls where structural schema validation runs:
+
+- `go` - Existing Go validators publish diagnostics (default).
+- `bun` - Legacy alias that normalizes to `go`.
+- `compare` - Legacy alias that normalizes to `go`.
 
 ## Pattern Matching
 
@@ -367,6 +377,8 @@ output:
 lsp:
   debounce: 300ms
   maxFileSize: 5242880
+  schemaValidation:
+    mode: go
 ```
 
 ## Configuration Reload
@@ -424,6 +436,8 @@ output:
 
 lsp:
   debounce: 500ms
+  schemaValidation:
+    mode: compare
 ```
 
 ## Troubleshooting

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/sailpoint-oss/telescope/server/core/graph"
-	"github.com/sailpoint-oss/telescope/server/core/parser"
 
 	"gopkg.in/yaml.v3"
 )
@@ -140,18 +139,6 @@ func extractCrossFileData(uri string, ast map[string]any, idx *SerializedProject
 			idx.ComponentRefs[ref] = append(idx.ComponentRefs[ref], uri)
 		}
 	}
-}
-
-// SerializePointerIndex converts a PointerIndex to the wire format.
-func SerializePointerIndex(pi *parser.PointerIndex) map[string][4]uint32 {
-	if pi == nil {
-		return make(map[string][4]uint32)
-	}
-	result := make(map[string][4]uint32, len(pi.All()))
-	for ptr, r := range pi.All() {
-		result[ptr] = [4]uint32{r.Start.Line, r.Start.Character, r.End.Line, r.End.Character}
-	}
-	return result
 }
 
 func detectFormat(uri string) string {

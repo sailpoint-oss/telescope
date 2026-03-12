@@ -40,10 +40,7 @@ type Manager struct {
 	readDone   chan struct{}
 	tmpDir     string // temp directory holding the extracted runner binary
 
-	ensureOnce  sync.Once
-	ensureErr   error
-	ensureCtx   context.Context
-	healthStop  chan struct{}
+	healthStop    chan struct{}
 	restartFailed atomic.Bool
 }
 
@@ -56,15 +53,6 @@ func NewManager(logger *slog.Logger) *Manager {
 		logger:  logger,
 		pending: make(map[string]chan *Envelope),
 	}
-}
-
-// EnsureStarted lazily starts the sidecar on first use via sync.Once.
-func (m *Manager) EnsureStarted(ctx context.Context) error {
-	m.ensureOnce.Do(func() {
-		m.ensureCtx = ctx
-		m.ensureErr = m.Start(ctx)
-	})
-	return m.ensureErr
 }
 
 // Available reports whether the Bun runtime is available and connected.
@@ -208,8 +196,6 @@ func (m *Manager) tryRestart(ctx context.Context) {
 	}
 	m.mu.Unlock()
 
-	// Reset once so Start can be called again
-	m.ensureOnce = sync.Once{}
 	if err := m.Start(ctx); err != nil {
 		m.logger.Error("bun sidecar restart failed permanently", "err", err)
 		m.restartFailed.Store(true)
@@ -231,7 +217,11 @@ func (m *Manager) Stop() {
 	}
 
 	if m.conn != nil {
-		m.send(&Envelope{ID: "shutdown", Type: MsgShutdown})
+		data, err := json.Marshal(&Envelope{ID: "shutdown", Type: MsgShutdown})
+		if err == nil {
+			data = append(data, '\n')
+			_, _ = m.conn.Write(data)
+		}
 		time.Sleep(100 * time.Millisecond)
 		m.conn.Close()
 		m.conn = nil
@@ -317,7 +307,15 @@ func (m *Manager) send(env *Envelope) error {
 		return err
 	}
 	data = append(data, '\n')
-	_, err = m.conn.Write(data)
+
+	m.mu.Lock()
+	conn := m.conn
+	m.mu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("sidecar connection not available")
+	}
+
+	_, err = conn.Write(data)
 	return err
 }
 
@@ -344,6 +342,9 @@ func (m *Manager) sendRequest(ctx context.Context, env *Envelope, timeout time.D
 
 	select {
 	case resp := <-ch:
+		if resp == nil {
+			return nil, fmt.Errorf("sidecar disconnected while waiting for response")
+		}
 		return resp, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -367,6 +368,9 @@ func (m *Manager) RunRules(ctx context.Context, req *RunRulesRequest) (*RunRules
 	resp, err := m.sendRequest(ctx, env, 30*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("runRules: %w", err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("runRules: empty response")
 	}
 
 	payloadBytes, err := json.Marshal(resp.Payload)
@@ -397,6 +401,9 @@ func (m *Manager) RunSpectral(ctx context.Context, req *RunSpectralRequest) (*Ru
 	if err != nil {
 		return nil, fmt.Errorf("runSpectral: %w", err)
 	}
+	if resp == nil {
+		return nil, fmt.Errorf("runSpectral: empty response")
+	}
 
 	payloadBytes, err := json.Marshal(resp.Payload)
 	if err != nil {
@@ -410,39 +417,13 @@ func (m *Manager) RunSpectral(ctx context.Context, req *RunSpectralRequest) (*Ru
 	return &result, nil
 }
 
-// RunZod sends a document to the sidecar for Zod overlay schema validation.
-func (m *Manager) RunZod(ctx context.Context, req *RunZodRequest) (*RunZodResponse, error) {
-	if !m.Available() || req == nil {
-		return nil, nil
-	}
-
-	env := &Envelope{
-		ID:      m.newRequestID(),
-		Type:    MsgRunZod,
-		Payload: req,
-	}
-
-	resp, err := m.sendRequest(ctx, env, 30*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("runZod: %w", err)
-	}
-
-	payloadBytes, err := json.Marshal(resp.Payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal payload: %w", err)
-	}
-
-	var result RunZodResponse
-	if err := json.Unmarshal(payloadBytes, &result); err != nil {
-		return nil, fmt.Errorf("unmarshal runZod response: %w", err)
-	}
-	return &result, nil
-}
-
 // LoadRules tells the sidecar to load rules from the specified configurations.
 func (m *Manager) LoadRules(ctx context.Context, req *LoadRulesRequest) error {
-	if !m.Available() || req == nil {
-		return nil
+	if req == nil {
+		return fmt.Errorf("loadRules: nil request")
+	}
+	if !m.Available() {
+		return fmt.Errorf("loadRules: sidecar not available")
 	}
 
 	env := &Envelope{
@@ -454,6 +435,9 @@ func (m *Manager) LoadRules(ctx context.Context, req *LoadRulesRequest) error {
 	resp, err := m.sendRequest(ctx, env, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("loadRules: %w", err)
+	}
+	if resp == nil {
+		return fmt.Errorf("loadRules: empty response")
 	}
 
 	if resp.Type == MsgRuleError {

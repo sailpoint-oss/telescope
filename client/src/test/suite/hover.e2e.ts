@@ -12,6 +12,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
 function hoverContentToString(hovers: vscode.Hover[]): string {
@@ -36,6 +37,10 @@ suite("Hover", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
+		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
+			timeoutMs: 60000,
+			uri: folder.uri,
+		});
 
 		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		await openAndShow(warmupUri);
@@ -77,6 +82,41 @@ suite("Hover", () => {
 		);
 	});
 
+	test("Hover on Pet schema shows deep owner ref preview", async () => {
+		if (isMultiRootWorkspace()) return;
+		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
+		const doc = await openAndShow(uri);
+		await waitForDiagnostics(uri, (d) => d.length > 0, { timeoutMs: 60000 });
+
+		const text = doc.getText();
+		const schemasSection = text.indexOf("  schemas:");
+		const petDefIdx = text.indexOf("    Pet:", schemasSection);
+		assert.ok(petDefIdx !== -1, "Fixture should contain Pet schema definition");
+		const pos = doc.positionAt(petDefIdx + "    Pe".length);
+
+		const hovers = await executeWithRetry<vscode.Hover[]>(
+			"vscode.executeHoverProvider",
+			[uri, pos],
+			(r) => Array.isArray(r) && r.length > 0,
+		);
+		assert.ok(hovers.length > 0, "Expected hover on Pet schema");
+
+		const content = hoverContentToString(hovers);
+		const lower = content.toLowerCase();
+		assert.ok(
+			lower.includes("owner"),
+			`Hover should include owner property. Got: ${content.slice(0, 350)}`,
+		);
+		assert.ok(
+			content.includes("→ User") || lower.includes("user"),
+			`Hover should include owner ref target summary. Got: ${content.slice(0, 350)}`,
+		);
+		assert.ok(
+			lower.includes("email") || lower.includes("id"),
+			`Hover should include referenced object fields. Got: ${content.slice(0, 350)}`,
+		);
+	});
+
 	test("Hover on cross-file $ref shows resolved schema content", async function () {
 		if (isMultiRootWorkspace()) return;
 
@@ -90,7 +130,7 @@ suite("Hover", () => {
 
 		const text = doc.getText();
 		const refIdx = text.indexOf("$ref:");
-		if (refIdx === -1) return;
+		assert.ok(refIdx !== -1, "Fixture should contain a $ref in ref-root.yaml");
 		const refLine = doc.positionAt(refIdx).line;
 		const lineText = doc.lineAt(refLine).text;
 		const valueStart = lineText.indexOf('"') + 1;
@@ -99,20 +139,32 @@ suite("Hover", () => {
 		const hovers = await executeWithRetry<vscode.Hover[]>(
 			"vscode.executeHoverProvider",
 			[uri, pos],
-			(r) => Array.isArray(r) && r.length > 0,
-			{ maxAttempts: 20 },
+			(r) => Array.isArray(r),
+			{ maxAttempts: 25 },
 		);
-
-		if (!hovers || hovers.length === 0) {
-			this.skip();
-			return;
+		assert.ok(Array.isArray(hovers), "Expected hover provider array result");
+		if (hovers.length > 0) {
+			const content = hoverContentToString(hovers);
+			assert.ok(
+				content.length > 0,
+				"Cross-file hover should return non-empty content when available",
+			);
+			const lower = content.toLowerCase();
+			assert.ok(
+				lower.includes("user") || lower.includes("id") || lower.includes("email"),
+				`Cross-file hover should expose referenced schema details. Got: ${content.slice(0, 350)}`,
+			);
+		} else {
+			// Fallback contract check: cross-file definition should still resolve
+			// at this location even when hover content is unavailable.
+			const defs = await executeWithRetry<(vscode.Location | vscode.LocationLink)[]>(
+				"vscode.executeDefinitionProvider",
+				[uri, pos],
+				(r) => Array.isArray(r) && r.length > 0,
+				{ maxAttempts: 25 },
+			);
+			assert.ok(defs.length > 0, "Expected cross-file definition fallback");
 		}
-
-		const content = hoverContentToString(hovers);
-		assert.ok(
-			content.length > 0,
-			"Cross-file hover should return non-empty content",
-		);
 	});
 
 	test("Hover on operationId shows operation details", async () => {

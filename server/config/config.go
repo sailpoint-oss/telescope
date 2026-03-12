@@ -11,17 +11,17 @@ import (
 
 // Config represents the Telescope configuration.
 type Config struct {
-	Extends              string                       `yaml:"extends,omitempty"`
-	Roots                []string                     `yaml:"roots,omitempty"`
-	Rules                map[string]string            `yaml:"rules,omitempty"`
-	Plugins              []string                     `yaml:"plugins,omitempty"`
-	Include              []string                     `yaml:"include,omitempty"`
-	Exclude              []string                     `yaml:"exclude,omitempty"`
-	SpectralRulesets     []string                     `yaml:"spectralRulesets,omitempty"`
-	OpenAPI              OpenAPIConfig                `yaml:"openapi,omitempty"`
-	AdditionalValidation map[string]ValidationGroup   `yaml:"additionalValidation,omitempty"`
-	Output               OutputConfig                 `yaml:"output,omitempty"`
-	LSP                  LSPConfig                    `yaml:"lsp,omitempty"`
+	Extends              string                     `yaml:"extends,omitempty"`
+	Roots                []string                   `yaml:"roots,omitempty"`
+	Rules                map[string]string          `yaml:"rules,omitempty"`
+	Plugins              []string                   `yaml:"plugins,omitempty"`
+	Include              []string                   `yaml:"include,omitempty"`
+	Exclude              []string                   `yaml:"exclude,omitempty"`
+	SpectralRulesets     []string                   `yaml:"spectralRulesets,omitempty"`
+	OpenAPI              OpenAPIConfig              `yaml:"openapi,omitempty"`
+	AdditionalValidation map[string]ValidationGroup `yaml:"additionalValidation,omitempty"`
+	Output               OutputConfig               `yaml:"output,omitempty"`
+	LSP                  LSPConfig                  `yaml:"lsp,omitempty"`
 }
 
 // RuleRef references a custom rule or schema file in .telescope/.
@@ -67,8 +67,14 @@ type OutputConfig struct {
 
 // LSPConfig controls LSP server behavior.
 type LSPConfig struct {
-	Debounce    time.Duration `yaml:"debounce,omitempty"`
-	MaxFileSize int64         `yaml:"maxFileSize,omitempty"`
+	Debounce         time.Duration               `yaml:"debounce,omitempty"`
+	MaxFileSize      int64                       `yaml:"maxFileSize,omitempty"`
+	SchemaValidation LSPSchemaValidationSettings `yaml:"schemaValidation,omitempty"`
+}
+
+// LSPSchemaValidationSettings configures schema validation behavior.
+type LSPSchemaValidationSettings struct {
+	Mode string `yaml:"mode,omitempty"` // go (legacy bun/compare values are treated as go)
 }
 
 // DefaultConfig returns a configuration with sensible defaults.
@@ -84,21 +90,27 @@ func DefaultConfig() *Config {
 		LSP: LSPConfig{
 			Debounce:    300 * time.Millisecond,
 			MaxFileSize: 5 * 1024 * 1024, // 5MB
+			SchemaValidation: LSPSchemaValidationSettings{
+				Mode: "go",
+			},
 		},
 	}
 }
 
-// CustomRuleFiles returns all custom rule .ts file paths declared in the config.
-func (c *Config) CustomRuleFiles() []RuleRef {
-	var refs []RuleRef
-	refs = append(refs, c.OpenAPI.Rules...)
-	for _, g := range c.AdditionalValidation {
-		refs = append(refs, g.Rules...)
+// EffectiveSchemaValidationMode returns the configured LSP schema-validation
+// mode, defaulting to "go". Legacy "bun" and "compare" values are accepted
+// for compatibility but are normalized to "go".
+func (c *Config) EffectiveSchemaValidationMode() string {
+	mode := strings.ToLower(strings.TrimSpace(c.LSP.SchemaValidation.Mode))
+	switch mode {
+	case "go", "bun", "compare":
+		return "go"
+	default:
+		return "go"
 	}
-	return refs
 }
 
-// HasCustomRules reports whether the config declares any custom TS rules or Zod schemas.
+// HasCustomRules reports whether the config declares any custom rules.
 func (c *Config) HasCustomRules() bool {
 	if len(c.OpenAPI.Rules) > 0 {
 		return true
@@ -106,11 +118,6 @@ func (c *Config) HasCustomRules() bool {
 	for _, g := range c.AdditionalValidation {
 		if len(g.Rules) > 0 {
 			return true
-		}
-		for _, s := range g.Schemas {
-			if len(s.Schema) > 3 && s.Schema[len(s.Schema)-3:] == ".ts" {
-				return true
-			}
 		}
 	}
 	return false
@@ -122,7 +129,7 @@ func (c *Config) HasSpectralRulesets() bool {
 }
 
 // NeedsBunSidecar reports whether the config requires the Bun sidecar to be started
-// (custom rules, Zod schemas, or Spectral rulesets).
+// (custom rules or Spectral rulesets).
 func (c *Config) NeedsBunSidecar() bool {
 	return c.HasCustomRules() || c.HasSpectralRulesets()
 }

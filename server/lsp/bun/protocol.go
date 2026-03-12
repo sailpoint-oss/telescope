@@ -4,21 +4,16 @@ package bun
 type MessageType string
 
 const (
-	MsgLoadRules      MessageType = "loadRules"
-	MsgLoadResp       MessageType = "loadResponse"
-	MsgRunRules       MessageType = "runRules"
-	MsgRuleResult     MessageType = "ruleResult"
-	MsgRuleError      MessageType = "ruleError"
-	MsgRunSpectral    MessageType = "runSpectral"
-	MsgSpectralResult MessageType = "spectralResult"
-	MsgRunZod         MessageType = "runZod"
-	MsgZodResult      MessageType = "zodResult"
-	MsgReady          MessageType = "ready"
-	MsgHealth         MessageType = "health"
-	MsgHealthResp     MessageType = "healthResponse"
-	MsgPing           MessageType = "ping"
-	MsgPong           MessageType = "pong"
-	MsgShutdown       MessageType = "shutdown"
+	MsgLoadRules                            MessageType = "loadRules"
+	MsgRunRules                             MessageType = "runRules"
+	MsgRuleResult                           MessageType = "ruleResult"
+	MsgRuleError                            MessageType = "ruleError"
+	MsgRunSpectral                          MessageType = "runSpectral"
+	MsgSpectralResult                       MessageType = "spectralResult"
+	MsgReady                                MessageType = "ready"
+	MsgPing                                 MessageType = "ping"
+	MsgPong                                 MessageType = "pong"
+	MsgShutdown                             MessageType = "shutdown"
 )
 
 // Envelope wraps all IPC messages with a common header.
@@ -32,7 +27,7 @@ type Envelope struct {
 type RuleConfig struct {
 	ID       string         `json:"id"`
 	Path     string         `json:"path"`
-	Kind     string         `json:"kind"` // "openapi" | "generic" | "schema"
+	Kind     string         `json:"kind"` // "openapi" | "generic"
 	Severity string         `json:"severity,omitempty"`
 	Patterns []string       `json:"patterns,omitempty"`
 	Options  map[string]any `json:"options,omitempty"`
@@ -94,29 +89,3 @@ type RunSpectralResponse struct {
 	Errors         []RuleRunError      `json:"errors,omitempty"`
 }
 
-// RunZodRequest asks the sidecar to validate a document against Zod schemas.
-type RunZodRequest struct {
-	DocumentURI string          `json:"documentURI"`
-	Document    SerializedDoc   `json:"document"`
-	Schemas     []ZodSchemaConfig `json:"schemas"`
-}
-
-// ZodSchemaConfig describes a single Zod overlay schema to apply.
-type ZodSchemaConfig struct {
-	SchemaPath string   `json:"schemaPath"`
-	Pointers   []string `json:"pointers,omitempty"` // JSON pointer patterns to validate (empty = root)
-}
-
-// RunZodResponse contains diagnostics from Zod overlay validation.
-type RunZodResponse struct {
-	DocumentURI string              `json:"documentURI"`
-	Diagnostics []SidecarDiagnostic `json:"diagnostics"`
-	Timings     map[string]float64  `json:"timings,omitempty"`
-	Errors      []RuleRunError      `json:"errors,omitempty"`
-}
-
-// HealthResponse from the sidecar.
-type HealthResponse struct {
-	Status    string `json:"status"`
-	RuleCount int    `json:"ruleCount"`
-}

@@ -30,20 +30,22 @@ export const NumberSchemaObject = BaseSchemaObjectSchema.extend({
 			examples: [100, 1000],
 		}),
 	exclusiveMinimum: z
-		.number()
+		.boolean()
 		.optional()
 		.meta({
 			title: "exclusiveMinimum",
-			description: "Exclusive lower bound (instance must be > this value).",
-			examples: [0, 1],
+			description:
+				"When true, the minimum value is exclusive (value must be > minimum).",
+			examples: [true, false],
 		}),
 	exclusiveMaximum: z
-		.number()
+		.boolean()
 		.optional()
 		.meta({
 			title: "exclusiveMaximum",
-			description: "Exclusive upper bound (instance must be < this value).",
-			examples: [100, 1000],
+			description:
+				"When true, the maximum value is exclusive (value must be < maximum).",
+			examples: [true, false],
 		}),
 }).meta({
 	title: "Number Object",
@@ -52,6 +54,6 @@ export const NumberSchemaObject = BaseSchemaObjectSchema.extend({
 		{ type: "number", format: "float" },
 		{ type: "number", multipleOf: 0.5 },
 		{ type: "number", minimum: 0, maximum: 100 },
-		{ type: "number", exclusiveMinimum: 0, exclusiveMaximum: 100 },
+		{ type: "number", minimum: 0, exclusiveMinimum: true },
 	],
 });

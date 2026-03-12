@@ -1016,6 +1016,153 @@ func TestHoverHandler_ConstrainedSchema(t *testing.T) {
 	}
 }
 
+func TestHoverHandler_SchemaPropertyRefInlineSummary(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Ref Summary
+  version: "1.0.0"
+paths: {}
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+    Pet:
+      type: object
+      properties:
+        owner:
+          $ref: "#/components/schemas/User"
+`
+	env := setupTestEnv(t, "file:///ref-summary.yaml", spec)
+	handler := lsp.NewHoverHandler(env.cache, nil)
+
+	idx := env.cache.Get(env.uri)
+	var pos protocol.Position
+	if schema, ok := idx.Schemas["Pet"]; ok {
+		pos = adapt.PositionToProtocol(schema.NameLoc.Range.Start)
+	} else {
+		t.Fatal("Pet schema not found")
+	}
+
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result for Pet schema")
+	}
+	content := result.Contents.Value
+	if !strings.Contains(content, "owner") || !strings.Contains(content, "→ User") {
+		t.Errorf("expected inline ref summary for owner -> User, got: %s", content)
+	}
+	if !strings.Contains(content, "id") || !strings.Contains(content, "email") {
+		t.Errorf("expected referenced User fields in hover summary, got: %s", content)
+	}
+}
+
+func TestHoverHandler_MultiHopRefSummaryIsBounded(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Multi-hop Hover
+  version: "1.0.0"
+paths: {}
+components:
+  schemas:
+    A:
+      type: object
+      properties:
+        b:
+          $ref: "#/components/schemas/B"
+    B:
+      type: object
+      properties:
+        c:
+          $ref: "#/components/schemas/C"
+    C:
+      type: object
+      properties:
+        a:
+          $ref: "#/components/schemas/A"
+        leaf:
+          type: string
+`
+	env := setupTestEnv(t, "file:///multi-hop.yaml", spec)
+	handler := lsp.NewHoverHandler(env.cache, nil)
+
+	idx := env.cache.Get(env.uri)
+	aSchema, ok := idx.Schemas["A"]
+	if !ok {
+		t.Fatal("A schema not found")
+	}
+	pos := adapt.PositionToProtocol(aSchema.NameLoc.Range.Start)
+
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result for schema A")
+	}
+	content := result.Contents.Value
+	if !strings.Contains(content, "b") || !strings.Contains(content, "→ B") {
+		t.Fatalf("expected first hop summary for b -> B, got: %s", content)
+	}
+	if !strings.Contains(content, "{...}") {
+		t.Fatalf("expected bounded/truncated deep preview marker, got: %s", content)
+	}
+}
+
+func TestHoverHandler_UnresolvedExternalRefFallbackText(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: External Ref Hover
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./missing.yaml#/components/schemas/User"
+`
+	env := setupTestEnv(t, "file:///external-ref.yaml", spec)
+	handler := lsp.NewHoverHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 13, Character: 28},
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected hover result for unresolved external $ref")
+	}
+	content := result.Contents.Value
+	if !strings.Contains(content, "current workspace") || !strings.Contains(content, "preview is limited") {
+		t.Fatalf("expected external fallback context in hover, got: %s", content)
+	}
+}
+
 func TestHoverHandler_DeprecatedSchema(t *testing.T) {
 	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
 	handler := lsp.NewHoverHandler(env.cache, nil)

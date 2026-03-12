@@ -1,6 +1,6 @@
 # Custom Rules Guide
 
-Telescope supports multiple ways to extend its linting capabilities: built-in Go rules via the `RuleBuilder` API, Spectral-compatible YAML rulesets, Go plugins, and (future) Bun sidecar for TypeScript/JavaScript rules.
+Telescope supports multiple ways to extend its linting capabilities: built-in Go rules via the `RuleBuilder` API, Spectral-compatible YAML rulesets, Go plugins, and Bun sidecar execution for TypeScript/JavaScript rules.
 
 ## Built-in Rule Development
 
@@ -156,7 +156,7 @@ Reference in `.telescope.yaml`:
 
 ```yaml
 extends: telescope:recommended
-plugins:
+spectralRulesets:
   - ./rulesets/custom-rules.yaml
 rules:
   my-custom-rule: error  # Override severity
@@ -214,7 +214,7 @@ The plugin SDK re-exports OpenAPI types and rule types so plugin code needs only
 
 ## Bun Sidecar (TypeScript/JavaScript Rules)
 
-TypeScript/JavaScript rules run in a Bun subprocess managed by `lsp/bun/Manager`. The sidecar starts lazily on first use (`sync.Once`) and includes health checks with crash recovery.
+TypeScript/JavaScript rules run in a Bun subprocess managed by `lsp/bun/Manager`. The sidecar starts during server initialization when custom rules or Spectral rulesets are configured and includes health checks with crash recovery.
 
 ### IPC Protocol
 
@@ -225,7 +225,6 @@ Messages use newline-delimited JSON with an `Envelope` wrapper:
 | `loadRules` / `loadResponse` | Client → Sidecar → Client | Load TypeScript rules from file paths |
 | `runRules` / `ruleResult` | Client → Sidecar → Client | Run loaded rules on a document |
 | `runSpectral` / `spectralResult` | Client → Sidecar → Client | Run Spectral rulesets |
-| `runZod` / `zodResult` | Client → Sidecar → Client | Run Zod overlay validation |
 | `ping` / `pong` | Client → Sidecar → Client | Health check |
 | `shutdown` | Client → Sidecar | Graceful shutdown |
 
@@ -233,33 +232,18 @@ Messages use newline-delimited JSON with an `Envelope` wrapper:
 
 `config.ResolveRunner()` determines whether a custom rule uses the Bun sidecar (`"bun"`) or native Go execution based on file extension (`.ts`, `.js` → bun) or explicit `runner` field.
 
-## Zod Overlay Schemas
+## JSON Schema Validation
 
-Custom validation for specific JSON pointer targets using Zod schemas. Schemas are dynamically loaded and cached by the Bun sidecar.
-
-### Configuration
+For schema validation, Telescope uses the Go validator path. Configure JSON Schema files under `additionalValidation.schemas`:
 
 ```yaml
-# .telescope.yaml
-zodSchemas:
-  - schemaPath: ./schemas/info.ts
-    pointers:
-      - /info
-  - schemaPath: ./schemas/paths.ts
-    pointers:
-      - /paths
-```
-
-### Schema Format
-
-```typescript
-// schemas/info.ts
-import { z } from "zod";
-
-export default z.object({
-  title: z.string().min(3, "Title must be at least 3 characters"),
-  version: z.string().regex(/^\d+\.\d+\.\d+$/, "Version must be semver"),
-});
+# .telescope/config.yaml
+additionalValidation:
+  my-group:
+    patterns:
+      - "custom/**/*.yaml"
+    schemas:
+      - schema: my-schema.json
 ```
 
 ## Configuration Reference
@@ -270,8 +254,9 @@ export default z.object({
 extends: telescope:recommended   # or telescope:all, telescope:owasp, telescope:strict
 rules:
   rule-id: error | warn | info | hint | off
-plugins:
+spectralRulesets:
   - ./path/to/ruleset.yaml
+plugins:
   - .telescope/plugins/my-plugin
 include:
   - "**/*.yaml"

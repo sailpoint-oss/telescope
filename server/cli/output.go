@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/LukasParke/gossip/protocol"
 )
@@ -139,14 +140,22 @@ func buildSARIFResults(results []fileDiagnostics) []map[string]interface{} {
 }
 
 func outputGitHub(results []fileDiagnostics) {
+	wd, _ := os.Getwd()
 	for _, fd := range results {
+		relPath, err := filepath.Rel(wd, fd.Path)
+		if err != nil {
+			relPath = fd.Path
+		}
 		for _, d := range fd.Diagnostics {
 			level := "warning"
-			if d.Severity == protocol.SeverityError {
+			switch d.Severity {
+			case protocol.SeverityError:
 				level = "error"
+			case protocol.SeverityInformation, protocol.SeverityHint:
+				level = "notice"
 			}
 			fmt.Fprintf(os.Stdout, "::%s file=%s,line=%d,col=%d::%s\n",
-				level, fd.Path, d.Range.Start.Line+1, d.Range.Start.Character+1, d.Message)
+				level, relPath, d.Range.Start.Line+1, d.Range.Start.Character+1, d.Message)
 		}
 	}
 }

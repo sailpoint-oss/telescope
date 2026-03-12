@@ -13,11 +13,7 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/spf13/cobra"
 
-	"github.com/sailpoint-oss/telescope/server/lsp"
-	"github.com/sailpoint-oss/telescope/server/plugin"
-	"github.com/sailpoint-oss/telescope/server/rules"
-	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
-	"github.com/sailpoint-oss/telescope/server/rules/checks"
+	"github.com/sailpoint-oss/telescope/server/lintengine"
 )
 
 var (
@@ -102,82 +98,37 @@ func runCI(cmd *cobra.Command, args []string) error {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-
-	allAnalyzers, allChecks := rules.CollectAll(analyzers.RegisterAll, checks.RegisterAll)
-
-	// Apply config rule overrides.
-	enabledRules := cfg.BuildEnabledRules()
-	sevOverrides := buildSeverityOverrides(cfg)
-	allAnalyzers = filterAnalyzers(allAnalyzers, enabledRules)
-	allChecks = filterChecks(allChecks, enabledRules)
-
-	// Discover external plugins.
-	pluginHost := plugin.NewHost(logger)
 	wd, _ := os.Getwd()
-	pluginDir := filepath.Join(wd, ".telescope", "plugins")
-	if err := pluginHost.Discover(pluginDir); err != nil {
-		logger.Warn("failed to discover plugins", "error", err)
-	}
-	for _, p := range cfg.Plugins {
-		pluginPath := p
-		if !filepath.IsAbs(pluginPath) {
-			pluginPath = filepath.Join(wd, pluginPath)
-		}
-		if err := pluginHost.LoadPlugin(pluginPath); err != nil {
-			logger.Warn("failed to load plugin", "path", p, "error", err)
-		}
-	}
-	defer pluginHost.Shutdown()
 
-	// Start child YAML/JSON language servers.
-	var childLinter *lsp.ChildLSPLinter
-	if lsp.NodeAvailable() {
-		rootURI := pathToFileURI(wd)
-		childLinter = lsp.NewChildLSPLinter(logger)
-		if err := childLinter.Start(context.Background(), rootURI); err != nil {
-			logger.Warn("child language servers unavailable", "error", err)
-			childLinter = nil
-		}
+	run, err := lintengine.Run(context.Background(), lintengine.Options{
+		Paths:      files,
+		WorkingDir: wd,
+		ConfigPath: cfgFile,
+	}, logger)
+	if err != nil {
+		return err
 	}
-	if childLinter != nil {
-		defer childLinter.Stop(context.Background())
-	}
-
-	projectContexts := buildProjectContexts(files, logger)
 
 	var allDiags []fileDiagnostics
 	exitCode := 0
-
-	for _, file := range files {
-		content, err := os.ReadFile(file)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", file, err)
-			continue
-		}
-
-		diags := lintFile(file, content, cfg, allAnalyzers, allChecks, projectContexts, childLinter)
-
-		if pluginHost.PluginCount() > 0 {
-			pluginResp := pluginHost.AnalyzeDirect(file, content)
-			diags = append(diags, pluginResp...)
-		}
-
-		diags = applySeverityOverrides(diags, sevOverrides)
-
-		if len(diags) > 0 {
-			allDiags = append(allDiags, fileDiagnostics{Path: file, Diagnostics: diags})
-			for _, d := range diags {
-				if ciShouldFail(d.Severity) {
-					exitCode = 1
-				}
+	for _, result := range run.Results {
+		allDiags = append(allDiags, fileDiagnostics(result))
+		for _, d := range result.Diagnostics {
+			if ciShouldFail(d.Severity) {
+				exitCode = 1
 			}
 		}
 	}
 
 	outputResults(allDiags, "text")
 
+	// Emit GitHub annotations when running in GitHub Actions.
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		outputGitHub(allDiags)
+	}
+
 	// Write reports.
-	report := buildLintReport(wd, files, allDiags)
+	report := buildLintReport(wd, allDiags)
 	if reportJSON != "" {
 		if err := writeJSONReport(reportJSON, report); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing JSON report: %v\n", err)
@@ -189,9 +140,18 @@ func runCI(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Write GitHub step summary if available.
+	if summaryPath := os.Getenv("GITHUB_STEP_SUMMARY"); summaryPath != "" {
+		f, err := os.OpenFile(summaryPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+		if err == nil {
+			_ = writeMDReportTo(f, report)
+			f.Close()
+		}
+	}
+
 	// Post PR comment if requested.
 	if commentPR {
-		if err := postPRComment(allDiags); err != nil {
+		if err := postPRComment(report); err != nil {
 			fmt.Fprintf(os.Stderr, "Error posting PR comment: %v\n", err)
 		}
 	}
@@ -235,7 +195,7 @@ func ciShouldFail(sev protocol.DiagnosticSeverity) bool {
 }
 
 // postPRComment posts a summary comment to a GitHub PR.
-func postPRComment(allDiags []fileDiagnostics) error {
+func postPRComment(report *LintReport) error {
 	prNumStr := os.Getenv("GITHUB_PR_NUMBER")
 	if prNumStr == "" {
 		// Try to extract from GITHUB_REF (refs/pull/<num>/merge).
@@ -261,6 +221,6 @@ func postPRComment(allDiags []fileDiagnostics) error {
 		return err
 	}
 
-	body := GeneratePRComment(allDiags)
-	return client.PostComment(prNum, body)
+	body := GeneratePRComment(report)
+	return client.UpsertComment(prNum, body)
 }

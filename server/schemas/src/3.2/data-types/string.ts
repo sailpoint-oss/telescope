@@ -33,6 +33,22 @@ export const StringObjectSchema = BaseSchemaObjectSchema.extend({
 			description: "Maximum string length.",
 			examples: [255, 1024],
 		}),
+	contentEncoding: z
+		.string()
+		.optional()
+		.meta({
+			title: "contentEncoding",
+			description: "Encoding for binary string content.",
+			examples: ["base64", "base64url"],
+		}),
+	contentMediaType: z
+		.string()
+		.optional()
+		.meta({
+			title: "contentMediaType",
+			description: "Media type of the encoded string content.",
+			examples: ["application/octet-stream", "image/png"],
+		}),
 }).meta({
 	title: "String Object",
 	description: "A String Object defines the shape of a string value.",

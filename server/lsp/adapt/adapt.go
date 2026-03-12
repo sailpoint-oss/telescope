@@ -172,12 +172,3 @@ func TextEditsToProtocol(edits []ctypes.TextEdit) []protocol.TextEdit {
 	return result
 }
 
-// FixToWorkspaceEdit converts a core Fix for a specific document URI into a
-// protocol WorkspaceEdit suitable for code action responses.
-func FixToWorkspaceEdit(uri protocol.DocumentURI, fix ctypes.Fix) protocol.WorkspaceEdit {
-	changes := make(map[protocol.DocumentURI][]protocol.TextEdit)
-	if len(fix.Edits) > 0 {
-		changes[uri] = TextEditsToProtocol(fix.Edits)
-	}
-	return protocol.WorkspaceEdit{Changes: changes}
-}

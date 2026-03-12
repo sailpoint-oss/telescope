@@ -9,11 +9,11 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
 	diagCode,
 	getTestApi,
 	isSidecarWorkspace,
 	openAndShow,
+	waitForSidecarReady,
 	waitForDiagnostics,
 } from "./utils/e2e-helpers";
 
@@ -28,7 +28,7 @@ suite("Sidecar: Generic Rules", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await delay(5000);
+		await waitForSidecarReady(folder);
 	});
 
 	test("Invalid generic file triggers custom-version-required diagnostic", async () => {
@@ -68,9 +68,7 @@ suite("Sidecar: Generic Rules", () => {
 			"custom/custom-generic-valid.yaml",
 		);
 		await openAndShow(fileUri);
-
 		await waitForDiagnostics(fileUri, () => true, { timeoutMs: 60000 });
-		await delay(3000);
 
 		const diagnostics = vscode.languages.getDiagnostics(fileUri);
 		const customDiags = diagnostics.filter(

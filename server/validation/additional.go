@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/LukasParke/gossip/jsonschema"
@@ -36,6 +37,12 @@ type AdditionalValidator struct {
 	rootDir    string
 	schemasDir string
 	logger     *slog.Logger
+}
+
+type matchedSchema struct {
+	compiled *jsonschema.CompiledSchema
+	group    string
+	file     string
 }
 
 // NewAdditionalValidator creates a new validator.
@@ -89,7 +96,7 @@ func (v *AdditionalValidator) loadSchema(filename string) (*jsonschema.CompiledS
 
 // MatchesFile returns whether the given file URI matches any additional
 // validation group, and if so, returns the associated schema.
-func (v *AdditionalValidator) MatchesFile(uri string) (*jsonschema.CompiledSchema, bool) {
+func (v *AdditionalValidator) MatchesFile(uri string) (*matchedSchema, bool) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
@@ -98,7 +105,7 @@ func (v *AdditionalValidator) MatchesFile(uri string) (*jsonschema.CompiledSchem
 		return nil, false
 	}
 
-	for _, group := range v.groups {
+	for groupName, group := range v.groups {
 		if !matchesPatterns(relPath, group.Patterns) {
 			continue
 		}
@@ -109,7 +116,11 @@ func (v *AdditionalValidator) MatchesFile(uri string) (*jsonschema.CompiledSchem
 			}
 			if matchesPatterns(relPath, patterns) {
 				if schema, ok := v.schemas[sm.Schema]; ok {
-					return schema, true
+					return &matchedSchema{
+						compiled: schema,
+						group:    groupName,
+						file:     sm.Schema,
+					}, true
 				}
 			}
 		}
@@ -126,8 +137,8 @@ func (v *AdditionalValidator) Analyzer() treesitter.Analyzer {
 				return nil
 			}
 			uri := string(ctx.Document.URI())
-			schema, ok := v.MatchesFile(uri)
-			if !ok || schema == nil {
+			match, ok := v.MatchesFile(uri)
+			if !ok || match == nil || match.compiled == nil {
 				return nil
 			}
 
@@ -136,13 +147,34 @@ func (v *AdditionalValidator) Analyzer() treesitter.Analyzer {
 				return nil
 			}
 
-			result := jsonschema.Validate(tree, schema, jsonschema.ValidateOptions{
+			result := jsonschema.Validate(tree, match.compiled, jsonschema.ValidateOptions{
 				Source:   "additional-validation",
-				Severity: protocol.SeverityWarning,
+				Code:     "json-schema",
+				Severity: protocol.SeverityError,
 			})
-			return result.Diagnostics
+			return enrichAdditionalDiagnostics(result.Diagnostics, match.group, match.file)
 		},
 	}
+}
+
+func enrichAdditionalDiagnostics(diags []protocol.Diagnostic, groupName, schemaFile string) []protocol.Diagnostic {
+	if len(diags) == 0 {
+		return diags
+	}
+	enriched := make([]protocol.Diagnostic, 0, len(diags))
+	prefix := fmt.Sprintf("[schema:%s group:%s] ", schemaFile, groupName)
+	for _, d := range diags {
+		diag := d
+		diag.Source = "json-schema"
+		diag.Code = "json-schema"
+		if diag.Message != "" {
+			diag.Message = prefix + diag.Message
+		} else {
+			diag.Message = prefix + "Schema validation failed"
+		}
+		enriched = append(enriched, diag)
+	}
+	return enriched
 }
 
 func matchesPatterns(path string, patterns []string) bool {
@@ -159,35 +191,29 @@ func matchesPatterns(path string, patterns []string) bool {
 	return false
 }
 
-// doubleStarMatch handles ** glob patterns by splitting and matching segments.
+// doubleStarMatch handles ** glob patterns by expanding them to match any path segment.
 func doubleStarMatch(pattern, path string) (bool, error) {
-	if pattern == "**" {
-		return true, nil
-	}
-
-	parts := filepath.SplitList(pattern)
-	if len(parts) == 0 {
+	if !strings.Contains(pattern, "**") {
 		return filepath.Match(pattern, path)
 	}
-
-	// Simple implementation: replace ** with *
-	simplified := filepath.Clean(pattern)
-	simplified = filepath.ToSlash(simplified)
-	path = filepath.ToSlash(path)
-
-	// Handle the common **/*.yaml pattern
-	if len(simplified) > 3 && simplified[:3] == "**/" {
-		suffix := simplified[3:]
-		base := filepath.Base(path)
-		if matched, err := filepath.Match(suffix, base); err == nil && matched {
-			return true, nil
+	parts := strings.SplitN(pattern, "**", 2)
+	prefix := parts[0]
+	suffix := strings.TrimPrefix(parts[1], "/")
+	if prefix != "" {
+		if !strings.HasPrefix(path, prefix) {
+			return false, nil
 		}
-		if matched, err := filepath.Match(suffix, path); err == nil && matched {
+		path = path[len(prefix):]
+	}
+	if suffix == "" {
+		return true, nil
+	}
+	for i := 0; i <= len(path); i++ {
+		if matched, _ := filepath.Match(suffix, path[i:]); matched {
 			return true, nil
 		}
 	}
-
-	return filepath.Match(simplified, path)
+	return false, nil
 }
 
 func uriToRelPath(uri, rootDir string) string {

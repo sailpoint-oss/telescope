@@ -195,6 +195,25 @@ export const TelescopeConfigSchema = z
 				"Additional validation groups (labeled). Each group can have patterns, schemas, and rules.",
 			)
 			.optional(),
+		lsp: z
+			.looseObject({
+				schemaValidation: z
+					.looseObject({
+						mode: z
+							.literal("go")
+							.meta({ title: "mode" })
+							.describe(
+								"Schema validation backend. Telescope uses the Go validator.",
+							)
+							.optional(),
+					})
+					.meta({ title: "schemaValidation" })
+					.describe("LSP schema validation settings.")
+					.optional(),
+			})
+			.meta({ title: "lsp" })
+			.describe("LSP runtime settings.")
+			.optional(),
 	})
 	
 	.meta({ title: "TelescopeConfig" })
