@@ -1,4 +1,4 @@
-//go:build linux && arm64
+//go:build embed_runner && linux && arm64
 
 package bun
 

@@ -1,4 +1,4 @@
-//go:build darwin && arm64
+//go:build embed_runner && darwin && arm64
 
 package bun
 

@@ -1,4 +1,4 @@
-//go:build windows && amd64
+//go:build embed_runner && windows && amd64
 
 package bun
 
