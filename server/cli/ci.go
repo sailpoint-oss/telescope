@@ -127,8 +127,11 @@ func runCI(cmd *cobra.Command, args []string) error {
 		outputGitHub(allDiags)
 	}
 
+	// Determine the git repo root for path display.
+	repoRoot := gitRepoRoot()
+
 	// Write reports.
-	report := buildLintReport(wd, allDiags)
+	report := buildLintReport(wd, repoRoot, allDiags)
 	if reportJSON != "" {
 		if err := writeJSONReport(reportJSON, report); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing JSON report: %v\n", err)
@@ -149,10 +152,13 @@ func runCI(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Post PR comment if requested.
+	// Post PR comment and inline review if requested.
 	if commentPR {
 		if err := postPRComment(report); err != nil {
 			fmt.Fprintf(os.Stderr, "Error posting PR comment: %v\n", err)
+		}
+		if err := postPRReview(report); err != nil {
+			fmt.Fprintf(os.Stderr, "Error posting PR review: %v\n", err)
 		}
 	}
 
@@ -194,8 +200,17 @@ func ciShouldFail(sev protocol.DiagnosticSeverity) bool {
 	}
 }
 
-// postPRComment posts a summary comment to a GitHub PR.
-func postPRComment(report *LintReport) error {
+// gitRepoRoot returns the git repository root, or empty string on failure.
+func gitRepoRoot() string {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// parsePRNumber extracts the PR number from environment variables.
+func parsePRNumber() (int, error) {
 	prNumStr := os.Getenv("GITHUB_PR_NUMBER")
 	if prNumStr == "" {
 		// Try to extract from GITHUB_REF (refs/pull/<num>/merge).
@@ -208,12 +223,16 @@ func postPRComment(report *LintReport) error {
 		}
 	}
 	if prNumStr == "" {
-		return fmt.Errorf("cannot determine PR number (set GITHUB_PR_NUMBER or GITHUB_REF)")
+		return 0, fmt.Errorf("cannot determine PR number (set GITHUB_PR_NUMBER or GITHUB_REF)")
 	}
+	return strconv.Atoi(prNumStr)
+}
 
-	prNum, err := strconv.Atoi(prNumStr)
+// postPRComment posts a summary comment to a GitHub PR.
+func postPRComment(report *LintReport) error {
+	prNum, err := parsePRNumber()
 	if err != nil {
-		return fmt.Errorf("invalid PR number %q: %w", prNumStr, err)
+		return err
 	}
 
 	client, err := NewGitHubClient()
@@ -221,6 +240,120 @@ func postPRComment(report *LintReport) error {
 		return err
 	}
 
-	body := GeneratePRComment(report)
+	repo := os.Getenv("GITHUB_REPOSITORY")
+	headSHA := os.Getenv("GITHUB_HEAD_SHA")
+
+	body := GeneratePRComment(report, repo, headSHA)
 	return client.UpsertComment(prNum, body)
+}
+
+// postPRReview posts inline review comments on error-level diagnostics.
+func postPRReview(report *LintReport) error {
+	if report.Counts.Error == 0 {
+		return nil // nothing to annotate
+	}
+
+	headSHA := os.Getenv("GITHUB_HEAD_SHA")
+	if headSHA == "" {
+		return fmt.Errorf("GITHUB_HEAD_SHA not set, skipping inline review")
+	}
+
+	prNum, err := parsePRNumber()
+	if err != nil {
+		return err
+	}
+
+	client, err := NewGitHubClient()
+	if err != nil {
+		return err
+	}
+
+	// Fetch changed files in the PR.
+	prFiles, err := client.ListPRFiles(prNum)
+	if err != nil {
+		return fmt.Errorf("listing PR files: %w", err)
+	}
+	diffMap := buildDiffMap(prFiles)
+
+	relBase := report.RepoRoot
+	if relBase == "" {
+		relBase = report.Workspace
+	}
+
+	// Build inline comments from error-level diagnostics.
+	type lineKey struct {
+		path string
+		line int
+	}
+	grouped := make(map[lineKey][]string)
+	var order []lineKey
+
+	for _, fd := range report.Files {
+		rel, err := filepath.Rel(relBase, fd.Path)
+		if err != nil {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+
+		info, inDiff := diffMap[rel]
+		if !inDiff {
+			continue
+		}
+
+		for _, d := range fd.Diagnostics {
+			if d.Severity != protocol.SeverityError {
+				continue
+			}
+			line := int(d.Range.Start.Line) + 1
+
+			// Check if line is in the diff.
+			if !info.AllLines && !info.ValidLines[line] {
+				continue
+			}
+
+			code := ""
+			if d.Code != nil {
+				code = fmt.Sprintf("%v", d.Code)
+			}
+
+			body := fmt.Sprintf("**%s**: %s", code, d.Message)
+			key := lineKey{path: rel, line: line}
+			if _, exists := grouped[key]; !exists {
+				order = append(order, key)
+			}
+			grouped[key] = append(grouped[key], body)
+		}
+	}
+
+	if len(order) == 0 {
+		return nil
+	}
+
+	// Build review comments, capped at 50.
+	var comments []reviewComment
+	for _, key := range order {
+		if len(comments) >= 50 {
+			break
+		}
+		body := strings.Join(grouped[key], "\n\n---\n\n")
+		comments = append(comments, reviewComment{
+			Path: key.path,
+			Line: key.line,
+			Side: "RIGHT",
+			Body: body,
+		})
+	}
+
+	err = client.CreateReview(prNum, headSHA, "", comments)
+	if err != nil {
+		// 422 errors are common (e.g., line not part of diff) — log and continue.
+		if strings.Contains(err.Error(), "422") {
+			fmt.Fprintf(os.Stderr, "Warning: GitHub rejected some inline comments: %v\n", err)
+			return nil
+		}
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "Posted %d inline review comment(s)\n", len(comments))
+	return nil
 }

@@ -16,6 +16,7 @@ import (
 // LintReport is the structured output written by --report-json.
 type LintReport struct {
 	Workspace       string            `json:"workspace"`
+	RepoRoot        string            `json:"repoRoot,omitempty"`
 	GeneratedAt     string            `json:"generatedAt"`
 	DiagnosticCount int               `json:"diagnosticCount"`
 	Files           []fileDiagnostics `json:"files"`
@@ -41,17 +42,24 @@ type FileDetail struct {
 	Warnings int    `json:"warnings"`
 }
 
-func buildLintReport(workspace string, allDiags []fileDiagnostics) *LintReport {
+func buildLintReport(workspace, repoRoot string, allDiags []fileDiagnostics) *LintReport {
 	report := &LintReport{
 		Workspace:   workspace,
+		RepoRoot:    repoRoot,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Files:       allDiags,
 		ByFile:      make(map[string]int),
 		ByRule:      make(map[string]int),
 	}
 
+	// Use repo root for path display if available, otherwise fall back to workspace.
+	relBase := repoRoot
+	if relBase == "" {
+		relBase = workspace
+	}
+
 	for _, fd := range allDiags {
-		rel, err := filepath.Rel(workspace, fd.Path)
+		rel, err := filepath.Rel(relBase, fd.Path)
 		if err != nil {
 			rel = fd.Path
 		}
@@ -170,9 +178,13 @@ func writeMDReportTo(w io.Writer, report *LintReport) error {
 
 	// Diagnostics grouped by rule with severity breakdown.
 	if report.DiagnosticCount > 0 {
+		mdRelBase := report.RepoRoot
+		if mdRelBase == "" {
+			mdRelBase = report.Workspace
+		}
 		byRule := make(map[string][]diagEntry)
 		for _, fd := range report.Files {
-			rel, err := filepath.Rel(report.Workspace, fd.Path)
+			rel, err := filepath.Rel(mdRelBase, fd.Path)
 			if err != nil {
 				rel = fd.Path
 			}

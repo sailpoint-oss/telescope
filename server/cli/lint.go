@@ -120,7 +120,7 @@ func runLint(cmd *cobra.Command, args []string) error {
 
 	// Write reports if requested
 	if reportJSONPath != "" || reportMDPath != "" {
-		report := buildLintReport(wd, allDiags)
+		report := buildLintReport(wd, "", allDiags)
 		if reportJSONPath != "" {
 			if err := writeJSONReport(reportJSONPath, report); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing JSON report: %v\n", err)
