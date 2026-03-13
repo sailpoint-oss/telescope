@@ -172,12 +172,14 @@ suite("Providers", () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "valid.yaml");
 		const doc = await openAndShow(uri);
+		await waitForDiagnostics(uri, () => true, { timeoutMs: 60000 });
 
-		const edits = (await vscode.commands.executeCommand(
+		const edits = await executeWithRetry<vscode.TextEdit[] | undefined>(
 			"vscode.executeFormatDocumentProvider",
-			uri,
-			{ tabSize: 2, insertSpaces: true },
-		)) as vscode.TextEdit[] | undefined;
+			[uri, { tabSize: 2, insertSpaces: true }],
+			(result) => Array.isArray(result),
+			{ maxAttempts: 15 },
+		);
 
 		assert.ok(Array.isArray(edits), "Format should return an array");
 		assert.ok(doc.getText().length > 0);

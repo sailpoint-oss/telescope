@@ -6,6 +6,7 @@
 		"build": "pnpm --filter ./client run build",
 		"build:server": "cd server && go build -o ../client/bin/telescope .",
 		"test:e2e": "pnpm --filter ./client run test:e2e --if-present",
+		"trace:merge": "node ./scripts/merge-trace-logs.mjs",
 		"package": "pnpm --filter ./client run build && pnpm --filter ./client run package",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",

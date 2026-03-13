@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/openapi"
@@ -14,6 +15,7 @@ import (
 // a TypeScript Program that includes all source files reachable from the
 // tsconfig entry points.
 type ProjectContext struct {
+	mu       sync.RWMutex
 	RootURI  string
 	Docs     map[string]*openapi.Index
 	Graph    *FileGraph
@@ -115,6 +117,9 @@ func (p *ProjectContext) RebuildIndex(uri string, cache *openapi.IndexCache) err
 		return err
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	norm := openapi.NormalizeURI(uri)
 	p.Docs[norm] = idx
 	p.Graph.RemoveEdgesFrom(norm)
@@ -141,6 +146,8 @@ func (p *ProjectContext) RebuildIndex(uri string, cache *openapi.IndexCache) err
 // ContainsFile reports whether the given URI is part of this project.
 // The URI is normalized before lookup to handle encoding differences.
 func (p *ProjectContext) ContainsFile(uri string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	if _, ok := p.Docs[uri]; ok {
 		return true
 	}
@@ -154,9 +161,36 @@ func (p *ProjectContext) ContainsFile(uri string) bool {
 
 // AllURIs returns every file URI in the project.
 func (p *ProjectContext) AllURIs() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	uris := make([]string, 0, len(p.Docs))
 	for uri := range p.Docs {
 		uris = append(uris, uri)
 	}
 	return uris
+}
+
+// DocIndex returns the index for a single URI, or nil if not found.
+func (p *ProjectContext) DocIndex(uri string) *openapi.Index {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Docs[uri]
+}
+
+// GetResolver returns the current cross-file resolver.
+func (p *ProjectContext) GetResolver() *CrossFileResolver {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Resolver
+}
+
+// DocsSnapshot returns a shallow copy of the Docs map for safe iteration.
+func (p *ProjectContext) DocsSnapshot() map[string]*openapi.Index {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	snapshot := make(map[string]*openapi.Index, len(p.Docs))
+	for k, v := range p.Docs {
+		snapshot[k] = v
+	}
+	return snapshot
 }

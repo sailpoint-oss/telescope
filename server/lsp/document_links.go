@@ -28,6 +28,9 @@ func NewDocumentLinkHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Do
 		// $ref links
 		for _, ref := range idx.AllRefs {
 			target := resolveRefTarget(docURI, ref.Target)
+			if target == nil {
+				continue
+			}
 			links = append(links, protocol.DocumentLink{
 				Range:   adapt.RangeToProtocol(ref.Loc.Range),
 				Target:  target,
@@ -52,8 +55,10 @@ func resolveRefTarget(docURI protocol.DocumentURI, refValue string) *protocol.Do
 	}
 
 	if strings.HasPrefix(refValue, "#") {
-		uri := protocol.DocumentURI(string(docURI) + refValue)
-		return &uri
+		// Local refs are handled by definition/typeDefinition providers.
+		// Returning same-file fragment DocumentLinks causes VS Code to open
+		// duplicate fragment tabs.
+		return nil
 	}
 
 	parts := strings.SplitN(refValue, "#", 2)

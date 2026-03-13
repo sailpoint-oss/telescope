@@ -7,6 +7,7 @@
 
 import * as vscode from "vscode";
 import { Session, SessionState } from "./session";
+import { appendTraceEvent } from "./trace";
 import { formatSetupLog } from "./utils";
 
 /**
@@ -87,6 +88,9 @@ export class SessionManager implements vscode.Disposable {
 		);
 
 		this.log("SessionManager created");
+		appendTraceEvent(this.outputChannel, "sessionManager.created", {
+			serverPath: this.serverPath,
+		});
 	}
 
 	/**
@@ -114,6 +118,9 @@ export class SessionManager implements vscode.Disposable {
 		try {
 			const folders = await this.waitForInitialWorkspaceFolders();
 			this.log(`Initializing sessions for ${folders.length} workspace folder(s)`);
+			appendTraceEvent(this.outputChannel, "sessionManager.initialize.start", {
+				folders: folders.map((f) => f.uri.toString()),
+			});
 
 			// Start sessions with limited concurrency to avoid spawning many Node processes at once.
 			// This matches the behavior of other workspace-level tooling (e.g. Biome) in large multi-root workspaces.
@@ -123,10 +130,16 @@ export class SessionManager implements vscode.Disposable {
 
 			this._initState = InitializationState.Ready;
 			this.updateStatusBar();
+			appendTraceEvent(this.outputChannel, "sessionManager.initialize.ready", {
+				sessionCount: this.sessions.size,
+			});
 		} catch (error) {
 			this._initState = InitializationState.Failed;
 			this.logError(`Initialization failed: ${error}`);
 			this.updateStatusBar();
+			appendTraceEvent(this.outputChannel, "sessionManager.initialize.failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
 			throw error;
 		}
 	}
@@ -223,6 +236,10 @@ export class SessionManager implements vscode.Disposable {
 		}
 
 		this.log(`Creating session for ${folder.name}`);
+		appendTraceEvent(this.outputChannel, "session.create.start", {
+			workspace: folder.uri.toString(),
+			name: folder.name,
+		});
 
 		const session = new Session({
 			workspaceFolder: folder,
@@ -243,9 +260,18 @@ export class SessionManager implements vscode.Disposable {
 
 		try {
 			await session.start();
+			appendTraceEvent(this.outputChannel, "session.create.running", {
+				workspace: folder.uri.toString(),
+				name: folder.name,
+			});
 		} catch (error) {
 			this.logError(`Failed to start session for ${folder.name}: ${error}`);
 			// Keep the session in the map so we can retry later
+			appendTraceEvent(this.outputChannel, "session.create.error", {
+				workspace: folder.uri.toString(),
+				name: folder.name,
+				error: error instanceof Error ? error.message : String(error),
+			});
 		}
 
 		return session;
@@ -276,6 +302,10 @@ export class SessionManager implements vscode.Disposable {
 		}
 
 		this.log(`Removing session for ${session.workspaceFolder.name}`);
+		appendTraceEvent(this.outputChannel, "session.remove.start", {
+			workspace: session.workspaceFolder.uri.toString(),
+			name: session.workspaceFolder.name,
+		});
 
 		try {
 			await session.stop();
@@ -284,6 +314,10 @@ export class SessionManager implements vscode.Disposable {
 		}
 
 		this.sessions.delete(folderUri);
+		appendTraceEvent(this.outputChannel, "session.remove.done", {
+			workspace: session.workspaceFolder.uri.toString(),
+			name: session.workspaceFolder.name,
+		});
 	}
 
 	/**
@@ -292,6 +326,10 @@ export class SessionManager implements vscode.Disposable {
 	private async onDidChangeWorkspaceFolders(
 		event: vscode.WorkspaceFoldersChangeEvent,
 	): Promise<void> {
+		appendTraceEvent(this.outputChannel, "workspaceFolders.changed", {
+			added: event.added.map((f) => f.uri.toString()),
+			removed: event.removed.map((f) => f.uri.toString()),
+		});
 		// Remove sessions for removed folders
 		for (const folder of event.removed) {
 			await this.removeSession(folder.uri.toString());

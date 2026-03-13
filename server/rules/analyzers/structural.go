@@ -174,7 +174,7 @@ func registerStructuralValidation(s *gossip.Server) {
 			}
 			result := jsonschema.Validate(ctx.Tree, fragSchema, jsonschema.ValidateOptions{
 				Source:         "oas3-schema",
-				Severity:       adapt.SeverityToProtocol(ctypes.SeverityWarning),
+				Severity:       adapt.SeverityToProtocol(ctypes.SeverityError),
 				MaxDiagnostics: 100,
 			})
 			return result.Diagnostics

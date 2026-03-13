@@ -176,6 +176,46 @@ func TestStructuralValidation_InvalidOpenAPI(t *testing.T) {
 	}
 }
 
+func TestStructuralValidation_InvalidOpenAPI_JSON(t *testing.T) {
+	content := []byte(`{
+  "openapi": "3.1.0",
+  "paths": {}
+}`)
+
+	diags := runFullPipelineJSON(t, content)
+	dumpDiags(t, "invalid-openapi-structural-json", diags)
+
+	schemaDiags := diagsByCode(diags, "oas3-schema")
+	if len(schemaDiags) < 1 {
+		t.Fatalf("expected at least 1 oas3-schema diagnostic, got %d", len(schemaDiags))
+	}
+	for _, d := range schemaDiags {
+		if d.Severity != protocol.SeverityError {
+			t.Errorf("oas3-schema diagnostic should be Error, got severity %d for: %q", d.Severity, d.Message)
+		}
+	}
+}
+
+func TestStructuralValidation_FragmentSchema_IsError(t *testing.T) {
+	content := []byte(`
+type: object
+required: id
+`)
+
+	diags := runFullPipelineYAML(t, content)
+	dumpDiags(t, "invalid-openapi-fragment-schema", diags)
+
+	schemaDiags := diagsByCode(diags, "oas3-schema")
+	if len(schemaDiags) < 1 {
+		t.Fatalf("expected at least 1 oas3-schema diagnostic for fragment schema, got %d", len(schemaDiags))
+	}
+	for _, d := range schemaDiags {
+		if d.Severity != protocol.SeverityError {
+			t.Errorf("fragment oas3-schema diagnostic should be Error, got severity %d for: %q", d.Severity, d.Message)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Semantic validation tests (analyzer rules)
 // ---------------------------------------------------------------------------

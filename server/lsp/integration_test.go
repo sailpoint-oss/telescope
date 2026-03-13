@@ -780,3 +780,204 @@ paths:
 		t.Error("diagnostics should remain after hover with variant URI")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Document Edit Lifecycle Tests
+// ---------------------------------------------------------------------------
+
+func TestDocumentLifecycle_EditTriggersNewDiagnostics(t *testing.T) {
+	c := newTestServer(t)
+	uri := "file:///lifecycle.yaml"
+
+	// Start with a valid spec — should get minimal diagnostics.
+	validContent := `openapi: "3.1.0"
+info:
+  title: Lifecycle
+  version: "1.0"
+paths:
+  /test:
+    get:
+      operationId: getTest
+      summary: A test
+      description: Full lifecycle test
+      tags:
+        - test
+      responses:
+        "200":
+          description: OK
+tags:
+  - name: test
+    description: Test tag
+`
+	c.OpenWithLanguage(uri, "yaml", validContent)
+	diags := c.WaitForDiagnostics(uri, 5*time.Second)
+
+	// Should not have kebab-case violation initially.
+	if hasDiagWithCode(diags, "kebab-case") {
+		t.Error("valid spec should not trigger kebab-case diagnostic")
+	}
+
+	// Edit to introduce a kebab-case violation.
+	violationContent := `openapi: "3.1.0"
+info:
+  title: Lifecycle
+  version: "1.0"
+paths:
+  /UPPER_CASE:
+    get:
+      operationId: getTest
+      summary: A test
+      description: Full lifecycle test
+      tags:
+        - test
+      responses:
+        "200":
+          description: OK
+tags:
+  - name: test
+    description: Test tag
+`
+	c.Change(uri, 2, violationContent)
+	// Allow server to re-analyze after content change.
+	time.Sleep(500 * time.Millisecond)
+	diags = c.LatestDiagnostics(uri)
+	dumpDiags(t, "lifecycle-after-violation", diags)
+
+	if !hasDiagWithCode(diags, "kebab-case") {
+		t.Error("expected kebab-case diagnostic after introducing /UPPER_CASE")
+	}
+
+	// Fix the violation.
+	c.Change(uri, 3, validContent)
+	time.Sleep(500 * time.Millisecond)
+	diags = c.LatestDiagnostics(uri)
+
+	if hasDiagWithCode(diags, "kebab-case") {
+		t.Error("expected kebab-case diagnostic to clear after fix")
+	}
+}
+
+func TestDocumentLifecycle_AddUnresolvedRef(t *testing.T) {
+	c := newTestServer(t)
+	uri := "file:///ref-lifecycle.yaml"
+
+	// Start with spec without $ref — no unresolved-ref expected.
+	noRefContent := `openapi: "3.1.0"
+info:
+  title: Ref Test
+  version: "1.0"
+paths:
+  /test:
+    get:
+      operationId: getTest
+      summary: Test
+      description: No refs
+      responses:
+        "200":
+          description: OK
+`
+	c.OpenWithLanguage(uri, "yaml", noRefContent)
+	diags := c.WaitForDiagnostics(uri, 5*time.Second)
+
+	if hasDiagWithCode(diags, "unresolved-ref") {
+		t.Error("spec without $ref should not have unresolved-ref diagnostic")
+	}
+
+	// Add an unresolved $ref.
+	refContent := `openapi: "3.1.0"
+info:
+  title: Ref Test
+  version: "1.0"
+paths:
+  /test:
+    get:
+      operationId: getTest
+      summary: Test
+      description: Has refs
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Missing"
+`
+	c.Change(uri, 2, refContent)
+	// Allow server to re-analyze after content change.
+	time.Sleep(500 * time.Millisecond)
+	diags = c.LatestDiagnostics(uri)
+	dumpDiags(t, "ref-lifecycle-after-add", diags)
+
+	if !hasDiagWithCode(diags, "unresolved-ref") {
+		t.Error("expected unresolved-ref diagnostic after adding $ref to Missing")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent Handler Access Test
+// ---------------------------------------------------------------------------
+
+func TestConcurrentHandlerAccess(t *testing.T) {
+	c := newTestServer(t)
+	uri := "file:///concurrent.yaml"
+	content := `openapi: "3.1.0"
+info:
+  title: Concurrent
+  version: "1.0"
+paths:
+  /test:
+    get:
+      operationId: getTest
+      summary: Concurrent access test
+      description: Tests concurrent handler access
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+components:
+  schemas:
+    Item:
+      type: object
+      properties:
+        id:
+          type: string
+`
+	c.OpenWithLanguage(uri, "yaml", content)
+	_ = c.WaitForDiagnostics(uri, 5*time.Second)
+
+	const goroutines = 5
+	errs := make(chan error, goroutines*3)
+
+	// Concurrent Hover requests.
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
+			errs <- err
+		}()
+	}
+
+	// Concurrent Completion requests.
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			_, err := c.Completion(uri, protocol.Position{Line: 17, Character: 22})
+			errs <- err
+		}()
+	}
+
+	// Concurrent Definition requests.
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			_, err := c.Definition(uri, protocol.Position{Line: 17, Character: 22})
+			errs <- err
+		}()
+	}
+
+	for i := 0; i < goroutines*3; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent handler returned error: %v", err)
+		}
+	}
+}

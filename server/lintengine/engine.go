@@ -228,7 +228,6 @@ func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []ru
 	if idx != nil && idx.Document != nil {
 		if pctx := findProjectContext(uri, projectContexts); pctx != nil {
 			diags = suppressResolvableUnresolvedRefs(diags, uri, pctx)
-			diags = append(diags, diagnoseUnresolvedRefs(uri, idx, pctx)...)
 		}
 	}
 	childWg.Wait()
@@ -295,39 +294,7 @@ func findProjectContext(uri string, contexts map[string]*project.ProjectContext)
 	return nil
 }
 
-func diagnoseUnresolvedRefs(uri string, idx *openapi.Index, pctx *project.ProjectContext) []protocol.Diagnostic {
-	var diags []protocol.Diagnostic
-	for target, usages := range idx.Refs {
-		if _, err := idx.Resolve(target); err == nil {
-			continue
-		}
-		if strings.HasPrefix(target, "#") {
-			for _, usage := range usages {
-				diags = append(diags, protocol.Diagnostic{
-					Range:    adapt.RangeToProtocol(usage.Loc.Range),
-					Severity: protocol.SeverityError,
-					Source:   "unresolved-ref",
-					Message:  "Cannot resolve $ref: " + target,
-					Code:     "unresolved-ref",
-				})
-			}
-			continue
-		}
-		if pctx.Resolver.CanResolve(uri, target) {
-			continue
-		}
-		for _, usage := range usages {
-			diags = append(diags, protocol.Diagnostic{
-				Range:    adapt.RangeToProtocol(usage.Loc.Range),
-				Severity: protocol.SeverityError,
-				Source:   "unresolved-ref",
-				Message:  "Cannot resolve $ref: " + target,
-				Code:     "unresolved-ref",
-			})
-		}
-	}
-	return diags
-}
+
 
 func collectFiles(args []string, cfg *config.Config) ([]string, error) {
 	var files []string
@@ -488,7 +455,7 @@ func suppressResolvableUnresolvedRefs(diags []protocol.Diagnostic, uri string, p
 		code, _ := d.Code.(string)
 		if code == "unresolved-ref" && strings.HasPrefix(d.Message, prefix) {
 			target := strings.TrimSpace(strings.TrimPrefix(d.Message, prefix))
-			if target != "" && !strings.HasPrefix(target, "#") && pctx.Resolver.CanResolve(uri, target) {
+			if target != "" && !strings.HasPrefix(target, "#") && pctx.GetResolver().CanResolve(uri, target) {
 				continue
 			}
 		}

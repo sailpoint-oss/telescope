@@ -14,6 +14,7 @@ import * as vscode from "vscode";
 import { commands, type ExtensionContext, window, workspace } from "vscode";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { SessionManager } from "./session-manager";
+import { appendTraceEvent, summarizeForTrace } from "./trace";
 import { classifyDocument, formatSetupLog } from "./utils";
 
 const execFileAsync = promisify(execFile);
@@ -99,6 +100,36 @@ export async function activate(context: ExtensionContext) {
 			"Telescope Language Server",
 			{ log: true },
 		);
+		const traceCommand = (
+			command: string,
+			phase: "start" | "end" | "error",
+			extra: Record<string, unknown> = {},
+		) => {
+			appendTraceEvent(outputChannel, `command.${phase}`, {
+				command,
+				activeUri: window.activeTextEditor?.document.uri.toString() ?? "",
+				...extra,
+			});
+		};
+		const registerTracedCommand = (
+			command: string,
+			handler: (...args: any[]) => unknown | Promise<unknown>,
+		): vscode.Disposable =>
+			commands.registerCommand(command, async (...args: any[]) => {
+				traceCommand(command, "start", {
+					args: summarizeForTrace(args),
+				});
+				try {
+					const result = await handler(...args);
+					traceCommand(command, "end");
+					return result;
+				} catch (error) {
+					traceCommand(command, "error", {
+						error: error instanceof Error ? error.message : String(error),
+					});
+					throw error;
+				}
+			});
 
 		outputChannel.appendLine(
 			formatSetupLog(`Telescope Language Server starting...`),
@@ -201,13 +232,47 @@ export async function activate(context: ExtensionContext) {
 		outputChannel.appendLine(
 			formatSetupLog("Telescope extension activated"),
 		);
+		appendTraceEvent(outputChannel, "extension.activate", {
+			workspaceFolders:
+				workspace.workspaceFolders?.map((f) => f.uri.toString()) ?? [],
+		});
+
+		context.subscriptions.push(
+			vscode.window.onDidChangeActiveTextEditor((editor) => {
+				appendTraceEvent(outputChannel, "ui.activeEditorChanged", {
+					uri: editor?.document.uri.toString() ?? "",
+					languageId: editor?.document.languageId ?? "",
+				});
+			}),
+		);
+		context.subscriptions.push(
+			vscode.window.onDidChangeTextEditorSelection((event) => {
+				appendTraceEvent(outputChannel, "ui.selectionChanged", {
+					uri: event.textEditor.document.uri.toString(),
+					kind: event.kind ?? 0,
+					active: {
+						line: event.selections[0]?.active.line ?? -1,
+						character: event.selections[0]?.active.character ?? -1,
+					},
+					selectionCount: event.selections.length,
+				});
+			}),
+		);
+		context.subscriptions.push(
+			vscode.workspace.onDidOpenTextDocument((doc) => {
+				appendTraceEvent(outputChannel, "ui.documentOpened", {
+					uri: doc.uri.toString(),
+					languageId: doc.languageId,
+				});
+			}),
+		);
 
 		// ====================================================================
 		// Commands
 		// ====================================================================
 
 		context.subscriptions.push(
-			commands.registerCommand("openapi-grammar.classifyDocument", async () => {
+			registerTracedCommand("openapi-grammar.classifyDocument", async () => {
 				const editor = window.activeTextEditor;
 				if (editor) {
 					await sessionManager?.handleDocument(editor.document);
@@ -235,7 +300,7 @@ export async function activate(context: ExtensionContext) {
 		);
 
 		context.subscriptions.push(
-			commands.registerCommand("telescope.reclassifyDocument", async () => {
+			registerTracedCommand("telescope.reclassifyDocument", async () => {
 				const editor = window.activeTextEditor;
 				if (editor) {
 					const isOpenAPI = await sessionManager?.reclassifyDocument(
@@ -253,7 +318,7 @@ export async function activate(context: ExtensionContext) {
 		);
 
 		context.subscriptions.push(
-			commands.registerCommand("telescope.showOpenAPIFiles", async () => {
+			registerTracedCommand("telescope.showOpenAPIFiles", async () => {
 				const files = sessionManager?.getAllOpenAPIFiles() || [];
 				if (files.length === 0) {
 					window.showInformationMessage("No OpenAPI files found in workspace");
@@ -287,7 +352,7 @@ export async function activate(context: ExtensionContext) {
 		);
 
 		context.subscriptions.push(
-			commands.registerCommand("telescope.rescanWorkspace", async () => {
+			registerTracedCommand("telescope.rescanWorkspace", async () => {
 				const totalFiles = await sessionManager?.rescanAll();
 				window.showInformationMessage(
 					`Scan complete: ${totalFiles || 0} OpenAPI files found`,
@@ -296,14 +361,14 @@ export async function activate(context: ExtensionContext) {
 		);
 
 		context.subscriptions.push(
-			commands.registerCommand("telescope.restartServer", async () => {
+			registerTracedCommand("telescope.restartServer", async () => {
 				await sessionManager?.restartAllSessions();
 				window.showInformationMessage("Telescope language servers restarted");
 			}),
 		);
 
 		context.subscriptions.push(
-			commands.registerCommand("telescope.graphInfo", async () => {
+			registerTracedCommand("telescope.graphInfo", async () => {
 				if (!sessionManager) return;
 				const sessions = sessionManager.getRunningSessions();
 				const results: string[] = [];
@@ -313,10 +378,10 @@ export async function activate(context: ExtensionContext) {
 					try {
 						const info = await client.sendRequest("$/telescope/graphInfo");
 						results.push(
-							`**${session.folder.name}**\n\`\`\`json\n${JSON.stringify(info, null, 2)}\n\`\`\``,
+							`**${session.workspaceFolder.name}**\n\`\`\`json\n${JSON.stringify(info, null, 2)}\n\`\`\``,
 						);
 					} catch {
-						results.push(`**${session.folder.name}**: Error fetching graph info`);
+						results.push(`**${session.workspaceFolder.name}**: Error fetching graph info`);
 					}
 				}
 				if (results.length > 0) {
@@ -332,7 +397,7 @@ export async function activate(context: ExtensionContext) {
 		);
 
 		context.subscriptions.push(
-			commands.registerCommand("telescope.rulePerf", async () => {
+			registerTracedCommand("telescope.rulePerf", async () => {
 				if (!sessionManager) return;
 				const sessions = sessionManager.getRunningSessions();
 				const results: string[] = [];
@@ -355,11 +420,11 @@ export async function activate(context: ExtensionContext) {
 								`| ${r.ruleId} | ${r.durationMs}ms | ${r.count} |`,
 						);
 						results.push(
-							`**${session.folder.name}**\n\n| Rule | Duration | Diagnostics |\n|------|----------|-------------|\n${lines.join("\n")}`,
+							`**${session.workspaceFolder.name}**\n\n| Rule | Duration | Diagnostics |\n|------|----------|-------------|\n${lines.join("\n")}`,
 						);
 					} catch {
 						results.push(
-							`**${session.folder.name}**: Error fetching rule performance`,
+							`**${session.workspaceFolder.name}**: Error fetching rule performance`,
 						);
 					}
 				}
@@ -385,7 +450,7 @@ export async function activate(context: ExtensionContext) {
 		] as const;
 		for (const cmd of refactorCommands) {
 			context.subscriptions.push(
-				commands.registerCommand(cmd, async (uri?: vscode.Uri) => {
+				registerTracedCommand(cmd, async (uri?: vscode.Uri) => {
 					if (!sessionManager) return;
 					const doc = await getDocument(uri);
 					if (!doc) return;
@@ -411,7 +476,7 @@ export async function activate(context: ExtensionContext) {
 		}
 
 		context.subscriptions.push(
-			commands.registerCommand(
+			registerTracedCommand(
 				"telescope.bundlePreview",
 				async (uriOrString?: vscode.Uri | string) => {
 					const uri =
@@ -451,7 +516,7 @@ export async function activate(context: ExtensionContext) {
 		);
 
 		context.subscriptions.push(
-			commands.registerCommand(
+			registerTracedCommand(
 				"telescope.validateExamples",
 				async (uriOrString?: vscode.Uri | string) => {
 					if (!sessionManager) return;
@@ -510,7 +575,7 @@ export async function activate(context: ExtensionContext) {
 		);
 
 		context.subscriptions.push(
-			commands.registerCommand(
+			registerTracedCommand(
 				"telescope.showReferences",
 				async (
 					arg1:
@@ -755,19 +820,19 @@ export async function activate(context: ExtensionContext) {
 		}
 
 		context.subscriptions.push(
-			commands.registerCommand(
+			registerTracedCommand(
 				"telescope.convertJsonToYaml",
 				(uri?: vscode.Uri) => convertJsonToYaml(uri, true),
 			),
-			commands.registerCommand(
+			registerTracedCommand(
 				"telescope.convertJsonToYamlCopy",
 				(uri?: vscode.Uri) => convertJsonToYaml(uri, false),
 			),
-			commands.registerCommand(
+			registerTracedCommand(
 				"telescope.convertYamlToJson",
 				(uri?: vscode.Uri) => convertYamlToJson(uri, true),
 			),
-			commands.registerCommand(
+			registerTracedCommand(
 				"telescope.convertYamlToJsonCopy",
 				(uri?: vscode.Uri) => convertYamlToJson(uri, false),
 			),

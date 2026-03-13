@@ -7,6 +7,7 @@ import (
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/observe"
 	"github.com/sailpoint-oss/telescope/server/project"
 )
 
@@ -15,9 +16,22 @@ import (
 // to the project manager for cross-file diagnostic updates.
 func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, logger *slog.Logger) gossip.DidChangeWatchedFilesHandler {
 	return func(ctx *gossip.Context, params *protocol.DidChangeWatchedFilesParams) error {
+		traceID := observe.GetTraceID(ctx)
+		if logger != nil {
+			logger.Debug("watchedFiles.changed",
+				"trace_id", traceID,
+				"count", len(params.Changes))
+		}
 		needsReload := false
 		for _, change := range params.Changes {
 			path := uriToFSPath(string(change.URI))
+			if logger != nil {
+				logger.Debug("watchedFiles.event",
+					"trace_id", traceID,
+					"uri", change.URI,
+					"path", path,
+					"type", change.Type)
+			}
 			if IsWatchedFile(path) {
 				needsReload = true
 				break
@@ -41,10 +55,28 @@ func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, log
 
 			switch change.Type {
 			case protocol.FileCreated:
+				if logger != nil {
+					logger.Debug("watchedFiles.project.invalidate",
+						"trace_id", traceID,
+						"uri", uri,
+						"action", "created")
+				}
 				go projMgr.OnFileCreated(path)
 			case protocol.FileChanged:
+				if logger != nil {
+					logger.Debug("watchedFiles.project.invalidate",
+						"trace_id", traceID,
+						"uri", uri,
+						"action", "changed")
+				}
 				go projMgr.OnFileChanged(uri)
 			case protocol.FileDeleted:
+				if logger != nil {
+					logger.Debug("watchedFiles.project.invalidate",
+						"trace_id", traceID,
+						"uri", uri,
+						"action", "deleted")
+				}
 				go projMgr.OnFileDeleted(path)
 			}
 		}

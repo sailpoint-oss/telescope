@@ -6,8 +6,8 @@ import (
 	"testing"
 	"unsafe"
 
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/document"
@@ -207,8 +207,8 @@ func TestPrepareRenameHandler(t *testing.T) {
 	handler := lsp.NewPrepareRenameHandler(env.cache, nil)
 
 	tests := []struct {
-		name     string
-		pos      protocol.Position
+		name      string
+		pos       protocol.Position
 		canRename bool
 	}{
 		{"tag name", protocol.Position{Line: 6, Character: 12}, true},
@@ -291,9 +291,9 @@ func TestDocumentLinkHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("document link error: %v", err)
 	}
-	if len(result) == 0 {
-		t.Error("expected document links for $ref in spec")
-	}
+	// Local $ref links are intentionally omitted to avoid opening duplicate
+	// same-file fragment tabs. Handler may still return links for external refs,
+	// externalDocs URLs, or markdown URLs depending on input.
 	for _, link := range result {
 		if link.Target == nil {
 			t.Error("link has nil target")
@@ -318,7 +318,7 @@ func TestFormattingHandler_YAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("formatting error: %v", err)
 	}
-	// YAML formatting may return nil if no changes needed
+	// YAML formatting may return an empty edit slice when no changes are needed.
 	_ = result
 }
 
@@ -662,7 +662,7 @@ func TestSemanticTokensPositions(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                               string
+		name                          string
 		line, char, length, tokenType uint32
 	}{
 		{"get method key", 10, 4, 3, tokMethod},
@@ -2114,6 +2114,30 @@ func TestDefinitionHandler_CrossFile_LandsAtSchema(t *testing.T) {
 	targetLine := result[0].Range.Start.Line
 	if targetLine < 5 || targetLine > 7 {
 		t.Errorf("expected definition to land near User schema (line 5-7), got line %d", targetLine)
+	}
+}
+
+func TestDefinitionHandler_CrossFile_FallbackWithoutGraphOrProject(t *testing.T) {
+	env := setupCrossFileEnv(t)
+	handler := lsp.NewDefinitionHandler(env.cache, nil, nil)
+
+	// Simulate cache/graph not being hydrated for the target document yet.
+	env.cache.Delete(env.compURI)
+
+	result, err := handler(env.ctx, &protocol.DefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.rootURI},
+			Position:     protocol.Position{Line: 14, Character: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("definition error: %v", err)
+	}
+	if len(result) == 0 {
+		t.Fatal("expected fallback definition result for cross-file $ref")
+	}
+	if result[0].URI != env.compURI {
+		t.Fatalf("expected fallback target URI %q, got %q", env.compURI, result[0].URI)
 	}
 }
 

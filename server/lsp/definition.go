@@ -2,12 +2,17 @@ package lsp
 
 import (
 	"log/slog"
+	"net/url"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
+	"github.com/sailpoint-oss/telescope/server/lsp/observe"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/project"
 )
@@ -17,20 +22,39 @@ import (
 func NewDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manager, graphBridge *GraphBridge) gossip.DefinitionHandler {
 	return func(ctx *gossip.Context, params *protocol.DefinitionParams) ([]protocol.Location, error) {
 		uri := params.TextDocument.URI
+		traceID := observe.GetTraceID(ctx)
 		var logger *slog.Logger
 		if ctx.Server() != nil {
 			logger = ctx.Logger()
 		}
+		doc := ctx.Documents.Get(uri)
 		idx := cache.Get(uri)
 		if idx == nil {
 			if logger != nil {
-				logger.Debug("definition: no index for URI", slog.String("uri", string(uri)))
+				logger.Debug("definition: no index for URI", slog.String("trace_id", traceID), slog.String("uri", string(uri)))
+			}
+			// Best-effort external $ref fallback when index isn't ready yet.
+			line := definitionLineAt(doc, uri, params.Position.Line)
+			if strings.Contains(line, "$ref") {
+				refTarget := extractRefFromLine(line)
+				if locs := resolveLocalRefTextFallback(uri, refTarget); locs != nil {
+					return locs, nil
+				}
+				if locs := resolveExternalRefFallback(uri, refTarget, cache, logger, traceID); locs != nil {
+					return locs, nil
+				}
 			}
 			return nil, nil
 		}
 
-		doc := ctx.Documents.Get(uri)
 		if doc == nil {
+			line := definitionLineAt(nil, uri, params.Position.Line)
+			if strings.Contains(line, "$ref") {
+				refTarget := extractRefFromLine(line)
+				if locs := resolveExternalRefFallback(uri, refTarget, cache, logger, traceID); locs != nil {
+					return locs, nil
+				}
+			}
 			return nil, nil
 		}
 
@@ -43,7 +67,7 @@ func NewDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manager, g
 		if strings.Contains(line, "$ref") {
 			refTarget := extractRefFromLine(line)
 			if refTarget != "" {
-				if locs := resolveRefToLocation(ctx, uri, refTarget, idx, cache, graphBridge, projMgr, logger); locs != nil {
+				if locs := resolveRefToLocation(ctx, uri, refTarget, idx, cache, graphBridge, projMgr, logger, traceID); locs != nil {
 					return locs, nil
 				}
 			}
@@ -80,7 +104,7 @@ func NewDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manager, g
 		trimmedLine := strings.TrimSpace(line)
 		if isDiscriminatorMappingContext(trimmedLine) && cleanWord != "" {
 			if strings.HasPrefix(cleanWord, "#/") || strings.Contains(cleanWord, "/") {
-				if locs := resolveRefToLocation(ctx, uri, cleanWord, idx, cache, graphBridge, projMgr, logger); locs != nil {
+				if locs := resolveRefToLocation(ctx, uri, cleanWord, idx, cache, graphBridge, projMgr, logger, traceID); locs != nil {
 					return locs, nil
 				}
 			}
@@ -88,6 +112,33 @@ func NewDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manager, g
 
 		return nil, nil
 	}
+}
+
+func definitionLineAt(doc interface{ LineAt(uint32) string }, uri protocol.DocumentURI, line uint32) string {
+	if !isNilLineAccessor(doc) {
+		return doc.LineAt(line)
+	}
+	path := protocol.URIToPath(protocol.NormalizeURI(uri))
+	if path == "" {
+		return ""
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(string(content), "\n")
+	if int(line) < 0 || int(line) >= len(lines) {
+		return ""
+	}
+	return lines[int(line)]
+}
+
+func isNilLineAccessor(doc interface{ LineAt(uint32) string }) bool {
+	if doc == nil {
+		return true
+	}
+	v := reflect.ValueOf(doc)
+	return v.Kind() == reflect.Ptr && v.IsNil()
 }
 
 // invalidateTarget proactively triggers diagnostic republishing for a
@@ -133,10 +184,14 @@ func resolveWithProject(projMgr *project.Manager, uri protocol.DocumentURI, ref 
 		return nil
 	}
 	pctx := projMgr.ProjectForFile(string(uri))
-	if pctx == nil || pctx.Resolver == nil {
+	if pctx == nil {
 		return nil
 	}
-	result, err := pctx.Resolver.Resolve(string(uri), ref)
+	resolver := pctx.GetResolver()
+	if resolver == nil {
+		return nil
+	}
+	result, err := resolver.Resolve(string(uri), ref)
 	if err != nil {
 		return nil
 	}
@@ -196,12 +251,14 @@ func resolveRefToLocation(
 	graphBridge *GraphBridge,
 	projMgr *project.Manager,
 	logger *slog.Logger,
+	traceID string,
 ) []protocol.Location {
 	// 1. Local resolution within the same document.
 	if target, err := idx.Resolve(ref); err == nil {
 		if loc := locationFromTarget(uri, target); loc != nil {
 			if logger != nil {
 				logger.Debug("definition: resolved local ref",
+					slog.String("trace_id", traceID),
 					slog.String("ref", ref),
 					slog.String("targetURI", string(loc.URI)))
 			}
@@ -221,6 +278,7 @@ func resolveRefToLocation(
 					if loc := locationFromTarget(normTarget, target); loc != nil {
 						if logger != nil {
 							logger.Debug("definition: resolved via graph edge",
+								slog.String("trace_id", traceID),
 								slog.String("ref", ref),
 								slog.String("targetURI", targetURI))
 						}
@@ -235,6 +293,7 @@ func resolveRefToLocation(
 			if normTarget != protocol.NormalizeURI(uri) {
 				if logger != nil {
 					logger.Debug("definition: graph edge found, no target index",
+						slog.String("trace_id", traceID),
 						slog.String("ref", ref),
 						slog.String("targetURI", targetURI))
 				}
@@ -251,6 +310,7 @@ func resolveRefToLocation(
 	if loc := resolveWithProject(projMgr, uri, ref); loc != nil {
 		if logger != nil {
 			logger.Debug("definition: resolved cross-file ref",
+				slog.String("trace_id", traceID),
 				slog.String("ref", ref),
 				slog.String("targetURI", string(loc.URI)))
 		}
@@ -258,10 +318,134 @@ func resolveRefToLocation(
 		return []protocol.Location{*loc}
 	}
 
+	// 4. Deterministic URI-based fallback for external refs. This keeps
+	// go-to-definition stable even if graph/project caches are still warming.
+	if locs := resolveExternalRefFallback(uri, ref, cache, logger, traceID); locs != nil {
+		return locs
+	}
+
 	if logger != nil {
-		logger.Debug("definition: unresolved ref", slog.String("ref", ref))
+		logger.Debug("definition: unresolved ref", slog.String("trace_id", traceID), slog.String("ref", ref))
 	}
 	return nil
+}
+
+func resolveExternalRefFallback(
+	baseURI protocol.DocumentURI,
+	ref string,
+	cache *openapi.IndexCache,
+	logger *slog.Logger,
+	traceID string,
+) []protocol.Location {
+	refPath, refPointer, isExternal := splitExternalRef(ref)
+	if !isExternal || refPath == "" {
+		return nil
+	}
+
+	basePath := protocol.URIToPath(protocol.NormalizeURI(baseURI))
+	if basePath == "" {
+		return nil
+	}
+	targetPath := filepath.Clean(filepath.Join(filepath.Dir(basePath), refPath))
+	targetURI := filePathToURI(targetPath)
+	if targetURI == "" {
+		return nil
+	}
+
+	// If target index is available, try precise pointer resolution first.
+	if refPointer != "" && cache != nil {
+		if targetIdx := cache.Get(targetURI); targetIdx != nil {
+			if target, err := targetIdx.Resolve("#" + refPointer); err == nil {
+				if loc := locationFromTarget(targetURI, target); loc != nil {
+					if logger != nil {
+						logger.Debug("definition: resolved external ref fallback target",
+							slog.String("trace_id", traceID),
+							slog.String("ref", ref),
+							slog.String("targetURI", string(loc.URI)))
+					}
+					return []protocol.Location{*loc}
+				}
+			}
+		}
+	}
+
+	// Fall back to file-start target when pointer resolution is unavailable.
+	if logger != nil {
+		logger.Debug("definition: external ref fallback file target",
+			slog.String("trace_id", traceID),
+			slog.String("ref", ref),
+			slog.String("targetURI", string(targetURI)))
+	}
+	return []protocol.Location{{URI: targetURI, Range: protocol.Range{}}}
+}
+
+func resolveLocalRefTextFallback(uri protocol.DocumentURI, ref string) []protocol.Location {
+	if !strings.HasPrefix(ref, "#/") {
+		return nil
+	}
+	path := protocol.URIToPath(protocol.NormalizeURI(uri))
+	if path == "" {
+		return nil
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	segments := strings.Split(strings.TrimPrefix(ref, "#/"), "/")
+	if len(segments) == 0 {
+		return nil
+	}
+	targetName := segments[len(segments)-1]
+	if targetName == "" {
+		return nil
+	}
+	targetName = strings.ReplaceAll(targetName, "~1", "/")
+	targetName = strings.ReplaceAll(targetName, "~0", "~")
+
+	lines := strings.Split(string(content), "\n")
+	for i, ln := range lines {
+		trimmed := strings.TrimSpace(ln)
+		if trimmed == targetName+":" || strings.HasPrefix(trimmed, targetName+": ") {
+			col := strings.Index(ln, targetName)
+			if col < 0 {
+				col = 0
+			}
+			return []protocol.Location{{
+				URI: uri,
+				Range: protocol.Range{
+					Start: protocol.Position{Line: uint32(i), Character: uint32(col)},
+					End:   protocol.Position{Line: uint32(i), Character: uint32(col + len(targetName))},
+				},
+			}}
+		}
+	}
+	return []protocol.Location{{URI: uri, Range: protocol.Range{}}}
+}
+
+func splitExternalRef(ref string) (pathPart string, pointer string, external bool) {
+	if ref == "" {
+		return "", "", false
+	}
+	hash := strings.Index(ref, "#")
+	switch {
+	case hash == -1:
+		return ref, "", !strings.HasPrefix(ref, "#")
+	case hash == 0:
+		return "", strings.TrimPrefix(ref, "#"), false
+	default:
+		return ref[:hash], strings.TrimPrefix(ref[hash:], "#"), true
+	}
+}
+
+func filePathToURI(path string) protocol.DocumentURI {
+	if path == "" {
+		return ""
+	}
+	u := &url.URL{
+		Scheme: "file",
+		Path:   filepath.ToSlash(path),
+	}
+	return protocol.NormalizeURI(protocol.DocumentURI(u.String()))
 }
 
 // isDiscriminatorMappingContext checks if the line is within a discriminator
@@ -271,11 +455,14 @@ func isDiscriminatorMappingContext(trimmedLine string) bool {
 	if strings.HasPrefix(trimmedLine, "mapping:") {
 		return true
 	}
-	// Value line under mapping — has a colon (key: value pair) and contains
-	// a ref-like value (path separator). Exclude lines that are clearly other
-	// YAML structures.
-	if strings.Contains(trimmedLine, ":") && strings.Contains(trimmedLine, "/") {
-		return true
+	// Value line under mapping — the value portion contains a JSON pointer
+	// (e.g. "#/components/schemas/Dog"), which is what discriminator mapping
+	// values look like.
+	if idx := strings.Index(trimmedLine, ":"); idx >= 0 {
+		value := trimmedLine[idx+1:]
+		if strings.Contains(value, "#/") {
+			return true
+		}
 	}
 	return false
 }

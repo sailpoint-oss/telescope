@@ -15,6 +15,7 @@ import {
 } from "vscode-languageclient/node";
 import { Trace } from "vscode-languageserver-protocol";
 import { parse as yamlParse } from "yaml";
+import { appendTraceEvent } from "./trace";
 import {
 	classifyDocument,
 	DEFAULT_OPENAPI_PATTERNS,
@@ -90,6 +91,7 @@ export class Session implements vscode.Disposable {
 
 	/** Track documents where the user has manually opted out */
 	private userOverrides = new Set<string>();
+	private languageSwitchInFlight = new Set<string>();
 
 	/** Ensure start/stop are idempotent and safe under concurrency. */
 	private startPromise: Promise<void> | null = null;
@@ -171,6 +173,10 @@ export class Session implements vscode.Disposable {
 
 			this._state = SessionState.Starting;
 			this.log(`Starting session for ${this.workspaceFolder.name}`);
+			appendTraceEvent(this.outputChannel, "session.starting", {
+				workspace: this.workspaceFolder.uri.toString(),
+				name: this.workspaceFolder.name,
+			});
 
 			try {
 				await this.loadConfig();
@@ -182,6 +188,10 @@ export class Session implements vscode.Disposable {
 				this._state = SessionState.Running;
 				this._lastStartError = null;
 				this.log(`Session started for ${this.workspaceFolder.name}`);
+				appendTraceEvent(this.outputChannel, "session.running", {
+					workspace: this.workspaceFolder.uri.toString(),
+					name: this.workspaceFolder.name,
+				});
 
 				this.startBackgroundScan();
 			} catch (error) {
@@ -191,6 +201,11 @@ export class Session implements vscode.Disposable {
 						? error.stack || error.message
 						: String(error);
 				this.logError(`Failed to start session: ${error}`);
+				appendTraceEvent(this.outputChannel, "session.start.error", {
+					workspace: this.workspaceFolder.uri.toString(),
+					name: this.workspaceFolder.name,
+					error: error instanceof Error ? error.message : String(error),
+				});
 				throw error;
 			}
 		})().finally(() => {
@@ -224,6 +239,10 @@ export class Session implements vscode.Disposable {
 
 			this._state = SessionState.Stopping;
 			this.log(`Stopping session for ${this.workspaceFolder.name}`);
+			appendTraceEvent(this.outputChannel, "session.stopping", {
+				workspace: this.workspaceFolder.uri.toString(),
+				name: this.workspaceFolder.name,
+			});
 
 			try {
 				if (this.backgroundScanTimer) {
@@ -253,9 +272,18 @@ export class Session implements vscode.Disposable {
 
 				this._state = SessionState.Stopped;
 				this.log(`Session stopped for ${this.workspaceFolder.name}`);
+				appendTraceEvent(this.outputChannel, "session.stopped", {
+					workspace: this.workspaceFolder.uri.toString(),
+					name: this.workspaceFolder.name,
+				});
 			} catch (error) {
 				this._state = SessionState.Stopped;
 				this.logError(`Error stopping session: ${error}`);
+				appendTraceEvent(this.outputChannel, "session.stop.error", {
+					workspace: this.workspaceFolder.uri.toString(),
+					name: this.workspaceFolder.name,
+					error: error instanceof Error ? error.message : String(error),
+				});
 			}
 		})().finally(() => {
 			this.stopPromise = null;
@@ -324,13 +352,12 @@ export class Session implements vscode.Disposable {
 			},
 		};
 
-		const folderPattern = new vscode.RelativePattern(this.workspaceFolder, "**/*");
 		const clientOptions: LanguageClientOptions = {
 			documentSelector: [
-				{ language: "yaml", pattern: folderPattern },
-				{ language: "json", pattern: folderPattern },
-				{ language: "openapi-json", pattern: folderPattern },
-				{ language: "openapi-yaml", pattern: folderPattern },
+				{ language: "yaml" },
+				{ language: "json" },
+				{ language: "openapi-json" },
+				{ language: "openapi-yaml" },
 			],
 			workspaceFolder: this.workspaceFolder,
 			outputChannel: this.outputChannel,
@@ -357,6 +384,10 @@ export class Session implements vscode.Disposable {
 		);
 
 		this.applyTraceSetting();
+		appendTraceEvent(this.outputChannel, "session.client.start", {
+			workspace: this.workspaceFolder.uri.toString(),
+			serverPath: this.serverPath,
+		});
 		await this.client.start();
 
 		// Listen for deprecated ranges notifications from the server
@@ -405,6 +436,10 @@ export class Session implements vscode.Disposable {
 		if (!this.client) return;
 		const cfg = vscode.workspace.getConfiguration("telescope", this.workspaceFolder.uri);
 		const traceLevel = cfg.get<"off" | "messages" | "verbose">("trace", "off");
+		appendTraceEvent(this.outputChannel, "session.trace.level", {
+			workspace: this.workspaceFolder.uri.toString(),
+			level: traceLevel,
+		});
 		switch (traceLevel) {
 			case "verbose":
 				this.client.setTrace(Trace.Verbose);
@@ -463,6 +498,10 @@ export class Session implements vscode.Disposable {
 
 		fileWatcher.onDidChange(async (uri) => {
 			if (this.ownsUri(uri)) {
+				appendTraceEvent(this.outputChannel, "session.file.changed", {
+					workspace: this.workspaceFolder.uri.toString(),
+					uri: uri.toString(),
+				});
 				this.scanner?.invalidate(uri.toString());
 				if (!this.matchesOpenAPIPatterns(uri)) return;
 				await this.scanner?.classifyFile(uri);
@@ -471,6 +510,10 @@ export class Session implements vscode.Disposable {
 
 		fileWatcher.onDidDelete((uri) => {
 			if (this.ownsUri(uri)) {
+				appendTraceEvent(this.outputChannel, "session.file.deleted", {
+					workspace: this.workspaceFolder.uri.toString(),
+					uri: uri.toString(),
+				});
 				this.scanner?.invalidate(uri.toString());
 				this.scanner?.recount();
 				this.classifiedDocuments.delete(uri.toString());
@@ -479,6 +522,10 @@ export class Session implements vscode.Disposable {
 
 		fileWatcher.onDidCreate(async (uri) => {
 			if (this.ownsUri(uri) && this.matchesOpenAPIPatterns(uri)) {
+				appendTraceEvent(this.outputChannel, "session.file.created", {
+					workspace: this.workspaceFolder.uri.toString(),
+					uri: uri.toString(),
+				});
 				await this.scanner?.classifyFile(uri);
 				this.scanner?.recount();
 			}
@@ -513,7 +560,16 @@ export class Session implements vscode.Disposable {
 	private setupDocumentHandlers(): void {
 		const openDisposable = vscode.workspace.onDidOpenTextDocument((doc) => {
 			if (this.ownsUri(doc.uri)) {
-				this.handleDocument(doc);
+				const uri = doc.uri.toString();
+				if (doc.uri.fragment) {
+					void this.redirectFragmentDefinitionOpen(doc);
+					return;
+				}
+				const inFlight = this.languageSwitchInFlight.has(uri);
+				if (inFlight) {
+					return;
+				}
+				this.handleDocument(doc, "onDidOpen");
 			}
 		});
 		this.disposables.push(openDisposable);
@@ -527,9 +583,82 @@ export class Session implements vscode.Disposable {
 
 		for (const doc of vscode.workspace.textDocuments) {
 			if (this.ownsUri(doc.uri)) {
-				this.handleDocument(doc);
+				if (doc.uri.fragment) {
+					void this.redirectFragmentDefinitionOpen(doc);
+					continue;
+				}
+				this.handleDocument(doc, "initialSweep");
 			}
 		}
+	}
+
+	private async redirectFragmentDefinitionOpen(doc: vscode.TextDocument): Promise<void> {
+		const fragment = doc.uri.fragment;
+		const baseUri = doc.uri.with({ fragment: "" });
+		if (!fragment || !this.ownsUri(baseUri)) return;
+
+		const token = this.extractFragmentTargetToken(fragment);
+		const baseDoc = await vscode.workspace.openTextDocument(baseUri);
+		const pos = this.findTokenPosition(baseDoc, token);
+		const existingEditor = vscode.window.visibleTextEditors.find(
+			(e) => e.document.uri.toString() === baseUri.toString(),
+		);
+		const editor =
+			existingEditor ??
+			(await vscode.window.showTextDocument(baseDoc, {
+				preview: true,
+				preserveFocus: false,
+				viewColumn: vscode.ViewColumn.Active,
+			}));
+		editor.selection = new vscode.Selection(pos, pos);
+		editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+		await this.closeFragmentTabs(doc.uri);
+	}
+
+	private async closeFragmentTabs(fragmentUri: vscode.Uri): Promise<number> {
+		let closed = 0;
+		for (const group of vscode.window.tabGroups.all) {
+			for (const tab of group.tabs) {
+				const input = tab.input;
+				if (
+					input instanceof vscode.TabInputText &&
+					input.uri.toString() === fragmentUri.toString()
+				) {
+					if (await vscode.window.tabGroups.close(tab, true)) {
+						closed++;
+					}
+				}
+			}
+		}
+		return closed;
+	}
+
+	private extractFragmentTargetToken(fragment: string): string {
+		if (!fragment) return "";
+		let decoded = fragment;
+		try {
+			decoded = decodeURIComponent(fragment);
+		} catch {
+			// ignore invalid escaping
+		}
+		// Strip any position suffixes like "#198,7#180,7".
+		const pointer = decoded.split("#")[0] ?? decoded;
+		const segments = pointer.split("/").filter(Boolean);
+		const raw = segments[segments.length - 1] ?? "";
+		return raw.replaceAll("~1", "/").replaceAll("~0", "~");
+	}
+
+	private findTokenPosition(doc: vscode.TextDocument, token: string): vscode.Position {
+		if (!token) return new vscode.Position(0, 0);
+		const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const keyPattern = new RegExp(`^\\s*${escaped}:\\s*(#.*)?$`);
+		for (let i = 0; i < doc.lineCount; i++) {
+			const text = doc.lineAt(i).text;
+			if (!keyPattern.test(text.trimEnd())) continue;
+			const character = Math.max(0, text.indexOf(token));
+			return new vscode.Position(i, character);
+		}
+		return new vscode.Position(0, 0);
 	}
 
 	/**
@@ -592,10 +721,21 @@ export class Session implements vscode.Disposable {
 	/**
 	 * Handle document classification and language switching.
 	 */
-	async handleDocument(doc: vscode.TextDocument): Promise<void> {
+	async handleDocument(
+		doc: vscode.TextDocument,
+		source: "onDidOpen" | "initialSweep" | "external" = "external",
+	): Promise<void> {
 		const uri = doc.uri.toString();
 		const languageId = doc.languageId;
 		const filePath = doc.uri.fsPath;
+		if (doc.uri.fragment) {
+			return;
+		}
+		appendTraceEvent(this.outputChannel, "session.handleDocument", {
+			workspace: this.workspaceFolder.uri.toString(),
+			uri,
+			languageId,
+		});
 
 		if (this.userOverrides.has(uri)) {
 			return;
@@ -632,8 +772,7 @@ export class Session implements vscode.Disposable {
 			if (!isOpenAPILanguage(doc.languageId)) {
 				try {
 					const targetLanguage = getOpenAPILanguageId(filePath);
-					await vscode.languages.setTextDocumentLanguage(doc, targetLanguage);
-					this.classifiedDocuments.set(uri, targetLanguage);
+					await this.setDocumentLanguageWithGuard(doc, targetLanguage, "cached");
 				} catch (error) {
 					console.debug("Failed to re-apply OpenAPI classification:", error);
 				}
@@ -647,11 +786,30 @@ export class Session implements vscode.Disposable {
 		if (isOpenAPI) {
 			try {
 				const targetLanguage = getOpenAPILanguageId(filePath);
-				await vscode.languages.setTextDocumentLanguage(doc, targetLanguage);
-				this.classifiedDocuments.set(uri, targetLanguage);
+				await this.setDocumentLanguageWithGuard(doc, targetLanguage, "live");
 			} catch (error) {
 				console.debug("Failed to set document language:", error);
 			}
+		}
+	}
+
+	private async setDocumentLanguageWithGuard(
+		doc: vscode.TextDocument,
+		targetLanguage: "openapi-yaml" | "openapi-json",
+		reason: "cached" | "live",
+	): Promise<void> {
+		const uri = doc.uri.toString();
+		if (doc.languageId === targetLanguage) return;
+		if (this.languageSwitchInFlight.has(uri)) {
+			return;
+		}
+
+		this.languageSwitchInFlight.add(uri);
+		try {
+			await vscode.languages.setTextDocumentLanguage(doc, targetLanguage);
+			this.classifiedDocuments.set(uri, targetLanguage);
+		} finally {
+			this.languageSwitchInFlight.delete(uri);
 		}
 	}
 

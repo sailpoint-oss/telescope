@@ -38,7 +38,9 @@ func NewSymbolHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Document
 	return func(ctx *gossip.Context, params *protocol.DocumentSymbolParams) ([]protocol.DocumentSymbol, error) {
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
-			return nil, nil
+			// Return an empty array instead of null to keep provider behavior
+			// stable while indexes/classification settle during extension-host startup.
+			return []protocol.DocumentSymbol{}, nil
 		}
 
 		var symbols []protocol.DocumentSymbol

@@ -11,6 +11,7 @@ import (
 
 	"github.com/LukasParke/gossip/lspclient"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/lsp/observe"
 )
 
 // ChildLSPManager manages child yaml-language-server and
@@ -92,7 +93,7 @@ func (m *ChildLSPManager) Start(ctx context.Context, rootURI string) {
 		Settings: map[string]any{
 			"json": map[string]any{
 				"validate": map[string]any{"enable": true},
-				"format":  map[string]any{"enable": false},
+				"format":   map[string]any{"enable": false},
 			},
 		},
 		OnDiagnostics: func(uri protocol.DocumentURI, diags []protocol.Diagnostic) {
@@ -146,9 +147,16 @@ func (m *ChildLSPManager) DidOpen(ctx context.Context, params *protocol.DidOpenT
 	if params == nil {
 		return
 	}
-	m.logger.Debug("childMgr.DidOpen", "uri", params.TextDocument.URI, "languageID", params.TextDocument.LanguageID)
+	traceID := observe.GetTraceID(ctx)
+	m.logger.Debug("childMgr.DidOpen",
+		"trace_id", traceID,
+		"uri", params.TextDocument.URI,
+		"languageID", params.TextDocument.LanguageID)
 	client := m.clientForURI(string(params.TextDocument.URI))
 	if client == nil {
+		m.logger.Debug("childMgr.DidOpen skipped: no child client",
+			"trace_id", traceID,
+			"uri", params.TextDocument.URI)
 		return
 	}
 
@@ -162,8 +170,16 @@ func (m *ChildLSPManager) DidChange(ctx context.Context, params *protocol.DidCha
 	if params == nil {
 		return
 	}
+	traceID := observe.GetTraceID(ctx)
+	m.logger.Debug("childMgr.DidChange",
+		"trace_id", traceID,
+		"uri", params.TextDocument.URI,
+		"changes", len(params.ContentChanges))
 	client := m.clientForURI(string(params.TextDocument.URI))
 	if client == nil {
+		m.logger.Debug("childMgr.DidChange skipped: no child client",
+			"trace_id", traceID,
+			"uri", params.TextDocument.URI)
 		return
 	}
 	_ = client.DidChange(ctx, params)
@@ -177,15 +193,20 @@ func (m *ChildLSPManager) DidClose(ctx context.Context, params *protocol.DidClos
 	if params == nil {
 		return
 	}
+	traceID := observe.GetTraceID(ctx)
 	uri := params.TextDocument.URI
-	m.logger.Debug("childMgr.DidClose", "uri", uri)
+	m.logger.Debug("childMgr.DidClose", "trace_id", traceID, "uri", uri)
 	client := m.clientForURI(string(uri))
 	if client != nil {
 		_ = client.DidClose(ctx, params)
 	}
-	source := m.sourceNameForURI(string(uri))
-	m.logger.Debug("childMgr.DidClose clearing child source", "uri", uri, "source", source)
-	m.aggregator.ClearSource(uri, source)
+	if source := m.sourceNameForURI(string(uri)); source != "" {
+		m.logger.Debug("childMgr.DidClose clearing child source",
+			"trace_id", traceID,
+			"uri", uri,
+			"source", source)
+		m.aggregator.ClearSource(uri, source)
+	}
 }
 
 func (m *ChildLSPManager) clientForURI(uri string) *lspclient.Client {
@@ -212,7 +233,7 @@ func (m *ChildLSPManager) sourceNameForURI(uri string) string {
 	if strings.HasSuffix(lower, ".json") {
 		return "json-ls"
 	}
-	return "yaml-ls"
+	return ""
 }
 
 func langIDForURI(uri string) string {

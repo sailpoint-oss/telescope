@@ -18,6 +18,7 @@ var (
 	transport string
 	tcpAddr   string
 	sockPath  string
+	logLevel  string
 )
 
 func newServeCmd() *cobra.Command {
@@ -35,12 +36,14 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&transport, "transport", "stdio", "Transport: stdio, tcp, socket")
 	cmd.Flags().StringVar(&tcpAddr, "tcp", "", "TCP address (e.g., :9257)")
 	cmd.Flags().StringVar(&sockPath, "socket", "", "Unix socket path")
+	cmd.Flags().StringVar(&logLevel, "log-level", "", "Log level: debug, info, warn, error (defaults to TELESCOPE_LOG_LEVEL or info)")
 
 	return cmd
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	level := parseServeLogLevel(logLevel, os.Getenv("TELESCOPE_LOG_LEVEL"))
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -71,4 +74,29 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return nil
+}
+
+func parseServeLogLevel(flagLevel, envLevel string) slog.Level {
+	candidate := strings.TrimSpace(flagLevel)
+	if candidate == "" {
+		candidate = strings.TrimSpace(envLevel)
+	}
+	if candidate == "" {
+		return slog.LevelInfo
+	}
+
+	value := strings.ToLower(candidate)
+	switch value {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		// Invalid values are ignored to preserve current behavior.
+		return slog.LevelInfo
+	}
 }

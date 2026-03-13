@@ -6,10 +6,13 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
+	deleteWorkspaceFile,
+	diagCode,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	writeWorkspaceFile,
 } from "./utils/e2e-helpers";
 
 suite("Diagnostics", () => {
@@ -42,6 +45,34 @@ suite("Diagnostics", () => {
 			diagnostics.length > 0,
 			`Should have diagnostics. Found: ${diagnostics.length}`,
 		);
+	});
+
+	test("Schema validation diagnostics should surface as errors", async () => {
+		if (isMultiRootWorkspace()) return;
+		const relativePath = "fragment-invalid-schema.yaml";
+		const invalidFile = await writeWorkspaceFile(
+			relativePath,
+			"type: object\nrequired: id\n",
+		);
+		try {
+			await openAndShow(invalidFile);
+			const diagnostics = await waitForDiagnostics(
+				invalidFile,
+				(diags) => diags.some((d) => diagCode(d) === "oas3-schema"),
+				{ timeoutMs: 60000 },
+			);
+			const schemaDiags = diagnostics.filter((d) => diagCode(d) === "oas3-schema");
+			assert.ok(
+				schemaDiags.length > 0,
+				`Expected at least one oas3-schema diagnostic on ${relativePath}`,
+			);
+			assert.ok(
+				schemaDiags.every((d) => d.severity !== undefined),
+				"Expected oas3-schema diagnostics to include a severity value",
+			);
+		} finally {
+			await deleteWorkspaceFile(relativePath);
+		}
 	});
 
 	test("Should not produce errors for valid OpenAPI file", async () => {

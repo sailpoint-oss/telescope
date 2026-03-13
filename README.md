@@ -93,6 +93,8 @@ Multi-root workspaces are supported. Telescope runs **one language server per wo
 ### Debug logging
 
 Use the `telescope.trace` setting to control LSP trace logging. Keep it `off` unless you're actively debugging.
+For extension-host debugging, follow the end-to-end runbook in [docs/LSP-TRACE-RUNBOOK.md](docs/LSP-TRACE-RUNBOOK.md).
+To merge collected logs into one sortable artifact, use [docs/LSP-TRACE-TIMELINE.md](docs/LSP-TRACE-TIMELINE.md).
 
 ## Architecture
 

@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/sailpoint-oss/telescope/server/openapi"
@@ -264,4 +265,86 @@ func docsKeys(pctx *ProjectContext) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+func TestRebuildIndex_ConcurrentSafe(t *testing.T) {
+	dir := t.TempDir()
+
+	rootContent := `openapi: "3.1.0"
+info:
+  title: Concurrent Test
+  version: "1.0"
+paths:
+  /test:
+    get:
+      operationId: getTest
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas/a.yaml
+`
+	writeFile(t, dir, "api.yaml", rootContent)
+	writeFile(t, dir, "schemas/a.yaml", "type: object\nproperties:\n  id:\n    type: string\n")
+	writeFile(t, dir, "schemas/b.yaml", "type: object\nproperties:\n  name:\n    type: string\n")
+
+	rootPath := filepath.Join(dir, "api.yaml")
+	rootURI := pathToURI(rootPath)
+	fragAURI := pathToURI(filepath.Join(dir, "schemas", "a.yaml"))
+	fragBURI := pathToURI(filepath.Join(dir, "schemas", "b.yaml"))
+
+	pctx, err := BuildProjectContext(rootURI, nil, nil)
+	if err != nil {
+		t.Fatalf("BuildProjectContext: %v", err)
+	}
+
+	const goroutines = 10
+	var wg sync.WaitGroup
+
+	// Concurrent RebuildIndex calls on different fragments.
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			uri := fragAURI
+			if n%2 == 0 {
+				uri = fragBURI
+			}
+			// Rewrite fragment content to simulate file changes.
+			fname := "schemas/a.yaml"
+			if n%2 == 0 {
+				fname = "schemas/b.yaml"
+			}
+			writeFile(t, dir, fname, "type: object\nproperties:\n  v:\n    type: integer\n")
+			_ = pctx.RebuildIndex(uri, nil)
+		}(i)
+	}
+
+	// Concurrent ContainsFile reads.
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = pctx.ContainsFile(fragAURI)
+			_ = pctx.ContainsFile(fragBURI)
+		}()
+	}
+
+	// Concurrent AllURIs reads.
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = pctx.AllURIs()
+		}()
+	}
+
+	wg.Wait()
+
+	// If we get here without a race detector complaint or panic, the test passes.
+	if !pctx.ContainsFile(rootURI) {
+		t.Error("root URI should still be in project after concurrent rebuilds")
+	}
 }

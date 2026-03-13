@@ -206,8 +206,13 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 	// Register document sync handlers to forward to child LSPs and update
 	// the V2 graph engine.
 	s.OnDidOpen(func(ctx *gossip.Context, params *protocol.DidOpenTextDocumentParams) error {
-		logger.Debug("telescope.didOpen", "uri", params.TextDocument.URI, "languageID", params.TextDocument.LanguageID)
-		childMgr.DidOpen(context.Background(), params)
+		traceID := observe.NewTraceID()
+		notifCtx := observe.WithTraceID(context.Background(), traceID)
+		logger.Debug("telescope.didOpen",
+			"trace_id", traceID,
+			"uri", params.TextDocument.URI,
+			"languageID", params.TextDocument.LanguageID)
+		childMgr.DidOpen(notifCtx, params)
 		uri := string(params.TextDocument.URI)
 		content := []byte(params.TextDocument.Text)
 		graphBridge.OnDocumentOpen(uri, content)
@@ -215,8 +220,10 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		return nil
 	})
 	s.OnDidChange(func(ctx *gossip.Context, params *protocol.DidChangeTextDocumentParams) error {
-		logger.Debug("telescope.didChange", "uri", params.TextDocument.URI)
-		childMgr.DidChange(context.Background(), params)
+		traceID := observe.NewTraceID()
+		notifCtx := observe.WithTraceID(context.Background(), traceID)
+		logger.Debug("telescope.didChange", "trace_id", traceID, "uri", params.TextDocument.URI)
+		childMgr.DidChange(notifCtx, params)
 		if doc := ctx.Documents.Get(params.TextDocument.URI); doc != nil {
 			uri := string(params.TextDocument.URI)
 			content := []byte(doc.Text())
@@ -226,8 +233,10 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		return nil
 	})
 	s.OnDidClose(func(ctx *gossip.Context, params *protocol.DidCloseTextDocumentParams) error {
-		logger.Debug("telescope.didClose", "uri", params.TextDocument.URI)
-		childMgr.DidClose(context.Background(), params)
+		traceID := observe.NewTraceID()
+		notifCtx := observe.WithTraceID(context.Background(), traceID)
+		logger.Debug("telescope.didClose", "trace_id", traceID, "uri", params.TextDocument.URI)
+		childMgr.DidClose(notifCtx, params)
 		graphBridge.OnDocumentClose(string(params.TextDocument.URI))
 		return nil
 	})
@@ -256,7 +265,10 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		childMgr.Aggregator().SetPublishFunc(ctx.Client.PublishDiagnostics)
 		childMgr.Aggregator().SetLogger(logger)
 		ctx.Server().DiagnosticEngine().SetPublish(func(bgCtx context.Context, params *protocol.PublishDiagnosticsParams) error {
-			logger.Debug("telescope.diagToAggregator", "uri", params.URI, "count", len(params.Diagnostics))
+			logger.Debug("telescope.diagToAggregator",
+				"trace_id", observe.GetTraceID(bgCtx),
+				"uri", params.URI,
+				"count", len(params.Diagnostics))
 			// Enrich diagnostics with RelatedInformation for $ref context
 			enrichedDiags := enrichDiagsWithRefContext(graphBridge, string(params.URI), params.Diagnostics)
 			childMgr.Aggregator().Set(params.URI, "telescope", enrichedDiags)

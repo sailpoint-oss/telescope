@@ -165,7 +165,7 @@ func (m *Manager) buildProject(rootURI string) {
 
 	m.logger.Info("project built",
 		"root", rootURI,
-		"files", len(pctx.Docs),
+		"files", len(pctx.AllURIs()),
 		"edges", len(pctx.Graph.AllURIs()),
 	)
 
@@ -185,7 +185,7 @@ func (m *Manager) runProjectDiagnostics(pctx *ProjectContext) {
 		return
 	}
 
-	for uri, idx := range pctx.Docs {
+	for uri, idx := range pctx.DocsSnapshot() {
 		if !m.canPublishURI(uri, shouldPublishFn) {
 			continue
 		}
@@ -227,7 +227,7 @@ func (m *Manager) diagnoseFile(uri string, idx *openapi.Index, pctx *ProjectCont
 			continue
 		}
 
-		if pctx.Resolver.CanResolve(uri, target) {
+		if pctx.GetResolver().CanResolve(uri, target) {
 			continue
 		}
 
@@ -267,7 +267,7 @@ func (m *Manager) ResolverForFile(uri string) rules.CrossRefResolver {
 	if pctx == nil {
 		return nil
 	}
-	return pctx.Resolver
+	return pctx.GetResolver()
 }
 
 // OnFileChanged should be called when a file is modified. It rebuilds the
@@ -301,8 +301,8 @@ func (m *Manager) OnFileChanged(uri string) {
 				continue
 			}
 
-			idx, ok := pctx.Docs[affURI]
-			if !ok {
+			idx := pctx.DocIndex(affURI)
+			if idx == nil {
 				continue
 			}
 			diags := m.diagnoseFile(affURI, idx, pctx)

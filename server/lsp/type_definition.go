@@ -1,12 +1,14 @@
 package lsp
 
 import (
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
+	"github.com/sailpoint-oss/telescope/server/lsp/observe"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/project"
 )
@@ -17,8 +19,16 @@ import (
 func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manager, _ *GraphBridge) gossip.TypeDefinitionHandler {
 	return func(ctx *gossip.Context, params *protocol.TypeDefinitionParams) ([]protocol.Location, error) {
 		uri := params.TextDocument.URI
+		traceID := observe.GetTraceID(ctx)
+		var logger *slog.Logger
+		if ctx.Server() != nil {
+			logger = ctx.Logger()
+		}
 		idx := cache.Get(uri)
 		if idx == nil {
+			if logger != nil {
+				logger.Debug("typeDefinition: no index for URI", slog.String("trace_id", traceID), slog.String("uri", string(uri)))
+			}
 			return nil, nil
 		}
 
@@ -35,6 +45,12 @@ func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manage
 			if refTarget != "" {
 				if target, err := idx.Resolve(refTarget); err == nil {
 					if schema, ok := target.(*openapi.Schema); ok {
+						if logger != nil {
+							logger.Debug("typeDefinition: resolved local ref",
+								slog.String("trace_id", traceID),
+								slog.String("uri", string(uri)),
+								slog.String("ref", refTarget))
+						}
 						return schemaTypeLocation(uri, idx, schema, projMgr), nil
 					}
 				}
@@ -43,6 +59,13 @@ func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manage
 					projMgr.WaitReady(2 * time.Second)
 				}
 				if loc := resolveTypeWithProject(projMgr, uri, refTarget); loc != nil {
+					if logger != nil {
+						logger.Debug("typeDefinition: resolved project ref",
+							slog.String("trace_id", traceID),
+							slog.String("uri", string(uri)),
+							slog.String("ref", refTarget),
+							slog.String("targetURI", string(loc.URI)))
+					}
 					return []protocol.Location{*loc}, nil
 				}
 			}
@@ -141,10 +164,14 @@ func resolveTypeWithProject(projMgr *project.Manager, uri protocol.DocumentURI, 
 		return nil
 	}
 	pctx := projMgr.ProjectForFile(string(uri))
-	if pctx == nil || pctx.Resolver == nil {
+	if pctx == nil {
 		return nil
 	}
-	result, err := pctx.Resolver.Resolve(string(uri), ref)
+	resolver := pctx.GetResolver()
+	if resolver == nil {
+		return nil
+	}
+	result, err := resolver.Resolve(string(uri), ref)
 	if err != nil {
 		return nil
 	}
