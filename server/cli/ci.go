@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -209,6 +210,37 @@ func gitRepoRoot() string {
 	return strings.TrimSpace(string(out))
 }
 
+// githubActionsPRHeadSHA returns the PR head commit SHA from the GitHub Actions
+// environment. It reads GITHUB_HEAD_SHA if set, otherwise parses the event payload
+// at GITHUB_EVENT_PATH when GITHUB_EVENT_NAME is pull_request.
+func githubActionsPRHeadSHA() string {
+	if s := os.Getenv("GITHUB_HEAD_SHA"); s != "" {
+		return s
+	}
+	if os.Getenv("GITHUB_EVENT_NAME") != "pull_request" {
+		return ""
+	}
+	path := os.Getenv("GITHUB_EVENT_PATH")
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var event struct {
+		PullRequest *struct {
+			Head *struct {
+				SHA string `json:"sha"`
+			} `json:"head"`
+		} `json:"pull_request"`
+	}
+	if err := json.Unmarshal(data, &event); err != nil || event.PullRequest == nil || event.PullRequest.Head == nil {
+		return ""
+	}
+	return event.PullRequest.Head.SHA
+}
+
 // parsePRNumber extracts the PR number from environment variables.
 func parsePRNumber() (int, error) {
 	prNumStr := os.Getenv("GITHUB_PR_NUMBER")
@@ -241,9 +273,12 @@ func postPRComment(report *LintReport) error {
 	}
 
 	repo := os.Getenv("GITHUB_REPOSITORY")
-	headSHA := os.Getenv("GITHUB_HEAD_SHA")
+	headRef := os.Getenv("GITHUB_HEAD_REF")
+	if headRef == "" {
+		headRef = githubActionsPRHeadSHA()
+	}
 
-	body := GeneratePRComment(report, repo, headSHA)
+	body := GeneratePRComment(report, repo, headRef)
 	return client.UpsertComment(prNum, body)
 }
 
@@ -253,9 +288,9 @@ func postPRReview(report *LintReport) error {
 		return nil // nothing to annotate
 	}
 
-	headSHA := os.Getenv("GITHUB_HEAD_SHA")
+	headSHA := githubActionsPRHeadSHA()
 	if headSHA == "" {
-		return fmt.Errorf("GITHUB_HEAD_SHA not set, skipping inline review")
+		return fmt.Errorf("could not determine PR head SHA (set GITHUB_HEAD_SHA or run in pull_request event with GITHUB_EVENT_PATH), skipping inline review")
 	}
 
 	prNum, err := parsePRNumber()

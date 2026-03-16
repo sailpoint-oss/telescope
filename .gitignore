@@ -10,6 +10,8 @@ dist
 client/bin/
 server/telescope
 server/telescope.exe
+server/server
+server/server.exe
 
 # Compiled Bun runner binaries (build artifacts, not committed)
 server/lsp/bun/runner/dist/
@@ -20,6 +22,9 @@ go.work.sum
 
 # VSIX build artifacts
 *.vsix
+
+# CI / local lint report output
+telescope-report.md
 
 # code coverage
 coverage

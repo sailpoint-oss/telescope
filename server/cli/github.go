@@ -280,6 +280,19 @@ func parsePatchLines(patch string) map[int]bool {
 	return valid
 }
 
+// groupCategory returns a priority tier for rule groups (lower = higher priority).
+// Order: schema violations (0), syntax errors (1), other rule violations (2).
+func groupCategory(code string) int {
+	switch code {
+	case "json-schema", "oas3-schema":
+		return 0
+	case "syntax-error":
+		return 1
+	default:
+		return 2
+	}
+}
+
 // buildDiffMap creates a map from filename to diff info for all changed files.
 func buildDiffMap(files []prFile) map[string]diffInfo {
 	m := make(map[string]diffInfo, len(files))
@@ -330,6 +343,7 @@ func GeneratePRComment(report *LintReport, repo, headRef string) string {
 		severity protocol.DiagnosticSeverity
 		relPath  string
 		line     int
+		endLine  int
 		message  string
 	}
 	byRule := make(map[string][]ruleDiag)
@@ -344,10 +358,13 @@ func GeneratePRComment(report *LintReport, repo, headRef string) string {
 			if d.Code != nil {
 				code = fmt.Sprintf("%v", d.Code)
 			}
+			startLine := int(d.Range.Start.Line) + 1
+			endLine := int(d.Range.End.Line) + 1
 			byRule[code] = append(byRule[code], ruleDiag{
 				severity: d.Severity,
 				relPath:  rel,
-				line:     int(d.Range.Start.Line) + 1,
+				line:     startLine,
+				endLine:  endLine,
 				message:  d.Message,
 			})
 		}
@@ -377,14 +394,25 @@ func GeneratePRComment(report *LintReport, repo, headRef string) string {
 		groups = append(groups, g)
 	}
 	sort.Slice(groups, func(i, j int) bool {
-		// Errors first.
+		ci, cj := groupCategory(groups[i].code), groupCategory(groups[j].code)
+		if ci != cj {
+			return ci < cj
+		}
 		if groups[i].errors != groups[j].errors {
 			return groups[i].errors > groups[j].errors
+		}
+		if groups[i].warns != groups[j].warns {
+			return groups[i].warns > groups[j].warns
 		}
 		return len(groups[i].diags) > len(groups[j].diags)
 	})
 
 	for _, g := range groups {
+		// Sort diagnostics within group by severity (errors first, then warnings, then info/hint).
+		sort.Slice(g.diags, func(a, b int) bool {
+			return g.diags[a].severity < g.diags[b].severity
+		})
+
 		label := g.code
 		if label == "" {
 			label = "(no rule)"
@@ -420,7 +448,11 @@ func GeneratePRComment(report *LintReport, repo, headRef string) string {
 			if canLink {
 				blobURL := fmt.Sprintf("https://github.com/%s/blob/%s/%s", repo, headRef, d.relPath)
 				fileRef = fmt.Sprintf("[`%s`](%s)", d.relPath, blobURL)
-				lineRef = fmt.Sprintf("[L%d](%s#L%d)", d.line, blobURL, d.line)
+				if d.endLine > d.line {
+					lineRef = fmt.Sprintf("[L%d-L%d](%s#L%d-L%d)", d.line, d.endLine, blobURL, d.line, d.endLine)
+				} else {
+					lineRef = fmt.Sprintf("[L%d](%s#L%d)", d.line, blobURL, d.line)
+				}
 			}
 
 			fmt.Fprintf(&sb, "| %s | %s | %s | %s |\n", emoji, fileRef, lineRef, msg)
