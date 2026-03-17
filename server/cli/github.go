@@ -16,7 +16,37 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 )
 
-const commentMarker = "<!-- telescope-lint -->"
+const (
+	commentMarkerPrefix = "<!-- telescope-lint-"
+	commentMarkerSuffix = " -->"
+	maxCommentSize      = 60000 // safe margin under GitHub's 65536 limit
+)
+
+// commentMarkerN returns the HTML comment marker for chunk index n (1-based).
+func commentMarkerN(n int) string {
+	return fmt.Sprintf("%s%d%s", commentMarkerPrefix, n, commentMarkerSuffix)
+}
+
+// telescopeCommentIndexRe extracts the chunk index from a comment body.
+var telescopeCommentIndexRe = regexp.MustCompile(`<!-- telescope-lint-(\d+) -->`)
+
+// parseMarkerIndex returns the 1-based chunk index from a comment body, and false if not found.
+func parseMarkerIndex(body string) (int, bool) {
+	m := telescopeCommentIndexRe.FindStringSubmatch(body)
+	if len(m) < 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n, true
+}
+
+// isTelescopeComment reports whether the comment body is a Telescope lint comment (any chunk).
+func isTelescopeComment(body string) bool {
+	return strings.Contains(body, commentMarkerPrefix)
+}
 
 // GitHubClient posts comments and reviews to GitHub PRs.
 type GitHubClient struct {
@@ -75,6 +105,28 @@ func (c *GitHubClient) PostComment(prNumber int, body string) error {
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("GitHub API error: %s", resp.Status)
+	}
+	return nil
+}
+
+// DeleteComment deletes an issue comment by ID.
+func (c *GitHubClient) DeleteComment(commentID int64) error {
+	reqURL := fmt.Sprintf("https://api.github.com/repos/%s/issues/comments/%d", c.repo, commentID)
+	req, err := http.NewRequest("DELETE", reqURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/vnd.github+json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -149,21 +201,74 @@ func (c *GitHubClient) UpdateComment(commentID int64, body string) error {
 	return nil
 }
 
-// UpsertComment creates or updates a Telescope comment on a PR.
-// It searches for an existing comment with the telescope marker and updates it,
-// or creates a new one if none exists.
-func (c *GitHubClient) UpsertComment(prNumber int, body string) error {
+// indexedComment pairs a comment ID with its 1-based chunk index.
+type indexedComment struct {
+	id    int64
+	index int
+}
+
+// UpsertComments creates or updates Telescope comments on a PR. Each element of bodies
+// is one chunk (e.g. from GeneratePRComment). Existing comments with the same marker
+// index are updated; extra chunks are created; leftover comments (when chunks shrink)
+// are deleted.
+func (c *GitHubClient) UpsertComments(prNumber int, bodies []string) error {
+	if len(bodies) == 0 {
+		return nil
+	}
+
 	comments, err := c.ListComments(prNumber)
 	if err != nil {
-		// Fall back to creating a new comment if listing fails.
-		return c.PostComment(prNumber, body)
+		// Fall back to posting all chunks as new comments.
+		for _, body := range bodies {
+			if err := c.PostComment(prNumber, body); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
+
+	var existing []indexedComment
 	for _, comment := range comments {
-		if strings.Contains(comment.Body, commentMarker) {
-			return c.UpdateComment(comment.ID, body)
+		if !isTelescopeComment(comment.Body) {
+			continue
+		}
+		idx, ok := parseMarkerIndex(comment.Body)
+		if !ok {
+			continue
+		}
+		existing = append(existing, indexedComment{id: comment.ID, index: idx})
+	}
+	sort.Slice(existing, func(i, j int) bool { return existing[i].index < existing[j].index })
+
+	// existingByIndex[i] = comment ID for chunk index i (1-based).
+	existingByIndex := make(map[int]int64)
+	for _, e := range existing {
+		existingByIndex[e.index] = e.id
+	}
+
+	for i, body := range bodies {
+		idx := i + 1
+		if id, ok := existingByIndex[idx]; ok {
+			if err := c.UpdateComment(id, body); err != nil {
+				return err
+			}
+		} else {
+			if err := c.PostComment(prNumber, body); err != nil {
+				return err
+			}
 		}
 	}
-	return c.PostComment(prNumber, body)
+
+	// Delete leftover comments when chunk count shrank.
+	for _, e := range existing {
+		if e.index > len(bodies) {
+			if err := c.DeleteComment(e.id); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // ListPRFiles retrieves files changed in a PR with pagination.
@@ -309,34 +414,31 @@ func buildDiffMap(files []prFile) map[string]diffInfo {
 	return m
 }
 
-// GeneratePRComment creates a markdown comment body from a lint report,
-// grouped by rule with clickable GitHub links.
-func GeneratePRComment(report *LintReport, repo, headRef string) string {
-	var sb strings.Builder
-	sb.WriteString(commentMarker + "\n")
-	sb.WriteString("## 🔭 Telescope\n\n")
+const commentFooter = "---\n<sub>🔭 <a href=\"https://github.com/sailpoint-oss/telescope\">Telescope</a></sub>\n"
 
-	if report.DiagnosticCount == 0 {
-		sb.WriteString("✅ **No issues found** — all OpenAPI files pass validation.\n\n")
-		sb.WriteString("---\n")
-		sb.WriteString("<sub>🔭 <a href=\"https://github.com/sailpoint-oss/telescope\">Telescope</a></sub>\n")
-		return sb.String()
-	}
-
-	// Summary table.
-	sb.WriteString("| 🔴 Errors | 🟡 Warnings | 🔵 Info | Total |\n")
-	sb.WriteString("| :---: | :---: | :---: | :---: |\n")
-	fmt.Fprintf(&sb, "| %d | %d | %d | %d |\n\n",
-		report.Counts.Error, report.Counts.Warning,
-		report.Counts.Info+report.Counts.Hint, report.DiagnosticCount)
-
-	// Determine the base path for relativization.
+// GeneratePRComment creates markdown comment bodies from a lint report, grouped by rule
+// with clickable GitHub links. It returns one or more chunks, each under maxCommentSize,
+// split at rule-group boundaries so tables are never cut in half.
+func GeneratePRComment(report *LintReport, repo, headRef string) []string {
 	relBase := report.RepoRoot
 	if relBase == "" {
 		relBase = report.Workspace
 	}
-
 	canLink := repo != "" && headRef != ""
+
+	if report.DiagnosticCount == 0 {
+		body := commentMarkerN(1) + "\n## 🔭 Telescope\n\n"
+		body += "✅ **No issues found** — all OpenAPI files pass validation.\n\n"
+		body += commentFooter
+		return []string{body}
+	}
+
+	// Build summary block (chunk 1 only).
+	summary := "| 🔴 Errors | 🟡 Warnings | 🔵 Info | Total |\n"
+	summary += "| :---: | :---: | :---: | :---: |\n"
+	summary += fmt.Sprintf("| %d | %d | %d | %d |\n\n",
+		report.Counts.Error, report.Counts.Warning,
+		report.Counts.Info+report.Counts.Hint, report.DiagnosticCount)
 
 	// Group diagnostics by rule.
 	type ruleDiag struct {
@@ -370,79 +472,98 @@ func GeneratePRComment(report *LintReport, repo, headRef string) string {
 		}
 	}
 
-	// Sort rules: errors-first, then by count descending.
 	type ruleGroup struct {
-		code    string
-		diags   []ruleDiag
-		errors  int
-		warns   int
-		infos   int
+		code  string
+		diags []ruleDiag
 	}
 	var groups []ruleGroup
 	for code, diags := range byRule {
-		g := ruleGroup{code: code, diags: diags}
-		for _, d := range diags {
-			switch d.severity {
-			case protocol.SeverityError:
-				g.errors++
-			case protocol.SeverityWarning:
-				g.warns++
-			default:
-				g.infos++
-			}
-		}
-		groups = append(groups, g)
+		groups = append(groups, ruleGroup{code: code, diags: diags})
 	}
 	sort.Slice(groups, func(i, j int) bool {
-		ci, cj := groupCategory(groups[i].code), groupCategory(groups[j].code)
+		gi, gj := groups[i], groups[j]
+		ci, cj := groupCategory(gi.code), groupCategory(gj.code)
 		if ci != cj {
 			return ci < cj
 		}
-		if groups[i].errors != groups[j].errors {
-			return groups[i].errors > groups[j].errors
+		ei, ej := 0, 0
+		for _, d := range gi.diags {
+			if d.severity == protocol.SeverityError {
+				ei++
+			}
 		}
-		if groups[i].warns != groups[j].warns {
-			return groups[i].warns > groups[j].warns
+		for _, d := range gj.diags {
+			if d.severity == protocol.SeverityError {
+				ej++
+			}
 		}
-		return len(groups[i].diags) > len(groups[j].diags)
+		if ei != ej {
+			return ei > ej
+		}
+		wi, wj := 0, 0
+		for _, d := range gi.diags {
+			if d.severity == protocol.SeverityWarning {
+				wi++
+			}
+		}
+		for _, d := range gj.diags {
+			if d.severity == protocol.SeverityWarning {
+				wj++
+			}
+		}
+		if wi != wj {
+			return wi > wj
+		}
+		return len(gi.diags) > len(gj.diags)
 	})
 
+	// Build each rule group as a standalone block string.
+	blocks := make([]string, 0, len(groups)+1)
+	blocks = append(blocks, summary)
 	for _, g := range groups {
-		// Sort diagnostics within group by severity (errors first, then warnings, then info/hint).
 		sort.Slice(g.diags, func(a, b int) bool {
 			return g.diags[a].severity < g.diags[b].severity
 		})
-
 		label := g.code
 		if label == "" {
 			label = "(no rule)"
 		}
+		errors, warns, infos := 0, 0, 0
+		for _, d := range g.diags {
+			switch d.severity {
+			case protocol.SeverityError:
+				errors++
+			case protocol.SeverityWarning:
+				warns++
+			default:
+				infos++
+			}
+		}
+		var sb strings.Builder
 		fmt.Fprintf(&sb, "<details>\n<summary>%s <code>%s</code> — %d issue(s)",
 			severityEmoji(g.diags[0].severity), label, len(g.diags))
-		if g.errors > 0 || g.warns > 0 {
-			sb.WriteString(" (")
+		if errors > 0 || warns > 0 || infos > 0 {
 			parts := []string{}
-			if g.errors > 0 {
-				parts = append(parts, fmt.Sprintf("%d errors", g.errors))
+			if errors > 0 {
+				parts = append(parts, fmt.Sprintf("%d errors", errors))
 			}
-			if g.warns > 0 {
-				parts = append(parts, fmt.Sprintf("%d warnings", g.warns))
+			if warns > 0 {
+				parts = append(parts, fmt.Sprintf("%d warnings", warns))
 			}
-			if g.infos > 0 {
-				parts = append(parts, fmt.Sprintf("%d info", g.infos))
+			if infos > 0 {
+				parts = append(parts, fmt.Sprintf("%d info", infos))
 			}
+			sb.WriteString(" (")
 			sb.WriteString(strings.Join(parts, ", "))
 			sb.WriteString(")")
 		}
 		sb.WriteString("</summary>\n\n")
-
 		sb.WriteString("| | File | Line | Message |\n")
 		sb.WriteString("| --- | --- | ---: | --- |\n")
 		for _, d := range g.diags {
 			emoji := severityEmoji(d.severity)
 			msg := strings.ReplaceAll(d.message, "|", "\\|")
 			msg = strings.ReplaceAll(msg, "\n", " ")
-
 			fileRef := fmt.Sprintf("`%s`", d.relPath)
 			lineRef := fmt.Sprintf("L%d", d.line)
 			if canLink {
@@ -454,16 +575,44 @@ func GeneratePRComment(report *LintReport, repo, headRef string) string {
 					lineRef = fmt.Sprintf("[L%d](%s#L%d)", d.line, blobURL, d.line)
 				}
 			}
-
 			fmt.Fprintf(&sb, "| %s | %s | %s | %s |\n", emoji, fileRef, lineRef, msg)
 		}
 		sb.WriteString("\n</details>\n\n")
+		blocks = append(blocks, sb.String())
 	}
 
-	sb.WriteString("---\n")
-	sb.WriteString("<sub>🔭 <a href=\"https://github.com/sailpoint-oss/telescope\">Telescope</a></sub>\n")
+	// Pack blocks into chunks. First block is summary; rest are rule groups.
+	chunks := []string{}
+	chunkIndex := 1
+	var current strings.Builder
+	header := "## 🔭 Telescope\n\n"
+	continuedHeader := "## 🔭 Telescope (continued)\n\n"
 
-	return sb.String()
+	for _, block := range blocks {
+		if current.Len() == 0 {
+			current.WriteString(commentMarkerN(chunkIndex) + "\n")
+			if chunkIndex == 1 {
+				current.WriteString(header)
+			} else {
+				current.WriteString(continuedHeader)
+			}
+			current.WriteString(block)
+			continue
+		}
+		if current.Len()+len(block) > maxCommentSize {
+			chunks = append(chunks, current.String())
+			current.Reset()
+			chunkIndex++
+			current.WriteString(commentMarkerN(chunkIndex) + "\n")
+			current.WriteString(continuedHeader)
+			current.WriteString(block)
+		} else {
+			current.WriteString(block)
+		}
+	}
+
+	chunks = append(chunks, current.String()+commentFooter)
+	return chunks
 }
 
 func severityEmoji(s protocol.DiagnosticSeverity) string {

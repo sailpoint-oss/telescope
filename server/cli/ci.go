@@ -278,8 +278,8 @@ func postPRComment(report *LintReport) error {
 		headRef = githubActionsPRHeadSHA()
 	}
 
-	body := GeneratePRComment(report, repo, headRef)
-	return client.UpsertComment(prNum, body)
+	bodies := GeneratePRComment(report, repo, headRef)
+	return client.UpsertComments(prNum, bodies)
 }
 
 // postPRReview posts inline review comments on error-level diagnostics.
