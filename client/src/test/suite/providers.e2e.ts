@@ -12,6 +12,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -53,6 +54,7 @@ suite("Providers", () => {
 		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
 			timeoutMs: 90000,
 		});
+		await waitForProviders(warmupUri);
 	});
 
 	test("Definition on local $ref resolves to component", async () => {

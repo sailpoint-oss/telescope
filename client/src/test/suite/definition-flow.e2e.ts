@@ -18,6 +18,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -69,6 +70,7 @@ suite("Definition Flow", () => {
 		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
 			timeoutMs: 60000,
 		});
+		await waitForProviders(warmupUri);
 	});
 
 	test("Local definition resolves to component in same file", async () => {

@@ -11,6 +11,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -45,6 +46,7 @@ suite("Symbols", () => {
 		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
 			timeoutMs: 90000,
 		});
+		await waitForProviders(warmupUri);
 	});
 
 	test("Document symbols include paths, operations, and components", async () => {

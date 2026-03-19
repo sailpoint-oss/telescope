@@ -12,6 +12,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -35,6 +36,7 @@ suite("Rename", () => {
 		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
 			timeoutMs: 90000,
 		});
+		await waitForProviders(warmupUri);
 	});
 
 	test("Rename tag updates all references", async () => {

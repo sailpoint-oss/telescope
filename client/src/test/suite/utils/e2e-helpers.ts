@@ -106,6 +106,26 @@ export async function waitForDiagnostics(
 	});
 }
 
+/**
+ * Wait until LSP providers are registered by polling for document symbols.
+ * Call after waitForDiagnostics to ensure all capabilities are ready.
+ */
+export async function waitForProviders(
+	uri: vscode.Uri,
+	options?: { timeoutMs?: number },
+): Promise<void> {
+	const timeoutMs = options?.timeoutMs ?? 60000;
+	const start = Date.now();
+	while (Date.now() - start < timeoutMs) {
+		const result = (await vscode.commands.executeCommand(
+			"vscode.executeDocumentSymbolProvider",
+			uri,
+		)) as vscode.DocumentSymbol[] | undefined;
+		if (Array.isArray(result) && result.length > 0) return;
+		await delay(1000);
+	}
+}
+
 export async function openAndShow(uri: vscode.Uri): Promise<vscode.TextDocument> {
 	const doc = await vscode.workspace.openTextDocument(uri);
 	await vscode.window.showTextDocument(doc);
@@ -147,8 +167,8 @@ export async function executeWithRetry<T>(
 	predicate: (result: T) => boolean,
 	options?: { maxAttempts?: number; delayMs?: number },
 ): Promise<T> {
-	const maxAttempts = options?.maxAttempts ?? 20;
-	const delayMs = options?.delayMs ?? 1000;
+	const maxAttempts = options?.maxAttempts ?? 30;
+	const delayMs = options?.delayMs ?? 2000;
 	let last: T | undefined;
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {
 		last = (await vscode.commands.executeCommand(command, ...args)) as T;

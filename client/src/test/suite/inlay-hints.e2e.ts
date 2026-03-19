@@ -11,6 +11,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -34,6 +35,7 @@ suite("Inlay Hints", () => {
 		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
 			timeoutMs: 90000,
 		});
+		await waitForProviders(warmupUri);
 	});
 
 	test("Inlay hints appear for $ref values", async () => {
