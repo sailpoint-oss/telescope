@@ -107,22 +107,23 @@ export async function waitForDiagnostics(
 }
 
 /**
- * Wait until LSP providers are registered by polling for document symbols.
- * Call after waitForDiagnostics to ensure all capabilities are ready.
+ * Wait until LSP providers are fully registered by polling for code lenses.
+ * Code lenses require the full OpenAPI analysis pipeline to complete (reference
+ * counting, component indexing), making them the strongest readiness signal.
  */
 export async function waitForProviders(
 	uri: vscode.Uri,
 	options?: { timeoutMs?: number },
 ): Promise<void> {
-	const timeoutMs = options?.timeoutMs ?? 60000;
+	const timeoutMs = options?.timeoutMs ?? 90000;
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
 		const result = (await vscode.commands.executeCommand(
-			"vscode.executeDocumentSymbolProvider",
+			"vscode.executeCodeLensProvider",
 			uri,
-		)) as vscode.DocumentSymbol[] | undefined;
+		)) as vscode.CodeLens[] | undefined;
 		if (Array.isArray(result) && result.length > 0) return;
-		await delay(1000);
+		await delay(2000);
 	}
 }
 
