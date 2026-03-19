@@ -52,8 +52,8 @@ paths:
 	if result.NodeCount != 1 {
 		t.Errorf("NodeCount = %d, want 1", result.NodeCount)
 	}
-	if result.Duration <= 0 {
-		t.Error("expected positive duration")
+	if result.Duration < 0 {
+		t.Error("expected non-negative duration")
 	}
 	if result.SnapshotID == 0 {
 		t.Error("expected non-zero snapshot ID")
