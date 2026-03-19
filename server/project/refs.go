@@ -1,17 +1,15 @@
 package project
 
 import (
-	"net/url"
-	"path/filepath"
 	"strings"
 
+	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
 // ExtractExternalRefs scans an index's $ref usages and returns RefEdge entries
 // for references that point to external files. Local-only refs (#/...) are
-// skipped. The sourceURI should be the file:// URI of the document the index
-// was built from.
+// skipped.
 func ExtractExternalRefs(sourceURI string, idx *openapi.Index) []RefEdge {
 	if idx == nil {
 		return nil
@@ -21,18 +19,16 @@ func ExtractExternalRefs(sourceURI string, idx *openapi.Index) []RefEdge {
 	for _, ref := range idx.AllRefs {
 		target := ref.Target
 		if target == "" || strings.HasPrefix(target, "#") {
-			continue // local ref
+			continue
 		}
 
-		parts := strings.SplitN(target, "#", 2)
-		filePart := parts[0]
-		fragment := ""
-		if len(parts) == 2 {
-			fragment = parts[1]
+		filePart, pointer := navigator.SplitRefURI(target)
+		targetURI := navigator.ResolveRelativeURI(sourceURI, filePart)
+		if targetURI == "" || targetURI == sourceURI {
+			continue
 		}
-
-		targetURI := resolveRelativeURI(sourceURI, filePart)
-		if targetURI == "" {
+		// Skip remote refs (http/https URLs)
+		if strings.HasPrefix(targetURI, "http://") || strings.HasPrefix(targetURI, "https://") {
 			continue
 		}
 
@@ -40,35 +36,12 @@ func ExtractExternalRefs(sourceURI string, idx *openapi.Index) []RefEdge {
 			FromURI:     sourceURI,
 			FromPointer: ref.From,
 			ToURI:       targetURI,
-			ToPointer:   fragment,
+			ToPointer:   strings.TrimPrefix(pointer, "#"),
 			RefValue:    target,
 		})
 	}
 
 	return edges
-}
-
-// resolveRelativeURI resolves a relative file path against a base file:// URI,
-// returning the resolved file:// URI. Returns empty string on failure.
-func resolveRelativeURI(baseURI, relPath string) string {
-	if relPath == "" {
-		return ""
-	}
-
-	if strings.HasPrefix(relPath, "http://") || strings.HasPrefix(relPath, "https://") {
-		return "" // remote refs are not local files
-	}
-
-	u, err := url.Parse(baseURI)
-	if err != nil || u.Scheme != "file" {
-		return ""
-	}
-
-	baseDir := filepath.Dir(u.Path)
-	resolved := filepath.Clean(filepath.Join(baseDir, relPath))
-
-	target := &url.URL{Scheme: "file", Path: filepath.Clean(resolved)}
-	return target.String()
 }
 
 // UpdateGraphFromIndex clears old edges for sourceURI and adds new ones

@@ -24,7 +24,7 @@ import (
 	"unsafe"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
 
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
@@ -87,7 +87,7 @@ func RunVisitors(t *testing.T, ruleID string, severity ctypes.Severity, v rules.
 			t.Helper()
 			idx := buildTestIndex(t, tc.Spec)
 			r := rules.NewReporter(ruleID, severity)
-			rules.Walk(idx, v, r)
+			rules.WalkIndex(idx, v, r)
 			assertDiagnostics(t, adapt.DiagnosticsToProtocol(r.Diagnostics()), tc.Expect)
 		})
 	}

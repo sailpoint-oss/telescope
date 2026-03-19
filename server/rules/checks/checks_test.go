@@ -20,43 +20,6 @@ func TestSyntaxErrorMeta(t *testing.T) {
 	}
 }
 
-func TestDuplicateKeysMeta(t *testing.T) {
-	if duplicateKeysMeta.ID != "duplicate-keys" {
-		t.Errorf("ID = %q", duplicateKeysMeta.ID)
-	}
-	if duplicateKeysMeta.Severity != ctypes.SeverityError {
-		t.Errorf("Severity = %d, want Error", duplicateKeysMeta.Severity)
-	}
-}
-
-func TestASCIIMeta(t *testing.T) {
-	if asciiMeta.ID != "ascii" {
-		t.Errorf("ID = %q", asciiMeta.ID)
-	}
-	if asciiMeta.Severity != ctypes.SeverityWarning {
-		t.Errorf("Severity = %d, want Warning", asciiMeta.Severity)
-	}
-}
-
-func TestUnquoteKey(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{`"foo"`, "foo"},
-		{`'bar'`, "bar"},
-		{`baz`, "baz"},
-		{`""`, ""},
-		{`a`, "a"},
-	}
-	for _, tt := range tests {
-		got := unquoteKey(tt.input)
-		if got != tt.want {
-			t.Errorf("unquoteKey(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
 func TestSyntaxErrorMessage(t *testing.T) {
 	check := treesitter.Check{
 		Pattern:  "(ERROR) @error",

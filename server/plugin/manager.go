@@ -43,7 +43,7 @@ func (m *Manager) LoadAll(s *gossip.Server) error {
 
 		// Register metadata
 		for _, meta := range p.Meta() {
-			rules.DefaultRegistry.Register(meta)
+			rules.DefaultRegistry.RegisterMeta(meta)
 		}
 
 		// Register checks

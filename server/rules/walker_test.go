@@ -8,8 +8,6 @@ import (
 )
 
 func TestWalk_CircularSchemaReference(t *testing.T) {
-	// Construct a schema graph with a cycle: A -> B -> A via properties.
-	// Walk must terminate without hanging or crashing.
 	schemaA := &openapi.Schema{
 		Type:       "object",
 		Properties: make(map[string]*openapi.Schema),
@@ -36,7 +34,7 @@ func TestWalk_CircularSchemaReference(t *testing.T) {
 
 	var visited int
 	r := NewReporter("test-circular", ctypes.SeverityWarning)
-	Walk(idx, Visitors{
+	WalkIndex(idx, Visitors{
 		RecursiveSchema: func(name string, schema *openapi.Schema, pointer string, r *Reporter) {
 			visited++
 			if visited > 100 {
@@ -45,17 +43,14 @@ func TestWalk_CircularSchemaReference(t *testing.T) {
 		},
 	}, r)
 
-	// With schemas A and B, we expect exactly 2 visits (A, then B; the
-	// back-edge from B→A is skipped because A is already visited).
 	if visited != 2 {
 		t.Errorf("visited = %d, want 2", visited)
 	}
 }
 
 func TestWalk_DeeplyNestedSchema(t *testing.T) {
-	// Build a chain of 100 schemas via allOf. The walker's depth limit
-	// (maxWalkDepth=64) should prevent visiting all of them.
 	const depth = 100
+	const walkerMaxDepth = 64 // mirrors barrelman's internal maxWalkDepth
 	schemas := make([]*openapi.Schema, depth)
 	for i := depth - 1; i >= 0; i-- {
 		schemas[i] = &openapi.Schema{
@@ -81,15 +76,14 @@ func TestWalk_DeeplyNestedSchema(t *testing.T) {
 
 	var visited int
 	r := NewReporter("test-deep", ctypes.SeverityWarning)
-	Walk(idx, Visitors{
+	WalkIndex(idx, Visitors{
 		RecursiveSchema: func(name string, schema *openapi.Schema, pointer string, r *Reporter) {
 			visited++
 		},
 	}, r)
 
-	// Should visit at most maxWalkDepth+1 = 65 schemas (depth 0..64 inclusive).
-	if visited > maxWalkDepth+1 {
-		t.Errorf("visited = %d, exceeds maxWalkDepth+1 = %d", visited, maxWalkDepth+1)
+	if visited > walkerMaxDepth+1 {
+		t.Errorf("visited = %d, exceeds walkerMaxDepth+1 = %d", visited, walkerMaxDepth+1)
 	}
 	if visited == 0 {
 		t.Error("visited = 0, expected at least 1 visit")
@@ -97,9 +91,8 @@ func TestWalk_DeeplyNestedSchema(t *testing.T) {
 }
 
 func TestWalk_NilIndex(t *testing.T) {
-	// Walk with nil index must not panic.
 	r := NewReporter("test-nil", ctypes.SeverityWarning)
-	Walk(nil, Visitors{
+	WalkIndex(nil, Visitors{
 		Document: func(doc *openapi.Document, r *Reporter) {
 			t.Error("Document visitor should not be called for nil index")
 		},
@@ -107,10 +100,9 @@ func TestWalk_NilIndex(t *testing.T) {
 }
 
 func TestWalk_NilDocument(t *testing.T) {
-	// Walk with nil document must not panic.
 	idx := &openapi.Index{Document: nil}
 	r := NewReporter("test-nil-doc", ctypes.SeverityWarning)
-	Walk(idx, Visitors{
+	WalkIndex(idx, Visitors{
 		Document: func(doc *openapi.Document, r *Reporter) {
 			t.Error("Document visitor should not be called for nil document")
 		},

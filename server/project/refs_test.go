@@ -3,6 +3,7 @@ package project
 import (
 	"testing"
 
+	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -43,14 +44,14 @@ func TestResolveRelativeURI(t *testing.T) {
 	}{
 		{"file:///workspace/api.yaml", "./schemas/user.yaml", "file:///workspace/schemas/user.yaml"},
 		{"file:///workspace/api.yaml", "../common/error.yaml", "file:///common/error.yaml"},
-		{"file:///workspace/api.yaml", "https://example.com/schema.json", ""},
-		{"file:///workspace/api.yaml", "", ""},
+		{"file:///workspace/api.yaml", "https://example.com/schema.json", "https://example.com/schema.json"},
+		{"file:///workspace/api.yaml", "", "file:///workspace/api.yaml"},
 	}
 
 	for _, tt := range tests {
-		got := resolveRelativeURI(tt.base, tt.rel)
+		got := navigator.ResolveRelativeURI(tt.base, tt.rel)
 		if got != tt.want {
-			t.Errorf("resolveRelativeURI(%q, %q) = %q, want %q", tt.base, tt.rel, got, tt.want)
+			t.Errorf("ResolveRelativeURI(%q, %q) = %q, want %q", tt.base, tt.rel, got, tt.want)
 		}
 	}
 }

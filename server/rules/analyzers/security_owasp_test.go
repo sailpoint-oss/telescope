@@ -6,12 +6,13 @@ import (
 	"unsafe"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	navigator "github.com/sailpoint-oss/navigator"
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
@@ -58,7 +59,7 @@ func buildIndexFromYAML(t *testing.T, content string) *openapi.Index {
 func runInlineRule(t *testing.T, idx *openapi.Index, ruleID string, severity ctypes.Severity, v rules.Visitors) []protocol.Diagnostic {
 	t.Helper()
 	r := rules.NewReporter(ruleID, severity)
-	rules.Walk(idx, v, r)
+	rules.WalkIndex(idx, v, r)
 	return adapt.DiagnosticsToProtocol(r.Diagnostics())
 }
 
@@ -211,7 +212,7 @@ paths:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "security-schemes-defined", ctypes.SeverityError, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			allReqs := append([]openapi.SecurityRequirement{}, idx.Document.Security...)
 			for _, item := range idx.Document.Paths {
 				for _, mo := range item.Operations() {
@@ -270,7 +271,7 @@ paths:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "security-schemes-defined", ctypes.SeverityError, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			allReqs := append([]openapi.SecurityRequirement{}, idx.Document.Security...)
 			for _, item := range idx.Document.Paths {
 				for _, mo := range item.Operations() {
@@ -796,7 +797,7 @@ components:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-integer-limit", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version31 && idx.Document.ParsedVersion != openapi.Version32 {
 				return
 			}
@@ -833,7 +834,7 @@ components:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-integer-limit", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version31 && idx.Document.ParsedVersion != openapi.Version32 {
 				return
 			}
@@ -872,7 +873,7 @@ components:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-integer-limit-legacy", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version20 && idx.Document.ParsedVersion != openapi.Version30 {
 				return
 			}
@@ -903,7 +904,7 @@ components:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-integer-limit-legacy", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version20 && idx.Document.ParsedVersion != openapi.Version30 {
 				return
 			}
@@ -940,7 +941,7 @@ components:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-no-unevaluatedProperties", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version31 && idx.Document.ParsedVersion != openapi.Version32 {
 				return
 			}
@@ -975,7 +976,7 @@ components:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-no-unevaluatedProperties", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version31 && idx.Document.ParsedVersion != openapi.Version32 {
 				return
 			}
@@ -1221,7 +1222,7 @@ servers:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-no-server-http", ctypes.SeverityError, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			for _, srv := range idx.Document.Servers {
 				lower := strings.ToLower(srv.URL)
 				if !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "wss://") {
@@ -1245,7 +1246,7 @@ servers:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-no-server-http", ctypes.SeverityError, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			for _, srv := range idx.Document.Servers {
 				lower := strings.ToLower(srv.URL)
 				if !strings.HasPrefix(lower, "https://") && !strings.HasPrefix(lower, "wss://") {
@@ -1357,7 +1358,7 @@ paths: {}`
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-no-scheme-http", ctypes.SeverityError, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version20 {
 				return
 			}
@@ -1385,7 +1386,7 @@ paths: {}`
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-no-scheme-http", ctypes.SeverityError, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version20 {
 				return
 			}
@@ -1430,7 +1431,7 @@ paths:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-admin-security-unique", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			globalSchemes := schemeNamesFromReqs(idx.Document.Security)
 			if len(globalSchemes) == 0 {
 				return
@@ -1567,7 +1568,7 @@ components:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-constrained-unevaluatedProperties", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version31 && idx.Document.ParsedVersion != openapi.Version32 {
 				return
 			}
@@ -1603,7 +1604,7 @@ components:
 
 	idx := buildIndexFromYAML(t, yaml)
 	diags := runInlineRule(t, idx, "owasp-constrained-unevaluatedProperties", ctypes.SeverityWarning, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
+		Custom: func(idx *navigator.Index, r *rules.Reporter) {
 			if idx.Document.ParsedVersion != openapi.Version31 && idx.Document.ParsedVersion != openapi.Version32 {
 				return
 			}

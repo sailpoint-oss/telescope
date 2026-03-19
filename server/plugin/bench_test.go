@@ -40,7 +40,7 @@ func BenchmarkGoPlugin_Operations(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				r := rules.NewReporter("bench-op", ctypes.SeverityWarning)
-				rules.Walk(idx, v, r)
+				rules.WalkIndex(idx, v, r)
 				_ = r.Diagnostics()
 			}
 		})
@@ -64,7 +64,7 @@ func BenchmarkGoPlugin_Schemas(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				r := rules.NewReporter("bench-schema", ctypes.SeverityWarning)
-				rules.Walk(idx, v, r)
+				rules.WalkIndex(idx, v, r)
 				_ = r.Diagnostics()
 			}
 		})
@@ -87,7 +87,7 @@ func BenchmarkGoPlugin_Paths(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				r := rules.NewReporter("bench-path", ctypes.SeverityWarning)
-				rules.Walk(idx, v, r)
+				rules.WalkIndex(idx, v, r)
 				_ = r.Diagnostics()
 			}
 		})
@@ -110,7 +110,7 @@ func BenchmarkGoPlugin_Parameters(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				r := rules.NewReporter("bench-param", ctypes.SeverityWarning)
-				rules.Walk(idx, v, r)
+				rules.WalkIndex(idx, v, r)
 				_ = r.Diagnostics()
 			}
 		})
@@ -174,7 +174,7 @@ func BenchmarkGoPlugin_Combined(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				r := rules.NewReporter("bench-combined", ctypes.SeverityWarning)
-				rules.Walk(idx, v, r)
+				rules.WalkIndex(idx, v, r)
 				_ = r.Diagnostics()
 			}
 		})
@@ -210,7 +210,7 @@ func BenchmarkGoPlugin_ParseAndWalk(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				idx := openapi.ParseAndIndex(spec.Content)
 				r := rules.NewReporter("bench-e2e", ctypes.SeverityWarning)
-				rules.Walk(idx, v, r)
+				rules.WalkIndex(idx, v, r)
 				_ = r.Diagnostics()
 			}
 		})

@@ -115,7 +115,7 @@ func (h *Host) LoadPlugin(path string) error {
 	name := filepath.Base(path)
 
 	for _, m := range metaResp.Rules {
-		rules.DefaultRegistry.Register(rules.RuleMeta{
+		rules.DefaultRegistry.RegisterMeta(rules.RuleMeta{
 			ID:          m.ID,
 			Description: m.Description,
 			Severity:    stringToSeverity(m.Severity),

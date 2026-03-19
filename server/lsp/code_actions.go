@@ -12,7 +12,7 @@ import (
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
-	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
+	barrelAnalyzers "github.com/sailpoint-oss/barrelman/analyzers"
 )
 
 // lineEndCharUTF16 returns the length of the line in UTF-16 code units,
@@ -246,9 +246,9 @@ func markdownHeadingQuickFix(uri protocol.DocumentURI, doc interface{ LineAt(uin
 		return nil
 	}
 
-	var fixData analyzers.HeadingFixData
+	var fixData barrelAnalyzers.HeadingFixData
 	switch d := diag.Data.(type) {
-	case analyzers.HeadingFixData:
+	case barrelAnalyzers.HeadingFixData:
 		fixData = d
 	case map[string]interface{}:
 		raw, _ := json.Marshal(d)

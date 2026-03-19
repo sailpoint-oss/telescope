@@ -5,9 +5,9 @@ import (
 	"testing"
 	"unsafe"
 
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
+	ts_json "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi_json"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
 
 	"github.com/sailpoint-oss/telescope/server/testutil/specs"
 )

@@ -7,8 +7,8 @@ import (
 	"unsafe"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	ts_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_json "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi_json"
+	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
 
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"

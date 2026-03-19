@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unsafe"
 
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/LukasParke/gossip"

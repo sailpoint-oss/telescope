@@ -12,7 +12,7 @@ import (
 	"github.com/LukasParke/gossip/treesitter"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
 )
 
 const coverageSpec = `openapi: "3.1.0"

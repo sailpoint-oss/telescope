@@ -6,11 +6,12 @@ import (
 	"unsafe"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
-	ts_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
 
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	navigator "github.com/sailpoint-oss/navigator"
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
@@ -57,7 +58,7 @@ func buildIndex(t *testing.T, spec specs.Spec) *openapi.Index {
 func runRule(t *testing.T, idx *openapi.Index, ruleID string, severity ctypes.Severity, v rules.Visitors) []protocol.Diagnostic {
 	t.Helper()
 	r := rules.NewReporter(ruleID, severity)
-	rules.Walk(idx, v, r)
+	rules.WalkIndex(idx, v, r)
 	return adapt.DiagnosticsToProtocol(r.Diagnostics())
 }
 
@@ -154,16 +155,16 @@ func TestSecurity_SecuritySchemesDefined(t *testing.T) {
 	}
 	idx := buildIndex(t, spec)
 	diags := runRule(t, idx, "security-schemes-defined", ctypes.SeverityError, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
-			allReqs := append([]openapi.SecurityRequirement{}, idx.Document.Security...)
-			for _, item := range idx.Document.Paths {
+		Custom: func(navIdx *navigator.Index, r *rules.Reporter) {
+			allReqs := append([]openapi.SecurityRequirement{}, navIdx.Document.Security...)
+			for _, item := range navIdx.Document.Paths {
 				for _, mo := range item.Operations() {
 					allReqs = append(allReqs, mo.Operation.Security...)
 				}
 			}
 			for _, req := range allReqs {
 				for _, entry := range req.Entries {
-					if _, ok := idx.SecuritySchemes[entry.Name]; !ok {
+					if _, ok := navIdx.SecuritySchemes[entry.Name]; !ok {
 						loc := entry.NameLoc
 						if loc.Node == nil {
 							loc = openapi.Loc{Range: adapt.RangeFromProtocol(protocol.FileStartRange)}
@@ -230,9 +231,9 @@ func TestValidSpec_NoUnresolvedRefs(t *testing.T) {
 	}
 	idx := buildIndex(t, spec)
 	diags := runRule(t, idx, "unresolved-ref", ctypes.SeverityError, rules.Visitors{
-		Custom: func(idx *openapi.Index, r *rules.Reporter) {
-			for _, ref := range idx.AllRefs {
-				if _, err := idx.Resolve(ref.Target); err != nil {
+		Custom: func(navIdx *navigator.Index, r *rules.Reporter) {
+			for _, ref := range navIdx.AllRefs {
+				if _, err := navIdx.Resolve(ref.Target); err != nil {
 					r.At(ref.Loc, "Unresolved $ref: %s", ref.Target)
 				}
 			}

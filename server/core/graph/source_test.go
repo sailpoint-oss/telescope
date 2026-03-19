@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+
+	navigator "github.com/sailpoint-oss/navigator"
 )
 
 func TestFilesystemSource(t *testing.T) {
@@ -88,7 +90,7 @@ func TestSyntheticSource(t *testing.T) {
 
 	// Test Update with watcher
 	var called atomic.Int32
-	cancel := src.Watch(context.Background(), func() {
+	cancel := src.Watch(context.Background(), func(string, navigator.WatchEvent) {
 		called.Add(1)
 	})
 

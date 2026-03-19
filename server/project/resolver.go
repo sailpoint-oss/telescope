@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -13,7 +14,7 @@ func normURI(uri string) string { return openapi.NormalizeURI(uri) }
 // project. It uses the project's merged set of indexes to locate the target
 // document and then delegates to its local resolver.
 type CrossFileResolver struct {
-	docs map[string]*openapi.Index // URI -> index
+	docs map[string]*openapi.Index
 }
 
 // NewCrossFileResolver creates a resolver over the given set of document indexes.
@@ -23,9 +24,9 @@ func NewCrossFileResolver(docs map[string]*openapi.Index) *CrossFileResolver {
 
 // ResolveResult holds the outcome of a cross-file $ref resolution.
 type ResolveResult struct {
-	TargetURI   string      // the file URI that was resolved to
+	TargetURI   string
 	TargetIndex *openapi.Index
-	Value       interface{} // the resolved model element
+	Value       interface{}
 }
 
 // Resolve follows a $ref value from the given source document. For local refs
@@ -58,7 +59,7 @@ func (r *CrossFileResolver) Resolve(fromURI, ref string) (*ResolveResult, error)
 		fragment = "#" + parts[1]
 	}
 
-	targetURI := normURI(resolveRelativeURI(from, filePart))
+	targetURI := normURI(navigator.ResolveRelativeURI(from, filePart))
 	if targetURI == "" {
 		return nil, fmt.Errorf("cannot resolve file path %q relative to %s", filePart, from)
 	}

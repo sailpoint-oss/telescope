@@ -1,11 +1,16 @@
 package sdk
 
-import "github.com/sailpoint-oss/telescope/server/rules"
+import (
+	navigator "github.com/sailpoint-oss/navigator"
+	"github.com/sailpoint-oss/telescope/server/bridge"
+	"github.com/sailpoint-oss/telescope/server/rules"
+)
 
 // PluginRuleBuilder wraps rules.RuleBuilder to register rules on a
 // PluginInstance instead of a gossip.Server.
 type PluginRuleBuilder struct {
-	inner *rules.RuleBuilder
+	inner    *rules.RuleBuilder
+	customFn func(idx *Index, r *Reporter)
 }
 
 // Rule begins building a new rule with the given ID and metadata.
@@ -15,9 +20,15 @@ func Rule(id string, meta Meta) *PluginRuleBuilder {
 
 // Register registers the rule on the given plugin instance.
 func (b *PluginRuleBuilder) Register(p *PluginInstance) {
-	rules.DefaultRegistry.Register(b.inner.Meta())
-	id, analyzer := b.inner.Build()
-	p.addRule(id, analyzer)
+	if b.customFn != nil {
+		b.inner.Custom(func(navIdx *navigator.Index, r *Reporter) {
+			oaIdx := &Index{Document: navIdx.Document}
+			b.customFn(oaIdx, r)
+		})
+	}
+	rule := b.inner.Build()
+	rules.DefaultRegistry.Register(rule)
+	p.addRule(rule.ID, bridge.WrapForGossip(rule))
 }
 
 // --- Visitor methods (delegate to inner builder) ---
@@ -88,6 +99,6 @@ func (b *PluginRuleBuilder) Examples(fn func(name string, ex *Example, r *Report
 }
 
 func (b *PluginRuleBuilder) Custom(fn func(idx *Index, r *Reporter)) *PluginRuleBuilder {
-	b.inner.Custom(fn)
+	b.customFn = fn
 	return b
 }

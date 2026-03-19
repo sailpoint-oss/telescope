@@ -5,37 +5,33 @@ import (
 	"time"
 
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
+	navgraph "github.com/sailpoint-oss/navigator/graph"
 )
 
-// EdgeKind classifies the relationship between two graph nodes.
-type EdgeKind int
+// EdgeKind is an alias for navigator/graph.EdgeKind.
+type EdgeKind = navgraph.EdgeKind
 
+// Edge constants.
 const (
-	EdgeRef      EdgeKind = iota // $ref relationship
-	EdgeExternal                 // external document reference
-	EdgePathRef                  // file-relative $ref edge
+	EdgeRef      = navgraph.EdgeRef
+	EdgeExternal = navgraph.EdgeExternal
+	EdgePathRef  = navgraph.EdgePathRef
 )
 
-// Edge represents a directed relationship between two documents.
-type Edge struct {
-	SourceURI     string
-	SourcePointer string // JSON pointer within source
-	TargetURI     string
-	TargetPointer string // JSON pointer within target (fragment)
-	Kind          EdgeKind
-	RefValue      string // raw $ref value as written in source
-}
+// Edge is an alias for navigator/graph.Edge.
+type Edge = navgraph.Edge
 
-// StageName identifies a processing stage in the pipeline.
-type StageName string
+// StageName is an alias for navigator/graph.StageName.
+type StageName = navgraph.StageName
 
+// Stage name constants.
 const (
-	StageRaw      StageName = "raw"
-	StageParse    StageName = "parse"
-	StageLint     StageName = "lint"
-	StageBind     StageName = "bind"
-	StageValidate StageName = "validate"
-	StageAnalyze  StageName = "analyze"
+	StageRaw      = navgraph.StageRaw
+	StageParse    = navgraph.StageParse
+	StageLint     = navgraph.StageLint
+	StageBind     = navgraph.StageBind
+	StageValidate = navgraph.StageValidate
+	StageAnalyze  = navgraph.StageAnalyze
 )
 
 // StageResult holds the cached output of a pipeline stage.

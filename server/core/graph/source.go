@@ -9,38 +9,14 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+	navigator "github.com/sailpoint-oss/navigator"
 )
 
-// ClassificationHint provides optional metadata that helps the file classifier
-// make a faster or more accurate decision about a document's role.
-type ClassificationHint struct {
-	IsOpenAPI      bool   // caller knows this is an OpenAPI document
-	IsFragment     bool   // caller knows this is a $ref fragment, not a root
-	OpenAPIVersion string // caller knows the spec version (e.g. "3.1")
-	LanguageID     string // YAML, JSON, etc.
-	Skip           bool   // explicitly not OpenAPI — skip all processing
-}
+// ClassificationHint is an alias for navigator's ClassificationHint.
+type ClassificationHint = navigator.ClassificationHint
 
-// DocumentSource is the abstraction for how documents enter the workspace graph.
-// Three implementations cover the three consumer modes:
-//   - FilesystemSource: CLI / file watcher
-//   - LSPSource:        Language server (via gossip document overlays)
-//   - SyntheticSource:  Programmatic injection (SDK / Cartographer)
-type DocumentSource interface {
-	// URI returns the unique identifier for this document (file:// URI or synthetic).
-	URI() string
-
-	// Read returns the current content and a monotonically increasing version.
-	Read(ctx context.Context) (content []byte, version int64, err error)
-
-	// Watch registers a callback that fires when the source content changes.
-	// Returns a cancel function to stop watching. May return nil if the source
-	// does not support watching (e.g. SyntheticSource without updates).
-	Watch(ctx context.Context, onChange func()) (cancel func())
-
-	// Hint returns optional classification metadata.
-	Hint() ClassificationHint
-}
+// DocumentSource is an alias for navigator's DocumentSource interface.
+type DocumentSource = navigator.DocumentSource
 
 // --- FilesystemSource ---
 
@@ -86,7 +62,7 @@ func (s *FilesystemSource) Read(_ context.Context) ([]byte, int64, error) {
 	return content, v, nil
 }
 
-func (s *FilesystemSource) Watch(ctx context.Context, onChange func()) func() {
+func (s *FilesystemSource) Watch(ctx context.Context, onChange func(string, navigator.WatchEvent)) func() {
 	if onChange == nil {
 		return func() {}
 	}
@@ -111,9 +87,17 @@ func (s *FilesystemSource) Watch(ctx context.Context, onChange func()) func() {
 				if !ok {
 					return
 				}
-				if (event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) &&
-					strings.EqualFold(filepath.Base(event.Name), base) {
-					onChange()
+				if strings.EqualFold(filepath.Base(event.Name), base) {
+					var we navigator.WatchEvent
+					switch {
+					case event.Has(fsnotify.Create):
+						we = navigator.WatchCreate
+					case event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename):
+						we = navigator.WatchDelete
+					default:
+						we = navigator.WatchModify
+					}
+					onChange(s.uri, we)
 				}
 			case _, ok := <-watcher.Errors:
 				if !ok {
@@ -168,12 +152,13 @@ func (s *SyntheticSource) Read(_ context.Context) ([]byte, int64, error) {
 	return out, s.version, nil
 }
 
-func (s *SyntheticSource) Watch(_ context.Context, onChange func()) func() {
+func (s *SyntheticSource) Watch(_ context.Context, onChange func(string, navigator.WatchEvent)) func() {
 	if onChange == nil {
 		return func() {}
 	}
+	wrapped := func() { onChange(s.uri, navigator.WatchModify) }
 	s.mu.Lock()
-	s.onCh = append(s.onCh, onChange)
+	s.onCh = append(s.onCh, wrapped)
 	idx := len(s.onCh) - 1
 	s.mu.Unlock()
 	return func() {
@@ -205,10 +190,12 @@ func (s *SyntheticSource) Update(content []byte) {
 // --- LSPSource ---
 
 // LSPDocumentProvider abstracts gossip's document.Store for reading document
-// content without importing gossip in the core package.
+// content without importing gossip in the core package. Matches the
+// navigator/graph.LSPDocumentProvider interface.
 type LSPDocumentProvider interface {
 	Content(uri string) (text string, version int32, ok bool)
 }
+
 
 // LSPSource bridges gossip's in-memory document overlays with the graph engine.
 type LSPSource struct {
@@ -236,7 +223,7 @@ func (s *LSPSource) Read(_ context.Context) ([]byte, int64, error) {
 	return []byte(text), int64(version), nil
 }
 
-func (s *LSPSource) Watch(_ context.Context, _ func()) func() {
+func (s *LSPSource) Watch(_ context.Context, _ func(string, navigator.WatchEvent)) func() {
 	// LSP document changes are pushed via didChange notifications;
 	// the graph is invalidated directly by the LSP handler.
 	return func() {}

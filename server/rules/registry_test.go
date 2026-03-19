@@ -19,7 +19,7 @@ func TestRegistry_RegisterAndGet(t *testing.T) {
 		Formats:     []openapi.Format{openapi.FormatOAS3},
 	}
 
-	r.Register(meta)
+	r.RegisterMeta(meta)
 
 	got, ok := r.Get("test-rule")
 	if !ok {
@@ -35,9 +35,9 @@ func TestRegistry_RegisterAndGet(t *testing.T) {
 
 func TestRegistry_ByCategory(t *testing.T) {
 	r := rules.NewRegistry()
-	r.Register(rules.RuleMeta{ID: "a", Category: rules.CategoryNaming})
-	r.Register(rules.RuleMeta{ID: "b", Category: rules.CategorySecurity})
-	r.Register(rules.RuleMeta{ID: "c", Category: rules.CategoryNaming})
+	r.RegisterMeta(rules.RuleMeta{ID: "a", Category: rules.CategoryNaming})
+	r.RegisterMeta(rules.RuleMeta{ID: "b", Category: rules.CategorySecurity})
+	r.RegisterMeta(rules.RuleMeta{ID: "c", Category: rules.CategoryNaming})
 
 	naming := r.ByCategory(rules.CategoryNaming)
 	if len(naming) != 2 {
@@ -47,9 +47,9 @@ func TestRegistry_ByCategory(t *testing.T) {
 
 func TestRegistry_Recommended(t *testing.T) {
 	r := rules.NewRegistry()
-	r.Register(rules.RuleMeta{ID: "a", Recommended: true})
-	r.Register(rules.RuleMeta{ID: "b", Recommended: false})
-	r.Register(rules.RuleMeta{ID: "c", Recommended: true})
+	r.RegisterMeta(rules.RuleMeta{ID: "a", Recommended: true})
+	r.RegisterMeta(rules.RuleMeta{ID: "b", Recommended: false})
+	r.RegisterMeta(rules.RuleMeta{ID: "c", Recommended: true})
 
 	rec := r.Recommended()
 	if len(rec) != 2 {

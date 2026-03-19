@@ -73,8 +73,8 @@ func TestSemanticNode_StringValue(t *testing.T) {
 	if got := (&SemanticNode{Kind: NodeScalar, Value: "hello"}).StringValue(); got != "hello" {
 		t.Errorf("StringValue() = %q, want \"hello\"", got)
 	}
-	if got := (&SemanticNode{Kind: NodeScalar, Value: 42}).StringValue(); got != "" {
-		t.Errorf("non-string scalar StringValue() = %q, want \"\"", got)
+	if got := (&SemanticNode{Kind: NodeScalar, Value: 42}).StringValue(); got != "42" {
+		t.Errorf("non-string scalar StringValue() = %q, want \"42\"", got)
 	}
 	if got := (&SemanticNode{Kind: NodeMapping}).StringValue(); got != "" {
 		t.Errorf("mapping StringValue() = %q, want \"\"", got)
