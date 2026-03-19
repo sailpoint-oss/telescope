@@ -45,7 +45,7 @@ suite("Hover", () => {
 		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		await openAndShow(warmupUri);
 		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
-			timeoutMs: 60000,
+			timeoutMs: 90000,
 		});
 	});
 

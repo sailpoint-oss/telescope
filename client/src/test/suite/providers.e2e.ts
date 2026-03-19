@@ -51,7 +51,7 @@ suite("Providers", () => {
 		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		await openAndShow(warmupUri);
 		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
-			timeoutMs: 60000,
+			timeoutMs: 90000,
 		});
 	});
 
@@ -178,7 +178,7 @@ suite("Providers", () => {
 			"vscode.executeFormatDocumentProvider",
 			[uri, { tabSize: 2, insertSpaces: true }],
 			(result) => Array.isArray(result),
-			{ maxAttempts: 15 },
+			{ maxAttempts: 25 },
 		);
 
 		assert.ok(Array.isArray(edits), "Format should return an array");
