@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -342,12 +343,13 @@ func resolveExternalRefFallback(
 		return nil
 	}
 
-	basePath := protocol.URIToPath(protocol.NormalizeURI(baseURI))
-	if basePath == "" {
+	baseStr := string(protocol.NormalizeURI(baseURI))
+	u, err := url.Parse(baseStr)
+	if err != nil || u.Scheme != "file" {
 		return nil
 	}
-	targetPath := filepath.Clean(filepath.Join(filepath.Dir(basePath), refPath))
-	targetURI := filePathToURI(targetPath)
+	u.Path = path.Clean(path.Join(path.Dir(u.Path), refPath))
+	targetURI := protocol.DocumentURI(u.String())
 	if targetURI == "" {
 		return nil
 	}
@@ -437,14 +439,15 @@ func splitExternalRef(ref string) (pathPart string, pointer string, external boo
 	}
 }
 
-func filePathToURI(path string) protocol.DocumentURI {
-	if path == "" {
+func filePathToURI(fsPath string) protocol.DocumentURI {
+	if fsPath == "" {
 		return ""
 	}
-	u := &url.URL{
-		Scheme: "file",
-		Path:   filepath.ToSlash(path),
+	p := filepath.ToSlash(fsPath)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
 	}
+	u := &url.URL{Scheme: "file", Path: p}
 	return protocol.NormalizeURI(protocol.DocumentURI(u.String()))
 }
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"path/filepath"
+	"path"
 
 	"github.com/LukasParke/gossip/protocol"
 
@@ -247,8 +247,8 @@ func graphResolveRefTarget(baseURI, ref string) string {
 	if err != nil || u.Scheme != "file" {
 		return filePart
 	}
-	baseDir := filepath.Dir(u.Path)
-	resolved := filepath.Clean(filepath.Join(baseDir, filePart))
+	baseDir := path.Dir(u.Path)
+	resolved := path.Clean(path.Join(baseDir, filePart))
 	target := &url.URL{Scheme: "file", Path: resolved}
 	return target.String()
 }

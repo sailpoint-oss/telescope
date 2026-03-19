@@ -345,12 +345,16 @@ func isOpenAPIExtension(path string) bool {
 	return ext == ".yaml" || ext == ".yml" || ext == ".json"
 }
 
-func pathToFileURI(path string) string {
-	abs, err := filepath.Abs(path)
+func pathToFileURI(fsPath string) string {
+	abs, err := filepath.Abs(fsPath)
 	if err != nil {
-		abs = path
+		abs = fsPath
 	}
-	u := &url.URL{Scheme: "file", Path: abs}
+	p := filepath.ToSlash(abs)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	u := &url.URL{Scheme: "file", Path: p}
 	return u.String()
 }
 

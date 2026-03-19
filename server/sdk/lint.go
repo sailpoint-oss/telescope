@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/LukasParke/gossip/protocol"
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
@@ -79,9 +80,13 @@ func LintFiles(files []string, opts LintOptions) ([]LintResult, error) {
 	results := make([]LintResult, 0, len(files))
 	for _, path := range files {
 		absPath, _ := filepath.Abs(path)
+		uriPath := filepath.ToSlash(absPath)
+		if !strings.HasPrefix(uriPath, "/") {
+			uriPath = "/" + uriPath
+		}
 		results = append(results, LintResult{
 			File:        path,
-			URI:         "file://" + absPath,
+			URI:         "file://" + uriPath,
 			Diagnostics: resultByPath[path],
 		})
 	}

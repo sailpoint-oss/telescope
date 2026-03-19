@@ -2,7 +2,7 @@ package lsp
 
 import (
 	"net/url"
-	"path/filepath"
+	"path"
 	"strings"
 
 	"github.com/LukasParke/gossip"
@@ -70,8 +70,8 @@ func resolveRefTarget(docURI protocol.DocumentURI, refValue string) *protocol.Do
 
 	baseStr := string(docURI)
 	if u, err := url.Parse(baseStr); err == nil && u.Scheme == "file" {
-		baseDir := filepath.Dir(u.Path)
-		resolved := filepath.Join(baseDir, filePart)
+		baseDir := path.Dir(u.Path)
+		resolved := path.Join(baseDir, filePart)
 		target := &url.URL{Scheme: "file", Path: resolved}
 		uri := protocol.DocumentURI(target.String() + fragment)
 		return &uri

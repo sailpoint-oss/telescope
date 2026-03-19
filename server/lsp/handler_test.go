@@ -2,6 +2,7 @@ package lsp_test
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unsafe"
@@ -1936,9 +1937,9 @@ func TestUriToFSPath(t *testing.T) {
 		uri  string
 		want string
 	}{
-		{"standard file URI", "file:///home/user/test.yaml", "/home/user/test.yaml"},
+		{"standard file URI", "file:///home/user/test.yaml", filepath.FromSlash("/home/user/test.yaml")},
 		{"non-file URI", "/some/path", "/some/path"},
-		{"with encoded space", "file:///home/user/my%20file.yaml", "/home/user/my file.yaml"},
+		{"with encoded space", "file:///home/user/my%20file.yaml", filepath.FromSlash("/home/user/my file.yaml")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

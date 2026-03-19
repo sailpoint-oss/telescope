@@ -234,5 +234,9 @@ func (s *LSPSource) Hint() ClassificationHint { return s.hint }
 // --- Helpers ---
 
 func pathToURI(absPath string) string {
-	return "file://" + filepath.ToSlash(absPath)
+	p := filepath.ToSlash(absPath)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return "file://" + p
 }
