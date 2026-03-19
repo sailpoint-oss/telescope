@@ -11,6 +11,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
 suite("Folding Ranges", () => {
@@ -24,6 +25,15 @@ suite("Folding Ranges", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
+		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
+			timeoutMs: 60000,
+			uri: folder.uri,
+		});
+		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
+		await openAndShow(warmupUri);
+		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
+			timeoutMs: 90000,
+		});
 	});
 
 	test("Folding ranges cover paths and operations", async () => {
