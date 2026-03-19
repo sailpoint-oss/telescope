@@ -168,7 +168,7 @@ export async function executeWithRetry<T>(
 	predicate: (result: T) => boolean,
 	options?: { maxAttempts?: number; delayMs?: number },
 ): Promise<T> {
-	const maxAttempts = options?.maxAttempts ?? 30;
+	const maxAttempts = options?.maxAttempts ?? 20;
 	const delayMs = options?.delayMs ?? 2000;
 	let last: T | undefined;
 	for (let attempt = 0; attempt < maxAttempts; attempt++) {

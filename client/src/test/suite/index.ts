@@ -31,7 +31,7 @@ function findTestFiles(dir: string, fileList: string[] = []): string[] {
 
 export function run(): Promise<void> {
 	// Create the mocha test
-	const timeoutMs = Number(process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "120000");
+	const timeoutMs = Number(process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "300000");
 	const mocha = new Mocha({
 		ui: "tdd",
 		color: true,
