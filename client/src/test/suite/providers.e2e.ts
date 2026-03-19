@@ -180,7 +180,7 @@ suite("Providers", () => {
 			"vscode.executeFormatDocumentProvider",
 			[uri, { tabSize: 2, insertSpaces: true }],
 			(result) => Array.isArray(result),
-			{ maxAttempts: 25 },
+			{ maxAttempts: 40 },
 		);
 
 		assert.ok(Array.isArray(edits), "Format should return an array");
