@@ -280,7 +280,11 @@ func uriToPath(uri string) string {
 	if strings.HasPrefix(uri, "file://") {
 		u, err := url.Parse(uri)
 		if err == nil {
-			return filepath.FromSlash(u.Path)
+			p := u.Path
+			if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+				p = p[1:]
+			}
+			return filepath.FromSlash(p)
 		}
 		return strings.TrimPrefix(uri, "file://")
 	}

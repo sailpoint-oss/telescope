@@ -119,11 +119,11 @@ func definitionLineAt(doc interface{ LineAt(uint32) string }, uri protocol.Docum
 	if !isNilLineAccessor(doc) {
 		return doc.LineAt(line)
 	}
-	path := protocol.URIToPath(protocol.NormalizeURI(uri))
-	if path == "" {
+	fsPath := uriToFSPath(string(protocol.NormalizeURI(uri)))
+	if fsPath == "" {
 		return ""
 	}
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(fsPath)
 	if err != nil {
 		return ""
 	}
@@ -385,11 +385,11 @@ func resolveLocalRefTextFallback(uri protocol.DocumentURI, ref string) []protoco
 	if !strings.HasPrefix(ref, "#/") {
 		return nil
 	}
-	path := protocol.URIToPath(protocol.NormalizeURI(uri))
-	if path == "" {
+	fsPath := uriToFSPath(string(protocol.NormalizeURI(uri)))
+	if fsPath == "" {
 		return nil
 	}
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(fsPath)
 	if err != nil {
 		return nil
 	}

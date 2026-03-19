@@ -244,7 +244,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 	// Register an initialization hook that loads rulesets from the workspace,
 	// registers dynamic file watchers, and starts child LSPs.
 	s.OnInitialized(func(ctx *gossip.Context) {
-		workspaceRootStr = protocol.URIToPath(protocol.NormalizeURI(ctx.WorkspaceRoot()))
+		workspaceRootStr = uriToFSPath(string(protocol.NormalizeURI(ctx.WorkspaceRoot())))
 		logger.Info("telescope server initialized",
 			"version", Version,
 			"workspace", string(ctx.WorkspaceRoot()),
@@ -561,7 +561,7 @@ func matchesFilePatterns(docURI, workspaceRoot string, patterns []string) bool {
 	if len(patterns) == 0 {
 		return true
 	}
-	docPath := protocol.URIToPath(protocol.NormalizeURI(protocol.DocumentURI(docURI)))
+	docPath := uriToFSPath(string(protocol.NormalizeURI(protocol.DocumentURI(docURI))))
 	relPath := strings.TrimPrefix(docPath, workspaceRoot)
 	relPath = strings.TrimPrefix(relPath, "/")
 	for _, pattern := range patterns {
@@ -676,7 +676,11 @@ func uriToFSPath(uri string) string {
 		return uri
 	}
 	if u.Scheme == "file" {
-		return filepath.FromSlash(u.Path)
+		p := u.Path
+		if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+			p = p[1:]
+		}
+		return filepath.FromSlash(p)
 	}
 	return uri
 }
