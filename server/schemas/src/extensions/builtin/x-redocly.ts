@@ -43,10 +43,10 @@ export const xLogo: ExtensionSchemaMeta = defineExtension({
 	url: "https://redocly.com/docs/api-reference-docs/specification-extensions/",
 	schema: (z) =>
 		z.looseObject({
-			url: z.string().url(),
+			url: z.url(),
 			altText: z.string().optional(),
 			backgroundColor: z.string().optional(),
-			href: z.string().url().optional(),
+			href: z.url().optional(),
 		}),
 });
 
