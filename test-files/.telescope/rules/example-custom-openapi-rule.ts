@@ -8,7 +8,12 @@
  *     - rule: example-custom-openapi-rule.ts
  */
 
-import { defineRule } from "@sailpoint-oss/telescope";
+import {
+	defineRule,
+	getValueAtPointer,
+	joinPointer,
+	splitPointer,
+} from "@sailpoint-oss/telescope";
 
 export default defineRule({
 	meta: {
@@ -21,19 +26,25 @@ export default defineRule({
 	check(ctx) {
 		return {
 			Operation(op) {
-				const operation = op.node;
-				if (
-					typeof operation === "object" &&
-					operation !== null &&
-					!("summary" in operation)
-				) {
+				const doc = ctx.project.docs.get(op.uri);
+				if (!doc) return;
+
+				const summaryPointer = joinPointer([
+					...splitPointer(op.pointer),
+					"summary",
+				]);
+				const summary = getValueAtPointer(doc.ast, summaryPointer);
+
+				if (typeof summary !== "string" || !summary.trim()) {
+					const range =
+						ctx.locate(op.uri, summaryPointer) ??
+						ctx.locate(op.uri, op.pointer);
+					if (!range) return;
+
 					ctx.report({
 						message: "Operation must have a summary field",
 						uri: op.uri,
-						range: ctx.locate(op.uri, op.pointer) ?? {
-							start: { line: 0, character: 0 },
-							end: { line: 0, character: 0 },
-						},
+						range,
 						severity: "error",
 					});
 				}

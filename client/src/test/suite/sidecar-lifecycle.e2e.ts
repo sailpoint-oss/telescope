@@ -36,7 +36,7 @@ suite("Sidecar: Lifecycle", () => {
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
-			"openapi/custom-openapi-invalid.yaml",
+			"openapi/test-missing-summary.yaml",
 		);
 		await openAndShow(fileUri);
 
@@ -106,7 +106,7 @@ suite("Sidecar: Lifecycle", () => {
 
 		const probeUri = vscode.Uri.joinPath(
 			folder.uri,
-			"openapi/custom-openapi-invalid.yaml",
+			"openapi/test-missing-summary.yaml",
 		);
 		await openAndShow(probeUri);
 		const probeDiags = await waitForDiagnostics(

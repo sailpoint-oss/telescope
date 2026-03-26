@@ -125,6 +125,13 @@ export async function waitForProviders(
 		if (Array.isArray(result) && result.length > 0) return;
 		await delay(2000);
 	}
+	const openDoc = vscode.workspace.textDocuments.find(
+		(d) => d.uri.toString() === uri.toString(),
+	);
+	throw new Error(
+		`Timeout waiting for providers after ${timeoutMs}ms ` +
+			`(uri=${uri.toString()}, languageId=${openDoc?.languageId ?? "not-open"})`,
+	);
 }
 
 export async function openAndShow(uri: vscode.Uri): Promise<vscode.TextDocument> {
@@ -194,7 +201,7 @@ export async function waitForSidecarReady(
 ): Promise<void> {
 	const probeUri = vscode.Uri.joinPath(
 		folder.uri,
-		"openapi/custom-openapi-invalid.yaml",
+		"openapi/test-missing-summary.yaml",
 	);
 	await openAndShow(probeUri);
 	await waitForDiagnostics(

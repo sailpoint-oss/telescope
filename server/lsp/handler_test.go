@@ -2,6 +2,7 @@ package lsp_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -569,6 +570,32 @@ func TestFormattingHandler_YAML(t *testing.T) {
 	}
 	// YAML formatting may return an empty edit slice when no changes are needed.
 	_ = result
+}
+
+func TestFormattingHandler_YAML_TrimsTrailingWhitespace(t *testing.T) {
+	spec := "openapi: 3.1.0  \ninfo:\n  title: Format Test   \n  version: 1.0.0\npaths: {}"
+	env := setupTestEnv(t, "file:///format.yaml", spec)
+	handler := lsp.NewFormattingHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+		Options: protocol.FormattingOptions{
+			TabSize:      2,
+			InsertSpaces: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("formatting error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected single formatting edit, got %d", len(result))
+	}
+	if strings.Contains(result[0].NewText, "Format Test   ") {
+		t.Fatalf("expected formatter to trim trailing spaces, got %q", result[0].NewText)
+	}
+	if !strings.HasSuffix(result[0].NewText, "\n") {
+		t.Fatalf("expected formatter to add trailing newline, got %q", result[0].NewText)
+	}
 }
 
 func TestHoverHandler(t *testing.T) {
@@ -2925,5 +2952,67 @@ paths:
 	}
 	if !labels["/users/{id}"] {
 		t.Fatalf("expected completion to include /users/{id}; got %v", labels)
+	}
+}
+
+func TestCompletionHandler_HTTPMethodCompletionsOnBlankIndentedLine(t *testing.T) {
+	spec := "openapi: \"3.1.0\"\ninfo:\n  title: Methods\n  version: \"1.0.0\"\npaths:\n  /test:\n    \n"
+	env := setupTestEnv(t, "file:///methods.yaml", spec)
+	handler := lsp.NewCompletionHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 6, Character: 4},
+		},
+	})
+	if err != nil {
+		t.Fatalf("completion error: %v", err)
+	}
+	if result == nil || len(result.Items) == 0 {
+		t.Fatal("expected HTTP method completions on blank path-item child line")
+	}
+
+	labels := map[string]bool{}
+	for _, item := range result.Items {
+		labels[item.Label] = true
+	}
+	if !labels["get"] || !labels["post"] {
+		t.Fatalf("expected get/post completions, got labels=%v", labels)
+	}
+}
+
+func TestCompletionHandler_EmptyResultsMarshalItemsArray(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Empty Completion
+  version: "1.0.0"
+paths: {}
+`
+	env := setupTestEnv(t, "file:///empty-completion.yaml", spec)
+	handler := lsp.NewCompletionHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 0, Character: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("completion error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected empty completion list, got nil")
+	}
+	if len(result.Items) != 0 {
+		t.Fatalf("expected no completion items, got %d", len(result.Items))
+	}
+
+	payload, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal completion result: %v", err)
+	}
+	if !strings.Contains(string(payload), `"items":[]`) {
+		t.Fatalf("expected completion list to marshal items as array, got %s", payload)
 	}
 }

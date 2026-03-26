@@ -250,6 +250,15 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 			"workspace", string(ctx.WorkspaceRoot()),
 		)
 
+		recomputeOpenDiagnostics := func() {
+			if s.DiagnosticEngine() == nil {
+				return
+			}
+			for _, uri := range ctx.Documents.URIs() {
+				s.DiagnosticEngine().Invalidate(uri)
+			}
+		}
+
 		// Register snapshot callback for observability
 		graphBridge.OnSnapshot(func(snap *graph.Snapshot) {
 			logger.Debug("graph snapshot built",
@@ -346,9 +355,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 							logger.Warn("failed to load custom rules", "error", err)
 						}
 					}
-					if s.DiagnosticEngine() != nil {
-						s.DiagnosticEngine().InvalidateAll()
-					}
+					recomputeOpenDiagnostics()
 					bunMgr.WatchRules(context.Background(), telescopeDir, func() {
 						reloadReq := buildLoadRulesRequest(cfg, telescopeDir)
 						if reloadReq != nil {
@@ -356,9 +363,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 								logger.Warn("failed to reload custom rules", "error", err)
 							}
 						}
-						if s.DiagnosticEngine() != nil {
-							s.DiagnosticEngine().InvalidateAll()
-						}
+						recomputeOpenDiagnostics()
 					})
 				}()
 			}
@@ -383,9 +388,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		// Force re-evaluation of any documents that were opened during the
 		// initialized race window. This ensures their indexes are built and
 		// cached even if their initial onTreeUpdate ran before SetPublish.
-		if s.DiagnosticEngine() != nil {
-			s.DiagnosticEngine().InvalidateAll()
-		}
+		recomputeOpenDiagnostics()
 	})
 
 	// Register LSP feature handlers (these don't need tree-sitter to be initialized)
@@ -513,7 +516,7 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 					RawText:  content,
 					Format:   format,
 					Version:  version,
-					Pointers: make(map[string][4]uint32),
+					Pointers: bun.PointersFromContent(content, uri),
 				}
 			}
 			if doc.Version == "" {

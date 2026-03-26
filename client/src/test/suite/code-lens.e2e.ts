@@ -46,6 +46,7 @@ suite("Code Lens", () => {
 		await waitForDiagnostics(uri, (d) => d.length > 0, {
 			timeoutMs: 60000,
 		});
+		await waitForProviders(uri, { timeoutMs: 60000 });
 
 		const lenses = await executeWithRetry<vscode.CodeLens[]>(
 			"vscode.executeCodeLensProvider",

@@ -36,21 +36,31 @@ suite("Sidecar: Custom OpenAPI Rules", () => {
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
-			"openapi/custom-openapi-invalid.yaml",
+			"openapi/test-missing-summary.yaml",
 		);
 		await openAndShow(fileUri);
 		await waitForDiagnostics(fileUri, (d) => d.length > 0, { timeoutMs: 120000 });
 
-		const diagnostics = await waitForDiagnostics(
-			fileUri,
-			(d) =>
-				d.some(
-					(diag) =>
-						diagCode(diag) === "custom-operation-summary" ||
-						diag.message.toLowerCase().includes("summary"),
-				),
-			{ timeoutMs: 180000 },
-		);
+		let diagnostics: vscode.Diagnostic[];
+		try {
+			diagnostics = await waitForDiagnostics(
+				fileUri,
+				(d) =>
+					d.some(
+						(diag) =>
+							diagCode(diag) === "custom-operation-summary" ||
+							diag.message.toLowerCase().includes("summary"),
+					),
+				{ timeoutMs: 180000 },
+			);
+		} catch (err) {
+			const current = vscode.languages.getDiagnostics(fileUri);
+			assert.fail(
+				`Timed out waiting for summary diagnostics: ${String(err)}\n` +
+					`Current diagnostics: ${current.map((d) => `${diagCode(d)}:${d.source ?? "unknown"}:${d.message}`).join(" | ")}`,
+			);
+			return;
+		}
 
 		const customDiags = diagnostics.filter(
 			(d) => diagCode(d) === "custom-operation-summary",

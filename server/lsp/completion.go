@@ -28,7 +28,7 @@ func NewCompletionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Comp
 		}
 
 		line := doc.LineAt(params.Position.Line)
-		var items []protocol.CompletionItem
+		items := make([]protocol.CompletionItem, 0)
 
 		if strings.Contains(line, "$ref") {
 			items = append(items, refCompletions(idx)...)
@@ -68,7 +68,7 @@ func NewCompletionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Comp
 		}
 
 		// HTTP method / operation template completions
-		if isHTTPMethodContext(line) {
+		if isHTTPMethodContext(doc, params.Position) {
 			items = append(items, operationTemplateCompletions()...)
 		}
 
@@ -383,14 +383,28 @@ func isPropertyContext(line string) bool {
 	return strings.HasPrefix(trimmed, "properties:")
 }
 
-func isHTTPMethodContext(line string) bool {
+func isHTTPMethodContext(doc interface{ LineAt(uint32) string }, position protocol.Position) bool {
+	line := doc.LineAt(position.Line)
 	trimmed := strings.TrimSpace(line)
-	// User is likely adding a new HTTP method under a path
-	for _, method := range []string{"get:", "post:", "put:", "patch:", "delete:", "options:", "head:", "trace:"} {
+
+	// Existing HTTP method key or a partially typed method name.
+	for _, method := range []string{"get", "post", "put", "patch", "delete", "options", "head", "trace"} {
 		if strings.HasPrefix(trimmed, method) {
 			return true
 		}
 	}
+
+	indent := leadingIndent(line)
+	if indent < 4 {
+		return false
+	}
+
+	// A blank or partially typed line directly under a path item should offer
+	// operation method templates without depending on another YAML provider.
+	if trimmed == "" || !strings.Contains(trimmed, ":") {
+		return isPathItemChildContext(doc, position.Line, indent)
+	}
+
 	return false
 }
 
@@ -423,6 +437,25 @@ func isExtensionContext(line string) bool {
 	return strings.HasPrefix(trimmed, "x") ||
 		strings.HasPrefix(trimmed, "\"x") ||
 		strings.HasPrefix(trimmed, "'x")
+}
+
+func isPathItemChildContext(doc interface{ LineAt(uint32) string }, line uint32, indent int) bool {
+	for current := int(line) - 1; current >= 0; current-- {
+		candidate := doc.LineAt(uint32(current))
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if leadingIndent(candidate) >= indent {
+			continue
+		}
+		return isPathTemplateContext(candidate)
+	}
+	return false
+}
+
+func leadingIndent(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " \t"))
 }
 
 func extractSecuritySchemeFromLine(line string) string {
@@ -551,9 +584,9 @@ func operationTemplateCompletions() []protocol.CompletionItem {
 			insertText = fmt.Sprintf("%s:\n  summary: ${1:Summary}\n  operationId: ${2:operationId}\n  description: ${3:Description}\n  requestBody:\n    required: true\n    content:\n      application/json:\n        schema:\n          $$ref: ${4:'#/components/schemas/Model'}\n  responses:\n    '200':\n      description: ${5:Success}\n    '400':\n      description: Bad Request", m.method)
 		}
 		items = append(items, protocol.CompletionItem{
-			Label:            m.method + " (template)",
+			Label:            m.method,
 			Kind:             protocol.CompletionKindSnippet,
-			Detail:           m.desc,
+			Detail:           m.desc + " template",
 			InsertText:       insertText,
 			InsertTextFormat: &snippetFmt,
 			SortText:         "zz_template_" + m.method,

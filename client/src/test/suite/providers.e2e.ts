@@ -172,18 +172,58 @@ suite("Providers", () => {
 
 	test("Format provider returns valid edits", async () => {
 		if (isMultiRootWorkspace()) return;
-		const uri = vscode.Uri.joinPath(folder.uri, "valid.yaml");
-		const doc = await openAndShow(uri);
-		await waitForDiagnostics(uri, () => true, { timeoutMs: 60000 });
+		const tmpName = `format-e2e-${Date.now()}.yaml`;
+		const tmpUri = vscode.Uri.joinPath(folder.uri, tmpName);
+		const content = [
+			"openapi: 3.1.0  ",
+			"info:",
+			"  title: Format Test   ",
+			"  version: 1.0.0",
+			"paths: {}",
+		].join("\n");
 
-		const edits = await executeWithRetry<vscode.TextEdit[] | undefined>(
-			"vscode.executeFormatDocumentProvider",
-			[uri, { tabSize: 2, insertSpaces: true }],
-			(result) => Array.isArray(result),
-			{ maxAttempts: 40 },
-		);
+		await vscode.workspace.fs.writeFile(tmpUri, Buffer.from(content, "utf-8"));
 
-		assert.ok(Array.isArray(edits), "Format should return an array");
-		assert.ok(doc.getText().length > 0);
+		try {
+			let doc = await openAndShow(tmpUri);
+			const classificationStart = Date.now();
+			while (
+				doc.languageId !== "openapi-yaml" &&
+				Date.now() - classificationStart < 10000
+			) {
+				await delay(250);
+				doc = await vscode.workspace.openTextDocument(tmpUri);
+			}
+
+			assert.strictEqual(
+				doc.languageId,
+				"openapi-yaml",
+				`Expected openapi-yaml, got ${doc.languageId}`,
+			);
+
+			const edits = await executeWithRetry<vscode.TextEdit[] | undefined>(
+				"vscode.executeFormatDocumentProvider",
+				[tmpUri, { tabSize: 2, insertSpaces: true }],
+				(result) => Array.isArray(result) && result.length > 0,
+				{ maxAttempts: 40, delayMs: 1000 },
+			);
+
+			assert.ok(Array.isArray(edits), "Format should return an array");
+			assert.ok(edits.length > 0, "Format should return at least one edit");
+			const formatted = edits.map((edit) => edit.newText).join("");
+			assert.notStrictEqual(formatted, content, "Format should update the document");
+			assert.ok(formatted.endsWith("\n"), "Format should normalize trailing newline");
+			assert.ok(
+				!formatted.includes("Format Test   "),
+				"Format should trim trailing spaces",
+			);
+		} finally {
+			await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+			try {
+				await vscode.workspace.fs.delete(tmpUri);
+			} catch {
+				// cleanup best-effort
+			}
+		}
 	});
 });

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/core/graph"
 
 	"gopkg.in/yaml.v3"
@@ -42,8 +43,23 @@ func SerializeRawContent(content []byte, format string) (map[string]any, error) 
 	return ast, nil
 }
 
+// PointersFromContent parses raw document content and projects navigator ranges
+// into the Bun sidecar pointer format.
+func PointersFromContent(content string, uri string) map[string][4]uint32 {
+	idx := navigator.ParseContent([]byte(content), uri)
+	if idx == nil || idx.SemanticRoot() == nil {
+		return map[string][4]uint32{}
+	}
+
+	pi := navigator.BuildPointerIndex(idx.SemanticRoot())
+	pointers := make(map[string][4]uint32, pi.Len())
+	for ptr, r := range pi.All() {
+		pointers[ptr] = [4]uint32{r.Start.Line, r.Start.Character, r.End.Line, r.End.Character}
+	}
+	return pointers
+}
+
 // SerializeDoc builds a SerializedDoc from a graph node and optional snapshot.
-// If snap is nil, pointers will be empty.
 func SerializeDoc(uri string, node *graph.GraphNode, snap *graph.Snapshot) SerializedDoc {
 	if node == nil {
 		return SerializedDoc{URI: uri}
@@ -65,9 +81,10 @@ func SerializeDoc(uri string, node *graph.GraphNode, snap *graph.Snapshot) Seria
 		version, _ = v.(string)
 	}
 
-	pointers := make(map[string][4]uint32)
+	pointers := PointersFromContent(content, uri)
 	if snap != nil {
 		if pi := snap.PointerIndices[uri]; pi != nil {
+			pointers = make(map[string][4]uint32, pi.Len())
 			for ptr, r := range pi.All() {
 				pointers[ptr] = [4]uint32{r.Start.Line, r.Start.Character, r.End.Line, r.End.Character}
 			}

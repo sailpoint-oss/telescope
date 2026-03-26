@@ -88,10 +88,26 @@ func formatJSON(text string, opts protocol.FormattingOptions) (string, error) {
 }
 
 func normalizeYAML(text string) string {
-	result := strings.TrimRight(text, " \t\n\r")
-	if !strings.HasSuffix(result, "\n") {
-		result += "\n"
+	newline := "\n"
+	normalized := text
+	if strings.Contains(text, "\r\n") {
+		newline = "\r\n"
+		normalized = strings.ReplaceAll(text, "\r\n", "\n")
 	}
+
+	lines := strings.Split(normalized, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " \t\r")
+	}
+
+	result := strings.Join(lines, "\n")
+	result = strings.TrimRight(result, "\n")
+	result += "\n"
+
+	if newline == "\r\n" {
+		result = strings.ReplaceAll(result, "\n", "\r\n")
+	}
+
 	return result
 }
 
