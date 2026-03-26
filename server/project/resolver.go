@@ -70,7 +70,7 @@ func (r *CrossFileResolver) Resolve(fromURI, ref string) (*ResolveResult, error)
 	}
 
 	if fragment == "" || fragment == "#" {
-		return &ResolveResult{TargetURI: targetURI, TargetIndex: idx, Value: idx.Document}, nil
+		return &ResolveResult{TargetURI: targetURI, TargetIndex: idx, Value: idx.PrimaryValue()}, nil
 	}
 
 	val, err := idx.ResolveRef(fragment)

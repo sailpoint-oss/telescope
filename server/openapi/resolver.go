@@ -8,6 +8,12 @@ import (
 // ResolveRef resolves a JSON Reference ($ref) string to the corresponding model
 // element within this index. Supports local references like #/components/schemas/Pet.
 func (idx *Index) ResolveRef(ref string) (interface{}, error) {
+	if idx == nil {
+		return nil, fmt.Errorf("nil index")
+	}
+	if idx.nav != nil {
+		return idx.nav.ResolveRef(ref)
+	}
 	if idx.Document == nil {
 		return nil, fmt.Errorf("no document")
 	}

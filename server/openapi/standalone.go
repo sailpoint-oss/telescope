@@ -46,6 +46,7 @@ func IndexFromNavigator(navIdx *navigator.Index, uri protocol.DocumentURI) *Inde
 		Tags:             navIdx.Tags,
 		Version:          navIdx.Version,
 		Format:           FileFormat(navIdx.Format),
+		nav:              navIdx,
 	}
 
 	for id, ref := range navIdx.Operations {

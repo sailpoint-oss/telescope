@@ -487,6 +487,39 @@ export async function activate(context: ExtensionContext) {
 					if (!document) return;
 
 					try {
+						const session = sessionManager?.getSessionForUri(document.uri);
+						if (session) {
+							const result = (await session.executeServerCommand(
+								"telescope.bundlePreview",
+								[document.uri.toString()],
+							)) as
+								| {
+										content?: string;
+										language?: string;
+										warnings?: string[];
+										source?: string;
+								  }
+								| null;
+							const serverContent = result?.content?.trim();
+							if (serverContent) {
+								if (Array.isArray(result?.warnings)) {
+									for (const warning of result.warnings) {
+										outputChannel.appendLine(
+											formatSetupLog(`Bundle preview warning: ${warning}`),
+										);
+									}
+								}
+								const previewDoc = await workspace.openTextDocument({
+									content: serverContent,
+									language:
+										result?.language ??
+										(document.languageId.includes("json") ? "json" : "yaml"),
+								});
+								await window.showTextDocument(previewDoc, { preview: true });
+								return;
+							}
+						}
+
 						const language = document.languageId.includes("json") ? "json" : "yaml";
 						const { stdout, stderr } = await execFileAsync(
 							serverPath,
@@ -498,10 +531,7 @@ export async function activate(context: ExtensionContext) {
 							window.showWarningMessage("Bundle preview returned no content");
 							return;
 						}
-						const previewDoc = await workspace.openTextDocument({
-							content,
-							language,
-						});
+						const previewDoc = await workspace.openTextDocument({ content, language });
 						await window.showTextDocument(previewDoc, { preview: true });
 					} catch (error) {
 						outputChannel.appendLine(

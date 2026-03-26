@@ -11,8 +11,8 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
 	"github.com/sailpoint-oss/telescope/server/openapi"
-	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
+	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 const coverageSpec = `openapi: "3.1.0"
@@ -96,6 +96,7 @@ func TestExecuteCommandHandler_SortBranchesNoError(t *testing.T) {
 		"telescope.sortTags",
 		"telescope.sortPaths",
 		"telescope.generateResponseSkeletons",
+		"telescope.bundlePreview",
 	}
 	for _, cmd := range commands {
 		_, err := handler(env.ctx, &protocol.ExecuteCommandParams{
@@ -187,4 +188,3 @@ func TestCallHierarchyOutgoingHandler_ReturnsRefTarget(t *testing.T) {
 		t.Fatal("expected outgoing call for $ref target")
 	}
 }
-

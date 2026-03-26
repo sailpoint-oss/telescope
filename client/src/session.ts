@@ -645,7 +645,7 @@ export class Session implements vscode.Disposable {
 		const pointer = decoded.split("#")[0] ?? decoded;
 		const segments = pointer.split("/").filter(Boolean);
 		const raw = segments[segments.length - 1] ?? "";
-		return raw.replaceAll("~1", "/").replaceAll("~0", "~");
+		return raw.split("~1").join("/").split("~0").join("~");
 	}
 
 	private findTokenPosition(doc: vscode.TextDocument, token: string): vscode.Position {

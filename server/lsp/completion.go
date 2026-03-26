@@ -2,10 +2,12 @@ package lsp
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/extensions"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
@@ -14,7 +16,7 @@ var snippetFmt = protocol.InsertTextFormatSnippet
 var snippetEscaper = strings.NewReplacer("\\", "\\\\", "$", "\\$", "}", "\\}")
 
 // NewCompletionHandler returns completions for $ref paths, HTTP status codes,
-// media types, security schemes, tags, and common OpenAPI fields.
+// media types, security schemes, tags, vendor extensions, and common OpenAPI fields.
 func NewCompletionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.CompletionHandler {
 	return func(ctx *gossip.Context, params *protocol.CompletionParams) (*protocol.CompletionList, error) {
 		uri := params.TextDocument.URI
@@ -49,6 +51,10 @@ func NewCompletionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Comp
 
 		if isTagContext(line) && idx != nil {
 			items = append(items, tagCompletions(idx)...)
+		}
+
+		if isExtensionContext(line) {
+			items = append(items, extensionCompletions()...)
 		}
 
 		// Schema property completions
@@ -134,6 +140,11 @@ func NewCompletionResolveHandler(cache *openapi.IndexCache, _ *GraphBridge) goss
 			item.Documentation = &protocol.MarkupContent{
 				Kind:  protocol.Markdown,
 				Value: doc,
+			}
+		case "extension":
+			item.Documentation = &protocol.MarkupContent{
+				Kind:  protocol.Markdown,
+				Value: fmt.Sprintf("Vendor extension `%s`\n\n%s", value, item.Detail),
 			}
 		}
 
@@ -309,6 +320,35 @@ func tagCompletions(idx *openapi.Index) []protocol.CompletionItem {
 	return items
 }
 
+func extensionCompletions() []protocol.CompletionItem {
+	metas := extensions.BuiltinExtensions()
+	sort.Slice(metas, func(i, j int) bool {
+		return metas[i].Name < metas[j].Name
+	})
+
+	items := make([]protocol.CompletionItem, 0, len(metas))
+	for _, meta := range metas {
+		insertText := fmt.Sprintf("%s: $0", meta.Name)
+		if len(meta.Schema) > 0 {
+			insertText = fmt.Sprintf("%s:\n  $0", meta.Name)
+		}
+		items = append(items, protocol.CompletionItem{
+			Label:            meta.Name,
+			Kind:             protocol.CompletionKindProperty,
+			Detail:           meta.Description,
+			InsertText:       insertText,
+			InsertTextFormat: &snippetFmt,
+			SortText:         "extension_" + meta.Name,
+			FilterText:       meta.Name,
+			Data: map[string]interface{}{
+				"resolveKind":  "extension",
+				"resolveValue": meta.Name,
+			},
+		})
+	}
+	return items
+}
+
 func isResponseContext(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if strings.HasPrefix(trimmed, "responses:") {
@@ -373,6 +413,16 @@ func isSecurityScopeContext(line string) bool {
 	// - bearerAuth: [<cursor>]
 	// bearerAuth: [<cursor>]
 	return strings.Contains(trimmed, ": [") || strings.HasSuffix(trimmed, ":[")
+}
+
+func isExtensionContext(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	return strings.HasPrefix(trimmed, "x") ||
+		strings.HasPrefix(trimmed, "\"x") ||
+		strings.HasPrefix(trimmed, "'x")
 }
 
 func extractSecuritySchemeFromLine(line string) string {

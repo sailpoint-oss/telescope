@@ -9,6 +9,7 @@ import (
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
+	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 )
 
@@ -29,18 +30,19 @@ type RefUsage struct {
 
 // Index provides fast lookups into a parsed OpenAPI document.
 type Index struct {
-	Document        *Document
-	Operations      map[string]*OperationRef   // operationId -> ref
-	OperationsByPath map[string][]OperationRef // path -> operations
-	Schemas         map[string]*Schema         // component name -> schema
-	Parameters      map[string]*Parameter      // component name -> parameter
-	Responses       map[string]*Response       // component name -> response
-	SecuritySchemes map[string]*SecurityScheme // scheme name -> scheme
-	Refs            map[string][]RefUsage      // $ref target -> usages
-	AllRefs         []RefUsage                 // all $ref usages in the doc
-	Tags            map[string]*Tag            // tag name -> tag
-	Version         Version
-	Format          FileFormat
+	Document         *Document
+	Operations       map[string]*OperationRef   // operationId -> ref
+	OperationsByPath map[string][]OperationRef  // path -> operations
+	Schemas          map[string]*Schema         // component name -> schema
+	Parameters       map[string]*Parameter      // component name -> parameter
+	Responses        map[string]*Response       // component name -> response
+	SecuritySchemes  map[string]*SecurityScheme // scheme name -> scheme
+	Refs             map[string][]RefUsage      // $ref target -> usages
+	AllRefs          []RefUsage                 // all $ref usages in the doc
+	Tags             map[string]*Tag            // tag name -> tag
+	Version          Version
+	Format           FileFormat
+	nav              *navigator.Index
 }
 
 // BuildIndex creates a full index from a parsed tree and document.
@@ -179,6 +181,20 @@ func (idx *Index) walkForRefs(node *tree_sitter.Node, tree *treesitter.Tree, for
 // if the ref cannot be resolved within this index.
 func (idx *Index) Resolve(ref string) (interface{}, error) {
 	return idx.ResolveRef(ref)
+}
+
+// PrimaryValue returns the canonical top-level value for this index.
+// Navigator-backed indexes use Navigator's whole-document/fragment semantics.
+func (idx *Index) PrimaryValue() interface{} {
+	if idx == nil {
+		return nil
+	}
+	if idx.nav != nil {
+		if pv, ok := any(idx.nav).(interface{ PrimaryValue() interface{} }); ok {
+			return pv.PrimaryValue()
+		}
+	}
+	return idx.Document
 }
 
 // IsOpenAPI returns true if the index represents a valid OpenAPI document.

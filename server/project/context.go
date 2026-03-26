@@ -85,7 +85,14 @@ func (p *ProjectContext) loadIndex(uri string, cache *openapi.IndexCache) (*open
 			return idx, nil
 		}
 	}
-	return indexFromDisk(uri)
+	idx, err := indexFromDisk(uri)
+	if err != nil {
+		return nil, err
+	}
+	if cache != nil && idx != nil {
+		cache.Set(toDocURI(uri), idx)
+	}
+	return idx, nil
 }
 
 // indexFromDisk reads a file from disk and builds an openapi.Index using the

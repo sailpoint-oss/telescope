@@ -232,6 +232,13 @@ var builtinExtensions = []ExtensionMeta{
 	},
 }
 
+// BuiltinExtensions returns a copy of the embedded extension definitions.
+func BuiltinExtensions() []ExtensionMeta {
+	out := make([]ExtensionMeta, len(builtinExtensions))
+	copy(out, builtinExtensions)
+	return out
+}
+
 func mustJSON(s string) json.RawMessage {
 	var v json.RawMessage = json.RawMessage(s)
 	if !json.Valid(v) {

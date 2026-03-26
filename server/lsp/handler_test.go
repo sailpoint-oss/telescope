@@ -2,6 +2,7 @@ package lsp_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/sailpoint-oss/telescope/server/lsp"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
+	"github.com/sailpoint-oss/telescope/server/project"
 )
 
 type testEnv struct {
@@ -282,6 +284,224 @@ func TestCodeActionHandler(t *testing.T) {
 	_ = result // ensure no panic
 }
 
+func TestCodeActionHandler_AddInfoQuickFix(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  version: "1.0.0"
+paths: {}
+`
+	env := setupTestEnv(t, "file:///missing-info-title.yaml", spec)
+	handler := lsp.NewCodeActionHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.CodeActionParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 1, Character: 0},
+			End:   protocol.Position{Line: 2, Character: 0},
+		},
+		Context: protocol.CodeActionContext{
+			Diagnostics: []protocol.Diagnostic{{
+				Source:   "oas3-schema",
+				Code:     "oas3-schema",
+				Message:  "`info.title` is required",
+				Severity: protocol.SeverityError,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("code action error: %v", err)
+	}
+
+	action := findActionByTitle(result, "Add info.title")
+	if action == nil {
+		t.Fatalf("expected info.title quick fix, got %#v", result)
+	}
+	edits := action.Edit.Changes[env.uri]
+	if len(edits) != 1 || !strings.Contains(edits[0].NewText, "title: TODO title") {
+		t.Fatalf("expected info.title edit, got %#v", edits)
+	}
+}
+
+func TestCodeActionHandler_AddMissingResponsesQuickFix(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Missing Responses
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers
+`
+	env := setupTestEnv(t, "file:///missing-responses.yaml", spec)
+	handler := lsp.NewCodeActionHandler(env.cache, nil)
+	idx := env.cache.Get(env.uri)
+	if idx == nil {
+		t.Fatal("missing index")
+	}
+	op := idx.Document.Paths["/users"].Get
+	if op == nil {
+		t.Fatal("missing GET operation")
+	}
+	opRange := adapt.RangeToProtocol(openapi.LocOrFallback(op.MethodLoc, op.Loc).Range)
+
+	result, err := handler(env.ctx, &protocol.CodeActionParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+		Range:        opRange,
+		Context:      protocol.CodeActionContext{},
+	})
+	if err != nil {
+		t.Fatalf("code action error: %v", err)
+	}
+
+	action := findActionByTitle(result, "Add default 200 response to GET /users")
+	if action == nil {
+		t.Fatalf("expected missing responses quick fix, got %#v", result)
+	}
+	edits := action.Edit.Changes[env.uri]
+	if len(edits) != 1 || !strings.Contains(edits[0].NewText, "responses:") {
+		t.Fatalf("expected responses edit, got %#v", edits)
+	}
+}
+
+func TestCodeActionHandler_UnresolvedLocalRefQuickFix(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Local Ref Fix
+  version: "1.0.0"
+paths:
+  /pets:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pett"
+components:
+  schemas:
+    Pet:
+      type: object
+`
+	env := setupTestEnv(t, "file:///unresolved-local-ref.yaml", spec)
+	handler := lsp.NewCodeActionHandler(env.cache, nil)
+
+	idx := env.cache.Get(env.uri)
+	if idx == nil || len(idx.AllRefs) == 0 {
+		t.Fatal("expected indexed ref usage")
+	}
+	refRange := adapt.RangeToProtocol(idx.AllRefs[0].Loc.Range)
+
+	result, err := handler(env.ctx, &protocol.CodeActionParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+		Range:        refRange,
+		Context: protocol.CodeActionContext{
+			Diagnostics: []protocol.Diagnostic{{
+				Range:    refRange,
+				Source:   "telescope",
+				Code:     "unresolved-ref",
+				Message:  "Cannot resolve $ref: #/components/schemas/Pett",
+				Severity: protocol.SeverityError,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("code action error: %v", err)
+	}
+
+	action := findActionByTitle(result, "#/components/schemas/Pet")
+	if action == nil {
+		t.Fatalf("expected local ref quick fix, got %#v", result)
+	}
+	edits := action.Edit.Changes[env.uri]
+	if len(edits) != 1 || edits[0].NewText != "#/components/schemas/Pet" {
+		t.Fatalf("expected local ref replacement, got %#v", edits)
+	}
+}
+
+func TestCodeActionHandler_UnresolvedExternalRefQuickFix(t *testing.T) {
+	rootSpec := `openapi: "3.1.0"
+info:
+  title: External Ref Fix
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "./components.yam#/components/schemas/User"
+`
+
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "root.yaml")
+	compPath := filepath.Join(dir, "components.yaml")
+	writeWorkspaceFile(t, rootPath, rootSpec)
+	writeWorkspaceFile(t, compPath, crossFileCompSpec)
+
+	rootURI := fileURI(rootPath)
+	compURI := fileURI(compPath)
+
+	store := document.NewStore()
+	lang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
+	mgr := treesitter.NewManager(treesitter.Config{
+		Matchers: []treesitter.LanguageMatcher{
+			{Language: lang, Extensions: []string{".yaml", ".yml"}, LanguageID: "yaml"},
+		},
+	}, store)
+	t.Cleanup(mgr.Close)
+
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: rootURI, LanguageID: "yaml", Version: 1, Text: rootSpec},
+	})
+
+	rootTree := mgr.GetTree(rootURI)
+	if rootTree == nil {
+		t.Fatal("nil tree for unresolved external ref root")
+	}
+	rootDoc := store.Get(rootURI)
+	cache := openapi.NewIndexCache()
+	rootIdx := openapi.BuildIndex(rootTree, rootDoc)
+	cache.Set(rootURI, rootIdx)
+	cache.Set(compURI, openapi.ParseAndIndex([]byte(crossFileCompSpec)))
+
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+	handler := lsp.NewCodeActionHandler(cache, nil)
+	refRange := adapt.RangeToProtocol(rootIdx.AllRefs[0].Loc.Range)
+
+	result, err := handler(ctx, &protocol.CodeActionParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: rootURI},
+		Range:        refRange,
+		Context: protocol.CodeActionContext{
+			Diagnostics: []protocol.Diagnostic{{
+				Range:    refRange,
+				Source:   "telescope",
+				Code:     "unresolved-ref",
+				Message:  "Cannot resolve $ref: ./components.yam#/components/schemas/User",
+				Severity: protocol.SeverityError,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("code action error: %v", err)
+	}
+
+	action := findActionByTitle(result, "./components.yaml#/components/schemas/User")
+	if action == nil {
+		t.Fatalf("expected external ref quick fix, got %#v", result)
+	}
+	edits := action.Edit.Changes[rootURI]
+	if len(edits) != 1 || edits[0].NewText != "./components.yaml#/components/schemas/User" {
+		t.Fatalf("expected external ref replacement, got %#v", edits)
+	}
+}
+
 func TestDocumentLinkHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
 	handler := lsp.NewDocumentLinkHandler(env.cache, nil)
@@ -303,6 +523,34 @@ func TestDocumentLinkHandler(t *testing.T) {
 			t.Error("link has empty tooltip")
 		}
 	}
+}
+
+func TestDocumentLinkHandler_RelativeMarkdownLinks(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Link Test
+  version: "1.0.0"
+  description: |
+    See the [Guide](./docs/guide.md#intro).
+paths: {}
+`
+	env := setupTestEnv(t, "file:///workspace/apis/openapi.yaml", spec)
+	handler := lsp.NewDocumentLinkHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.DocumentLinkParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+	})
+	if err != nil {
+		t.Fatalf("document link error: %v", err)
+	}
+
+	wantSuffix := "/workspace/apis/docs/guide.md#intro"
+	for _, link := range result {
+		if link.Target != nil && strings.HasSuffix(string(*link.Target), wantSuffix) {
+			return
+		}
+	}
+	t.Fatalf("expected markdown link target ending in %q, got %#v", wantSuffix, result)
 }
 
 func TestFormattingHandler_YAML(t *testing.T) {
@@ -2064,6 +2312,84 @@ func setupCrossFileEnv(t *testing.T) *crossFileEnv {
 	}
 }
 
+func writeWorkspaceFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func fileURI(path string) protocol.DocumentURI {
+	return protocol.NormalizeURI(protocol.DocumentURI("file://" + filepath.ToSlash(path)))
+}
+
+func setupProjectCacheEnv(t *testing.T) *crossFileEnv {
+	t.Helper()
+
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "root.yaml")
+	compPath := filepath.Join(dir, "components.yaml")
+	writeWorkspaceFile(t, rootPath, crossFileRootSpec)
+	writeWorkspaceFile(t, compPath, crossFileCompSpec)
+
+	rootURI := fileURI(rootPath)
+	compURI := fileURI(compPath)
+
+	cache := openapi.NewIndexCache()
+	if _, err := project.BuildProjectContext(string(rootURI), cache, nil); err != nil {
+		t.Fatalf("BuildProjectContext: %v", err)
+	}
+
+	store := document.NewStore()
+	lang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
+	mgr := treesitter.NewManager(treesitter.Config{
+		Matchers: []treesitter.LanguageMatcher{
+			{Language: lang, Extensions: []string{".yaml", ".yml"}, LanguageID: "yaml"},
+		},
+	}, store)
+	t.Cleanup(mgr.Close)
+
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: compURI, LanguageID: "yaml", Version: 1, Text: crossFileCompSpec},
+	})
+
+	compTree := mgr.GetTree(compURI)
+	if compTree == nil {
+		t.Fatal("nil tree for cached components")
+	}
+	compDoc := store.Get(compURI)
+	if compDoc == nil {
+		t.Fatal("nil cached components document")
+	}
+	cache.Set(compURI, openapi.BuildIndex(compTree, compDoc))
+
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+
+	return &crossFileEnv{
+		store:   store,
+		mgr:     mgr,
+		cache:   cache,
+		ctx:     ctx,
+		rootURI: rootURI,
+		compURI: compURI,
+	}
+}
+
+func findActionByTitle(actions []protocol.CodeAction, needle string) *protocol.CodeAction {
+	for i := range actions {
+		if strings.Contains(actions[i].Title, needle) {
+			return &actions[i]
+		}
+	}
+	return nil
+}
+
 func TestDefinitionHandler_CrossFile_ReturnsAbsoluteURI(t *testing.T) {
 	env := setupCrossFileEnv(t)
 	handler := lsp.NewDefinitionHandler(env.cache, nil, env.bridge)
@@ -2240,6 +2566,80 @@ func TestRenameHandler_CrossFile_SchemaUpdatesDefinitionAndRefs(t *testing.T) {
 	}
 }
 
+func TestReferencesHandler_CrossFile_UsesCachedProjectDocs(t *testing.T) {
+	env := setupProjectCacheEnv(t)
+	handler := lsp.NewReferencesHandler(env.cache, nil)
+
+	compIdx := env.cache.Get(env.compURI)
+	if compIdx == nil {
+		t.Fatal("missing cached components index")
+	}
+	schema, ok := compIdx.Schemas["User"]
+	if !ok {
+		t.Fatal("missing User schema")
+	}
+	pos := adapt.PositionToProtocol(schema.NameLoc.Range.Start)
+
+	result, err := handler(env.ctx, &protocol.ReferenceParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.compURI},
+			Position:     pos,
+		},
+		Context: protocol.ReferenceContext{IncludeDeclaration: true},
+	})
+	if err != nil {
+		t.Fatalf("references error: %v", err)
+	}
+	if len(result) < 2 {
+		t.Fatalf("expected declaration plus cached project ref, got %#v", result)
+	}
+
+	foundRootRef := false
+	for _, loc := range result {
+		if loc.URI == env.rootURI {
+			foundRootRef = true
+			break
+		}
+	}
+	if !foundRootRef {
+		t.Fatalf("expected references to include closed project document %q, got %#v", env.rootURI, result)
+	}
+}
+
+func TestRenameHandler_CrossFile_UsesCachedProjectDocs(t *testing.T) {
+	env := setupProjectCacheEnv(t)
+	handler := lsp.NewRenameHandler(env.cache, nil)
+
+	compIdx := env.cache.Get(env.compURI)
+	if compIdx == nil {
+		t.Fatal("missing cached components index")
+	}
+	schema, ok := compIdx.Schemas["User"]
+	if !ok {
+		t.Fatal("missing User schema")
+	}
+	pos := adapt.PositionToProtocol(schema.NameLoc.Range.Start)
+
+	result, err := handler(env.ctx, &protocol.RenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.compURI},
+			Position:     pos,
+		},
+		NewName: "AccountUser",
+	})
+	if err != nil {
+		t.Fatalf("rename error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("rename returned nil")
+	}
+
+	rootEdits := result.Changes[env.rootURI]
+	if len(rootEdits) == 0 {
+		t.Fatalf("expected rename to update cached project document %q", env.rootURI)
+	}
+}
+
 func TestCompletionHandler_SecurityScopeCompletions(t *testing.T) {
 	spec := `openapi: "3.1.0"
 info:
@@ -2292,6 +2692,39 @@ components:
 	}
 }
 
+func TestCompletionHandler_ExtensionCompletions(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: Extensions
+  version: "1.0.0"
+  x-
+paths: {}
+`
+	env := setupTestEnv(t, "file:///extensions.yaml", spec)
+	handler := lsp.NewCompletionHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.CompletionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 4, Character: 4},
+		},
+	})
+	if err != nil {
+		t.Fatalf("completion error: %v", err)
+	}
+	if result == nil || len(result.Items) == 0 {
+		t.Fatal("expected extension completions")
+	}
+
+	labels := map[string]bool{}
+	for _, item := range result.Items {
+		labels[item.Label] = true
+	}
+	if !labels["x-logo"] || !labels["x-scalar-sdk-installation"] {
+		t.Fatalf("expected builtin extension completions, got labels=%v", labels)
+	}
+}
+
 func TestExecuteCommand_ValidateExamples(t *testing.T) {
 	spec := `openapi: "3.1.0"
 info:
@@ -2334,6 +2767,79 @@ components:
 		if invalidF, okF := payload["invalid"].(float64); !okF || int(invalidF) == 0 {
 			t.Fatalf("expected invalid > 0, got %#v", payload["invalid"])
 		}
+	}
+}
+
+func TestExecuteCommand_BundlePreview_UsesOpenWorkspaceContent(t *testing.T) {
+	dir := t.TempDir()
+	rootPath := filepath.Join(dir, "root.yaml")
+	compPath := filepath.Join(dir, "components.yaml")
+	writeWorkspaceFile(t, rootPath, crossFileRootSpec)
+	writeWorkspaceFile(t, compPath, crossFileCompSpec)
+
+	rootURI := fileURI(rootPath)
+	compURI := fileURI(compPath)
+	modifiedCompSpec := strings.Replace(
+		crossFileCompSpec,
+		"        name:\n          type: string\n",
+		"        name:\n          type: string\n        nickname:\n          type: string\n",
+		1,
+	)
+
+	store := document.NewStore()
+	lang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
+	mgr := treesitter.NewManager(treesitter.Config{
+		Matchers: []treesitter.LanguageMatcher{
+			{Language: lang, Extensions: []string{".yaml", ".yml"}, LanguageID: "yaml"},
+		},
+	}, store)
+	t.Cleanup(mgr.Close)
+
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: rootURI, LanguageID: "yaml", Version: 1, Text: crossFileRootSpec},
+	})
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: compURI, LanguageID: "yaml", Version: 1, Text: modifiedCompSpec},
+	})
+
+	rootTree := mgr.GetTree(rootURI)
+	compTree := mgr.GetTree(compURI)
+	rootDoc := store.Get(rootURI)
+	compDoc := store.Get(compURI)
+	if rootTree == nil || compTree == nil || rootDoc == nil || compDoc == nil {
+		t.Fatal("expected open workspace documents to be indexed")
+	}
+
+	cache := openapi.NewIndexCache()
+	cache.Set(rootURI, openapi.BuildIndex(rootTree, rootDoc))
+	cache.Set(compURI, openapi.BuildIndex(compTree, compDoc))
+
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+	handler := lsp.NewExecuteCommandHandler(cache, nil)
+
+	result, err := handler(ctx, &protocol.ExecuteCommandParams{
+		Command:   "telescope.bundlePreview",
+		Arguments: []interface{}{string(rootURI)},
+	})
+	if err != nil {
+		t.Fatalf("bundle preview error: %v", err)
+	}
+	payload, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result, got %T", result)
+	}
+	content, _ := payload["content"].(string)
+	if !strings.Contains(content, "nickname:") {
+		t.Fatalf("expected bundle preview to include open workspace dependency changes, got:\n%s", content)
+	}
+	if !strings.Contains(content, "components:") {
+		t.Fatalf("expected bundle preview to include merged components, got:\n%s", content)
+	}
+	if payload["source"] != "server" {
+		t.Fatalf("expected server preview source, got %#v", payload["source"])
 	}
 }
 

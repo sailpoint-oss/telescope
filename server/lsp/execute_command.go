@@ -1,7 +1,10 @@
 package lsp
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -10,6 +13,8 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
+	"github.com/sailpoint-oss/telescope/server/project"
+	"gopkg.in/yaml.v3"
 )
 
 // NewExecuteCommandHandler handles custom telescope commands.
@@ -25,6 +30,8 @@ func NewExecuteCommandHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.
 			return executeSortPaths(ctx, cache, uri)
 		case "telescope.generateResponseSkeletons":
 			return executeGenerateResponses(ctx, cache, uri)
+		case "telescope.bundlePreview":
+			return executeBundlePreview(ctx, cache, uri)
 		case "telescope.validateExamples":
 			return executeValidateExamples(cache, uri)
 		default:
@@ -330,6 +337,54 @@ func executeValidateExamples(cache *openapi.IndexCache, uri protocol.DocumentURI
 	}, nil
 }
 
+func executeBundlePreview(ctx *gossip.Context, cache *openapi.IndexCache, uri protocol.DocumentURI) (interface{}, error) {
+	idx := cache.Get(uri)
+	if idx == nil || idx.Document == nil || !idx.IsOpenAPI() {
+		return nil, nil
+	}
+
+	proj, err := project.BuildProjectContext(string(uri), cache, nil)
+	if err != nil {
+		return nil, fmt.Errorf("bundle preview: %w", err)
+	}
+
+	order := []string{string(uri)}
+	if proj.Graph != nil {
+		order = append(order, proj.Graph.TransitiveDependenciesOf(string(uri))...)
+	}
+
+	merged := make(map[string]any)
+	warnings := make([]string, 0)
+	for i, depURI := range order {
+		docMap, err := readBundleDocument(ctx, protocol.DocumentURI(depURI))
+		if err != nil {
+			warnings = append(warnings, err.Error())
+			continue
+		}
+		if i == 0 {
+			merged = docMap
+			continue
+		}
+		mergeBundleComponents(merged, docMap)
+	}
+	if len(merged) == 0 {
+		return nil, nil
+	}
+
+	content, language, err := marshalBundleDocument(merged, idx.Format)
+	if err != nil {
+		return nil, fmt.Errorf("bundle preview: %w", err)
+	}
+
+	return map[string]interface{}{
+		"content":  string(content),
+		"language": language,
+		"files":    len(order),
+		"warnings": warnings,
+		"source":   "server",
+	}, nil
+}
+
 func exampleMatchesSchemaType(raw, schemaType string) bool {
 	literalType := detectExampleLiteralType(raw)
 	switch strings.ToLower(schemaType) {
@@ -378,4 +433,89 @@ func detectExampleLiteralType(raw string) string {
 		return "string"
 	}
 	return "string"
+}
+
+func readBundleDocument(ctx *gossip.Context, uri protocol.DocumentURI) (map[string]any, error) {
+	var raw []byte
+	if ctx != nil && ctx.Documents != nil {
+		if doc := ctx.Documents.Get(uri); doc != nil {
+			raw = []byte(doc.Text())
+		}
+	}
+	if len(raw) == 0 {
+		path, err := fileURIToPath(uri)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", uri, err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", uri, err)
+		}
+		raw = data
+	}
+
+	doc := make(map[string]any)
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", uri, err)
+	}
+	return doc, nil
+}
+
+func fileURIToPath(uri protocol.DocumentURI) (string, error) {
+	u, err := url.Parse(string(uri))
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "file" {
+		return "", fmt.Errorf("unsupported URI scheme %q", u.Scheme)
+	}
+	return u.Path, nil
+}
+
+func marshalBundleDocument(doc map[string]any, format openapi.FileFormat) ([]byte, string, error) {
+	if format == openapi.FormatJSON {
+		data, err := json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return nil, "", err
+		}
+		if !strings.HasSuffix(string(data), "\n") {
+			data = append(data, '\n')
+		}
+		return data, "json", nil
+	}
+	data, err := yaml.Marshal(doc)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, "yaml", nil
+}
+
+func mergeBundleComponents(dst, src map[string]any) {
+	srcComps, ok := src["components"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	dstComps, ok := dst["components"].(map[string]any)
+	if !ok {
+		dstComps = make(map[string]any)
+		dst["components"] = dstComps
+	}
+
+	for kind, entries := range srcComps {
+		srcEntries, ok := entries.(map[string]any)
+		if !ok {
+			continue
+		}
+		dstEntries, ok := dstComps[kind].(map[string]any)
+		if !ok {
+			dstEntries = make(map[string]any)
+			dstComps[kind] = dstEntries
+		}
+		for name, val := range srcEntries {
+			if _, exists := dstEntries[name]; !exists {
+				dstEntries[name] = val
+			}
+		}
+	}
 }

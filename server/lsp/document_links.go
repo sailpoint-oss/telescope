@@ -39,7 +39,7 @@ func NewDocumentLinkHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Do
 		}
 
 		// URLs from description fields
-		links = append(links, descriptionLinks(idx)...)
+		links = append(links, descriptionLinks(idx, docURI)...)
 
 		// externalDocs.url links
 		links = append(links, externalDocsLinks(idx)...)
@@ -81,9 +81,9 @@ func resolveRefTarget(docURI protocol.DocumentURI, refValue string) *protocol.Do
 	return &uri
 }
 
-// descriptionLinks extracts http/https URLs from markdown description fields
+// descriptionLinks extracts markdown links from description fields
 // across the entire OpenAPI document.
-func descriptionLinks(idx *openapi.Index) []protocol.DocumentLink {
+func descriptionLinks(idx *openapi.Index, docURI protocol.DocumentURI) []protocol.DocumentLink {
 	if idx == nil || idx.Document == nil {
 		return nil
 	}
@@ -95,18 +95,18 @@ func descriptionLinks(idx *openapi.Index) []protocol.DocumentLink {
 			return
 		}
 		for _, ml := range markdown.Links(desc.Text) {
-			if !strings.HasPrefix(ml.Destination, "http://") && !strings.HasPrefix(ml.Destination, "https://") {
+			target := resolveMarkdownLinkTarget(docURI, ml.Destination)
+			if target == nil {
 				continue
 			}
 			rng := markdown.TranslateRange(desc, ml.Line, ml.Column, ml.Length)
-			target := protocol.DocumentURI(ml.Destination)
 			tooltip := ml.Text
 			if tooltip == "" {
 				tooltip = ml.Destination
 			}
 			links = append(links, protocol.DocumentLink{
 				Range:   rng,
-				Target:  &target,
+				Target:  target,
 				Tooltip: tooltip,
 			})
 		}
@@ -150,6 +150,46 @@ func descriptionLinks(idx *openapi.Index) []protocol.DocumentLink {
 	}
 
 	return links
+}
+
+func resolveMarkdownLinkTarget(docURI protocol.DocumentURI, destination string) *protocol.DocumentURI {
+	if destination == "" || strings.HasPrefix(destination, "#") {
+		return nil
+	}
+
+	if parsed, err := url.Parse(destination); err == nil && parsed.Scheme != "" {
+		uri := protocol.DocumentURI(parsed.String())
+		return &uri
+	}
+
+	base, err := url.Parse(string(docURI))
+	if err != nil || base.Scheme != "file" {
+		uri := protocol.DocumentURI(destination)
+		return &uri
+	}
+
+	destURL, err := url.Parse(destination)
+	if err != nil {
+		return nil
+	}
+	targetPath := destURL.Path
+	if targetPath == "" {
+		return nil
+	}
+
+	if strings.HasPrefix(targetPath, "/") {
+		targetPath = path.Clean(targetPath)
+	} else {
+		targetPath = path.Clean(path.Join(path.Dir(base.Path), targetPath))
+	}
+
+	target := &url.URL{
+		Scheme:   "file",
+		Path:     targetPath,
+		Fragment: destURL.Fragment,
+	}
+	uri := protocol.DocumentURI(target.String())
+	return &uri
 }
 
 func extractSchemaLinks(schema *openapi.Schema, fn func(openapi.DescriptionValue)) {

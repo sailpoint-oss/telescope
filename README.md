@@ -20,22 +20,23 @@
 - **Go to Definition** - Navigate to `$ref` targets, operationId definitions, security schemes
 - **Find All References** - Find all usages of schemas, components, and operationIds
 - **Hover Information** - Preview referenced content inline
-- **Completions** - Smart suggestions for `$ref` values, status codes, media types, tags
+- **Completions** - Smart suggestions for `$ref` values, status codes, media types, tags, and common vendor extensions
 - **Rename Symbol** - Safely rename operationIds and components across your workspace
 - **Call Hierarchy** - Visualize component reference relationships
 
 ### Editor Features
 
 - **Code Lens** - Reference counts, response summaries, security indicators
+- **Bundle Preview** - Workspace-aware multi-file bundle previews directly from the editor
 - **Inlay Hints** - Type hints for `$ref` targets, required property markers
 - **Semantic Highlighting** - Enhanced syntax highlighting for OpenAPI elements
 - **Quick Fixes** - Auto-add descriptions, summaries, operationIds; convert to kebab-case
-- **Document Links** - Clickable `$ref` links with precise navigation
+- **Document Links** - Clickable `$ref`, markdown, and `externalDocs` links with precise navigation
 - **Workspace Symbols** - Search operations and components across all files
 
 ### Embedded Language Support
 
-- **Markdown in Descriptions** - Full language support with link validation
+- **Markdown in Descriptions** - Full language support with clickable http(s) and relative document links
 - **Code Block Highlighting** - Syntax highlighting for 21+ languages in fenced blocks
 - **Format Conversion** - Convert between JSON and YAML with a single command
 
@@ -304,7 +305,20 @@ cd server && go test -race ./... -timeout 10m && \
 # Press F5 to launch Extension Development Host
 ```
 
+For sibling Go development across the toolchain, use a workspace `go.work` file from the parent directory:
+
+```bash
+go work init ./navigator ./barrelman ./telescope/server ./cartographer/cartographer ./barometer
+go work sync
+```
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+
+## Release Coordination
+
+- Telescope publishes through multiple workflows; see [docs/PUBLISHING.md](docs/PUBLISHING.md) for the exact triggers.
+- When Navigator or Barrelman contracts change, update `server/go.mod`, run `go test -race ./... -timeout 10m`, and then run the relevant E2E suite from the `Development` section.
+- Use `../navigator/TOOLCHAIN_BOUNDARIES.md` for bump order and `../navigator/TOOLCHAIN_FIXTURE_MATRIX.md` for cross-repo smoke anchors when coordinating a release train.
 
 ## Documentation
 

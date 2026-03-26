@@ -139,7 +139,10 @@ func NewReferencesHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) g
 				}
 
 				for docURI, docIdx := range allIdx {
-					for _, usage := range docIdx.RefsTo(refPath) {
+					for _, usage := range docIdx.AllRefs {
+						if !isRefToComponent(usage.Target, kind, name) {
+							continue
+						}
 						addLoc(protocol.Location{
 							URI:   docURI,
 							Range: adapt.RangeToProtocol(usage.Loc.Range),

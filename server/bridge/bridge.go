@@ -25,15 +25,30 @@ func WrapForGossip(rule barrelman.Rule) treesitter.Analyzer {
 // ContextFromGossip builds a barrelman AnalysisContext from gossip's context.
 func ContextFromGossip(gctx *treesitter.AnalysisContext) *barrelman.AnalysisContext {
 	ctx := &barrelman.AnalysisContext{}
+	var parsedFromContent *navigator.Index
 
 	if gctx.UserData != nil {
 		if data, ok := gctx.UserData.(*AnalysisData); ok {
-			ctx.Index = navigatorIndex(data.Index)
 			ctx.URI = data.DocURI
 			ctx.Resolver = data.Resolver
 			ctx.TargetVersion = data.TargetVersion
+			if gctx.Tree != nil {
+				parsedFromContent = navigator.ParseContent(gctx.Tree.Source(), data.DocURI)
+			}
+			if parsedFromContent != nil {
+				ctx.Index = parsedFromContent
+			} else {
+				ctx.Index = navigatorIndex(data.Index)
+			}
 		} else if idx, ok := gctx.UserData.(*openapi.Index); ok {
-			ctx.Index = navigatorIndex(idx)
+			if gctx.Tree != nil {
+				parsedFromContent = navigator.ParseContent(gctx.Tree.Source(), "")
+			}
+			if parsedFromContent != nil {
+				ctx.Index = parsedFromContent
+			} else {
+				ctx.Index = navigatorIndex(idx)
+			}
 		}
 	}
 

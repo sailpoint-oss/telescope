@@ -1,17 +1,17 @@
 # Telescope V2 Architecture Guide
 
-Telescope is a fast, extensible OpenAPI linter and language server built in Go. This document describes the V2 architecture, which introduces a unified workspace graph, pipeline-based processing, and protocol-independent core types.
+Telescope is the editor, CLI, and SDK experience layer for the shared OpenAPI toolchain. This document describes the V2 architecture around workspace orchestration, user-facing diagnostics, and protocol-independent core types.
 
 ## Overview
 
 Telescope provides:
 
-- **Linting** — Structural validation, naming conventions, documentation checks, security rules, and OWASP recommendations
+- **Linting** — Barrelman rules plus Navigator-backed structural diagnostics presented in CLI/LSP flows
 - **Language Server** — Hover, completion, definition, references, rename, code actions, semantic tokens
 - **CLI** — `lint`, `ci`, and `serve` subcommands for integration into CI/CD pipelines
-- **SDK** — Programmatic access for tools like [Cartographer](https://github.com/sailpoint-oss/openapi-generation) to lint extracted specs
+- **SDK** — Programmatic access for tools that want Telescope's editor/CLI orchestration on top of Navigator + Barrelman
 
-The V2 architecture centers on a **workspace graph** that models documents as nodes with directed edges for `$ref` relationships. A **pipeline** runs stages (Raw → Parse → Lint → Bind → Validate → Analyze) with per-node caching and invalidation cascades.
+The V2 architecture centers on a **workspace graph** that models documents as nodes with directed edges for `$ref` relationships. Telescope uses Navigator's shared `raw -> parse -> bind` substrate and layers user-facing lint/validate/analyze workflows on top of that data.
 
 ## High-Level Architecture
 
@@ -62,7 +62,7 @@ flowchart TB
     Snap --> LSP[LSP Handlers]
 ```
 
-**Data flow**: Document → Tree-sitter Parse → OpenAPI Index → Pipeline Stages → Diagnostics. The WorkspaceGraph maintains nodes, edges, and snapshots consumed by LSP handlers.
+**Data flow**: Document → Navigator index + graph substrate → Barrelman rules / Telescope orchestration → Diagnostics and editor features. The WorkspaceGraph maintains nodes, edges, and snapshots consumed by LSP handlers.
 
 ## Package Layout
 
@@ -71,13 +71,13 @@ flowchart TB
 | `core/types` | Protocol-independent types: `Diagnostic`, `Range`, `Position`, `Severity`, `DiagnosticTag` |
 | `core/graph` | Workspace graph engine: `WorkspaceGraph`, `GraphNode`, `Edge`, `StageName`, `StageResult` |
 | `core/graph` (source) | Document sources: `DocumentSource`, `FilesystemSource`, `SyntheticSource`, `LSPSource` |
-| `core/graph` (pipeline) | Pipeline runner: `Stage`, `PipelineRunner`, `RawStage`, `ParseStage`, etc. |
+| `core/graph` (pipeline) | Shared graph substrate and stage runner for `raw`, `parse`, and `bind` |
 | `core/graph` (snapshot) | Immutable snapshots: `Snapshot`, `SnapshotManager`, `SnapshotNode` |
 | `core/parser` | Semantic model: `SemanticNode`, `NodeKind`, YAML tree walking |
 | `core/parser` (virtual) | Virtual documents: `VirtualDocument`, `VirtualDocumentManager`, `OffsetMapper` |
 | `core/parser` (embedded) | Embedded content: `EmbeddedLanguageProvider`, `MarkdownProvider` |
 | `core/classify` | File classification: `FileClassifier`, `FileClassification`, heuristic signals |
-| `core/validate` | JSON Schema validation: `SchemaValidator`, `ValidationError` |
+| `core/validate` | Telescope-owned auxiliary validation helpers and non-OpenAPI schema support |
 | `core/analyze` | Cross-document analysis: `FindUnusedComponents`, `DetectBreakingChanges`, `BundlePreview` |
 | `sdk` | Public Go API: `Workspace`, `Option`, `AnalysisResult`, plugin SDK |
 | `lsp` | LSP server wiring, handlers, graph bridge |
@@ -85,13 +85,13 @@ flowchart TB
 | `lsp/bun` | Bun sidecar for TypeScript/JavaScript custom rules and Spectral rulesets |
 | `lsp/observe` | Observability: `GraphInfo`, `RulePerf`, `$/telescope/*` notifications |
 | `rules` | Rule registry, `RuleBuilder`, `Reporter`, `Walker` |
-| `rules/analyzers` | Built-in analyzers (structural, naming, documentation, security, OWASP) |
+| `rules/analyzers` | Barrelman-backed analyzer bridge plus built-in semantic rule registration |
 | `rules/checks` | Syntactic checks (duplicate keys, ASCII, missing tokens) |
 | `rules/testing` | Test harness: `rulestest.Run()` with exact diagnostic assertions |
 | `spectral` | Spectral-compatible YAML rulesets (JSONPath + built-in functions) |
 | `project` | Multi-file workspace: file discovery, dependency graph |
 | `plugin` | Go plugin host via `hashicorp/go-plugin` |
-| `openapi` | Tree-sitter → typed OpenAPI model (`Document`, `Operation`, `Schema`, etc.) |
+| `openapi` | Compatibility layer around Navigator types used by existing Telescope surfaces |
 | `config` | `.telescope.yaml` loading, ruleset merging |
 | `extensions` | `x-*` vendor extension schema validation |
 | `markdown` | Markdown parsing/validation in description fields |
@@ -103,12 +103,10 @@ flowchart TB
 
 1. **Open** — Document enters via `DocumentSource` (filesystem, LSP overlay, or synthetic). Added to `WorkspaceGraph` via `AddSource`.
 2. **Classify** — `FileClassifier` uses heuristics (root key, fingerprint, extension, config override, graph membership) to determine if the file is OpenAPI and whether it is a root or fragment.
-3. **Parse** — `RawStage` reads content from the source; `ParseStage` runs tree-sitter and builds a semantic index.
-4. **Lint** — Structural validation, duplicate keys, ASCII checks. No `$ref` resolution yet.
-5. **Bind** — `$ref` resolution; edges materialized in the graph (`EdgeRef`, `EdgePathRef`, `EdgeExternal`).
-6. **Validate** — JSON Schema validation against version-specific schemas (OpenAPI 3.0, 3.1, 3.2).
-7. **Analyze** — Cross-document: unused components, breaking changes, bundle preview.
-8. **Diagnostics** — Stored per-node; aggregated in `Snapshot` for LSP/CLI output.
+3. **Parse** — `RawStage` reads content from the source; `ParseStage` builds the Navigator-backed semantic index.
+4. **Bind** — `$ref` resolution; edges materialized in the graph (`EdgeRef`, `EdgePathRef`, `EdgeExternal`).
+5. **Lint / Validate / Analyze** — Higher-level Telescope workflows run on top of parsed/bound documents. Navigator owns parse-time issues; Barrelman owns rule execution; Telescope owns presentation and orchestration.
+6. **Diagnostics** — Stored per-node; aggregated in `Snapshot` for LSP/CLI output.
 
 ### Invalidation
 
@@ -146,10 +144,10 @@ These types are used throughout the core engine. The `lsp/adapt` package convert
 |-------|------------|---------|
 | `StageRaw` | — | Read content from `DocumentSource` |
 | `StageParse` | Raw | Tree-sitter parse, semantic index |
-| `StageLint` | Parse | Structural validation, syntactic checks |
-| `StageBind` | Lint | `$ref` resolution, edge materialization |
-| `StageValidate` | Bind | JSON Schema validation |
-| `StageAnalyze` | Validate | Unused components, breaking changes, bundle |
+| `StageBind` | Parse | `$ref` resolution, edge materialization |
+| `StageLint` | Bind (logical) | Downstream Barrelman + Telescope lint orchestration |
+| `StageValidate` | Bind (logical) | Downstream validation presentation / compatibility workflows |
+| `StageAnalyze` | Bind (logical) | Cross-document analysis such as unused components, breaking changes, and bundle views |
 
 ### Virtual Document System
 

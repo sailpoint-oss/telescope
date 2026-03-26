@@ -16,6 +16,22 @@ Telescope publishes through GitHub Actions on `main`:
   - Runs when `server/lsp/bun/telescope-server/**` changes on `main`.
   - Publishes only when the package version is not already present on npm.
 
+## Toolchain Compatibility
+
+Telescope is versioned independently, but it sits between the core libraries and downstream tooling:
+
+- `navigator` changes land before Telescope updates when parse/index/range/resolver contracts move.
+- `barrelman` changes land before Telescope updates when diagnostic, ruleset, or config contracts move.
+- `cartographer` and editor/report consumers follow after Telescope when those compatibility surfaces change.
+
+Before publishing a compatibility-sensitive Telescope change:
+
+1. Update `server/go.mod` to the intended `navigator` / `barrelman` versions.
+2. Run `go test -race ./... -timeout 10m` in `server/`.
+3. Run the relevant E2E command from `README.md`.
+4. Check `../navigator/TOOLCHAIN_FIXTURE_MATRIX.md` for cross-repo parity anchors.
+5. If the change is part of a broader release train, run Navigator's `Downstream Smoke` workflow.
+
 ### Required Repository Secrets
 
 - `VSCE_PAT` (VS Code Marketplace)

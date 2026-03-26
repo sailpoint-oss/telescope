@@ -203,6 +203,55 @@ schema:
 	}
 }
 
+func TestBuildProjectContext_ResolveWholeFileFragmentReturnsTypedValue(t *testing.T) {
+	dir := t.TempDir()
+
+	rootContent := `openapi: "3.1.0"
+info:
+  title: Whole File Ref
+  version: "1.0"
+paths:
+  /items/{id}:
+    get:
+      operationId: getItem
+      parameters:
+        - $ref: ./parameters/id.yaml
+      responses:
+        "200":
+          description: OK
+`
+	parameterFragment := `name: id
+in: path
+required: true
+schema:
+  type: string
+`
+
+	rootPath := writeFile(t, dir, "api.yaml", rootContent)
+	writeFile(t, dir, "parameters/id.yaml", parameterFragment)
+
+	rootURI := pathToURI(rootPath)
+	paramURI := pathToURI(filepath.Join(dir, "parameters", "id.yaml"))
+
+	pctx, err := BuildProjectContext(rootURI, nil, nil)
+	if err != nil {
+		t.Fatalf("BuildProjectContext: %v", err)
+	}
+
+	resolved, err := pctx.Resolver.Resolve(rootURI, "./parameters/id.yaml")
+	if err != nil {
+		t.Fatalf("Resolve whole-file fragment: %v", err)
+	}
+	if resolved.TargetURI != paramURI {
+		t.Fatalf("resolved target URI = %q, want %q", resolved.TargetURI, paramURI)
+	}
+	switch resolved.Value.(type) {
+	case *openapi.Parameter, *openapi.Document:
+	default:
+		t.Fatalf("resolved value = %T, want *openapi.Parameter or *openapi.Document", resolved.Value)
+	}
+}
+
 func TestBuildProjectContext_LoadsCrossVersionExternalRefs(t *testing.T) {
 	dir := t.TempDir()
 

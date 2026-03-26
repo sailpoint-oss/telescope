@@ -3,16 +3,17 @@ package lsp
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/jsonschema"
 	"github.com/LukasParke/gossip/protocol"
+	barrelAnalyzers "github.com/sailpoint-oss/barrelman/analyzers"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
-	barrelAnalyzers "github.com/sailpoint-oss/barrelman/analyzers"
 )
 
 // lineEndCharUTF16 returns the length of the line in UTF-16 code units,
@@ -52,6 +53,11 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 			if doc != nil {
 				if action := markdownHeadingQuickFix(uri, doc, diag); action != nil {
 					actions = append(actions, *action)
+				}
+				if idx != nil {
+					if action := diagnosticReplacementQuickFix(uri, diag, idx, doc, cache); action != nil {
+						actions = append(actions, *action)
+					}
 				}
 			}
 
@@ -119,6 +125,10 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 		line := doc.LineAt(params.Range.Start.Line)
 		isYAML := idx.Format == openapi.FormatYAML
 
+		if action := infoQuickFixAction(uri, idx, doc, params); action != nil {
+			actions = append(actions, *action)
+		}
+
 		// Example/schema validation action for quick manual verification while authoring.
 		trimmedLine := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmedLine, "example:") || strings.HasPrefix(trimmedLine, "examples:") {
@@ -137,7 +147,7 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 		for path, item := range idx.Document.Paths {
 			for _, mo := range item.Operations() {
 				op := mo.Operation
-				opRange := adapt.RangeToProtocol(op.Loc.Range)
+				opRange := operationContextRange(op)
 				if !rangeContains(opRange, params.Range) {
 					continue
 				}
@@ -175,6 +185,10 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 							},
 						},
 					})
+				}
+
+				if action := missingResponsesQuickFix(uri, path, mo.Method, op, doc, isYAML); action != nil {
+					actions = append(actions, *action)
 				}
 			}
 
@@ -307,6 +321,470 @@ func markdownHeadingQuickFix(uri protocol.DocumentURI, doc interface{ LineAt(uin
 	}
 
 	return nil
+}
+
+func infoQuickFixAction(
+	uri protocol.DocumentURI,
+	idx *openapi.Index,
+	doc interface{ LineAt(uint32) string },
+	params *protocol.CodeActionParams,
+) *protocol.CodeAction {
+	if idx == nil || idx.Document == nil || idx.Format != openapi.FormatYAML {
+		return nil
+	}
+	if idx.Document.Info == nil {
+		if params.Range.Start.Line > 2 && !diagnosticsContain(params.Context.Diagnostics, "`info`") {
+			return nil
+		}
+	} else {
+		infoRange := adapt.RangeToProtocol(idx.Document.Info.Loc.Range)
+		if !rangeContains(infoRange, params.Range) && !diagnosticsContain(params.Context.Diagnostics, "`info.") {
+			return nil
+		}
+	}
+
+	title, edit, ok := infoQuickFixEdit(doc, idx)
+	if !ok {
+		return nil
+	}
+
+	var related []protocol.Diagnostic
+	for _, diag := range params.Context.Diagnostics {
+		if diag.Source == "oas3-schema" && strings.Contains(diag.Message, "`info.") {
+			related = append(related, diag)
+		}
+	}
+
+	return &protocol.CodeAction{
+		Title:       title,
+		Kind:        "quickfix",
+		IsPreferred: true,
+		Diagnostics: related,
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				uri: {edit},
+			},
+		},
+	}
+}
+
+func infoQuickFixEdit(
+	doc interface{ LineAt(uint32) string },
+	idx *openapi.Index,
+) (string, protocol.TextEdit, bool) {
+	if idx == nil || idx.Document == nil || idx.Format != openapi.FormatYAML {
+		return "", protocol.TextEdit{}, false
+	}
+
+	if idx.Document.Info == nil {
+		insertLine := firstVersionInsertionLine(doc)
+		return "Add info block (title + version)", protocol.TextEdit{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: insertLine, Character: 0},
+				End:   protocol.Position{Line: insertLine, Character: 0},
+			},
+			NewText: "info:\n  title: TODO title\n  version: \"1.0.0\"\n",
+		}, true
+	}
+
+	info := idx.Document.Info
+	childIndent := nestedIndent(doc.LineAt(info.Loc.Range.Start.Line))
+	insertLine := info.Loc.Range.Start.Line + 1
+
+	switch {
+	case info.Title == "" && info.Version == "":
+		return "Add info.title and info.version", protocol.TextEdit{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: insertLine, Character: 0},
+				End:   protocol.Position{Line: insertLine, Character: 0},
+			},
+			NewText: childIndent + "title: TODO title\n" + childIndent + "version: \"1.0.0\"\n",
+		}, true
+	case info.Title == "":
+		if !isZeroRange(adapt.RangeToProtocol(info.VersionLoc.Range)) {
+			insertLine = info.VersionLoc.Range.Start.Line
+		}
+		return "Add info.title", protocol.TextEdit{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: insertLine, Character: 0},
+				End:   protocol.Position{Line: insertLine, Character: 0},
+			},
+			NewText: childIndent + "title: TODO title\n",
+		}, true
+	case info.Version == "":
+		if !isZeroRange(adapt.RangeToProtocol(info.TitleLoc.Range)) {
+			insertLine = info.TitleLoc.Range.End.Line + 1
+		}
+		return "Add info.version", protocol.TextEdit{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: insertLine, Character: 0},
+				End:   protocol.Position{Line: insertLine, Character: 0},
+			},
+			NewText: childIndent + "version: \"1.0.0\"\n",
+		}, true
+	default:
+		return "", protocol.TextEdit{}, false
+	}
+}
+
+func missingResponsesQuickFix(
+	uri protocol.DocumentURI,
+	path string,
+	method string,
+	op *openapi.Operation,
+	doc interface{ LineAt(uint32) string },
+	isYAML bool,
+) *protocol.CodeAction {
+	title, edit, ok := missingResponsesEdit(path, method, op, doc, isYAML)
+	if !ok {
+		return nil
+	}
+	return &protocol.CodeAction{
+		Title:       title,
+		Kind:        "quickfix",
+		IsPreferred: true,
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				uri: {edit},
+			},
+		},
+	}
+}
+
+func missingResponsesEdit(
+	path string,
+	method string,
+	op *openapi.Operation,
+	doc interface{ LineAt(uint32) string },
+	isYAML bool,
+) (string, protocol.TextEdit, bool) {
+	if !isYAML || op == nil || len(op.Responses) > 0 {
+		return "", protocol.TextEdit{}, false
+	}
+
+	insertLine := op.Loc.Range.End.Line + 1
+	childIndent := nestedIndent(doc.LineAt(op.Loc.Range.Start.Line))
+	newText := childIndent + "responses:\n" +
+		childIndent + "  \"200\":\n" +
+		childIndent + "    description: Success\n"
+
+	return fmt.Sprintf("Add default 200 response to %s %s", strings.ToUpper(method), path), protocol.TextEdit{
+		Range: protocol.Range{
+			Start: protocol.Position{Line: insertLine, Character: 0},
+			End:   protocol.Position{Line: insertLine, Character: 0},
+		},
+		NewText: newText,
+	}, true
+}
+
+func operationContextRange(op *openapi.Operation) protocol.Range {
+	if op == nil {
+		return protocol.Range{}
+	}
+	methodRange := adapt.RangeToProtocol(openapi.LocOrFallback(op.MethodLoc, op.Loc).Range)
+	bodyRange := adapt.RangeToProtocol(op.Loc.Range)
+	if isZeroRange(methodRange) {
+		return bodyRange
+	}
+	if isZeroRange(bodyRange) {
+		return methodRange
+	}
+	return protocol.Range{
+		Start: methodRange.Start,
+		End:   bodyRange.End,
+	}
+}
+
+func diagnosticReplacementQuickFix(
+	uri protocol.DocumentURI,
+	diag protocol.Diagnostic,
+	idx *openapi.Index,
+	doc interface{ LineAt(uint32) string },
+	cache *openapi.IndexCache,
+) *protocol.CodeAction {
+	replacement := suggestionFromMessage(diag.Message)
+	code, _ := diag.Code.(string)
+
+	if replacement == "" && code == "unresolved-ref" {
+		line := doc.LineAt(diag.Range.Start.Line)
+		refTarget := extractRefFromLine(line)
+		if refTarget == "" {
+			return nil
+		}
+		replacement = suggestRefReplacement(string(uri), refTarget, idx, cache)
+		if replacement == "" || replacement == refTarget {
+			return nil
+		}
+	}
+
+	if replacement == "" {
+		return nil
+	}
+
+	title := fmt.Sprintf("Replace with '%s'", replacement)
+	if code == "unresolved-ref" || strings.Contains(diag.Message, "$ref") {
+		title = fmt.Sprintf("Replace $ref with '%s'", replacement)
+	}
+
+	return &protocol.CodeAction{
+		Title:       title,
+		Kind:        "quickfix",
+		IsPreferred: true,
+		Diagnostics: []protocol.Diagnostic{diag},
+		Edit: &protocol.WorkspaceEdit{
+			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+				uri: {{
+					Range:   diag.Range,
+					NewText: replacement,
+				}},
+			},
+		},
+	}
+}
+
+func suggestionFromMessage(message string) string {
+	const marker = "Did you mean '"
+	start := strings.Index(message, marker)
+	if start < 0 {
+		return ""
+	}
+	rest := message[start+len(marker):]
+	end := strings.Index(rest, "'")
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}
+
+func suggestRefReplacement(baseURI string, ref string, idx *openapi.Index, cache *openapi.IndexCache) string {
+	if ref == "" {
+		return ""
+	}
+	if strings.HasPrefix(ref, "#") {
+		return suggestLocalRef(idx, ref)
+	}
+
+	filePart, pointer, external := splitExternalRef(ref)
+	if !external || filePart == "" {
+		return ""
+	}
+
+	bestFilePart := filePart
+	bestPointer := pointer
+	changed := false
+
+	targetURI := protocol.NormalizeURI(protocol.DocumentURI(graphResolveRefTarget(baseURI, ref)))
+	targetIdx := cache.Get(targetURI)
+	if targetIdx == nil {
+		if suggestedPath := suggestExternalRefPath(baseURI, filePart, cache); suggestedPath != "" && suggestedPath != filePart {
+			bestFilePart = suggestedPath
+			changed = true
+			refWithSuggestedPath := bestFilePart
+			if bestPointer != "" {
+				refWithSuggestedPath += "#" + strings.TrimPrefix(bestPointer, "#")
+			}
+			targetURI = protocol.NormalizeURI(protocol.DocumentURI(graphResolveRefTarget(baseURI, refWithSuggestedPath)))
+			targetIdx = cache.Get(targetURI)
+		}
+	}
+
+	if targetIdx != nil {
+		if suggestedPointer := suggestPointerInIndex(targetIdx, pointer); suggestedPointer != "" && suggestedPointer != pointer {
+			bestPointer = suggestedPointer
+			changed = true
+		}
+	}
+
+	if !changed {
+		return ""
+	}
+	if bestPointer == "" {
+		return bestFilePart
+	}
+	return bestFilePart + "#" + strings.TrimPrefix(bestPointer, "#")
+}
+
+func suggestLocalRef(idx *openapi.Index, ref string) string {
+	suggestion := suggestPointerInIndex(idx, strings.TrimPrefix(ref, "#"))
+	if suggestion == "" {
+		return ""
+	}
+	return "#" + strings.TrimPrefix(suggestion, "#")
+}
+
+func suggestPointerInIndex(idx *openapi.Index, pointer string) string {
+	if idx == nil || pointer == "" {
+		return ""
+	}
+	if _, err := idx.Resolve("#" + strings.TrimPrefix(pointer, "#")); err == nil {
+		return ""
+	}
+
+	parts := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
+	if len(parts) != 3 || parts[0] != "components" {
+		return ""
+	}
+
+	kind := parts[1]
+	name := unescapePointerSegment(parts[2])
+	suggestion := closestStringSuggestion(name, componentNamesForKind(idx, kind))
+	if suggestion == "" {
+		return ""
+	}
+
+	return "/components/" + kind + "/" + escapePointerSegment(suggestion)
+}
+
+func componentNamesForKind(idx *openapi.Index, kind string) []string {
+	if idx == nil || idx.Document == nil || idx.Document.Components == nil {
+		return nil
+	}
+	if kind == "pathItems" {
+		names := make([]string, 0, len(idx.Document.Components.PathItems))
+		for name := range idx.Document.Components.PathItems {
+			names = append(names, name)
+		}
+		return names
+	}
+	return idx.ComponentNames(kind)
+}
+
+func suggestExternalRefPath(baseURI string, filePart string, cache *openapi.IndexCache) string {
+	if cache == nil {
+		return ""
+	}
+
+	basePath := uriToFSPath(baseURI)
+	if basePath == "" {
+		return ""
+	}
+
+	baseDir := filepath.Dir(basePath)
+	best := ""
+	bestDist := len(filePart)/2 + 1
+
+	for uri := range cache.All() {
+		targetPath := uriToFSPath(string(uri))
+		if targetPath == "" || targetPath == basePath {
+			continue
+		}
+
+		rel, err := filepath.Rel(baseDir, targetPath)
+		if err != nil {
+			continue
+		}
+		rel = normalizeRelativeRefPath(filepath.ToSlash(rel))
+		dist := levenshteinDistance(strings.ToLower(filePart), strings.ToLower(rel))
+		if dist < bestDist {
+			bestDist = dist
+			best = rel
+		}
+	}
+
+	return best
+}
+
+func diagnosticsContain(diags []protocol.Diagnostic, needle string) bool {
+	for _, diag := range diags {
+		if strings.Contains(diag.Message, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func nestedIndent(line string) string {
+	return leadingWhitespace(line) + "  "
+}
+
+func leadingWhitespace(line string) string {
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	return line[:i]
+}
+
+func firstVersionInsertionLine(doc interface{ LineAt(uint32) string }) uint32 {
+	for lineNum := uint32(0); lineNum < 12; lineNum++ {
+		line := strings.TrimSpace(doc.LineAt(lineNum))
+		if strings.HasPrefix(line, "openapi:") || strings.HasPrefix(line, "swagger:") {
+			return lineNum + 1
+		}
+	}
+	return 0
+}
+
+func normalizeRelativeRefPath(rel string) string {
+	if rel == "" || strings.HasPrefix(rel, "../") || strings.HasPrefix(rel, "./") {
+		return rel
+	}
+	return "./" + rel
+}
+
+func closestStringSuggestion(target string, candidates []string) string {
+	if target == "" || len(candidates) == 0 {
+		return ""
+	}
+	best := ""
+	bestDist := len(target)/2 + 1
+	for _, candidate := range candidates {
+		dist := levenshteinDistance(strings.ToLower(target), strings.ToLower(candidate))
+		if dist < bestDist {
+			bestDist = dist
+			best = candidate
+		}
+	}
+	return best
+}
+
+func levenshteinDistance(a string, b string) int {
+	if a == "" {
+		return len(b)
+	}
+	if b == "" {
+		return len(a)
+	}
+
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+	for j := 0; j <= len(b); j++ {
+		prev[j] = j
+	}
+
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			curr[j] = min3(curr[j-1]+1, prev[j]+1, prev[j-1]+cost)
+		}
+		prev, curr = curr, prev
+	}
+
+	return prev[len(b)]
+}
+
+func min3(a int, b int, c int) int {
+	if a > b {
+		a = b
+	}
+	if a > c {
+		a = c
+	}
+	return a
+}
+
+func escapePointerSegment(s string) string {
+	s = strings.ReplaceAll(s, "~", "~0")
+	return strings.ReplaceAll(s, "/", "~1")
+}
+
+func unescapePointerSegment(s string) string {
+	s = strings.ReplaceAll(s, "~1", "/")
+	return strings.ReplaceAll(s, "~0", "~")
 }
 
 func addFieldAction(uri protocol.DocumentURI, title, field string, opRange protocol.Range, isYAML bool) protocol.CodeAction {
@@ -585,24 +1063,33 @@ func buildFixAllAction(uri protocol.DocumentURI, doc interface{ LineAt(uint32) s
 	}
 
 	// Also add auto-fixable refactoring: generate missing operationIds
+	if _, edit, ok := infoQuickFixEdit(doc, idx); ok {
+		edits = append(edits, edit)
+	}
+
 	for path, item := range idx.Document.Paths {
 		for _, mo := range item.Operations() {
 			if mo.Operation.OperationID != "" {
-				continue
+				// keep scanning; missing responses can still be auto-fixed
+			} else {
+				opID := generateOperationID(mo.Method, path)
+				insertLine := mo.Operation.Loc.Range.Start.Line + 1
+				newText := fmt.Sprintf("  operationId: %s\n", opID)
+				if !isYAML {
+					newText = fmt.Sprintf("  \"operationId\": \"%s\",\n", opID)
+				}
+				edits = append(edits, protocol.TextEdit{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: insertLine, Character: 0},
+						End:   protocol.Position{Line: insertLine, Character: 0},
+					},
+					NewText: newText,
+				})
 			}
-			opID := generateOperationID(mo.Method, path)
-			insertLine := mo.Operation.Loc.Range.Start.Line + 1
-			newText := fmt.Sprintf("  operationId: %s\n", opID)
-			if !isYAML {
-				newText = fmt.Sprintf("  \"operationId\": \"%s\",\n", opID)
+
+			if _, edit, ok := missingResponsesEdit(path, mo.Method, mo.Operation, doc, isYAML); ok {
+				edits = append(edits, edit)
 			}
-			edits = append(edits, protocol.TextEdit{
-				Range: protocol.Range{
-					Start: protocol.Position{Line: insertLine, Character: 0},
-					End:   protocol.Position{Line: insertLine, Character: 0},
-				},
-				NewText: newText,
-			})
 		}
 	}
 
