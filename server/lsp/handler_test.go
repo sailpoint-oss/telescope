@@ -2323,7 +2323,7 @@ func writeWorkspaceFile(t *testing.T, path string, content string) {
 }
 
 func fileURI(path string) protocol.DocumentURI {
-	return protocol.NormalizeURI(protocol.DocumentURI("file://" + filepath.ToSlash(path)))
+	return protocol.DocumentURI(project.PathToURI(path))
 }
 
 func setupProjectCacheEnv(t *testing.T) *crossFileEnv {

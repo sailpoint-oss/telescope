@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -108,6 +109,19 @@ func TestProjectContext_ContainsFile(t *testing.T) {
 	}
 	if pctx.ContainsFile("file:///c.yaml") {
 		t.Error("expected c.yaml to NOT be in project")
+	}
+}
+
+func TestBuildProjectContext_ErrorsWhenRootUnreadable(t *testing.T) {
+	dir := t.TempDir()
+	rootURI := PathToURI(filepath.Join(dir, "missing.yaml"))
+
+	_, err := BuildProjectContext(rootURI, nil, nil)
+	if err == nil {
+		t.Fatal("expected unreadable root document to fail project build")
+	}
+	if !strings.Contains(err.Error(), "missing.yaml") {
+		t.Fatalf("expected missing root path in error, got %v", err)
 	}
 }
 

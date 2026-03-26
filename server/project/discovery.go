@@ -21,10 +21,10 @@ const (
 
 // DiscoveredFile holds information about a file found during workspace scanning.
 type DiscoveredFile struct {
-	Path  string   // absolute filesystem path
-	URI   string   // file:// URI
+	Path  string // absolute filesystem path
+	URI   string // file:// URI
 	Role  FileRole
-	MTime int64    // modification time (Unix nanos) for cache invalidation
+	MTime int64 // modification time (Unix nanos) for cache invalidation
 }
 
 // Discovery scans workspace directories for YAML/JSON files and classifies
@@ -261,8 +261,8 @@ func classifyByContent(data []byte, path string) FileRole {
 	return RoleUnknown
 }
 
-// pathToURI converts an absolute filesystem path to a normalized file:// URI.
-func pathToURI(fsPath string) string {
+// PathToURI converts an absolute filesystem path to a normalized file:// URI.
+func PathToURI(fsPath string) string {
 	abs, err := filepath.Abs(fsPath)
 	if err != nil {
 		abs = fsPath
@@ -272,21 +272,37 @@ func pathToURI(fsPath string) string {
 		p = "/" + p
 	}
 	u := &url.URL{Scheme: "file", Path: p}
-	return u.String()
+	return openapi.NormalizeURI(u.String())
 }
 
-// uriToPath converts a file:// URI to an absolute filesystem path.
-func uriToPath(uri string) string {
+func pathToURI(fsPath string) string {
+	return PathToURI(fsPath)
+}
+
+// URIToPath converts a file:// URI to an absolute filesystem path.
+func URIToPath(uri string) string {
 	if strings.HasPrefix(uri, "file://") {
-		u, err := url.Parse(uri)
+		u, err := url.Parse(openapi.NormalizeURI(uri))
 		if err == nil {
 			p := u.Path
-			if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+			if hasWindowsDrivePrefix(p) {
 				p = p[1:]
 			}
-			return filepath.FromSlash(p)
+			return filepath.Clean(filepath.FromSlash(p))
 		}
 		return strings.TrimPrefix(uri, "file://")
 	}
 	return uri
+}
+
+func uriToPath(uri string) string {
+	return URIToPath(uri)
+}
+
+func hasWindowsDrivePrefix(path string) bool {
+	if len(path) < 3 || path[0] != '/' || path[2] != ':' {
+		return false
+	}
+	drive := path[1]
+	return (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')
 }

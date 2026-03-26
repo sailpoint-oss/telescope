@@ -17,6 +17,7 @@ func WrapForGossip(rule barrelman.Rule) treesitter.Analyzer {
 		Run: func(gctx *treesitter.AnalysisContext) []protocol.Diagnostic {
 			bctx := ContextFromGossip(gctx)
 			diags := rule.Run(bctx)
+			diags = stabilizeDiagnostics(bctx.Index, diags)
 			return DiagnosticsToProtocol(diags)
 		},
 	}

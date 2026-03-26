@@ -74,6 +74,9 @@ func barrelmanFixtureDiagnostics(t *testing.T, spec specs.Spec) []string {
 	if err != nil {
 		t.Fatalf("barrelman lint %q: %v", spec.Name, err)
 	}
+	if idx := openapi.ParseAndIndex(spec.Content); idx != nil {
+		diags = stabilizeDuplicateOperationIDDiagnostics(diags, idx.Document)
+	}
 	return normalizeBarrelmanDiagnostics(diags)
 }
 
@@ -120,6 +123,81 @@ func normalizeBarrelmanDiagnostics(diags []barrelman.Diagnostic) []string {
 		keys[key] = struct{}{}
 	}
 	return sortedKeys(keys)
+}
+
+func stabilizeDuplicateOperationIDDiagnostics(diags []barrelman.Diagnostic, doc *openapi.Document) []barrelman.Diagnostic {
+	if doc == nil || len(diags) == 0 {
+		return diags
+	}
+
+	firsts := duplicateOperationIDFirsts(doc)
+	if len(firsts) == 0 {
+		return diags
+	}
+
+	stable := make([]barrelman.Diagnostic, len(diags))
+	copy(stable, diags)
+
+	for i := range stable {
+		if stable[i].Code != "operation-operationId-unique" {
+			continue
+		}
+		opID, ok := duplicateOperationIDFromMessage(stable[i].Message)
+		if !ok {
+			continue
+		}
+		first, ok := firsts[opID]
+		if !ok {
+			continue
+		}
+		stable[i].Message = fmt.Sprintf("operationId '%s' is already used at %s", opID, first)
+	}
+
+	return stable
+}
+
+func duplicateOperationIDFirsts(doc *openapi.Document) map[string]string {
+	firsts := make(map[string]string)
+	seen := make(map[string]string)
+
+	for _, path := range sortedPaths(doc.Paths) {
+		item := doc.Paths[path]
+		for _, mo := range item.Operations() {
+			opID := mo.Operation.OperationID
+			if opID == "" {
+				continue
+			}
+			desc := strings.ToUpper(mo.Method) + " " + path
+			if first, ok := seen[opID]; ok {
+				firsts[opID] = first
+				continue
+			}
+			seen[opID] = desc
+		}
+	}
+
+	return firsts
+}
+
+func duplicateOperationIDFromMessage(message string) (string, bool) {
+	rest, ok := strings.CutPrefix(message, "operationId '")
+	if !ok {
+		return "", false
+	}
+	opID, _, ok := strings.Cut(rest, "' is already used at ")
+	if !ok || opID == "" {
+		return "", false
+	}
+	return opID, true
+}
+
+func sortedPaths(paths map[string]*openapi.PathItem) []string {
+	keys := make([]string, 0, len(paths))
+	for path := range paths {
+		keys = append(keys, path)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func normalizeProtocolDiagnostics(diags []protocol.Diagnostic) []string {

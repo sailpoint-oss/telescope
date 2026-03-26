@@ -3,7 +3,6 @@ package lsp
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -462,14 +461,10 @@ func readBundleDocument(ctx *gossip.Context, uri protocol.DocumentURI) (map[stri
 }
 
 func fileURIToPath(uri protocol.DocumentURI) (string, error) {
-	u, err := url.Parse(string(uri))
-	if err != nil {
-		return "", err
+	if !strings.HasPrefix(string(uri), "file://") {
+		return "", fmt.Errorf("unsupported URI scheme %q", uri)
 	}
-	if u.Scheme != "file" {
-		return "", fmt.Errorf("unsupported URI scheme %q", u.Scheme)
-	}
-	return u.Path, nil
+	return project.URIToPath(string(uri)), nil
 }
 
 func marshalBundleDocument(doc map[string]any, format openapi.FileFormat) ([]byte, string, error) {

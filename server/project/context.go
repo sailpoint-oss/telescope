@@ -38,7 +38,7 @@ func BuildProjectContext(rootURI string, indexCache *openapi.IndexCache, logger 
 		logger:  logger,
 	}
 
-	if err := ctx.loadTransitive(norm, indexCache); err != nil {
+	if err := ctx.loadTransitive(norm, indexCache, true); err != nil {
 		return nil, fmt.Errorf("build project from %s: %w", rootURI, err)
 	}
 
@@ -47,7 +47,7 @@ func BuildProjectContext(rootURI string, indexCache *openapi.IndexCache, logger 
 }
 
 // loadTransitive recursively loads a file and all its external $ref targets.
-func (p *ProjectContext) loadTransitive(uri string, cache *openapi.IndexCache) error {
+func (p *ProjectContext) loadTransitive(uri string, cache *openapi.IndexCache, required bool) error {
 	norm := openapi.NormalizeURI(uri)
 	if _, loaded := p.Docs[norm]; loaded {
 		return nil // already visited
@@ -55,6 +55,9 @@ func (p *ProjectContext) loadTransitive(uri string, cache *openapi.IndexCache) e
 
 	idx, err := p.loadIndex(uri, cache)
 	if err != nil {
+		if required {
+			return err
+		}
 		if p.logger != nil {
 			p.logger.Warn("skipping unreachable ref target", "uri", uri, "error", err)
 		}
@@ -69,7 +72,7 @@ func (p *ProjectContext) loadTransitive(uri string, cache *openapi.IndexCache) e
 	}
 
 	for _, edge := range edges {
-		if err := p.loadTransitive(edge.ToURI, cache); err != nil {
+		if err := p.loadTransitive(edge.ToURI, cache, false); err != nil {
 			return err
 		}
 	}
@@ -138,7 +141,7 @@ func (p *ProjectContext) RebuildIndex(uri string, cache *openapi.IndexCache) err
 	// Load any newly referenced files that aren't yet part of this project.
 	for _, edge := range edges {
 		if _, loaded := p.Docs[edge.ToURI]; !loaded {
-			if err := p.loadTransitive(edge.ToURI, cache); err != nil {
+			if err := p.loadTransitive(edge.ToURI, cache, false); err != nil {
 				if p.logger != nil {
 					p.logger.Warn("failed to load new ref target during rebuild", "uri", edge.ToURI, "error", err)
 				}

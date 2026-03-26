@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -443,12 +442,7 @@ func filePathToURI(fsPath string) protocol.DocumentURI {
 	if fsPath == "" {
 		return ""
 	}
-	p := filepath.ToSlash(fsPath)
-	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
-	}
-	u := &url.URL{Scheme: "file", Path: p}
-	return protocol.NormalizeURI(protocol.DocumentURI(u.String()))
+	return protocol.DocumentURI(project.PathToURI(fsPath))
 }
 
 // isDiscriminatorMappingContext checks if the line is within a discriminator
