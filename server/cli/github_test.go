@@ -68,8 +68,8 @@ func TestGeneratePRComment_SingleChunk_NoIssues(t *testing.T) {
 	if !strings.Contains(chunks[0], "No issues found") {
 		t.Error("chunk should contain no-issues message")
 	}
-	if len(chunks[0]) > maxCommentSize {
-		t.Errorf("chunk size %d exceeds maxCommentSize %d", len(chunks[0]), maxCommentSize)
+	if len(chunks[0]) > githubMaxIssueCommentBytes {
+		t.Errorf("chunk size %d exceeds githubMaxIssueCommentBytes %d", len(chunks[0]), githubMaxIssueCommentBytes)
 	}
 }
 
@@ -109,13 +109,13 @@ func TestGeneratePRComment_SingleChunk_WithIssues(t *testing.T) {
 	if !strings.Contains(chunks[0], "oas3-schema") || !strings.Contains(chunks[0], "operation-id") {
 		t.Error("chunk should contain both rule groups")
 	}
-	if len(chunks[0]) > maxCommentSize {
-		t.Errorf("chunk size %d exceeds maxCommentSize %d", len(chunks[0]), maxCommentSize)
+	if len(chunks[0]) > githubMaxIssueCommentBytes {
+		t.Errorf("chunk size %d exceeds githubMaxIssueCommentBytes %d", len(chunks[0]), githubMaxIssueCommentBytes)
 	}
 }
 
 func TestGeneratePRComment_MultipleChunks_SizeLimit(t *testing.T) {
-	// Build a report with many rule groups so total content exceeds maxCommentSize.
+	// Build a report with many rule groups so total content exceeds packing limits.
 	// Each group is one <details> block; we need enough to force chunking (60k / ~500 ≈ 120+ groups).
 	const numGroups = 200
 	// Use a long message so each <details> block is ~600+ bytes.
@@ -151,8 +151,41 @@ func TestGeneratePRComment_MultipleChunks_SizeLimit(t *testing.T) {
 		if !strings.Contains(ch, wantMarker) {
 			t.Errorf("chunk %d missing marker %s", i+1, wantMarker)
 		}
-		if len(ch) > maxCommentSize {
-			t.Errorf("chunk %d size %d exceeds maxCommentSize %d", i+1, len(ch), maxCommentSize)
+		if len(ch) > githubMaxIssueCommentBytes {
+			t.Errorf("chunk %d size %d exceeds githubMaxIssueCommentBytes %d", i+1, len(ch), githubMaxIssueCommentBytes)
+		}
+	}
+}
+
+func TestGeneratePRComment_SingleRuleSplitsDetailsUnderGitHubLimit(t *testing.T) {
+	// One rule with many rows so a single <details> would exceed maxRuleDetailsPieceBytes.
+	const numRows = 400
+	longMsg := strings.Repeat("y", 180)
+	var diags []protocol.Diagnostic
+	for i := 0; i < numRows; i++ {
+		diags = append(diags, protocol.Diagnostic{
+			Range:    protocol.NewRange(uint32(i), 0, uint32(i), 5),
+			Severity: protocol.SeverityWarning,
+			Code:     "bulk-rule",
+			Message:  fmt.Sprintf("issue %d %s", i, longMsg),
+		})
+	}
+	report := &LintReport{
+		Workspace:       "/repo",
+		RepoRoot:        "/repo",
+		DiagnosticCount: numRows,
+		Counts:          SeverityCounts{Warning: numRows},
+		Files: []fileDiagnostics{
+			{Path: filepath.Join("/repo", "spec.yaml"), Diagnostics: diags},
+		},
+	}
+	chunks := GeneratePRComment(report, "", "")
+	if len(chunks) < 1 {
+		t.Fatalf("expected at least 1 chunk, got %d", len(chunks))
+	}
+	for i, ch := range chunks {
+		if len(ch) > githubMaxIssueCommentBytes {
+			t.Fatalf("chunk %d size %d exceeds GitHub limit %d", i+1, len(ch), githubMaxIssueCommentBytes)
 		}
 	}
 }

@@ -67,7 +67,7 @@ runs:
       with:
         go-version: ${{ inputs.go-version }}
         cache: true
-        cache-dependency-path: ${{ github.action_path }}/server/go.sum
+        cache-dependency-path: server/go.sum
 
     - name: Build Telescope
       shell: bash
