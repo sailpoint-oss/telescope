@@ -28,6 +28,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
 
       - uses: pnpm/action-setup@v4
         with:
@@ -93,6 +94,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
 
       - uses: oven-sh/setup-bun@v2
 
@@ -183,6 +185,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
 
       - uses: pnpm/action-setup@v4
         with:
