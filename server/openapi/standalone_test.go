@@ -147,6 +147,41 @@ info:
 	}
 }
 
+func TestParseAndIndexArazzo(t *testing.T) {
+	doc := []byte(`arazzo: 1.0.1
+info:
+  title: Workflow
+  version: "1.0.0"
+sourceDescriptions:
+  - name: api
+    url: ./openapi.yaml
+    type: openapi
+workflows:
+  - workflowId: getPets
+    steps: []
+`)
+
+	idx := openapi.ParseAndIndex(doc)
+	if idx == nil {
+		t.Fatal("ParseAndIndex returned nil")
+	}
+	if idx.DocumentKind() != openapi.DocumentKindArazzo {
+		t.Fatalf("DocumentKind = %q, want arazzo", idx.DocumentKind())
+	}
+	if !idx.IsArazzo() {
+		t.Fatal("IsArazzo() = false, want true")
+	}
+	if idx.IsOpenAPI() {
+		t.Fatal("IsOpenAPI() = true, want false")
+	}
+	if idx.Arazzo == nil {
+		t.Fatal("Arazzo document is nil")
+	}
+	if idx.Version != "1.0.1" {
+		t.Fatalf("Version = %q, want 1.0.1", idx.Version)
+	}
+}
+
 func TestParseAndIndexInvalidYAML(t *testing.T) {
 	idx := openapi.ParseAndIndex([]byte(`{{{invalid`))
 	if idx == nil {

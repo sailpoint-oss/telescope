@@ -64,7 +64,7 @@ func (b *GraphBridge) OnDocumentOpen(uri string, content []byte) {
 	b.graph.AddSource(src)
 
 	classification := b.classifier.Classify(uri, content, false)
-	if classification.IsOpenAPI {
+	if classification.IsOpenAPI || classification.DocumentKind == openapi.DocumentKindArazzo {
 		b.graph.SetRoot(uri, !classification.IsFragment)
 	}
 }

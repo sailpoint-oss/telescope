@@ -7,9 +7,10 @@ import navigator "github.com/sailpoint-oss/navigator"
 
 // Version and related types are aliases to navigator's canonical definitions.
 type (
-	Version = navigator.Version
-	Format  = navigator.Format
-	DocType = navigator.DocType
+	Version      = navigator.Version
+	Format       = navigator.Format
+	DocType      = navigator.DocType
+	DocumentKind = navigator.DocumentKind
 )
 
 // Version constants.
@@ -34,6 +35,13 @@ const (
 	DocTypeUnknown  = navigator.DocTypeUnknown
 	DocTypeRoot     = navigator.DocTypeRoot
 	DocTypeFragment = navigator.DocTypeFragment
+)
+
+// DocumentKind constants.
+const (
+	DocumentKindUnknown = navigator.DocumentKindUnknown
+	DocumentKindOpenAPI = navigator.DocumentKindOpenAPI
+	DocumentKindArazzo  = navigator.DocumentKindArazzo
 )
 
 // VersionFromString delegates to navigator.VersionFromString.

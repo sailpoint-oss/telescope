@@ -3,16 +3,17 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=sailpoint.telescope)
 
-**Telescope** is a powerful OpenAPI linting tool with real-time VS Code integration. It provides comprehensive validation, custom rule support, and multi-file project awareness.
+**Telescope** is the spec-side editor, CLI, and custom-rule experience layer for the OpenAPI toolchain. It combines Navigator-backed document validation, Barrelman-backed rule execution, and Telescope-owned VS Code/LSP UX for multi-file API-description workspaces.
 
 ## Features
 
 ### Validation & Diagnostics
 
 - **Real-time Diagnostics** - See linting issues as you type in VS Code
-- **88 Built-in OpenAPI Rules** - Comprehensive validation covering naming, structure, security, paths, and OWASP
+- **Navigator-backed Structural Diagnostics** - Canonical parse, schema-shape, and meta-schema issues surfaced live in the editor
+- **88 Built-in OpenAPI Rules** - Barrelman-backed lint coverage for naming, security, paths, documentation, and OWASP guidance
 - **Multi-file Support** - Full `$ref` resolution across your API project
-- **Custom Rules** - Extend with Go plugin binaries or Spectral-compatible YAML rulesets
+- **Custom Rules** - Extend Telescope with Go plugins, Bun sidecar TypeScript/JavaScript rules, or Spectral-compatible YAML rulesets
 - **Pattern Matching** - Glob-based file inclusion/exclusion
 
 ### Code Intelligence
@@ -87,6 +88,15 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration re
 - OpenAPI 3.1.x
 - OpenAPI 3.2.x
 
+### Toolchain ownership
+
+- **Navigator** - Parse, index, schema/meta validation, fragment semantics, and canonical document issues for OpenAPI and Arazzo
+- **Barrelman** - Shared lint/check execution and built-in rule catalogs
+- **Barometer** - Runtime and contract-test coverage outside the editor loop; Telescope may surface it but does not own the engine
+- **Telescope** - VS Code client, LSP handlers, diagnostics aggregation, custom-rule runtimes, and spec-side CLI/editor UX
+
+Use `Meridian` when you need codebase-side generation, extraction orchestration, or repo-scale report pipelines. Use Telescope when you already have workspace files in spec form and want linting, validation surfacing, and editor intelligence.
+
 ### Multi-root workspaces
 
 Multi-root workspaces are supported. Telescope runs **one language server per workspace folder** to keep projects isolated.
@@ -99,7 +109,7 @@ To merge collected logs into one sortable artifact, use [docs/LSP-TRACE-TIMELINE
 
 ## Architecture
 
-Telescope is a Go language server built on the [gossip](https://github.com/LukasParke/gossip) LSP framework, paired with a TypeScript VS Code extension client. The server uses tree-sitter for incremental YAML/JSON parsing, builds a typed OpenAPI model, runs rules against it, and publishes diagnostics back to the editor via the LSP push-diagnostic protocol (`textDocument/publishDiagnostics`).
+Telescope is a Go language server built on the [gossip](https://github.com/LukasParke/gossip) LSP framework, paired with a TypeScript VS Code extension client. The server uses tree-sitter for incremental YAML/JSON parsing, Navigator for canonical OpenAPI indexing and validation, Barrelman for built-in rule execution, and Telescope-owned adapters to publish diagnostics back to the editor via the LSP push-diagnostic protocol (`textDocument/publishDiagnostics`).
 
 ```mermaid
 flowchart TB
@@ -181,9 +191,9 @@ flowchart TB
 
 2. **Parsing.** The `LanguageClient` connects to the Go server over stdio. The gossip framework receives `didOpen`/`didChange`/`didClose` notifications, stores documents in a thread-safe document store, and feeds them to tree-sitter for incremental parsing. Document lifecycle notifications are serialized via `docSyncMu` to prevent races during language reclassification.
 
-3. **Indexing.** On every tree update, the `DiagnosticEngine` calls the `UserDataProvider`, which runs `openapi.BuildIndex(tree, doc)`. This walks the tree-sitter CST and produces a typed `Index` containing operations, schemas, parameters, responses, security schemes, tags, and all `$ref` usages. Indexes are cached per-URI in the `IndexCache` with an on-demand builder fallback.
+3. **Indexing.** On every tree update, the `DiagnosticEngine` calls the `UserDataProvider`, which runs `openapi.BuildIndex(tree, doc)`. That compatibility layer keeps Telescope's existing typed surface while wrapping Navigator-backed document semantics, operations, components, tags, and `$ref` usages. Indexes are cached per-URI in the `IndexCache` with an on-demand builder fallback.
 
-4. **Rule execution.** The `DiagnosticEngine` runs five categories of checks in parallel: built-in analyzers (using the fluent `RuleBuilder` visitor API), syntactic checks (tree-sitter pattern queries), Spectral-compatible YAML rulesets (JSONPath + built-in functions), Go plugin binaries (via `hashicorp/go-plugin` RPC), and vendor extension schema validators. Each produces diagnostics with precise source locations.
+4. **Rule execution.** The `DiagnosticEngine` runs five categories of checks in parallel: Navigator-issued document issues, Barrelman-backed built-in analyzers/checks, Spectral-compatible YAML rulesets (JSONPath + built-in functions), Go plugin binaries (via `hashicorp/go-plugin` RPC), and Telescope's editor-facing extension schema validators. Each produces diagnostics with precise source locations.
 
 5. **Diagnostic aggregation.** Telescope diagnostics flow through a `DiagnosticAggregator` (from gossip's `lspclient` package) that merges results from three sources: the Telescope rule engine, the child `yaml-language-server`, and the child `vscode-json-language-server`. The aggregator debounces for 80ms, then publishes the merged set to the client via `textDocument/publishDiagnostics`.
 
@@ -214,7 +224,7 @@ Telescope includes **88** built-in OpenAPI rules organized into rulesets:
 
 | Category | Count | Examples |
 | -------- | ----- | -------- |
-| Structure | 14 | JSON Schema validation, allOf, arrays, discriminators, unused components |
+| Structure | 14 | Structural/schema coverage surfaced through Navigator and Barrelman parity checks |
 | Documentation | 17 | Descriptions, deprecation, markdown quality |
 | Paths | 8 | Kebab-case, trailing slashes, parameter matching |
 | Naming | 4 | Schema/example casing, operationId uniqueness |
@@ -229,10 +239,14 @@ See [docs/RULES.md](docs/RULES.md) for the complete rule reference with IDs and 
 
 ## CLI
 
-The Go server ships a CLI with three subcommands:
+The Go server ships a CLI with four main subcommands:
 
 ```bash
-# Lint files
+# Structural validation only
+telescope validate api.yaml
+telescope validate workflows.arazzo.yaml --format json
+
+# Lint files (validation + configured rules)
 telescope lint api.yaml
 telescope lint ./specs/ --format json
 telescope lint --severity warn --fail-on error
@@ -247,9 +261,25 @@ telescope serve --tcp :9257  # TCP
 
 Output formats: `text`, `json`, `sarif`, `github` (GitHub Actions annotations).
 
+`validate` is the structural/schema-only surface. `lint` runs the same validation layer plus configured Barrelman-backed rules. In the editor, Telescope also exposes a `Telescope: Run Contract Tests` command that shells into Barometer for live OpenAPI contract checks and Arazzo workflow runs against a base URL.
+
+### GitHub Action
+
+Use the reusable action when you want the same CLI contract in GitHub Actions:
+
+```yaml
+- uses: sailpoint-oss/telescope@main
+  with:
+    mode: ci
+    paths: specs/
+    comment-pr: true
+    report-md: telescope-report.md
+    report-json: telescope-report.json
+```
+
 ## Custom Rules
 
-Custom rules are written as **Go plugin binaries** using the Telescope SDK:
+Shared built-in rules live upstream in Barrelman. Telescope-specific extensions are for custom or editor-local behavior and can be written as **Go plugin binaries**, **Bun sidecar rules**, or **Spectral-compatible YAML rulesets**:
 
 ```go
 package main
@@ -308,7 +338,7 @@ cd server && go test -race ./... -timeout 10m && \
 For sibling Go development across the toolchain, use a workspace `go.work` file from the parent directory:
 
 ```bash
-go work init ./navigator ./barrelman ./telescope/server ./cartographer/cartographer ./barometer
+go work init ./navigator ./barrelman ./telescope/server ./barometer
 go work sync
 ```
 

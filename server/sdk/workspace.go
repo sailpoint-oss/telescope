@@ -13,7 +13,7 @@ import (
 // Workspace provides the stable public Go API for using Telescope as a library.
 // It wraps the core graph engine, pipeline runner, and snapshot manager into a
 // single high-level interface suitable for CLI tools and external consumers
-// (e.g. Cartographer).
+// that need programmatic analysis.
 type Workspace struct {
 	graph      *graph.WorkspaceGraph
 	pipeline   *graph.PipelineRunner

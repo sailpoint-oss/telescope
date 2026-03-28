@@ -717,11 +717,12 @@ func enrichDiagsWithRefContext(bridge *GraphBridge, uri string, diags []protocol
 
 // classifyNotification is the payload sent for $/telescope/classify.
 type classifyNotification struct {
-	URI        string  `json:"uri"`
-	IsOpenAPI  bool    `json:"isOpenAPI"`
-	Version    string  `json:"version"`
-	IsFragment bool    `json:"isFragment"`
-	Confidence float64 `json:"confidence"`
+	URI          string  `json:"uri"`
+	IsOpenAPI    bool    `json:"isOpenAPI"`
+	DocumentKind string  `json:"documentKind,omitempty"`
+	Version      string  `json:"version"`
+	IsFragment   bool    `json:"isFragment"`
+	Confidence   float64 `json:"confidence"`
 }
 
 func sendClassifyNotification(ctx *gossip.Context, bridge *GraphBridge, uri string, content []byte) {
@@ -731,11 +732,12 @@ func sendClassifyNotification(ctx *gossip.Context, bridge *GraphBridge, uri stri
 		return
 	}
 	conn.Notify(ctx, "$/telescope/classify", classifyNotification{
-		URI:        uri,
-		IsOpenAPI:  classification.IsOpenAPI,
-		Version:    classification.OpenAPIVersion,
-		IsFragment: classification.IsFragment,
-		Confidence: classification.Confidence,
+		URI:          uri,
+		IsOpenAPI:    classification.IsOpenAPI,
+		DocumentKind: classification.DocumentKind.String(),
+		Version:      classification.Version,
+		IsFragment:   classification.IsFragment,
+		Confidence:   classification.Confidence,
 	})
 }
 

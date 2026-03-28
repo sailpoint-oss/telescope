@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sailpoint-oss/telescope/server/lintengine"
+	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
+	"github.com/sailpoint-oss/telescope/server/rulesets"
 )
 
 var (
@@ -24,6 +26,8 @@ var (
 	reportJSON string
 	commentPR  bool
 	ciFailOn   string
+	ciSeverity string
+	ciNoExtLSP bool
 )
 
 func newCICmd() *cobra.Command {
@@ -40,6 +44,8 @@ func newCICmd() *cobra.Command {
 	cmd.Flags().StringVar(&reportJSON, "report-json", "", "Write JSON report to file")
 	cmd.Flags().BoolVar(&commentPR, "comment-pr", false, "Post comment to GitHub PR (requires GITHUB_TOKEN)")
 	cmd.Flags().StringVar(&ciFailOn, "fail-on", "error", "Quality gate severity")
+	cmd.Flags().StringVar(&ciSeverity, "severity", "", "Minimum severity: error, warn, info, hint")
+	cmd.Flags().BoolVar(&ciNoExtLSP, "no-external-lsp", false, "Skip child YAML/JSON language server diagnostics")
 
 	return cmd
 }
@@ -101,10 +107,20 @@ func runCI(cmd *cobra.Command, args []string) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	wd, _ := os.Getwd()
 
+	var minSev protocol.DiagnosticSeverity
+	if ciSeverity != "" {
+		if s, ok := rulesets.ParseSeverity(ciSeverity); ok && s > 0 {
+			minSev = adapt.SeverityToProtocol(s)
+		}
+	}
+
 	run, err := lintengine.Run(context.Background(), lintengine.Options{
-		Paths:      files,
-		WorkingDir: wd,
-		ConfigPath: cfgFile,
+		Paths:         files,
+		WorkingDir:    wd,
+		ConfigPath:    cfgFile,
+		RulesetPath:   rulesetArg,
+		MinSeverity:   minSev,
+		NoExternalLSP: ciNoExtLSP,
 	}, logger)
 	if err != nil {
 		return err

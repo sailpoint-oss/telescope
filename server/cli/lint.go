@@ -32,11 +32,28 @@ var (
 func newLintCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lint [files/dirs...]",
-		Short: "Lint OpenAPI files",
-		Long:  "Validate OpenAPI files against configured rules and output diagnostics.",
+		Short: "Lint OpenAPI and Arazzo files",
+		Long:  "Run structural validation plus configured spec rules against OpenAPI and Arazzo files.",
 		RunE:  runLint,
 	}
 
+	addAnalysisFlags(cmd, true)
+	return cmd
+}
+
+func newValidateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "validate [files/dirs...]",
+		Short: "Validate OpenAPI and Arazzo files",
+		Long:  "Run structural and schema validation only against OpenAPI and Arazzo files.",
+		RunE:  runValidate,
+	}
+
+	addAnalysisFlags(cmd, false)
+	return cmd
+}
+
+func addAnalysisFlags(cmd *cobra.Command, includeBaselineFlags bool) {
 	cmd.Flags().StringVarP(&outputFormat, "format", "f", "text", "Output format: text, json, sarif, github")
 	cmd.Flags().StringVarP(&minSeverity, "severity", "s", "", "Minimum severity: error, warn, info, hint")
 	cmd.Flags().StringVar(&failOn, "fail-on", "error", "Exit 1 on: error, warn")
@@ -44,13 +61,25 @@ func newLintCmd() *cobra.Command {
 	cmd.Flags().StringVar(&reportMDPath, "report-md", "", "Write Markdown report to file")
 	cmd.Flags().StringVar(&reportJSONPath, "report-json", "", "Write JSON report to file")
 	cmd.Flags().BoolVar(&noExternalLSP, "no-external-lsp", false, "Skip child YAML/JSON language server diagnostics")
-	cmd.Flags().BoolVar(&saveBaseline, "save-baseline", false, "Save current diagnostics as baseline")
-	cmd.Flags().BoolVar(&failOnNew, "fail-on-new", false, "Only fail if new diagnostics are introduced (compared to baseline)")
-
-	return cmd
+	if includeBaselineFlags {
+		cmd.Flags().BoolVar(&saveBaseline, "save-baseline", false, "Save current diagnostics as baseline")
+		cmd.Flags().BoolVar(&failOnNew, "fail-on-new", false, "Only fail if new diagnostics are introduced (compared to baseline)")
+	}
 }
 
 func runLint(cmd *cobra.Command, args []string) error {
+	return runAnalysis(args, nil)
+}
+
+func runValidate(cmd *cobra.Command, args []string) error {
+	return runAnalysis(args, func(diag protocol.Diagnostic) bool {
+		return diag.Source == "oas3-schema"
+	})
+}
+
+type diagnosticFilter func(protocol.Diagnostic) bool
+
+func runAnalysis(args []string, filter diagnosticFilter) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	// Parse minSeverity flag for output filtering.
@@ -74,8 +103,11 @@ func runLint(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if len(run.Files) == 0 {
-		fmt.Fprintln(os.Stderr, "No OpenAPI files found")
+		fmt.Fprintln(os.Stderr, "No API description files found")
 		return nil
+	}
+	if filter != nil {
+		run = filterRunResult(run, filter)
 	}
 
 	var allDiags []fileDiagnostics
@@ -137,6 +169,32 @@ func runLint(cmd *cobra.Command, args []string) error {
 		os.Exit(exitCode)
 	}
 	return nil
+}
+
+func filterRunResult(run *lintengine.RunResult, keep diagnosticFilter) *lintengine.RunResult {
+	if run == nil || keep == nil {
+		return run
+	}
+	filtered := &lintengine.RunResult{
+		Workspace: run.Workspace,
+		Files:     append([]string(nil), run.Files...),
+	}
+	for _, result := range run.Results {
+		var diags []protocol.Diagnostic
+		for _, diag := range result.Diagnostics {
+			if keep(diag) {
+				diags = append(diags, diag)
+			}
+		}
+		if len(diags) == 0 {
+			continue
+		}
+		filtered.Results = append(filtered.Results, lintengine.FileDiagnostics{
+			Path:        result.Path,
+			Diagnostics: diags,
+		})
+	}
+	return filtered
 }
 
 func countDiags(allDiags []fileDiagnostics) int {

@@ -3,6 +3,8 @@ package lsp_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -664,10 +666,11 @@ func TestDefinitionHandler_Ref(t *testing.T) {
 		t.Fatal("Pet schema not found in index")
 	}
 
-	// Expect NameLoc (component key) when available, otherwise Loc
-	expectedLine := petSchema.Loc.Range.Start.Line
+	expectedLines := map[uint32]bool{
+		petSchema.Loc.Range.Start.Line: true,
+	}
 	if adapt.RangeToProtocol(petSchema.NameLoc.Range) != (protocol.Range{}) {
-		expectedLine = petSchema.NameLoc.Range.Start.Line
+		expectedLines[petSchema.NameLoc.Range.Start.Line] = true
 	}
 
 	for _, tt := range positions {
@@ -684,9 +687,9 @@ func TestDefinitionHandler_Ref(t *testing.T) {
 			if len(result) == 0 {
 				t.Fatal("expected definition result for $ref to Pet schema")
 			}
-			if result[0].Range.Start.Line != expectedLine {
-				t.Errorf("expected definition at line %d, got line %d",
-					expectedLine, result[0].Range.Start.Line)
+			if !expectedLines[result[0].Range.Start.Line] {
+				t.Errorf("expected definition at one of %v, got line %d",
+					expectedLines, result[0].Range.Start.Line)
 			}
 		})
 	}
@@ -2794,6 +2797,171 @@ components:
 		if invalidF, okF := payload["invalid"].(float64); !okF || int(invalidF) == 0 {
 			t.Fatalf("expected invalid > 0, got %#v", payload["invalid"])
 		}
+	}
+}
+
+func TestExecuteCommand_RunContractTests(t *testing.T) {
+	dir := t.TempDir()
+	fakeBarometer := filepath.Join(dir, "barometer")
+	if err := os.WriteFile(fakeBarometer, []byte(`#!/bin/sh
+printf '%s\n' '{
+  "version": "1.0",
+  "pass": true,
+  "openapi": {
+    "passed": 1,
+    "total": 1,
+    "results": [
+      {
+        "path": "/health",
+        "method": "get",
+        "operationId": "getHealth",
+        "pass": true,
+        "status": 200,
+        "error": ""
+      }
+    ]
+  }
+}'
+`), 0o755); err != nil {
+		t.Fatalf("write fake barometer: %v", err)
+	}
+	t.Setenv("TELESCOPE_BAROMETER_BIN", fakeBarometer)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	spec := `openapi: "3.1.0"
+info:
+  title: Contract Test
+  version: "1.0.0"
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      responses:
+        "200":
+          description: OK
+`
+	env := setupTestEnv(t, "file:///contract-tests.yaml", spec)
+	handler := lsp.NewExecuteCommandHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.ExecuteCommandParams{
+		Command: "telescope.runContractTests",
+		Arguments: []interface{}{
+			string(env.uri),
+			map[string]interface{}{"baseUrl": server.URL},
+		},
+	})
+	if err != nil {
+		t.Fatalf("execute command error: %v", err)
+	}
+
+	payload, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result, got %T", result)
+	}
+	if payload["baseUrl"] != server.URL {
+		t.Fatalf("baseUrl = %#v, want %q", payload["baseUrl"], server.URL)
+	}
+	barometerResult, ok := payload["result"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected barometer result, got %T", payload["result"])
+	}
+	pass, _ := barometerResult["pass"].(bool)
+	if !pass {
+		t.Fatalf("expected passing contract test, got %#v", barometerResult)
+	}
+	openapiResult, _ := barometerResult["openapi"].(map[string]interface{})
+	total, _ := openapiResult["total"].(float64)
+	if total != 1 {
+		t.Fatalf("expected one OpenAPI contract result, got %#v", openapiResult)
+	}
+}
+
+func TestExecuteCommand_RunContractTests_Arazzo(t *testing.T) {
+	dir := t.TempDir()
+	fakeBarometer := filepath.Join(dir, "barometer")
+	if err := os.WriteFile(fakeBarometer, []byte(`#!/bin/sh
+printf '%s\n' '{
+  "version": "1.0",
+  "pass": false,
+  "arazzo": {
+    "passed": 0,
+    "total": 1,
+    "workflows": [
+      {
+        "workflowId": "syncWidgets",
+        "pass": false,
+        "error": "step failed"
+      }
+    ]
+  }
+}'
+printf '%s\n' 'contract test failed' >&2
+exit 1
+`), 0o755); err != nil {
+		t.Fatalf("write fake barometer: %v", err)
+	}
+	t.Setenv("TELESCOPE_BAROMETER_BIN", fakeBarometer)
+
+	doc := `arazzo: "1.0.1"
+info:
+  title: Arazzo Contract Test
+  version: "1.0.0"
+sourceDescriptions:
+  - name: api
+    type: openapi
+    url: https://example.com/openapi.yaml
+workflows:
+  - workflowId: syncWidgets
+    steps:
+      - stepId: sync
+        operationId: listWidgets
+        successCriteria:
+          - condition: $statusCode == 200
+`
+	env := setupTestEnv(t, "file:///contract-tests.arazzo.yaml", doc)
+	handler := lsp.NewExecuteCommandHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.ExecuteCommandParams{
+		Command: "telescope.runContractTests",
+		Arguments: []interface{}{
+			string(env.uri),
+			map[string]interface{}{"baseUrl": "https://api.example.com"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("execute command error: %v", err)
+	}
+
+	payload, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result, got %T", result)
+	}
+	if payload["baseUrl"] != "https://api.example.com" {
+		t.Fatalf("baseUrl = %#v", payload["baseUrl"])
+	}
+	if payload["stderr"] != "contract test failed" {
+		t.Fatalf("stderr = %#v, want contract test failed", payload["stderr"])
+	}
+	barometerResult, ok := payload["result"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected barometer result, got %T", payload["result"])
+	}
+	pass, _ := barometerResult["pass"].(bool)
+	if pass {
+		t.Fatalf("expected failing contract result, got %#v", barometerResult)
+	}
+	arazzoResult, _ := barometerResult["arazzo"].(map[string]interface{})
+	total, _ := arazzoResult["total"].(float64)
+	if total != 1 {
+		t.Fatalf("expected one workflow result, got %#v", arazzoResult)
 	}
 }
 

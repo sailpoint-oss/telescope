@@ -7,6 +7,7 @@ type (
 	Loc                      = navigator.Loc
 	DescriptionValue         = navigator.DescriptionValue
 	Document                 = navigator.Document
+	ArazzoDocument           = navigator.ArazzoDocument
 	Info                     = navigator.Info
 	Contact                  = navigator.Contact
 	License                  = navigator.License

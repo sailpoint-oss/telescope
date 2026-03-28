@@ -1,6 +1,6 @@
 # Telescope Go SDK Guide
 
-The Telescope SDK provides a stable public Go API for using Telescope as a library. It wraps the core graph engine, pipeline runner, and snapshot manager into a single high-level interface suitable for CLI tools and external consumers such as [Cartographer](https://github.com/sailpoint-oss/openapi-generation).
+The Telescope SDK provides a stable public Go API for using Telescope as a library. It wraps the core graph engine, pipeline runner, and snapshot manager into a single high-level interface suitable for CLI tools and other external consumers.
 
 ## Quick Start
 
@@ -93,7 +93,7 @@ ws, err := sdk.New(
 
 ### Synthetic Source (Programmatic)
 
-For in-memory content (e.g., Cartographer linting extracted specs):
+For in-memory content (e.g., linting generated or transient specs):
 
 ```go
 content := []byte(`openapi: "3.1.0" ...`)
@@ -220,26 +220,6 @@ ws.OnSnapshot(func(snap *graph.Snapshot) {
 ```
 
 ## Integration Patterns
-
-### Cartographer Integration
-
-Cartographer extracts OpenAPI specs from Java, Go, and TypeScript services. It uses the Telescope SDK to lint extracted specs before bundling:
-
-```go
-// Pseudocode: Cartographer lint flow
-ws, _ := sdk.New()
-for _, spec := range extractedSpecs {
-	src := graph.NewSyntheticSource(spec.URI, spec.Content, graph.ClassificationHint{
-		IsOpenAPI:      true,
-		OpenAPIVersion: "3.2",
-	})
-	ws.AddSource(src)
-}
-result, _ := ws.Analyze(ctx)
-if result.HasErrors() {
-	// Fail gate or report
-}
-```
 
 ### CI Linter
 

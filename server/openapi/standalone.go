@@ -22,6 +22,7 @@ func ParseAndIndex(content []byte) *Index {
 			SecuritySchemes:  make(map[string]*SecurityScheme),
 			Refs:             make(map[string][]RefUsage),
 			Tags:             make(map[string]*Tag),
+			Kind:             DocumentKindUnknown,
 		}
 	}
 	return IndexFromNavigator(navIdx, "")
@@ -36,6 +37,7 @@ func IndexFromNavigator(navIdx *navigator.Index, uri protocol.DocumentURI) *Inde
 	}
 	idx := &Index{
 		Document:         navIdx.Document,
+		Arazzo:           navIdx.Arazzo,
 		Operations:       make(map[string]*OperationRef, len(navIdx.Operations)),
 		OperationsByPath: make(map[string][]OperationRef, len(navIdx.OperationsByPath)),
 		Schemas:          navIdx.Schemas,
@@ -46,7 +48,11 @@ func IndexFromNavigator(navIdx *navigator.Index, uri protocol.DocumentURI) *Inde
 		Tags:             navIdx.Tags,
 		Version:          navIdx.Version,
 		Format:           FileFormat(navIdx.Format),
+		Kind:             navIdx.Kind,
 		nav:              navIdx,
+	}
+	if idx.Kind == DocumentKindArazzo && idx.Arazzo != nil {
+		idx.Version = Version(idx.Arazzo.Version)
 	}
 
 	for id, ref := range navIdx.Operations {

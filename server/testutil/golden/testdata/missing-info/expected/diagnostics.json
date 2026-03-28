@@ -2,8 +2,8 @@
   {
     "file": "api.yaml",
     "line": 0,
-    "code": "missing-info",
+    "code": "structural.missing-info",
     "severity": "error",
-    "message": "must have an 'info' object"
+    "message": "require an `info` object"
   }
 ]

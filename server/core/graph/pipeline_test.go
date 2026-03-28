@@ -57,6 +57,42 @@ func TestPipelineRunner_RunAll(t *testing.T) {
 	}
 }
 
+func TestPipelineRunner_LintUsesNavigatorIssues(t *testing.T) {
+	g := NewWorkspaceGraph()
+	const uri = "file:///invalid.yaml"
+	g.AddSource(NewSyntheticSource(uri, []byte(`openapi: "3.1.0"
+paths: {}
+`), ClassificationHint{IsOpenAPI: true}))
+
+	runner, err := NewPipelineRunner(DefaultStages(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runner.RunThrough(context.Background(), uri, g, StageLint); err != nil {
+		t.Fatal(err)
+	}
+
+	lint := g.StageResult(uri, StageLint)
+	if lint == nil {
+		t.Fatal("expected lint stage result")
+	}
+	if len(lint.Diagnostics) == 0 {
+		t.Fatal("expected navigator diagnostics for invalid OpenAPI")
+	}
+
+	found := false
+	for _, diag := range lint.Diagnostics {
+		if diag.Code == "structural.missing-info" && diag.Source == "navigator" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected structural.missing-info navigator diagnostic, got %+v", lint.Diagnostics)
+	}
+}
+
 func TestPipelineRunner_Caching(t *testing.T) {
 	g := NewWorkspaceGraph()
 	g.AddSource(NewSyntheticSource("file:///cached.yaml", []byte("test"), ClassificationHint{}))

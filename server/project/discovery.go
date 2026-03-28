@@ -228,18 +228,23 @@ func classifyFromDisk(path string) FileRole {
 	}
 
 	idx := openapi.ParseAndIndex(data)
-	if idx == nil || idx.Document == nil {
+	if idx == nil {
 		return RoleUnknown
 	}
 
-	switch idx.Document.DocType {
-	case openapi.DocTypeRoot:
+	if idx.DocumentKind() == openapi.DocumentKindArazzo && idx.Arazzo != nil {
 		return RoleRoot
-	case openapi.DocTypeFragment:
-		return RoleFragment
-	default:
-		return classifyByContent(data, path)
 	}
+
+	if idx.Document != nil {
+		switch idx.Document.DocType {
+		case openapi.DocTypeRoot:
+			return RoleRoot
+		case openapi.DocTypeFragment:
+			return RoleFragment
+		}
+	}
+	return classifyByContent(data, path)
 }
 
 // classifyByContent does a lightweight check for YAML/JSON files that might

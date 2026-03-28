@@ -606,6 +606,123 @@ export async function activate(context: ExtensionContext) {
 
 		context.subscriptions.push(
 			registerTracedCommand(
+				"telescope.runContractTests",
+				async (uriOrString?: vscode.Uri | string) => {
+					if (!sessionManager) return;
+					const uri =
+						typeof uriOrString === "string"
+							? vscode.Uri.parse(uriOrString)
+							: uriOrString;
+					const document = await getDocument(uri);
+					if (!document) return;
+					const session = sessionManager.getSessionForUri(document.uri);
+					if (!session) {
+						window.showWarningMessage("No Telescope session found for this document");
+						return;
+					}
+
+					const config = workspace.getConfiguration("telescope");
+					const configuredBaseUrl =
+						config.get<string>("contractTestBaseUrl") || "http://localhost:8080";
+					const baseUrl = await window.showInputBox({
+						prompt: "Base URL for live contract tests",
+						value: configuredBaseUrl,
+						ignoreFocusOut: true,
+					});
+					if (baseUrl === undefined) {
+						return;
+					}
+
+					try {
+						const response = (await session.executeServerCommand(
+							"telescope.runContractTests",
+							[document.uri.toString(), { baseUrl }],
+						)) as
+							| {
+									baseUrl?: string;
+									stderr?: string;
+									result?: {
+										pass?: boolean;
+										openapi?: {
+											passed?: number;
+											total?: number;
+											results?: Array<{
+												method?: string;
+												path?: string;
+												status?: number;
+												error?: string;
+												pass?: boolean;
+												operationId?: string;
+											}>;
+										};
+										arazzo?: {
+											passed?: number;
+											total?: number;
+											workflows?: Array<{
+												workflowId?: string;
+												error?: string;
+												pass?: boolean;
+											}>;
+										};
+									};
+							  }
+							| null;
+						const result = response?.result;
+						const openapiResult = result?.openapi;
+						const arazzoResult = result?.arazzo;
+						const total =
+							(openapiResult?.total ?? 0) + (arazzoResult?.total ?? 0);
+						const passed =
+							(openapiResult?.passed ?? 0) + (arazzoResult?.passed ?? 0);
+						outputChannel.appendLine(
+							formatSetupLog(
+								`Contract tests against ${response?.baseUrl ?? baseUrl}: ${passed}/${total} passed`,
+							),
+						);
+						for (const item of openapiResult?.results ?? []) {
+							const status =
+								item.status !== undefined && item.status !== 0
+									? ` status=${item.status}`
+									: "";
+							const detail = item.error ? ` ${item.error}` : "";
+							outputChannel.appendLine(
+								`  - ${item.pass ? "PASS" : "FAIL"} ${item.method ?? "GET"} ${item.path ?? ""}${status}${detail}`,
+							);
+						}
+						for (const workflow of arazzoResult?.workflows ?? []) {
+							const detail = workflow.error ? ` ${workflow.error}` : "";
+							outputChannel.appendLine(
+								`  - ${workflow.pass ? "PASS" : "FAIL"} workflow ${workflow.workflowId ?? ""}${detail}`,
+							);
+						}
+						if (response?.stderr) {
+							outputChannel.appendLine(`  stderr: ${response.stderr}`);
+						}
+						if (result?.pass) {
+							window.showInformationMessage(
+								`Contract tests passed (${passed}/${total}).`,
+							);
+						} else {
+							window.showWarningMessage(
+								`Contract tests found failures (${passed}/${total} passed). See Telescope output for details.`,
+							);
+						}
+					} catch (error) {
+						outputChannel.appendLine(
+							formatSetupLog(
+								`Contract tests failed for ${document.uri.toString()}: ${String(error)}`,
+							),
+						);
+						window.showErrorMessage(
+							"Telescope contract tests failed. See Telescope output for details.",
+						);
+					}
+				},
+			),
+		);
+
+		context.subscriptions.push(
+			registerTracedCommand(
 				"telescope.showReferences",
 				async (
 					arg1:

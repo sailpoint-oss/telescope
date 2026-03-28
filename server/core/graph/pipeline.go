@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/core/parser"
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
-	"github.com/sailpoint-oss/telescope/server/core/validate"
 )
 
 // Stage represents a single processing step in the pipeline. Stages declare
@@ -208,12 +208,13 @@ func (RawStage) Run(ctx context.Context, uri string, g *WorkspaceGraph) error {
 
 // ParseOutput holds the results of the parse stage.
 type ParseOutput struct {
-	SemanticNode *parser.SemanticNode
-	PointerIndex *parser.PointerIndex
-	VirtualDocs  []parser.VirtualDocument
+	SemanticNode   *parser.SemanticNode
+	PointerIndex   *parser.PointerIndex
+	VirtualDocs    []parser.VirtualDocument
+	NavigatorIndex *navigator.Index
 }
 
-// ParseStage runs tree-sitter parsing, builds semantic IR and pointer index.
+// ParseStage builds the Navigator semantic/index view plus pointer metadata.
 type ParseStage struct {
 	Parser    *parser.Parser
 	Providers []parser.EmbeddedLanguageProvider
@@ -246,25 +247,25 @@ func (s ParseStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error 
 		format = "json"
 	}
 
-	// If no parser is configured, just build a semantic node from scratch
-	// using the standalone BuildFromCST stub
 	var semanticNode *parser.SemanticNode
-	if s.Parser != nil {
+	navIdx := navigator.ParseContent(content, uri)
+	if navIdx != nil {
+		semanticNode = navIdx.SemanticRoot()
+	}
+
+	if semanticNode == nil && s.Parser != nil {
 		tree, err := s.Parser.Parse(content, format)
 		if err != nil {
-			g.SetStageResult(uri, StageParse, &StageResult{
-				Stage: StageParse, Data: &ParseOutput{}, Version: raw.Version, Duration: time.Since(start),
-			})
-			return nil
-		}
-		rootNode := tree.RootNode()
-		if rootNode != nil {
-			sn, _ := parser.BuildFromCST(rootNode, content)
-			semanticNode = sn
+			semanticNode = nil
+		} else {
+			rootNode := tree.RootNode()
+			if rootNode != nil {
+				sn, _ := parser.BuildFromCST(rootNode, content)
+				semanticNode = sn
+			}
 		}
 	}
 
-	// If parser not available or parsing failed, build semantic node from raw content
 	if semanticNode == nil {
 		semanticNode = parser.BuildFromRaw(content, format)
 	}
@@ -276,9 +277,10 @@ func (s ParseStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error 
 	}
 
 	output := &ParseOutput{
-		SemanticNode: semanticNode,
-		PointerIndex: pointerIndex,
-		VirtualDocs:  vdocs,
+		SemanticNode:   semanticNode,
+		PointerIndex:   pointerIndex,
+		VirtualDocs:    vdocs,
+		NavigatorIndex: navIdx,
 	}
 
 	g.SetStageResult(uri, StageParse, &StageResult{
@@ -290,7 +292,8 @@ func (s ParseStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error 
 	return nil
 }
 
-// LintStage performs structural validation without $ref resolution.
+// LintStage surfaces Navigator-owned parse/validation issues without re-deriving
+// Telescope-local structural or schema diagnostics.
 type LintStage struct{}
 
 func (LintStage) Name() StageName         { return StageLint }
@@ -304,11 +307,7 @@ func (LintStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error {
 	}
 
 	output, _ := parsed.Data.(*ParseOutput)
-	var diags []ctypes.Diagnostic
-
-	if output != nil && output.SemanticNode != nil {
-		diags = lintStructural(uri, output.SemanticNode)
-	}
+	diags := navigatorIssues(uri, output)
 
 	g.SetStageResult(uri, StageLint, &StageResult{
 		Stage:       StageLint,
@@ -320,53 +319,49 @@ func (LintStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error {
 	return nil
 }
 
-// lintStructural checks for basic structural issues without needing $ref resolution.
-func lintStructural(uri string, root *parser.SemanticNode) []ctypes.Diagnostic {
-	var diags []ctypes.Diagnostic
-	if root == nil || root.Kind != parser.NodeMapping {
-		return diags
+func navigatorIssues(uri string, output *ParseOutput) []ctypes.Diagnostic {
+	if output == nil || output.NavigatorIndex == nil || len(output.NavigatorIndex.Issues) == 0 {
+		return nil
 	}
 
-	// Check for required top-level fields
-	hasOpenAPI := root.Get("openapi") != nil || root.Get("swagger") != nil
-	if !hasOpenAPI {
-		// Might be a fragment, skip structural checks
-		return diags
-	}
-
-	if info := root.Get("info"); info == nil {
+	diags := make([]ctypes.Diagnostic, 0, len(output.NavigatorIndex.Issues))
+	for _, issue := range output.NavigatorIndex.Issues {
+		rng := issue.Range
+		if rng == (navigator.Range{}) {
+			rng = ctypes.FileStartRange
+		}
 		diags = append(diags, ctypes.Diagnostic{
 			URI:      uri,
-			Range:    root.Range,
-			Severity: ctypes.SeverityError,
-			Code:     "missing-info",
-			Source:   "telescope",
-			Message:  "OpenAPI document must have an 'info' object",
+			Range:    rng,
+			Severity: navigatorSeverity(issue.Severity),
+			Code:     issue.Code,
+			Source:   navigatorSource(issue.Category),
+			Message:  issue.Message,
 		})
-	} else if info.Kind == parser.NodeMapping {
-		if info.Get("title") == nil {
-			diags = append(diags, ctypes.Diagnostic{
-				URI:      uri,
-				Range:    info.Range,
-				Severity: ctypes.SeverityError,
-				Code:     "missing-info-title",
-				Source:   "telescope",
-				Message:  "info object must have a 'title' field",
-			})
-		}
-		if info.Get("version") == nil {
-			diags = append(diags, ctypes.Diagnostic{
-				URI:      uri,
-				Range:    info.Range,
-				Severity: ctypes.SeverityError,
-				Code:     "missing-info-version",
-				Source:   "telescope",
-				Message:  "info object must have a 'version' field",
-			})
-		}
 	}
-
 	return diags
+}
+
+func navigatorSeverity(sev navigator.Severity) ctypes.Severity {
+	switch sev {
+	case navigator.SeverityWarning:
+		return ctypes.SeverityWarning
+	case navigator.SeverityInfo:
+		return ctypes.SeverityInfo
+	default:
+		return ctypes.SeverityError
+	}
+}
+
+func navigatorSource(category navigator.IssueCategory) string {
+	switch category {
+	case navigator.CategorySyntax:
+		return "navigator-syntax"
+	case navigator.CategoryMeta:
+		return "navigator-meta"
+	default:
+		return "navigator"
+	}
 }
 
 // BindStage resolves $ref values and materializes edges in the workspace graph.
@@ -462,11 +457,9 @@ func escapeJSONPointer(s string) string {
 	return s
 }
 
-// ValidateStage runs JSON Schema validation with the enrichment pipeline.
-type ValidateStage struct {
-	Validator *validate.SchemaValidator
-	Enricher  *validate.EnrichmentPipeline
-}
+// ValidateStage is a compatibility pass-through stage retained so existing
+// stage-based consumers keep the same topology while Navigator owns validation.
+type ValidateStage struct{}
 
 func (s ValidateStage) Name() StageName         { return StageValidate }
 func (s ValidateStage) DependsOn() []StageName  { return []StageName{StageBind} }
@@ -478,61 +471,13 @@ func (s ValidateStage) Run(_ context.Context, uri string, g *WorkspaceGraph) err
 		return fmt.Errorf("no bind result for %s", uri)
 	}
 
-	node := g.Node(uri)
-	var diags []ctypes.Diagnostic
-
-	if s.Validator != nil && node != nil && len(node.Raw) > 0 {
-		output, _ := bind.Data.(*ParseOutput)
-
-		// Detect the OpenAPI version from semantic tree to pick the right schema
-		version := detectVersion(output)
-
-		// Convert pointer index to map[string]Range
-		piMap := make(map[string]ctypes.Range)
-		if output != nil && output.PointerIndex != nil {
-			for ptr, r := range output.PointerIndex.All() {
-				piMap[ptr] = r
-			}
-		}
-
-		errs := s.Validator.Validate(node.Raw, version, piMap)
-		if s.Enricher != nil {
-			errs = s.Enricher.EnrichAll(errs, node.Raw)
-		}
-		for _, e := range errs {
-			diags = append(diags, ctypes.Diagnostic{
-				URI:      uri,
-				Range:    e.Range,
-				Severity: ctypes.SeverityError,
-				Code:     "schema/" + e.Keyword,
-				Source:   "telescope",
-				Message:  e.Message,
-				Fixes:    e.Fixes,
-			})
-		}
-	}
-
 	g.SetStageResult(uri, StageValidate, &StageResult{
 		Stage:       StageValidate,
 		Data:        bind.Data,
 		Version:     bind.Version,
-		Diagnostics: diags,
 		Duration:    time.Since(start),
 	})
 	return nil
-}
-
-func detectVersion(output *ParseOutput) string {
-	if output == nil || output.SemanticNode == nil {
-		return ""
-	}
-	if v := output.SemanticNode.Get("openapi"); v != nil {
-		return v.StringValue()
-	}
-	if v := output.SemanticNode.Get("swagger"); v != nil {
-		return v.StringValue()
-	}
-	return ""
 }
 
 // AnalyzeStage runs built-in Go rules and optionally delegates to the Bun sidecar.

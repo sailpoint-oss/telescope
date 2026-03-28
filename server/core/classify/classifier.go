@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	navigator "github.com/sailpoint-oss/navigator"
 )
 
 // Signal represents a single classification signal with its weight.
@@ -16,6 +18,8 @@ type Signal struct {
 // FileClassification is the result of classifying a file.
 type FileClassification struct {
 	IsOpenAPI      bool
+	DocumentKind   navigator.DocumentKind
+	Version        string   // OpenAPI or Arazzo version when detected
 	Confidence     float64  // 0.0-1.0
 	OpenAPIVersion string   // "2.0", "3.0", "3.1", "3.2" or empty
 	IsFragment     bool     // referenced via $ref, no root version
@@ -24,8 +28,8 @@ type FileClassification struct {
 
 // FileClassifier uses scored heuristics to determine if a file is an OpenAPI document.
 type FileClassifier struct {
-	configOverrides map[string]bool   // URI glob -> forced classification
-	knownRootDirs   map[string]bool   // directories containing known root specs
+	configOverrides map[string]bool // URI glob -> forced classification
+	knownRootDirs   map[string]bool // directories containing known root specs
 }
 
 // NewFileClassifier creates a new FileClassifier with no overrides.
@@ -90,7 +94,11 @@ func (c *FileClassifier) Classify(uri string, content []byte, isGraphMember bool
 				score = 1.0
 			}
 			signals = append(signals, Signal{Name: "config-override", Score: score, Weight: 1.0})
-			return c.finalize(signals, false, "", false, &isOpenAPI)
+			kind := navigator.DocumentKindUnknown
+			if isOpenAPI {
+				kind = navigator.DocumentKindOpenAPI
+			}
+			return c.finalize(signals, "", false, &isOpenAPI, kind)
 		}
 	}
 
@@ -98,7 +106,7 @@ func (c *FileClassifier) Classify(uri string, content []byte, isGraphMember bool
 	if isGraphMember {
 		signals = append(signals, Signal{Name: "graph-membership", Score: 1.0, Weight: 1.0})
 		forceTrue := true
-		return c.finalize(signals, false, "", true, &forceTrue)
+		return c.finalize(signals, "", true, &forceTrue, navigator.DocumentKindOpenAPI)
 	}
 
 	scanLen := len(content)
@@ -110,19 +118,27 @@ func (c *FileClassifier) Classify(uri string, content []byte, isGraphMember bool
 		head = string(content[:scanLen])
 	}
 
-	// 3. Root key detection (definitive version detection)
+	// 3. Arazzo root detection
+	arazzoVersion, arazzoFound := detectArazzoRoot(head)
+	if arazzoFound {
+		signals = append(signals, Signal{Name: "arazzo-root-key", Score: 1.0, Weight: 1.0})
+		forceFalse := false
+		return c.finalize(signals, arazzoVersion, false, &forceFalse, navigator.DocumentKindArazzo)
+	}
+
+	// 4. Root key detection (definitive version detection)
 	rootVersion, rootFound := detectRootKey(head)
 	if rootFound {
 		signals = append(signals, Signal{Name: "root-key", Score: 1.0, Weight: 0.95})
 	}
 
-	// 4. Per-key weighted scoring: sum all matching key weights
+	// 5. Per-key weighted scoring: sum all matching key weights
 	keyScore := computeKeyScore(head)
 	if keyScore > 0 {
 		signals = append(signals, Signal{Name: "key-score", Score: keyScore, Weight: 1.0})
 	}
 
-	// 5. File extension bonus for .openapi.yaml, .oas.yaml, etc.
+	// 6. File extension bonus for .openapi.yaml, .oas.yaml, etc.
 	if hasOASExtension(uri) {
 		signals = append(signals, Signal{Name: "oas-extension", Score: 1.0, Weight: 0.15})
 	} else {
@@ -132,12 +148,16 @@ func (c *FileClassifier) Classify(uri string, content []byte, isGraphMember bool
 		}
 	}
 
-	// 6. Workspace proximity: +0.10 if directory contains a known root spec
+	// 7. Workspace proximity: +0.10 if directory contains a known root spec
 	if c.isNearKnownRoot(uri) {
 		signals = append(signals, Signal{Name: "workspace-proximity", Score: 1.0, Weight: 0.10})
 	}
 
-	return c.finalize(signals, rootFound, rootVersion, false, nil)
+	kind := navigator.DocumentKindUnknown
+	if rootFound {
+		kind = navigator.DocumentKindOpenAPI
+	}
+	return c.finalize(signals, rootVersion, false, nil, kind)
 }
 
 // AddOverride adds a config-driven classification override (glob pattern -> isOpenAPI).
@@ -148,16 +168,22 @@ func (c *FileClassifier) AddOverride(pattern string, isOpenAPI bool) {
 	c.configOverrides[pattern] = isOpenAPI
 }
 
-func (c *FileClassifier) finalize(signals []Signal, rootFound bool, version string, isFragment bool, explicitIsOpenAPI *bool) FileClassification {
+func (c *FileClassifier) finalize(signals []Signal, version string, isFragment bool, explicitIsOpenAPI *bool, explicitKind navigator.DocumentKind) FileClassification {
 	if len(signals) == 0 {
 		var isOpenAPI bool
 		if explicitIsOpenAPI != nil {
 			isOpenAPI = *explicitIsOpenAPI
 		}
+		kind := explicitKind
+		if kind == navigator.DocumentKindUnknown && isOpenAPI {
+			kind = navigator.DocumentKindOpenAPI
+		}
 		return FileClassification{
 			IsOpenAPI:      isOpenAPI,
+			DocumentKind:   kind,
+			Version:        version,
 			Confidence:     0,
-			OpenAPIVersion: version,
+			OpenAPIVersion: openAPIVersionForKind(kind, version),
 			IsFragment:     isFragment,
 			Signals:        nil,
 		}
@@ -182,13 +208,27 @@ func (c *FileClassifier) finalize(signals []Signal, rootFound bool, version stri
 		isOpenAPI = confidence >= 0.60
 	}
 
+	kind := explicitKind
+	if kind == navigator.DocumentKindUnknown && isOpenAPI {
+		kind = navigator.DocumentKindOpenAPI
+	}
+
 	return FileClassification{
 		IsOpenAPI:      isOpenAPI,
+		DocumentKind:   kind,
+		Version:        version,
 		Confidence:     confidence,
-		OpenAPIVersion: version,
+		OpenAPIVersion: openAPIVersionForKind(kind, version),
 		IsFragment:     isFragment,
 		Signals:        signals,
 	}
+}
+
+func openAPIVersionForKind(kind navigator.DocumentKind, version string) string {
+	if kind != navigator.DocumentKindOpenAPI {
+		return ""
+	}
+	return version
 }
 
 // computeKeyScore sums per-key weights for all matching top-level keys.
@@ -264,6 +304,7 @@ func hasSignal(signals []Signal, name string) bool {
 var (
 	openAPIRe = regexp.MustCompile(`(?m)^openapi:\s*["']?(\d+\.\d+(?:\.\d+)?)["']?\s*$`)
 	swaggerRe = regexp.MustCompile(`(?m)^swagger:\s*["']?(\d+\.\d+(?:\.\d+)?)["']?\s*$`)
+	arazzoRe  = regexp.MustCompile(`(?m)^arazzo:\s*["']?(\d+\.\d+(?:\.\d+)?)["']?\s*$`)
 )
 
 func detectRootKey(head string) (string, bool) {
@@ -280,6 +321,17 @@ func detectRootKey(head string) (string, bool) {
 	jsonSwaggerRe := regexp.MustCompile(`"swagger"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"`)
 	if m := jsonSwaggerRe.FindStringSubmatch(head); m != nil {
 		return "2.0", true
+	}
+	return "", false
+}
+
+func detectArazzoRoot(head string) (string, bool) {
+	if m := arazzoRe.FindStringSubmatch(head); m != nil {
+		return m[1], true
+	}
+	jsonArazzoRe := regexp.MustCompile(`"arazzo"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"`)
+	if m := jsonArazzoRe.FindStringSubmatch(head); m != nil {
+		return m[1], true
 	}
 	return "", false
 }

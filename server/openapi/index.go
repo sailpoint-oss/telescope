@@ -31,6 +31,7 @@ type RefUsage struct {
 // Index provides fast lookups into a parsed OpenAPI document.
 type Index struct {
 	Document         *Document
+	Arazzo           *ArazzoDocument
 	Operations       map[string]*OperationRef   // operationId -> ref
 	OperationsByPath map[string][]OperationRef  // path -> operations
 	Schemas          map[string]*Schema         // component name -> schema
@@ -42,6 +43,7 @@ type Index struct {
 	Tags             map[string]*Tag            // tag name -> tag
 	Version          Version
 	Format           FileFormat
+	Kind             DocumentKind
 	nav              *navigator.Index
 }
 
@@ -69,6 +71,22 @@ func BuildIndex(tree *treesitter.Tree, doc *document.Document) *Index {
 	idx.indexComponents(oaDoc)
 	idx.indexTags(oaDoc)
 	idx.collectRefs(tree, doc, format)
+
+	if doc != nil && tree != nil {
+		if navIdx := navigator.ParseContent(tree.Source(), string(doc.URI())); navIdx != nil {
+			if navIdx.IsArazzo() {
+				return IndexFromNavigator(navIdx, doc.URI())
+			}
+			idx.nav = navIdx
+			idx.Kind = navIdx.Kind
+			if idx.Version == "" || idx.Version == VersionUnknown {
+				idx.Version = navIdx.Version
+			}
+		}
+	}
+	if idx.Kind == DocumentKindUnknown && idx.Document != nil && idx.Document.DocType != DocTypeUnknown {
+		idx.Kind = DocumentKindOpenAPI
+	}
 
 	return idx
 }
@@ -197,9 +215,59 @@ func (idx *Index) PrimaryValue() interface{} {
 	return idx.Document
 }
 
-// IsOpenAPI returns true if the index represents a valid OpenAPI document.
+// DocumentKind returns the API-description family represented by the index.
+func (idx *Index) DocumentKind() DocumentKind {
+	if idx == nil {
+		return DocumentKindUnknown
+	}
+	if idx.Kind != DocumentKindUnknown {
+		return idx.Kind
+	}
+	if idx.nav != nil {
+		return idx.nav.Kind
+	}
+	if idx.Document != nil {
+		return DocumentKindOpenAPI
+	}
+	if idx.Arazzo != nil {
+		return DocumentKindArazzo
+	}
+	return DocumentKindUnknown
+}
+
+// NavigatorIndex returns the navigator-backed index when available.
+func (idx *Index) NavigatorIndex() *navigator.Index {
+	if idx == nil {
+		return nil
+	}
+	return idx.nav
+}
+
+// IsOpenAPI returns true if the index represents a root OpenAPI document.
 func (idx *Index) IsOpenAPI() bool {
-	return idx.Document != nil && idx.Document.DocType == DocTypeRoot
+	return idx != nil &&
+		idx.DocumentKind() == DocumentKindOpenAPI &&
+		idx.Document != nil &&
+		idx.Document.DocType == DocTypeRoot
+}
+
+// IsArazzo returns true if the index represents a root Arazzo document.
+func (idx *Index) IsArazzo() bool {
+	return idx != nil &&
+		idx.DocumentKind() == DocumentKindArazzo &&
+		idx.Arazzo != nil
+}
+
+// IsRootDocument returns true for root OpenAPI or Arazzo documents.
+func (idx *Index) IsRootDocument() bool {
+	return idx.IsOpenAPI() || idx.IsArazzo()
+}
+
+// IsAPIDescription returns true when Telescope recognized the file as a
+// supported API-description document.
+func (idx *Index) IsAPIDescription() bool {
+	kind := idx.DocumentKind()
+	return kind == DocumentKindOpenAPI || kind == DocumentKindArazzo
 }
 
 // HasPath returns true if the given path template exists.

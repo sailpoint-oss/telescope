@@ -146,6 +146,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Run client typecheck
+        run: pnpm --filter ./client run typecheck
+
       - name: Build extension
         run: pnpm --filter ./client run build
 
@@ -214,6 +217,7 @@ jobs:
           pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E sidecar tests
+        id: sidecar
         continue-on-error: true
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
@@ -221,3 +225,13 @@ jobs:
           else
             pnpm --filter ./client test:e2e:run:sidecar
           fi
+
+      - name: Summarize E2E results
+        if: always()
+        run: |
+          {
+            echo "### E2E Summary (${{ matrix.os }})"
+            echo ""
+            echo "- Single/Multi root suite: ${{ job.status }}"
+            echo "- Sidecar suite: ${{ steps.sidecar.conclusion }}"
+          } >> "$GITHUB_STEP_SUMMARY"

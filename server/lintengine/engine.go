@@ -268,7 +268,7 @@ func buildProjectContexts(files []string, logger *slog.Logger) map[string]*proje
 			continue
 		}
 		idx := openapi.ParseAndIndex(data)
-		if idx == nil || idx.Document == nil || idx.Document.DocType != openapi.DocTypeRoot {
+		if idx == nil || !idx.IsOpenAPI() {
 			continue
 		}
 		uri := pathToFileURI(abs)
@@ -293,8 +293,6 @@ func findProjectContext(uri string, contexts map[string]*project.ProjectContext)
 	}
 	return nil
 }
-
-
 
 func collectFiles(args []string, cfg *config.Config) ([]string, error) {
 	var files []string

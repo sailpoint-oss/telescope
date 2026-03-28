@@ -1,12 +1,17 @@
 package lsp
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
@@ -33,6 +38,8 @@ func NewExecuteCommandHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.
 			return executeBundlePreview(ctx, cache, uri)
 		case "telescope.validateExamples":
 			return executeValidateExamples(cache, uri)
+		case "telescope.runContractTests":
+			return executeRunContractTests(ctx, cache, uri, params.Arguments)
 		default:
 			return nil, nil
 		}
@@ -47,6 +54,42 @@ func extractDocURI(args []interface{}) protocol.DocumentURI {
 		return protocol.DocumentURI(s)
 	}
 	return ""
+}
+
+type contractRunOptions struct {
+	BaseURL     string
+	OperationID string
+	Tags        []string
+}
+
+func extractContractRunOptions(args []interface{}) contractRunOptions {
+	opts := contractRunOptions{BaseURL: "http://localhost:8080"}
+	if len(args) < 2 {
+		return opts
+	}
+
+	switch arg := args[1].(type) {
+	case string:
+		if strings.TrimSpace(arg) != "" {
+			opts.BaseURL = strings.TrimSpace(arg)
+		}
+	case map[string]interface{}:
+		if baseURL, ok := arg["baseUrl"].(string); ok && strings.TrimSpace(baseURL) != "" {
+			opts.BaseURL = strings.TrimSpace(baseURL)
+		}
+		if operationID, ok := arg["operationId"].(string); ok {
+			opts.OperationID = strings.TrimSpace(operationID)
+		}
+		if tags, ok := arg["tags"].([]interface{}); ok {
+			for _, tag := range tags {
+				if s, ok := tag.(string); ok && strings.TrimSpace(s) != "" {
+					opts.Tags = append(opts.Tags, strings.TrimSpace(s))
+				}
+			}
+		}
+	}
+
+	return opts
 }
 
 func executeSortTags(ctx *gossip.Context, cache *openapi.IndexCache, uri protocol.DocumentURI) (interface{}, error) {
@@ -279,6 +322,157 @@ func executeGenerateResponses(ctx *gossip.Context, cache *openapi.IndexCache, ur
 	}
 
 	return nil, nil
+}
+
+func executeRunContractTests(ctx *gossip.Context, cache *openapi.IndexCache, uri protocol.DocumentURI, args []interface{}) (interface{}, error) {
+	idx := cache.Get(uri)
+	if idx == nil && ctx != nil && ctx.Documents != nil {
+		if doc := ctx.Documents.Get(uri); doc != nil {
+			idx = openapi.ParseAndIndex([]byte(doc.Text()))
+		}
+	}
+	if idx == nil {
+		return nil, fmt.Errorf("no parsed document available for %s", uri)
+	}
+	if !idx.IsAPIDescription() || !idx.IsRootDocument() {
+		return nil, fmt.Errorf("contract tests currently require an OpenAPI or Arazzo root document")
+	}
+
+	opts := extractContractRunOptions(args)
+	runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	docPath, cleanup, err := materializeContractTestDocument(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	configPath, configCleanup, err := materializeContractTestConfig(idx.DocumentKind(), docPath, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer configCleanup()
+
+	barometerBin, barometerPrefix, err := resolveBarometerCommand()
+	if err != nil {
+		return nil, err
+	}
+	cmdArgs := append([]string{}, barometerPrefix...)
+	cmdArgs = append(cmdArgs, "contract", "test", "--config", configPath, "--output", "json")
+	cmd := exec.CommandContext(runCtx, barometerBin, cmdArgs...)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if stdout.Len() == 0 {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			return nil, err
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", err, msg)
+		}
+		return nil, fmt.Errorf("%s", msg)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		return nil, fmt.Errorf("parse barometer json: %w", err)
+	}
+	payload := map[string]any{
+		"baseUrl": opts.BaseURL,
+		"result":  result,
+	}
+	if msg := strings.TrimSpace(stderr.String()); msg != "" {
+		payload["stderr"] = msg
+	}
+	return payload, nil
+}
+
+func materializeContractTestDocument(ctx *gossip.Context, uri protocol.DocumentURI) (string, func(), error) {
+	if ctx != nil && ctx.Documents != nil {
+		if doc := ctx.Documents.Get(uri); doc != nil {
+			path, err := fileURIToPath(uri)
+			if err != nil {
+				return "", nil, err
+			}
+			pattern := "telescope-contract-*"
+			if suffix := filepath.Ext(path); suffix != "" {
+				pattern += suffix
+			}
+			tmp, err := os.CreateTemp("", pattern)
+			if err != nil {
+				return "", nil, err
+			}
+			if _, err := tmp.WriteString(doc.Text()); err != nil {
+				tmp.Close()
+				os.Remove(tmp.Name())
+				return "", nil, err
+			}
+			if err := tmp.Close(); err != nil {
+				os.Remove(tmp.Name())
+				return "", nil, err
+			}
+			_ = path
+			return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
+		}
+	}
+
+	path, err := fileURIToPath(uri)
+	if err != nil {
+		return "", nil, err
+	}
+	return path, func() {}, nil
+}
+
+func materializeContractTestConfig(kind openapi.DocumentKind, docPath string, opts contractRunOptions) (string, func(), error) {
+	config := map[string]any{
+		"baseUrl": opts.BaseURL,
+		"output":  "json",
+	}
+	switch kind {
+	case openapi.DocumentKindOpenAPI:
+		openapiCfg := map[string]any{"spec": docPath}
+		if len(opts.Tags) > 0 {
+			openapiCfg["tags"] = append([]string(nil), opts.Tags...)
+		}
+		config["openapi"] = openapiCfg
+	case openapi.DocumentKindArazzo:
+		config["arazzo"] = map[string]any{"doc": docPath}
+	default:
+		return "", nil, fmt.Errorf("unsupported contract test document kind %q", kind.String())
+	}
+
+	tmp, err := os.CreateTemp("", "telescope-contract-*.json")
+	if err != nil {
+		return "", nil, err
+	}
+	enc := json.NewEncoder(tmp)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(config); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return "", nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return "", nil, err
+	}
+	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
+}
+
+func resolveBarometerCommand() (string, []string, error) {
+	if override := strings.TrimSpace(os.Getenv("TELESCOPE_BAROMETER_BIN")); override != "" {
+		return override, nil, nil
+	}
+	if path, err := exec.LookPath("barometer"); err == nil {
+		return path, nil, nil
+	}
+	if goBin, err := exec.LookPath("go"); err == nil {
+		return goBin, []string{"run", "github.com/sailpoint-oss/barometer/cmd/barometer@latest"}, nil
+	}
+	return "", nil, fmt.Errorf("barometer CLI not found on PATH and Go fallback unavailable")
 }
 
 func statusDescription(code string) string {

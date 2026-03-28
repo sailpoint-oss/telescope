@@ -22,31 +22,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: server/go.mod
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Build Bun runner
-        run: bash server/lsp/bun/runner/build.sh
-
       - name: Run Telescope (CI)
-        working-directory: server
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: telescope_ci
         continue-on-error: true
-        run: |
-          go run . ci \
-            ../test-files/openapi/ \
-            --comment-pr \
-            --report-md ../telescope-report.md
+        uses: ./
+        with:
+          mode: ci
+          paths: test-files/openapi/
+          comment-pr: true
+          report-md: telescope-report.md
+          report-json: telescope-report.json
 
       - name: Upload Telescope report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: telescope-report
-          path: telescope-report.md
+          path: |
+            telescope-report.md
+            telescope-report.json
+
+      - name: Summarize Telescope preview
+        if: always()
+        run: |
+          {
+            echo "## Telescope preview"
+            echo ""
+            echo "- CI preview step: ${{ steps.telescope_ci.conclusion }}"
+            echo "- Report artifact: telescope-report"
+          } >> "$GITHUB_STEP_SUMMARY"

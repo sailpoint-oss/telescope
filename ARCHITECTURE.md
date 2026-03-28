@@ -4,7 +4,7 @@ This document provides a detailed overview of Telescope's internal architecture 
 
 ## Overview
 
-Telescope is an OpenAPI linting tool built as a **Go language server** on the [gossip](https://github.com/LukasParke/gossip) LSP framework with native tree-sitter integration. A **VS Code extension** (TypeScript) acts as the client, discovering OpenAPI files and managing LSP sessions.
+Telescope is an OpenAPI linting tool built as a **Go language server** on the [gossip](https://github.com/LukasParke/gossip) LSP framework with native tree-sitter integration. A **VS Code extension** (TypeScript) acts as the client, discovering OpenAPI files and managing LSP sessions. Navigator now owns canonical OpenAPI parsing and validation, Barrelman owns shared built-in lint logic, and Telescope owns the editor-facing LSP/client/plugin experience.
 
 ## Repository Structure
 
@@ -16,7 +16,7 @@ telescope/
 │   ├── extensions/            # x-* extension validation
 │   ├── lsp/                   # LSP server + 20+ feature handlers
 │   ├── markdown/              # Markdown parsing (goldmark)
-│   ├── openapi/               # Tree-sitter → typed OpenAPI model
+│   ├── openapi/               # Compatibility model + adapters over Navigator data
 │   ├── plugin/                # Go plugin host (hashicorp/go-plugin)
 │   ├── project/               # Multi-file workspace + $ref resolution
 │   ├── rules/                 # Rule registry, builder, walker
@@ -24,11 +24,10 @@ telescope/
 │   │   ├── checks/            # Syntactic checks (duplicate keys, ASCII)
 │   │   └── testing/           # Test harness for rules
 │   ├── rulesets/              # Ruleset loading/merging (Spectral compat)
-│   ├── schemas/               # JSON Schema definitions (TypeScript/Zod → JSON)
 │   ├── sdk/                   # Plugin SDK for third-party rule authors
 │   ├── spectral/              # Spectral rule engine (JSONPath + functions)
 │   ├── testutil/              # Test utilities and fixture specs
-│   └── validation/            # Non-OpenAPI file validation
+│   └── validation/            # Non-OpenAPI file validation (`additionalValidation`)
 │
 ├── client/                    # VS Code extension client
 │   └── src/
@@ -58,7 +57,8 @@ flowchart TB
         end
 
         subgraph Engine["Rule Engine"]
-            Index["OpenAPI Index"]
+            Index["Navigator/OpenAPI Index"]
+            Navigator["Navigator Validation"]
             Analyzers["Built-in Analyzers"]
             Checks["Syntactic Checks"]
             Spectral["Spectral Engine"]
@@ -75,12 +75,14 @@ flowchart TB
     Extension <--> Gossip
     Gossip --> TreeSitter
     TreeSitter --> Index
+    Index --> Navigator
     Index --> Analyzers
     Index --> Checks
     Index --> Spectral
     Index --> Plugins
     Index --> ExtVal
 
+    Navigator --> Diagnostics
     Analyzers --> Diagnostics
     Checks --> Diagnostics
     Spectral --> Diagnostics
@@ -98,7 +100,7 @@ flowchart TB
 
     class Extension client
     class Gossip,TreeSitter,Handlers,RulesetMgr lsp
-    class Index,Analyzers,Checks,Spectral,Plugins,ExtVal engine
+    class Index,Navigator,Analyzers,Checks,Spectral,Plugins,ExtVal engine
     class Diagnostics,Fixes output
 ```
 
@@ -115,7 +117,7 @@ flowchart TB
 ### Phase 2: Document Processing
 
 6. **Tree-sitter** incrementally parses YAML/JSON documents
-7. **OpenAPI index** (`openapi.BuildIndex()`) constructs a typed model from the parse tree:
+7. **Navigator + OpenAPI index** construct the canonical document model and Telescope compatibility surface:
    - `Document`, `Operation`, `Schema`, `Parameter`, `Response`, etc.
    - All constructs track source locations via `openapi.Loc`
    - Index is cached per-document via `openapi.IndexCache`
@@ -123,12 +125,13 @@ flowchart TB
 ### Phase 3: Rule Execution
 
 8. The **DiagnosticEngine** runs multiple analyzer types:
-   - **Telescope analyzers** -- Built-in rules using visitor pattern against the OpenAPI index
+   - **Navigator validation** -- Canonical syntax, structural, schema-shape, and meta-schema diagnostics
+   - **Barrelman/Telescope analyzers** -- Built-in rules using visitor pattern against the OpenAPI index
    - **Telescope checks** -- Tree-sitter pattern-based syntactic checks
    - **Spectral engine** -- JSONPath + built-in functions for declarative YAML rules
    - **External plugins** -- Compiled Go binaries via `hashicorp/go-plugin` RPC
    - **Extension validation** -- `x-*` property schema validation
-   - **Additional validation** -- Non-OpenAPI files against JSON Schema
+   - **Additional validation** -- Non-OpenAPI files matched by `additionalValidation`
 
 ### Phase 4: Results
 
@@ -148,14 +151,14 @@ flowchart TB
 | Feature Handlers | `lsp/*.go` | Hover, completion, definition, references, rename, code actions, code lens, semantic tokens, etc. |
 | RulesetManager | `lsp/ruleset_manager.go` | Config merging, severity filtering, hot-reload |
 | ChildLSPManager | `lsp/childlsp.go` | Spawns child YAML/JSON LSPs for syntax validation |
-| OpenAPI Parser | `openapi/parser.go` | Tree-sitter → typed OpenAPI model |
+| OpenAPI Parser | `openapi/parser.go` | Compatibility parsing helpers over Navigator-backed content |
 | OpenAPI Index | `openapi/index.go` | Fast lookups by operation ID, path, component |
 | Index Cache | `openapi/index.go` | Thread-safe per-document caching (`sync.RWMutex`) |
 | Rule Builder | `rules/builder.go` | Fluent API: `Define().Operations().Schemas()...` |
 | Reporter | `rules/reporter.go` | Diagnostic reporting with chainable enrichment |
 | Walker | `rules/walker.go` | OpenAPI model traversal for rule execution |
 | Validators | `rules/validators.go` | Composable field validators (`Required`, `KebabCase`, etc.) |
-| Analyzers | `rules/analyzers/` | Structural JSON Schema validation, naming, docs, security |
+| Analyzers | `rules/analyzers/` | Naming, docs, security, and other built-in rule coverage |
 | Checks | `rules/checks/` | Duplicate keys, ASCII validation |
 | Test Harness | `rules/testing/` | `rulestest.Run()` with exact diagnostic assertions |
 | Rulesets | `rulesets/` | Loading, merging, resolution, Spectral OAS built-in |
@@ -164,8 +167,7 @@ flowchart TB
 | Plugin SDK | `sdk/` | Batteries-included SDK for plugin authors |
 | Project Manager | `project/` | Workspace scanning, dependency graph, $ref resolution |
 | Markdown | `markdown/` | Markdown parsing in description fields |
-| Validation | `validation/` | Non-OpenAPI file validation against JSON Schema |
-| Schemas | `schemas/` | TypeScript/Zod definitions → generated JSON Schema |
+| Validation | `validation/` | Non-OpenAPI file validation matched by `additionalValidation` |
 
 ### VS Code Client (`client/`)
 
@@ -208,7 +210,7 @@ The **ProjectManager** builds a dependency graph and provides:
 - Cross-file `$ref` resolution
 - Cycle detection
 - Project-level diagnostics
-- Workspace-wide validation
+- Workspace-wide validation and lint coordination
 
 ## Configuration Resolution
 

@@ -1,7 +1,7 @@
 // Package sdk provides the public Go API for using Telescope as a library.
 // It includes two main surfaces:
 //
-//  1. Workspace API — Programmatic linting for CLI tools and external consumers (e.g. Cartographer)
+//  1. Workspace API — Programmatic linting for CLI tools and external consumers
 //  2. Plugin API — Building custom rules as standalone Go binaries (hashicorp/go-plugin RPC)
 //
 // # Workspace API (Programmatic Linting)

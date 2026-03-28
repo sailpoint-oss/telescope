@@ -37,6 +37,13 @@ go install github.com/sailpoint-oss/telescope/server@latest
 
 ## Quick Start
 
+### Validate files
+
+```bash
+telescope validate api.yaml
+telescope validate workflows.arazzo.yaml --format json
+```
+
 ### Lint files
 
 ```bash
@@ -57,6 +64,8 @@ telescope serve --tcp :9257  # TCP
 ```bash
 telescope ci --diff-base main --comment-pr
 ```
+
+`validate` is the structural/schema-only entrypoint. `lint` layers configured rules on top of the same shared validation flow.
 
 ## Configuration
 
@@ -432,7 +441,7 @@ additionalValidation:
       - schema: tsconfig.json
 ```
 
-Place the referenced schema files in `.telescope/schemas/`. Telescope matches open files against the patterns and validates their content against the associated JSON Schema, surfacing diagnostics in the LSP.
+Place the referenced schema files in `.telescope/schemas/`. Telescope matches open files against the patterns and validates their content against the associated JSON Schema, surfacing diagnostics in the LSP. This additional-validation feature is separate from OpenAPI document validation, which is now sourced from Navigator.
 
 ---
 
@@ -575,7 +584,7 @@ Existing `.spectral.yaml` rulesets are auto-discovered and loaded alongside nati
 
 ## Architecture
 
-Built on the [gossip](https://github.com/LukasParke/gossip) LSP framework with native tree-sitter integration:
+Built on the [gossip](https://github.com/LukasParke/gossip) LSP framework with native tree-sitter integration. Telescope owns the editor-facing LSP/client/plugin flow, while Navigator provides canonical OpenAPI parsing/validation and Barrelman provides shared built-in rule execution.
 
 ```
 server/
@@ -591,7 +600,7 @@ server/
 │   └── custom-plugin/  Example Go plugin binary
 ├── lsp/            LSP server with 20+ feature handlers
 ├── markdown/       Markdown parsing and validation (goldmark)
-├── openapi/        Typed OpenAPI model built from tree-sitter parse trees
+├── openapi/        Compatibility model and adapters over Navigator-backed document data
 ├── plugin/
 │   ├── host.go         Plugin discovery and RPC management
 │   ├── protocol.go     RPC wire types and go-plugin integration
@@ -607,14 +616,13 @@ server/
 │   ├── validators.go   Composable field validators
 │   └── walker.go       OpenAPI model traversal
 ├── rulesets/       Spectral/Vacuum-compatible ruleset loading
-├── schemas/        JSON Schema definitions (built via TypeScript/Zod)
 ├── sdk/            Batteries-included SDK for Go plugin authors
 │   ├── plugin.go       Plugin instance and RPC server
 │   ├── rule.go         Plugin-scoped rule builder
 │   └── types.go        Type aliases and constants
 ├── spectral/       Spectral custom rule engine (JSONPath + built-in functions)
 ├── testutil/       Test utilities and fixture specs
-└── validation/     Additional file validation against JSON Schema
+└── validation/     Additional non-OpenAPI file validation (`additionalValidation`)
 ```
 
 ### Key Dependencies
@@ -622,6 +630,8 @@ server/
 | Package | Purpose |
 |---|---|
 | [gossip](https://github.com/LukasParke/gossip) | LSP framework (server, protocol, document store, tree-sitter integration) |
+| [navigator](https://github.com/sailpoint-oss/navigator) | Canonical OpenAPI parsing, indexing, and validation |
+| [barrelman](https://github.com/sailpoint-oss/barrelman) | Shared built-in lint/check execution |
 | [go-tree-sitter](https://github.com/tree-sitter/go-tree-sitter) | Incremental parsing for YAML/JSON |
 | [hashicorp/go-plugin](https://github.com/hashicorp/go-plugin) | Process-isolated plugin binaries via RPC |
 | [yuin/goldmark](https://github.com/yuin/goldmark) | Markdown parsing and validation |

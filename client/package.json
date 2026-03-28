@@ -365,6 +365,10 @@
 			{
 				"command": "telescope.validateExamples",
 				"title": "Telescope: Validate Examples"
+			},
+			{
+				"command": "telescope.runContractTests",
+				"title": "Telescope: Run Contract Tests"
 			}
 		],
 		"menus": {
@@ -454,6 +458,11 @@
 					"type": "string",
 					"default": "",
 					"description": "Path to the Telescope language server binary. Leave empty to use the bundled binary or the one found on PATH."
+				},
+				"telescope.contractTestBaseUrl": {
+					"type": "string",
+					"default": "http://localhost:8080",
+					"description": "Default base URL used when running Telescope's live contract-test command."
 				},
 				"telescope.trace": {
 					"type": "string",

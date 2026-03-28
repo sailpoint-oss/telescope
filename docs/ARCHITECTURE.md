@@ -7,11 +7,15 @@ Telescope is the editor, CLI, and SDK experience layer for the shared OpenAPI to
 Telescope provides:
 
 - **Linting** — Barrelman rules plus Navigator-backed structural diagnostics presented in CLI/LSP flows
+- **Validation** — Shared structural/schema checks for OpenAPI and Arazzo without the full lint ruleset
 - **Language Server** — Hover, completion, definition, references, rename, code actions, semantic tokens
-- **CLI** — `lint`, `ci`, and `serve` subcommands for integration into CI/CD pipelines
+- **CLI** — `validate`, `lint`, `ci`, and `serve` subcommands for local and CI workflows
+- **Runtime surfacing** — Editor-triggered Barometer-backed OpenAPI contract checks and Arazzo workflow runs against workspace specs
 - **SDK** — Programmatic access for tools that want Telescope's editor/CLI orchestration on top of Navigator + Barrelman
 
-The V2 architecture centers on a **workspace graph** that models documents as nodes with directed edges for `$ref` relationships. Telescope uses Navigator's shared `raw -> parse -> bind` substrate and layers user-facing lint/validate/analyze workflows on top of that data.
+Telescope no longer carries a separate in-repo OpenAPI schema package; canonical schema truth now lives upstream with Navigator/Barrelman.
+
+The V2 architecture centers on a **workspace graph** that models documents as nodes with directed edges for `$ref` relationships. Telescope uses Navigator's shared `raw -> parse -> bind` substrate for OpenAPI and Arazzo documents, consumes Navigator issues plus Barrelman rules, and layers user-facing editor/CLI workflows on top of that data.
 
 ## High-Level Architecture
 
@@ -35,9 +39,9 @@ flowchart TB
     subgraph Pipeline["Pipeline Stages"]
         Raw[Raw]
         ParseStage[Parse]
-        LintStage[Lint]
+        LintStage[Lint / Navigator Issues]
         BindStage[Bind]
-        ValidateStage[Validate]
+        ValidateStage[Validate Compat]
         AnalyzeStage[Analyze]
     end
 
@@ -77,7 +81,6 @@ flowchart TB
 | `core/parser` (virtual) | Virtual documents: `VirtualDocument`, `VirtualDocumentManager`, `OffsetMapper` |
 | `core/parser` (embedded) | Embedded content: `EmbeddedLanguageProvider`, `MarkdownProvider` |
 | `core/classify` | File classification: `FileClassifier`, `FileClassification`, heuristic signals |
-| `core/validate` | Telescope-owned auxiliary validation helpers and non-OpenAPI schema support |
 | `core/analyze` | Cross-document analysis: `FindUnusedComponents`, `DetectBreakingChanges`, `BundlePreview` |
 | `sdk` | Public Go API: `Workspace`, `Option`, `AnalysisResult`, plugin SDK |
 | `lsp` | LSP server wiring, handlers, graph bridge |
@@ -93,7 +96,7 @@ flowchart TB
 | `plugin` | Go plugin host via `hashicorp/go-plugin` |
 | `openapi` | Compatibility layer around Navigator types used by existing Telescope surfaces |
 | `config` | `.telescope.yaml` loading, ruleset merging |
-| `extensions` | `x-*` vendor extension schema validation |
+| `extensions` | `x-*` vendor extension schema validation and completion metadata |
 | `markdown` | Markdown parsing/validation in description fields |
 | `validation` | Additional JSON Schema validation for non-OpenAPI files |
 
@@ -105,7 +108,7 @@ flowchart TB
 2. **Classify** — `FileClassifier` uses heuristics (root key, fingerprint, extension, config override, graph membership) to determine if the file is OpenAPI and whether it is a root or fragment.
 3. **Parse** — `RawStage` reads content from the source; `ParseStage` builds the Navigator-backed semantic index.
 4. **Bind** — `$ref` resolution; edges materialized in the graph (`EdgeRef`, `EdgePathRef`, `EdgeExternal`).
-5. **Lint / Validate / Analyze** — Higher-level Telescope workflows run on top of parsed/bound documents. Navigator owns parse-time issues; Barrelman owns rule execution; Telescope owns presentation and orchestration.
+5. **Lint / Validate / Analyze** — Higher-level Telescope workflows run on top of parsed/bound documents. Navigator owns parse-time issues, Barrelman owns shared rule execution, and Telescope owns presentation, aggregation, and editor-facing orchestration.
 6. **Diagnostics** — Stored per-node; aggregated in `Snapshot` for LSP/CLI output.
 
 ### Invalidation
@@ -136,18 +139,18 @@ These types are used throughout the core engine. The `lsp/adapt` package convert
 |--------|----------|
 | `FilesystemSource` | CLI, file watcher |
 | `LSPSource` | LSP document overlays (gossip `document.Store`) |
-| `SyntheticSource` | SDK, Cartographer — programmatic injection |
+| `SyntheticSource` | SDK — programmatic injection |
 
 ### Pipeline Stages
 
 | Stage | Depends On | Purpose |
 |-------|------------|---------|
 | `StageRaw` | — | Read content from `DocumentSource` |
-| `StageParse` | Raw | Tree-sitter parse, semantic index |
-| `StageBind` | Parse | `$ref` resolution, edge materialization |
-| `StageLint` | Bind (logical) | Downstream Barrelman + Telescope lint orchestration |
-| `StageValidate` | Bind (logical) | Downstream validation presentation / compatibility workflows |
-| `StageAnalyze` | Bind (logical) | Cross-document analysis such as unused components, breaking changes, and bundle views |
+| `StageParse` | Raw | Tree-sitter + Navigator parse, semantic index, pointer metadata |
+| `StageBind` | Lint | `$ref` resolution, edge materialization |
+| `StageLint` | Parse | Surface Navigator syntax / structural / schema / meta issues |
+| `StageValidate` | Bind | Compatibility pass-through stage for consumers using the legacy topology |
+| `StageAnalyze` | Validate | Cross-document analysis such as unused components, breaking changes, and bundle views |
 
 ### Virtual Document System
 

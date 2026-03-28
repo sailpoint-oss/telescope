@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/sailpoint-oss/telescope/server/lsp"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -26,6 +26,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&rulesetArg, "ruleset", "r", "", "Ruleset file or URL")
 
 	cmd.AddCommand(newLintCmd())
+	cmd.AddCommand(newValidateCmd())
 	cmd.AddCommand(newCICmd())
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newBundleCmd())

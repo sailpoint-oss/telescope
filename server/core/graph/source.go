@@ -122,7 +122,7 @@ func (s *FilesystemSource) Path() string { return s.path }
 // --- SyntheticSource ---
 
 // SyntheticSource provides document content programmatically without a backing
-// file. Used by the SDK (e.g. Cartographer) to inject specs for analysis.
+// file. Used by the SDK to inject specs for analysis.
 type SyntheticSource struct {
 	uri     string
 	hint    ClassificationHint

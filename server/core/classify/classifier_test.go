@@ -2,6 +2,8 @@ package classify
 
 import (
 	"testing"
+
+	navigator "github.com/sailpoint-oss/navigator"
 )
 
 func TestClassify_OpenAPI31YAML(t *testing.T) {
@@ -21,6 +23,9 @@ paths:
 
 	if !got.IsOpenAPI {
 		t.Error("expected IsOpenAPI=true for clear OpenAPI 3.1 YAML")
+	}
+	if got.DocumentKind != navigator.DocumentKindOpenAPI {
+		t.Errorf("DocumentKind = %q, want %q", got.DocumentKind, navigator.DocumentKindOpenAPI)
 	}
 	if got.Confidence <= 0.9 {
 		t.Errorf("expected Confidence > 0.9, got %f", got.Confidence)
@@ -53,6 +58,9 @@ spec:
 	if got.IsOpenAPI {
 		t.Error("expected IsOpenAPI=false for non-OpenAPI YAML")
 	}
+	if got.DocumentKind != navigator.DocumentKindUnknown {
+		t.Errorf("DocumentKind = %q, want unknown", got.DocumentKind)
+	}
 	if got.Confidence >= 0.3 {
 		t.Errorf("expected Confidence < 0.3, got %f", got.Confidence)
 	}
@@ -75,6 +83,9 @@ properties:
 	if !got.IsOpenAPI {
 		t.Error("expected IsOpenAPI=true when isGraphMember=true")
 	}
+	if got.DocumentKind != navigator.DocumentKindOpenAPI {
+		t.Errorf("DocumentKind = %q, want openapi", got.DocumentKind)
+	}
 	if !got.IsFragment {
 		t.Error("expected IsFragment=true when isGraphMember=true")
 	}
@@ -96,6 +107,9 @@ baz: qux
 
 	if !got.IsOpenAPI {
 		t.Error("expected IsOpenAPI=true from config override")
+	}
+	if got.DocumentKind != navigator.DocumentKindOpenAPI {
+		t.Errorf("DocumentKind = %q, want openapi", got.DocumentKind)
 	}
 	if got.Confidence != 1.0 {
 		t.Errorf("expected Confidence=1.0 from override, got %f", got.Confidence)
@@ -128,6 +142,9 @@ paths: {}
 	if got.IsOpenAPI {
 		t.Error("expected IsOpenAPI=false from config override (exclude)")
 	}
+	if got.DocumentKind != navigator.DocumentKindUnknown {
+		t.Errorf("DocumentKind = %q, want unknown", got.DocumentKind)
+	}
 }
 
 func TestClassify_JSON(t *testing.T) {
@@ -146,6 +163,9 @@ func TestClassify_JSON(t *testing.T) {
 
 	if !got.IsOpenAPI {
 		t.Error("expected IsOpenAPI=true for OpenAPI JSON")
+	}
+	if got.DocumentKind != navigator.DocumentKindOpenAPI {
+		t.Errorf("DocumentKind = %q, want openapi", got.DocumentKind)
 	}
 	if got.OpenAPIVersion != "3.2" {
 		t.Errorf("expected OpenAPIVersion=3.2, got %q", got.OpenAPIVersion)
@@ -173,10 +193,48 @@ paths:
 	if !got.IsOpenAPI {
 		t.Error("expected IsOpenAPI=true for Swagger 2.0")
 	}
+	if got.DocumentKind != navigator.DocumentKindOpenAPI {
+		t.Errorf("DocumentKind = %q, want openapi", got.DocumentKind)
+	}
 	if got.OpenAPIVersion != "2.0" {
 		t.Errorf("expected OpenAPIVersion=2.0, got %q", got.OpenAPIVersion)
 	}
 	if got.Confidence <= 0.9 {
 		t.Errorf("expected Confidence > 0.9, got %f", got.Confidence)
+	}
+}
+
+func TestClassify_ArazzoYAML(t *testing.T) {
+	c := NewFileClassifier()
+	content := []byte(`arazzo: 1.0.1
+info:
+  title: Workflow
+  version: "1.0.0"
+sourceDescriptions:
+  - name: api
+    url: ./openapi.yaml
+    type: openapi
+workflows:
+  - workflowId: getPets
+    steps: []
+`)
+	uri := "file:///project/workflow.arazzo.yaml"
+
+	got := c.Classify(uri, content, false)
+
+	if got.IsOpenAPI {
+		t.Error("expected IsOpenAPI=false for Arazzo document")
+	}
+	if got.DocumentKind != navigator.DocumentKindArazzo {
+		t.Errorf("DocumentKind = %q, want arazzo", got.DocumentKind)
+	}
+	if got.Version != "1.0.1" {
+		t.Errorf("Version = %q, want 1.0.1", got.Version)
+	}
+	if got.OpenAPIVersion != "" {
+		t.Errorf("OpenAPIVersion = %q, want empty for Arazzo", got.OpenAPIVersion)
+	}
+	if got.Confidence != 1.0 {
+		t.Errorf("Confidence = %f, want 1.0", got.Confidence)
 	}
 }

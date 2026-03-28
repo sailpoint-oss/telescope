@@ -22,7 +22,7 @@ Telescope is versioned independently, but it sits between the core libraries and
 
 - `navigator` changes land before Telescope updates when parse/index/range/resolver contracts move.
 - `barrelman` changes land before Telescope updates when diagnostic, ruleset, or config contracts move.
-- `cartographer` and editor/report consumers follow after Telescope when those compatibility surfaces change.
+- Editor and report consumers follow after Telescope when those compatibility surfaces change.
 
 Before publishing a compatibility-sensitive Telescope change:
 
