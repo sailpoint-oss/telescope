@@ -4,6 +4,6 @@
 	"type": "module",
 	"description": "Shared OpenAPI fixture documents for testing and integration.",
 	"dependencies": {
-		"@sailpoint-oss/telescope": "workspace:*"
+		"@sailpoint-oss/telescope": "file:../server/lsp/bun/telescope-server"
 	}
 }

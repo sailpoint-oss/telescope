@@ -29,6 +29,18 @@ jobs:
         with:
           go-version-file: server/go.mod
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install workspace deps (Bun custom rule fixtures)
+        run: pnpm install --frozen-lockfile
+
       - uses: oven-sh/setup-bun@v2
 
       - name: Build Bun runner

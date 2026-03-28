@@ -77,7 +77,7 @@ importers:
   test-files:
     dependencies:
       '@sailpoint-oss/telescope':
-        specifier: workspace:*
+        specifier: file:../server/lsp/bun/telescope-server
         version: link:../server/lsp/bun/telescope-server
 
 packages:
