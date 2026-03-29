@@ -21,6 +21,17 @@ export const DEFAULT_OPENAPI_PATTERNS = [
 	"**/*.jsonc",
 ];
 
+/**
+ * Supported Telescope config file locations, in priority order.
+ * Keep this aligned with the server-side config loader.
+ */
+export const TELESCOPE_CONFIG_PATHS = [
+	".telescope.yaml",
+	".telescope.yml",
+	".telescope/config.yaml",
+	".telescope/config.yml",
+] as const;
+
 // ============================================================================
 // Logging Utilities
 // ============================================================================
@@ -60,11 +71,12 @@ export function matchesPatternList(
 	// Normalize path separators
 	const normalizedPath = relativePath.replace(/\\/g, "/");
 
-	// Always exclude config files
+	// Always exclude Telescope config files, regardless of the supported location.
 	if (
-		normalizedPath.endsWith("/.telescope/config.yaml") ||
-		normalizedPath.includes("/.telescope/config.yaml") ||
-		normalizedPath === ".telescope/config.yaml"
+		TELESCOPE_CONFIG_PATHS.some(
+			(configPath) =>
+				normalizedPath === configPath || normalizedPath.endsWith(`/${configPath}`),
+		)
 	) {
 		return false;
 	}

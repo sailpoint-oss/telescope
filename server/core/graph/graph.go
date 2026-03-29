@@ -326,6 +326,30 @@ func (g *WorkspaceGraph) Dependencies(uri string) []string {
 	return mapToSlice(seen)
 }
 
+// TransitiveDependencies returns all URIs reachable by walking outgoing edges
+// from the given URI (breadth-first). The starting URI is not included.
+func (g *WorkspaceGraph) TransitiveDependencies(uri string) []string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	visited := map[string]bool{uri: true}
+	queue := []string{uri}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, e := range g.edges[current] {
+			if !visited[e.TargetURI] {
+				visited[e.TargetURI] = true
+				queue = append(queue, e.TargetURI)
+			}
+		}
+	}
+
+	delete(visited, uri)
+	return mapToSlice(visited)
+}
+
 // TransitiveDependents returns all URIs reachable by walking reverse edges
 // from the given URI (breadth-first). The starting URI is not included.
 func (g *WorkspaceGraph) TransitiveDependents(uri string) []string {
@@ -434,6 +458,7 @@ type ReadOnlyGraph interface {
 	EdgesTo(uri string) []Edge
 	Dependents(uri string) []string
 	Dependencies(uri string) []string
+	TransitiveDependencies(uri string) []string
 	TransitiveDependents(uri string) []string
 	DetectCycles() [][]string
 }

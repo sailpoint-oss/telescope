@@ -16,7 +16,7 @@ import (
 // NewTypeDefinitionHandler resolves the type (schema) of the element at the
 // cursor. For $ref targets it jumps to the resolved schema. For parameters and
 // response content it navigates to the underlying schema definition.
-func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manager, _ *GraphBridge) gossip.TypeDefinitionHandler {
+func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manager, graphBridge *GraphBridge) gossip.TypeDefinitionHandler {
 	return func(ctx *gossip.Context, params *protocol.TypeDefinitionParams) ([]protocol.Location, error) {
 		uri := params.TextDocument.URI
 		traceID := observe.GetTraceID(ctx)
@@ -51,8 +51,18 @@ func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manage
 								slog.String("uri", string(uri)),
 								slog.String("ref", refTarget))
 						}
-						return schemaTypeLocation(uri, idx, schema, projMgr), nil
+						return schemaTypeLocation(uri, idx, schema, projMgr, cache, graphBridge), nil
 					}
+				}
+				if loc := resolveTypeWithGraph(cache, graphBridge, uri, refTarget); loc != nil {
+					if logger != nil {
+						logger.Debug("typeDefinition: resolved graph ref",
+							slog.String("trace_id", traceID),
+							slog.String("uri", string(uri)),
+							slog.String("ref", refTarget),
+							slog.String("targetURI", string(loc.URI)))
+					}
+					return []protocol.Location{*loc}, nil
 				}
 				// Cross-file fallback via project resolver
 				if projMgr != nil {
@@ -80,7 +90,7 @@ func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manage
 					}
 					if p.Schema != nil {
 						if p.Schema.Ref != "" {
-							return resolveSchemaRef(uri, idx, p.Schema.Ref, projMgr), nil
+							return resolveSchemaRef(uri, idx, p.Schema.Ref, projMgr, cache, graphBridge), nil
 						}
 						if !isZeroRange(adapt.RangeToProtocol(p.Schema.Loc.Range)) {
 							return []protocol.Location{{URI: uri, Range: adapt.RangeToProtocol(p.Schema.Loc.Range)}}, nil
@@ -101,7 +111,7 @@ func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manage
 							continue
 						}
 						if media.Schema.Ref != "" {
-							return resolveSchemaRef(uri, idx, media.Schema.Ref, projMgr), nil
+							return resolveSchemaRef(uri, idx, media.Schema.Ref, projMgr, cache, graphBridge), nil
 						}
 						if !isZeroRange(adapt.RangeToProtocol(media.Schema.Loc.Range)) {
 							return []protocol.Location{{URI: uri, Range: adapt.RangeToProtocol(media.Schema.Loc.Range)}}, nil
@@ -119,7 +129,7 @@ func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manage
 						continue
 					}
 					if prop.Ref != "" {
-						return resolveSchemaRef(uri, idx, prop.Ref, projMgr), nil
+						return resolveSchemaRef(uri, idx, prop.Ref, projMgr, cache, graphBridge), nil
 					}
 					if !isZeroRange(adapt.RangeToProtocol(prop.Loc.Range)) {
 						return []protocol.Location{{URI: uri, Range: adapt.RangeToProtocol(prop.Loc.Range)}}, nil
@@ -132,9 +142,9 @@ func NewTypeDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manage
 	}
 }
 
-func schemaTypeLocation(uri protocol.DocumentURI, idx *openapi.Index, schema *openapi.Schema, projMgr *project.Manager) []protocol.Location {
+func schemaTypeLocation(uri protocol.DocumentURI, idx *openapi.Index, schema *openapi.Schema, projMgr *project.Manager, cache *openapi.IndexCache, graphBridge *GraphBridge) []protocol.Location {
 	if schema.Ref != "" {
-		return resolveSchemaRef(uri, idx, schema.Ref, projMgr)
+		return resolveSchemaRef(uri, idx, schema.Ref, projMgr, cache, graphBridge)
 	}
 	if !isZeroRange(adapt.RangeToProtocol(schema.Loc.Range)) {
 		return []protocol.Location{{URI: uri, Range: adapt.RangeToProtocol(schema.Loc.Range)}}
@@ -142,11 +152,14 @@ func schemaTypeLocation(uri protocol.DocumentURI, idx *openapi.Index, schema *op
 	return nil
 }
 
-func resolveSchemaRef(uri protocol.DocumentURI, idx *openapi.Index, ref string, projMgr *project.Manager) []protocol.Location {
+func resolveSchemaRef(uri protocol.DocumentURI, idx *openapi.Index, ref string, projMgr *project.Manager, cache *openapi.IndexCache, graphBridge *GraphBridge) []protocol.Location {
 	if target, err := idx.Resolve(ref); err == nil {
 		if s, ok := target.(*openapi.Schema); ok && !isZeroRange(adapt.RangeToProtocol(s.Loc.Range)) {
 			return []protocol.Location{{URI: uri, Range: adapt.RangeToProtocol(s.Loc.Range)}}
 		}
+	}
+	if loc := resolveTypeWithGraph(cache, graphBridge, uri, ref); loc != nil {
+		return []protocol.Location{*loc}
 	}
 	if projMgr != nil {
 		projMgr.WaitReady(2 * time.Second)
@@ -155,6 +168,21 @@ func resolveSchemaRef(uri protocol.DocumentURI, idx *openapi.Index, ref string, 
 		return []protocol.Location{*loc}
 	}
 	return nil
+}
+
+func resolveTypeWithGraph(cache *openapi.IndexCache, graphBridge *GraphBridge, uri protocol.DocumentURI, ref string) *protocol.Location {
+	if graphBridge == nil || cache == nil {
+		return nil
+	}
+	targetURI, target, err := graphBridge.ResolveRef(cache, string(uri), ref)
+	if err != nil || target == nil {
+		return nil
+	}
+	if schema, ok := target.(*openapi.Schema); ok && !isZeroRange(adapt.RangeToProtocol(schema.Loc.Range)) {
+		resolved := openapi.LocOrFallback(schema.NameLoc, schema.Loc)
+		return &protocol.Location{URI: targetURI, Range: adapt.RangeToProtocol(resolved.Range)}
+	}
+	return locationFromTarget(targetURI, target)
 }
 
 // resolveTypeWithProject resolves a $ref to a schema type location using the

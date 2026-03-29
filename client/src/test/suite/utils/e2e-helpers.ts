@@ -140,6 +140,25 @@ export async function openAndShow(uri: vscode.Uri): Promise<vscode.TextDocument>
 	return doc;
 }
 
+export async function waitForLanguageId(
+	uri: vscode.Uri,
+	expectedLanguageId: string,
+	options?: { timeoutMs?: number; delayMs?: number },
+): Promise<vscode.TextDocument> {
+	const timeoutMs = options?.timeoutMs ?? 15000;
+	const delayMs = options?.delayMs ?? 250;
+	const start = Date.now();
+	let doc = await vscode.workspace.openTextDocument(uri);
+	while (
+		doc.languageId !== expectedLanguageId &&
+		Date.now() - start < timeoutMs
+	) {
+		await delay(delayMs);
+		doc = await vscode.workspace.openTextDocument(uri);
+	}
+	return doc;
+}
+
 export async function writeWorkspaceFile(
 	relativePath: string,
 	contents: string,

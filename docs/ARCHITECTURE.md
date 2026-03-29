@@ -187,12 +187,27 @@ Confidence is computed as weighted sum; `IsOpenAPI` requires root key or (conten
 
 - `OnDocumentOpen` — Add synthetic source, classify, set root
 - `OnDocumentChange` — Update synthetic source content, invalidate
-- `OnDocumentClose` — Remove from graph, clear virtual docs
-- `SyncEdgesFromIndex` — Sync edges from OpenAPI index (bridges old `IndexCache`)
+- `OnDocumentClose` — Swap back to a filesystem source when the file still exists, otherwise remove it and clear virtual docs
+- `RunPipeline` — Execute the Navigator-backed `raw -> parse -> lint -> bind -> validate -> analyze` stages and build the next snapshot
+- `LoadWorkspaceFiles` / watched-file handlers — Seed and refresh closed-file `FilesystemSource` nodes discovered across the workspace
 - `LookupDefinition`, `FindReferences` — Use edge index for `$ref` resolution
-- `BuildSnapshot` — Build immutable snapshot for sync handlers
+- `IndexForURI` / `ResolveRef` — Project graph parse results back into the legacy typed `openapi.Index` surface while handlers continue to migrate
 
-Sync handlers read from `CurrentSnapshot()`; async analysis builds the next snapshot.
+Sync handlers read from `CurrentSnapshot()`, and document open/change/close plus watched-file events rebuild the snapshot from the same pipeline-backed graph.
+
+### LSP Ownership
+
+The LSP now uses the workspace graph as the structural source of truth. The remaining compatibility surfaces are projections or orchestration layers on top of that graph, rather than parallel parsers.
+
+| Area | Owner now | Notes |
+| ---- | --------- | ----- |
+| Open and closed document lifecycle | `GraphBridge` + `WorkspaceGraph` | Open buffers use `SyntheticSource`; discovered and watched files use `FilesystemSource` |
+| Parse / lint / bind / snapshot state | `PipelineRunner` + `SnapshotManager` | Same graph-stage topology used by the SDK now runs inside the LSP |
+| Cross-file edges and reverse lookups | `BindStage` on `WorkspaceGraph` | `$ref` edges come from the pipeline bind pass, not mirrored `IndexCache` data |
+| Legacy typed handler reads | `openapi.IndexCache` as a projection cache | `IndexCache` is populated from graph parse results so existing handlers can keep using typed lookups during the transition |
+| Analyzer resolver input | Graph-backed resolver adapter | `AnalysisData.Resolver` now answers from graph-backed `$ref` resolution rather than only project-local caches |
+| Workspace startup diagnostics | `project.Manager` orchestration | Discovery still drives startup publishing, but it seeds the graph first and can reuse the graph-backed resolver |
+| LSP observability (`$/telescope/graphInfo`) | `GraphBridge` + current `Snapshot` | Reports pipeline-backed graph counts, dirty nodes, and aggregated stage timings |
 
 ### Adapt Layer
 
@@ -209,7 +224,7 @@ Custom LSP notifications:
 
 | Notification | Payload | Purpose |
 |--------------|---------|---------|
-| `$/telescope/graphInfo` | `GraphInfo` | Node count, edge count, roots, dirty count, stage durations, memory, snapshot version |
+| `$/telescope/graphInfo` | `GraphInfo` | Pipeline-backed node/edge/root counts, dirty node count, aggregated clean stage durations, memory, snapshot version |
 | `$/telescope/rulePerf` | `RulePerf` | Per-rule timing and diagnostic counts |
 
 `CollectGraphInfo` and `RulePerfTracker` build these payloads for debugging and performance tuning.

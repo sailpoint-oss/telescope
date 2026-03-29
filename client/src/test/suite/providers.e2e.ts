@@ -12,6 +12,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForLanguageId,
 	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
@@ -185,15 +186,11 @@ suite("Providers", () => {
 		await vscode.workspace.fs.writeFile(tmpUri, Buffer.from(content, "utf-8"));
 
 		try {
-			let doc = await openAndShow(tmpUri);
-			const classificationStart = Date.now();
-			while (
-				doc.languageId !== "openapi-yaml" &&
-				Date.now() - classificationStart < 10000
-			) {
-				await delay(250);
-				doc = await vscode.workspace.openTextDocument(tmpUri);
-			}
+			await openAndShow(tmpUri);
+			const doc = await waitForLanguageId(tmpUri, "openapi-yaml", {
+				timeoutMs: 10000,
+			});
+			await waitForProviders(tmpUri, { timeoutMs: 30000 });
 
 			assert.strictEqual(
 				doc.languageId,

@@ -49,6 +49,7 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		// This must happen here (inside an Option) because gossip.NewServer
 		// stores options without applying them -- Serve() applies them later.
 		rsMgr.engine = s.DiagnosticEngine()
+		serverLogger := s.Logger()
 
 		// Wire the project manager's publish function to use PublishDirect.
 		projMgr.SetPublish(s.DiagnosticEngine().PublishDirect)
@@ -57,10 +58,19 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 			// Suppress project-manager publishes for them to avoid competing updates.
 			return s.Documents().Get(protocol.DocumentURI(uri)) == nil
 		})
+		projMgr.SetResolver(NewGraphResolver(graphBridge, indexCache))
+		projMgr.SetOnDiscovered(func(files []*project.DiscoveredFile) {
+			if _, err := graphBridge.LoadWorkspaceFiles(context.Background(), indexCache, files); err != nil {
+				serverLogger.Warn("failed to seed workspace graph", "error", err)
+			}
+		})
 
 		// Register a builder so cache.Get() builds the index on-demand
 		// if it hasn't been cached yet (handles the init race window).
 		indexCache.SetBuilder(func(uri protocol.DocumentURI) *openapi.Index {
+			if idx := graphBridge.IndexForURI(string(uri)); idx != nil {
+				return idx
+			}
 			doc := s.Documents().Get(uri)
 			tree := s.TreeSitter().GetTree(uri)
 			if doc == nil || tree == nil {
@@ -76,17 +86,25 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 			if doc == nil {
 				return nil
 			}
-			tree := s.TreeSitter().GetTree(uri)
-			if tree == nil {
+			if graphBridge.Graph().Node(string(uri)) == nil {
+				graphBridge.OnDocumentOpen(string(uri), []byte(doc.Text()))
+			}
+			if _, err := graphBridge.RunPipeline(context.Background(), indexCache, string(uri)); err != nil {
+				serverLogger.Warn("failed to run graph pipeline", "uri", uri, "error", err)
+			}
+
+			idx := graphBridge.IndexForURI(string(uri))
+			if idx == nil {
+				tree := s.TreeSitter().GetTree(uri)
+				if tree == nil {
+					return nil
+				}
+				idx = openapi.BuildIndex(tree, doc)
+			}
+			if idx == nil {
 				return nil
 			}
-			idx := openapi.BuildIndex(tree, doc)
 			indexCache.Set(uri, idx)
-
-			// Sync edges from the newly built index into the V2 graph engine
-			// and build a fresh snapshot for sync request handlers.
-			graphBridge.SyncEdgesFromIndex(string(uri), idx)
-			graphBridge.BuildSnapshot()
 
 			// Send deprecated ranges notification to the client.
 			if conn := s.Conn(); conn != nil {
@@ -112,6 +130,10 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 
 		// Clean up index on document close
 		s.Documents().OnClose(func(uri protocol.DocumentURI) {
+			if idx := graphBridge.IndexForURI(string(uri)); idx != nil {
+				indexCache.Set(uri, idx)
+				return
+			}
 			indexCache.Delete(uri)
 		})
 
@@ -142,7 +164,7 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		rsMgr.SetTelescopeConfig(cfg)
 
 		// Register file watchers for ruleset hot-reload
-		s.OnDidChangeWatchedFiles(NewWatchedFilesHandler(rsMgr, projMgr, s.Logger()))
+		s.OnDidChangeWatchedFiles(NewWatchedFilesHandler(rsMgr, projMgr, graphBridge, indexCache, s.Logger()))
 	}
 }
 
@@ -217,6 +239,9 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		uri := string(params.TextDocument.URI)
 		content := []byte(params.TextDocument.Text)
 		graphBridge.OnDocumentOpen(uri, content)
+		if _, err := graphBridge.RunPipeline(ctx, indexCache, uri); err != nil {
+			logger.Warn("failed to analyze opened document", "uri", uri, "error", err)
+		}
 		sendClassifyNotification(ctx, graphBridge, uri, content)
 		return nil
 	})
@@ -229,6 +254,9 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 			uri := string(params.TextDocument.URI)
 			content := []byte(doc.Text())
 			graphBridge.OnDocumentChange(uri, content)
+			if _, err := graphBridge.RunPipeline(ctx, indexCache, uri); err != nil {
+				logger.Warn("failed to analyze changed document", "uri", uri, "error", err)
+			}
 			sendClassifyNotification(ctx, graphBridge, uri, content)
 		}
 		return nil
@@ -239,6 +267,9 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		logger.Debug("telescope.didClose", "trace_id", traceID, "uri", params.TextDocument.URI)
 		childMgr.DidClose(notifCtx, params)
 		graphBridge.OnDocumentClose(string(params.TextDocument.URI))
+		if _, err := graphBridge.RunPipeline(ctx, indexCache, string(params.TextDocument.URI)); err != nil {
+			logger.Warn("failed to refresh closed document state", "uri", params.TextDocument.URI, "error", err)
+		}
 		return nil
 	})
 

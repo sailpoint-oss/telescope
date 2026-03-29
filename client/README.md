@@ -9,7 +9,7 @@ A powerful VS Code extension for OpenAPI specifications with real-time validatio
 - **Real-time Diagnostics** — See linting issues as you type
 - **88 Built-in Rules** — OpenAPI best practices, security, and OWASP coverage
 - **Multi-file Support** — Full `$ref` resolution across your API project
-- **Custom Rules** — Extend with Go plugin binaries and Spectral-compatible YAML rulesets
+- **Custom Rules** — Extend with Go plugin binaries, Spectral-compatible YAML rulesets, and optional Bun-backed JS/TS rules
 
 ### Code Intelligence
 
@@ -43,24 +43,29 @@ A powerful VS Code extension for OpenAPI specifications with real-time validatio
 
 ### Installation
 
-Search for **"Telescope"** in the VS Code marketplace, or install from the command line:
+Telescope is published with different extension IDs depending on the store:
 
-```bash
-code --install-extension sailpoint.telescope
-```
+| Store | Extension ID | Install command |
+| ----- | ------------ | --------------- |
+| VS Code Marketplace | `SailPointTechnologies.telescope-openapi` | `code --install-extension SailPointTechnologies.telescope-openapi` |
+| Open VSX / Cursor / VSCodium | `sailpoint.telescope` | `code --install-extension sailpoint.telescope` |
+
+Platform-specific VSIXs that bundle the Telescope server are currently published for `darwin-arm64`, `darwin-x64`, `linux-x64`, and `win32-x64`.
+
+The universal VSIX works on other platforms too, but it does not bundle the `telescope` binary. On those installs, provide the server with `telescope.serverPath`, `TELESCOPE_SERVER_PATH`, or `PATH`.
 
 ### Automatic Detection
 
 The extension automatically detects OpenAPI documents based on:
 
 1. File contains `openapi:` or `swagger:` root key
-2. File matches patterns configured in `.telescope.yaml`
+2. File matches patterns configured in a supported Telescope config file
 
 Once detected, Telescope treats the file as OpenAPI for language server features. When you open a detected file, Telescope applies the custom OpenAPI language mode (`openapi-yaml` / `openapi-json`) for correct tokenization and grammars.
 
 ## Configuration
 
-Create `.telescope.yaml` in your workspace root to customize behavior:
+Create `.telescope.yaml` in your workspace root to customize behavior. The extension also supports `.telescope.yml`, `.telescope/config.yaml`, and `.telescope/config.yml` with the same precedence as the server and CLI:
 
 ```yaml
 extends: telescope:recommended
@@ -107,7 +112,7 @@ include:
 
 ### Configuration Reload
 
-Configuration automatically reloads when `.telescope.yaml` is modified, and when relevant VS Code settings change.
+Configuration automatically reloads when any supported Telescope config file is modified, and when relevant VS Code settings change.
 
 ## Commands
 
@@ -164,7 +169,7 @@ rules:
 
 ## Custom Rules
 
-Telescope supports custom rules via **Go plugin binaries**. Build plugins with the SDK (`server/sdk/`), place compiled binaries in `.telescope/plugins/`, and Telescope discovers them at startup.
+Telescope supports custom rules via Go plugin binaries, Spectral-compatible YAML rulesets, and TypeScript/JavaScript rules through the optional Bun sidecar. Build Go plugins with the SDK (`server/sdk/`), place compiled binaries in `.telescope/plugins/`, and Telescope discovers them at startup.
 
 For full documentation, see the [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md) and the example plugin at [`server/examples/custom-plugin/main.go`](https://github.com/sailpoint-oss/telescope/blob/main/server/examples/custom-plugin/main.go).
 
@@ -173,6 +178,8 @@ For full documentation, see the [Custom Rules Guide](https://github.com/sailpoin
 | Setting                           | Description                                                    | Default |
 | --------------------------------- | -------------------------------------------------------------- | ------- |
 | `telescope.autoConvertJsonToYaml` | Automatically convert JSON OpenAPI files to YAML when detected | `false` |
+| `telescope.serverPath`            | Absolute path to the Telescope language server binary          | `""`    |
+| `telescope.contractTestBaseUrl`   | Default base URL used by the contract-test command             | `http://localhost:8080` |
 | `telescope.trace`                 | LSP trace logging level (`off`, `messages`, `verbose`)         | `off`   |
 
 ## Architecture
@@ -184,7 +191,7 @@ The extension follows a per-folder session architecture:
 - A **WorkspaceScanner** runs a background scan to discover and classify OpenAPI files using a lightweight heuristic (checks for `openapi` / `swagger` root keys, rejects known non-OpenAPI patterns like Kubernetes manifests and Docker Compose files).
 - When you open a classified file, the session applies the `openapi-yaml` or `openapi-json` language mode via `vscode.languages.setTextDocumentLanguage`, which triggers the LanguageClient to re-sync the document with the correct language ID.
 - The server uses **push diagnostics** exclusively (`textDocument/publishDiagnostics`). Diagnostics from the Telescope rule engine and child YAML/JSON language servers are merged by a `DiagnosticAggregator` on the server side before being sent to the client.
-- File watchers track creation, deletion, and changes to YAML/JSON files and the `.telescope.yaml` config file, keeping the scanner and server in sync.
+- File watchers track creation, deletion, and changes to YAML/JSON files and all supported Telescope config file locations, keeping the scanner and server in sync.
 
 ## E2E (VS Code integration) tests
 
@@ -206,19 +213,19 @@ Notes:
 
 1. Check the **Telescope Language Server** output channel for errors
 2. Verify the file is recognized as YAML or JSON
-3. Ensure VS Code is up to date (requires 1.99.3+)
+3. Ensure VS Code is up to date (requires `1.105.0+`)
 4. Try restarting VS Code
 
 ### No Diagnostics Appearing
 
 1. Check the document parses as valid YAML/JSON
-2. Verify the file matches your `patterns` in `.telescope.yaml`
+2. Verify the file matches your `patterns` in `.telescope.yaml` or `.telescope/config.yaml`
 3. Ensure the file contains an `openapi:` or `swagger:` root key
 4. Check the output channel for classification messages
 
 ### Configuration Not Loading
 
-1. Verify file location: `.telescope.yaml` in workspace root
+1. Verify file location: `.telescope.yaml`, `.telescope.yml`, `.telescope/config.yaml`, or `.telescope/config.yml`
 2. Check YAML syntax is valid
 3. Look for errors in the output channel
 

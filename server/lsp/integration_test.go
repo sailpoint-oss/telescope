@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LukasParke/gossip/gossiptest"
 	"github.com/LukasParke/gossip/protocol"
 )
 
@@ -46,6 +47,41 @@ func dumpDiags(t *testing.T, label string, diags []protocol.Diagnostic) {
 	}
 }
 
+func waitForDocumentReady(t *testing.T, c *gossiptest.Client, uri string, timeout time.Duration) []protocol.Diagnostic {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0}); err == nil {
+			return c.LatestDiagnostics(uri)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s to become responsive", uri)
+	return nil
+}
+
+func waitForDiagnosticsState(
+	t *testing.T,
+	c *gossiptest.Client,
+	uri string,
+	timeout time.Duration,
+	predicate func([]protocol.Diagnostic) bool,
+	description string,
+) []protocol.Diagnostic {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		diags := c.LatestDiagnostics(uri)
+		if predicate(diags) {
+			return diags
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	finalDiags := c.LatestDiagnostics(uri)
+	t.Fatalf("timed out waiting for %s", description)
+	return finalDiags
+}
+
 // ---------------------------------------------------------------------------
 // Broken YAML Parsing Tests (6)
 //
@@ -74,8 +110,7 @@ paths:
           description: OK
 `
 	c.OpenWithLanguage(uri, "yaml", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "broken-indent", diags)
 
 	// Verify server is still responsive after processing malformed content.
@@ -101,8 +136,7 @@ paths:
           description: OK
 `
 	c.OpenWithLanguage(uri, "yaml", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "missing-colon", diags)
 
 	// Server stays alive after processing broken YAML.
@@ -138,8 +172,7 @@ func TestBrokenYAML_TabCharacters(t *testing.T) {
 	content := "openapi: \"3.1.0\"\ninfo:\n\ttitle: Tab Indented\n\tversion: \"1.0\"\npaths: {}\n"
 
 	c.OpenWithLanguage(uri, "yaml", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "tab-characters", diags)
 
 	// Tab detection is a child LSP feature; here we verify no crash.
@@ -183,8 +216,7 @@ func TestBrokenYAML_EmptyDocument(t *testing.T) {
 	uri := "file:///empty.yaml"
 
 	c.OpenWithLanguage(uri, "yaml", "")
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "empty-doc", diags)
 
 	// No crash on empty input.
@@ -213,8 +245,7 @@ func TestBrokenJSON_TrailingComma(t *testing.T) {
   "paths": {}
 }`
 	c.OpenWithLanguage(uri, "json", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "trailing-comma", diags)
 
 	// JSON trailing comma detection is a child LSP feature; verify no crash.
@@ -241,8 +272,7 @@ func TestBrokenJSON_MissingClosingBrace(t *testing.T) {
     }
 `
 	c.OpenWithLanguage(uri, "json", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "missing-brace", diags)
 
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
@@ -262,8 +292,7 @@ func TestBrokenJSON_MissingClosingBracket(t *testing.T) {
     {"name": "test", "description": "test tag"}
 }`
 	c.OpenWithLanguage(uri, "json", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "missing-bracket", diags)
 
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
@@ -281,8 +310,7 @@ func TestBrokenJSON_UnquotedKey(t *testing.T) {
   "paths": {}
 }`
 	c.OpenWithLanguage(uri, "json", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "unquoted-key", diags)
 
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
@@ -300,8 +328,7 @@ func TestBrokenJSON_SingleQuotes(t *testing.T) {
   'paths': {}
 }`
 	c.OpenWithLanguage(uri, "json", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "single-quotes", diags)
 
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
@@ -432,8 +459,7 @@ func TestSchema_MissingOpenAPIVersion(t *testing.T) {
 paths: {}
 `
 	c.OpenWithLanguage(uri, "yaml", content)
-	time.Sleep(500 * time.Millisecond)
-	diags := c.LatestDiagnostics(uri)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "no-openapi-version", diags)
 
 	// Without "openapi:" key, the document isn't recognized as OpenAPI.
@@ -517,7 +543,6 @@ func TestEdge_EmptyYAMLDocument(t *testing.T) {
 	uri := "file:///edge-empty.yaml"
 
 	c.OpenWithLanguage(uri, "yaml", "")
-	time.Sleep(500 * time.Millisecond)
 	diags := c.LatestDiagnostics(uri)
 	dumpDiags(t, "edge-empty", diags)
 
@@ -536,7 +561,6 @@ func TestEdge_CommentOnlyYAML(t *testing.T) {
 # Should be handled gracefully
 `
 	c.OpenWithLanguage(uri, "yaml", content)
-	time.Sleep(500 * time.Millisecond)
 	diags := c.LatestDiagnostics(uri)
 	dumpDiags(t, "edge-comments", diags)
 
@@ -838,9 +862,16 @@ tags:
     description: Test tag
 `
 	c.Change(uri, 2, violationContent)
-	// Allow server to re-analyze after content change.
-	time.Sleep(500 * time.Millisecond)
-	diags = c.LatestDiagnostics(uri)
+	diags = waitForDiagnosticsState(
+		t,
+		c,
+		uri,
+		5*time.Second,
+		func(diags []protocol.Diagnostic) bool {
+			return hasDiagWithCode(diags, "kebab-case")
+		},
+		"kebab-case diagnostic after introducing /UPPER_CASE",
+	)
 	dumpDiags(t, "lifecycle-after-violation", diags)
 
 	if !hasDiagWithCode(diags, "kebab-case") {
@@ -849,8 +880,16 @@ tags:
 
 	// Fix the violation.
 	c.Change(uri, 3, validContent)
-	time.Sleep(500 * time.Millisecond)
-	diags = c.LatestDiagnostics(uri)
+	diags = waitForDiagnosticsState(
+		t,
+		c,
+		uri,
+		5*time.Second,
+		func(diags []protocol.Diagnostic) bool {
+			return !hasDiagWithCode(diags, "kebab-case")
+		},
+		"kebab-case diagnostic to clear after fix",
+	)
 
 	if hasDiagWithCode(diags, "kebab-case") {
 		t.Error("expected kebab-case diagnostic to clear after fix")
@@ -903,9 +942,16 @@ paths:
                 $ref: "#/components/schemas/Missing"
 `
 	c.Change(uri, 2, refContent)
-	// Allow server to re-analyze after content change.
-	time.Sleep(500 * time.Millisecond)
-	diags = c.LatestDiagnostics(uri)
+	diags = waitForDiagnosticsState(
+		t,
+		c,
+		uri,
+		5*time.Second,
+		func(diags []protocol.Diagnostic) bool {
+			return hasDiagWithCode(diags, "unresolved-ref")
+		},
+		"unresolved-ref diagnostic after adding $ref to Missing",
+	)
 	dumpDiags(t, "ref-lifecycle-after-add", diags)
 
 	if !hasDiagWithCode(diags, "unresolved-ref") {

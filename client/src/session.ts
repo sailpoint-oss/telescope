@@ -24,11 +24,20 @@ import {
 	getOpenAPILanguageId,
 	isOpenAPILanguage,
 	matchesPatternList,
+	TELESCOPE_CONFIG_PATHS,
 } from "./utils";
 import { WorkspaceScanner } from "./workspace-scanner";
 
-/** Path to the Telescope configuration file relative to workspace root */
-const CONFIG_PATH = ".telescope/config.yaml";
+type ManagedLanguage = "yaml" | "json" | "openapi-yaml" | "openapi-json";
+
+type ServerClassificationParams = {
+	uri: string;
+	isOpenAPI: boolean;
+	documentKind?: string;
+	version?: string;
+	isFragment?: boolean;
+	confidence?: number;
+};
 
 /**
  * Session state enum for lifecycle management.
@@ -309,30 +318,42 @@ export class Session implements vscode.Disposable {
 	 * Load telescope config from this workspace folder.
 	 */
 	private async loadConfig(): Promise<void> {
-		const configPath = vscode.Uri.joinPath(
-			this.workspaceFolder.uri,
-			CONFIG_PATH,
-		);
-
-		try {
-			const content = await vscode.workspace.fs.readFile(configPath);
-			const text = new TextDecoder().decode(content);
-			const config = yamlParse(text);
-
-			if (
-				config?.openapi?.patterns &&
-				Array.isArray(config.openapi.patterns) &&
-				config.openapi.patterns.length > 0
-			) {
-				this.patterns = config.openapi.patterns;
-			} else {
-				this.patterns = DEFAULT_OPENAPI_PATTERNS;
+		let loadedFrom: string | null = null;
+		for (const configPath of TELESCOPE_CONFIG_PATHS) {
+			const configUri = vscode.Uri.joinPath(this.workspaceFolder.uri, configPath);
+			let content: Uint8Array;
+			try {
+				content = await vscode.workspace.fs.readFile(configUri);
+			} catch {
+				continue;
 			}
-		} catch {
-			this.patterns = DEFAULT_OPENAPI_PATTERNS;
+
+			try {
+				const text = new TextDecoder().decode(content);
+				const config = yamlParse(text);
+				if (
+					config?.openapi?.patterns &&
+					Array.isArray(config.openapi.patterns) &&
+					config.openapi.patterns.length > 0
+				) {
+					this.patterns = config.openapi.patterns;
+				} else {
+					this.patterns = DEFAULT_OPENAPI_PATTERNS;
+				}
+				loadedFrom = configPath;
+			} catch (error) {
+				this.patterns = DEFAULT_OPENAPI_PATTERNS;
+				this.logError(`Failed to parse ${configPath}: ${error}`);
+			}
+			break;
 		}
 
-		this.log(`Loaded patterns: ${JSON.stringify(this.patterns)}`);
+		if (!loadedFrom) {
+			this.patterns = DEFAULT_OPENAPI_PATTERNS;
+		}
+		this.log(
+			`Loaded patterns${loadedFrom ? ` from ${loadedFrom}` : ""}: ${JSON.stringify(this.patterns)}`,
+		);
 	}
 
 	/**
@@ -411,6 +432,13 @@ export class Session implements vscode.Disposable {
 				if (this.onDeprecatedRanges) {
 					this.onDeprecatedRanges(params);
 				}
+			},
+		);
+
+		this.client.onNotification(
+			"$/telescope/classify",
+			(params: ServerClassificationParams) => {
+				void this.handleServerClassification(params);
 			},
 		);
 
@@ -589,10 +617,6 @@ export class Session implements vscode.Disposable {
 
 		this.disposables.push(fileWatcher);
 
-		const configWatcher = vscode.workspace.createFileSystemWatcher(
-			new vscode.RelativePattern(this.workspaceFolder, CONFIG_PATH),
-		);
-
 		const handleConfigChange = async () => {
 			this.log("Config file changed, reloading...");
 			await this.loadConfig();
@@ -604,10 +628,21 @@ export class Session implements vscode.Disposable {
 			await this.runScan();
 		};
 
-		configWatcher.onDidChange(handleConfigChange);
-		configWatcher.onDidCreate(handleConfigChange);
-		configWatcher.onDidDelete(handleConfigChange);
-		this.disposables.push(configWatcher);
+		for (const configPath of TELESCOPE_CONFIG_PATHS) {
+			const configWatcher = vscode.workspace.createFileSystemWatcher(
+				new vscode.RelativePattern(this.workspaceFolder, configPath),
+			);
+			configWatcher.onDidChange(() => {
+				void handleConfigChange();
+			});
+			configWatcher.onDidCreate(() => {
+				void handleConfigChange();
+			});
+			configWatcher.onDidDelete(() => {
+				void handleConfigChange();
+			});
+			this.disposables.push(configWatcher);
+		}
 	}
 
 	/**
@@ -791,6 +826,7 @@ export class Session implements vscode.Disposable {
 			workspace: this.workspaceFolder.uri.toString(),
 			uri,
 			languageId,
+			source,
 		});
 
 		if (this.userOverrides.has(uri)) {
@@ -810,11 +846,11 @@ export class Session implements vscode.Disposable {
 			const baseLanguage = getBaseLanguageFromExtension(filePath);
 			if (baseLanguage) {
 				try {
-					const newDoc = await vscode.languages.setTextDocumentLanguage(
+					doc = await this.setDocumentLanguageWithGuard(
 						doc,
 						baseLanguage,
+						"live",
 					);
-					doc = newDoc;
 				} catch (error) {
 					console.debug(`Failed to set base language for ${uri}:`, error);
 				}
@@ -838,6 +874,7 @@ export class Session implements vscode.Disposable {
 
 		const classifyResult = classifyDocument(doc);
 		const isOpenAPI = classifyResult === "openapi";
+		this.scanner?.rememberClassification(uri, isOpenAPI);
 
 		if (isOpenAPI) {
 			try {
@@ -851,22 +888,93 @@ export class Session implements vscode.Disposable {
 
 	private async setDocumentLanguageWithGuard(
 		doc: vscode.TextDocument,
-		targetLanguage: "openapi-yaml" | "openapi-json",
-		reason: "cached" | "live",
-	): Promise<void> {
+		targetLanguage: ManagedLanguage,
+		reason: "cached" | "live" | "server",
+	): Promise<vscode.TextDocument> {
 		const uri = doc.uri.toString();
-		if (doc.languageId === targetLanguage) return;
+		if (doc.languageId === targetLanguage) return doc;
 		if (this.languageSwitchInFlight.has(uri)) {
-			return;
+			return doc;
 		}
 
 		this.languageSwitchInFlight.add(uri);
 		try {
-			await vscode.languages.setTextDocumentLanguage(doc, targetLanguage);
-			this.classifiedDocuments.set(uri, targetLanguage);
+			appendTraceEvent(this.outputChannel, "session.language.switch", {
+				workspace: this.workspaceFolder.uri.toString(),
+				uri,
+				from: doc.languageId,
+				to: targetLanguage,
+				reason,
+			});
+			const newDoc = await vscode.languages.setTextDocumentLanguage(
+				doc,
+				targetLanguage,
+			);
+			if (isOpenAPILanguage(targetLanguage)) {
+				this.classifiedDocuments.set(uri, targetLanguage);
+			} else {
+				this.classifiedDocuments.delete(uri);
+			}
+			return newDoc;
 		} finally {
 			this.languageSwitchInFlight.delete(uri);
 		}
+	}
+
+	private async handleServerClassification(
+		params: ServerClassificationParams,
+	): Promise<void> {
+		const uri = vscode.Uri.parse(params.uri);
+		if (uri.fragment || !this.ownsUri(uri)) {
+			return;
+		}
+
+		if (
+			!matchesPatternList(
+				uri.fsPath,
+				this.patterns,
+				this.workspaceFolder.uri.fsPath,
+			)
+		) {
+			return;
+		}
+
+		appendTraceEvent(this.outputChannel, "session.classification.server", {
+			workspace: this.workspaceFolder.uri.toString(),
+			uri: params.uri,
+			isOpenAPI: params.isOpenAPI,
+			documentKind: params.documentKind ?? "",
+			confidence: params.confidence ?? 0,
+		});
+
+		this.scanner?.rememberClassification(params.uri, params.isOpenAPI);
+		if (this.userOverrides.has(params.uri)) {
+			return;
+		}
+
+		const openDoc = vscode.workspace.textDocuments.find(
+			(doc) => doc.uri.toString() === params.uri,
+		);
+		if (!openDoc) {
+			return;
+		}
+
+		if (params.isOpenAPI) {
+			const targetLanguage = getOpenAPILanguageId(uri.fsPath);
+			await this.setDocumentLanguageWithGuard(openDoc, targetLanguage, "server");
+			return;
+		}
+
+		this.classifiedDocuments.delete(params.uri);
+		if (!isOpenAPILanguage(openDoc.languageId)) {
+			return;
+		}
+
+		const baseLanguage = getBaseLanguageFromExtension(uri.fsPath);
+		if (!baseLanguage) {
+			return;
+		}
+		await this.setDocumentLanguageWithGuard(openDoc, baseLanguage, "server");
 	}
 
 	/**
@@ -877,7 +985,7 @@ export class Session implements vscode.Disposable {
 		this.userOverrides.delete(uri);
 		this.classifiedDocuments.delete(uri);
 		await this.handleDocument(doc);
-		return classifyDocument(doc) === "openapi";
+		return this.scanner?.getClassification(uri)?.isOpenAPI ?? false;
 	}
 
 	/**

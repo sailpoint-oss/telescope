@@ -105,6 +105,13 @@ func WithTargetVersion(v openapi.Version) AnalyzerOption {
 	}
 }
 
+// WithResolver sets the cross-file resolver on AnalysisData.
+func WithResolver(r CrossRefResolver) AnalyzerOption {
+	return func(d *AnalysisData) {
+		d.Resolver = r
+	}
+}
+
 // RunChecks executes pattern-based tree-sitter checks against the given tree
 // and returns the combined diagnostics as core types.
 func RunChecks(checks []NamedCheck, tree *treesitter.Tree, lang *tree_sitter.Language) []ctypes.Diagnostic {

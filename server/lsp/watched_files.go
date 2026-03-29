@@ -8,13 +8,14 @@ import (
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/lsp/observe"
+	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/project"
 )
 
 // NewWatchedFilesHandler returns a handler that triggers ruleset reload when
 // Spectral or Telescope config files change on disk, and propagates changes
 // to the project manager for cross-file diagnostic updates.
-func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, logger *slog.Logger) gossip.DidChangeWatchedFilesHandler {
+func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, graphBridge *GraphBridge, indexCache *openapi.IndexCache, logger *slog.Logger) gossip.DidChangeWatchedFilesHandler {
 	return func(ctx *gossip.Context, params *protocol.DidChangeWatchedFilesParams) error {
 		traceID := observe.GetTraceID(ctx)
 		if logger != nil {
@@ -61,6 +62,11 @@ func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, log
 						"uri", uri,
 						"action", "created")
 				}
+				go func(path string) {
+					if _, err := graphBridge.OnFileCreated(context.Background(), indexCache, path); err != nil && logger != nil {
+						logger.Warn("failed to ingest created file into graph", "path", path, "error", err)
+					}
+				}(path)
 				go projMgr.OnFileCreated(path)
 			case protocol.FileChanged:
 				if logger != nil {
@@ -68,6 +74,13 @@ func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, log
 						"trace_id", traceID,
 						"uri", uri,
 						"action", "changed")
+				}
+				if ctx.Documents.Get(change.URI) == nil {
+					go func(uri string) {
+						if _, err := graphBridge.OnFileChanged(context.Background(), indexCache, uri); err != nil && logger != nil {
+							logger.Warn("failed to refresh changed file in graph", "uri", uri, "error", err)
+						}
+					}(uri)
 				}
 				go projMgr.OnFileChanged(uri)
 			case protocol.FileDeleted:
@@ -77,6 +90,11 @@ func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, log
 						"uri", uri,
 						"action", "deleted")
 				}
+				go func(path string) {
+					if _, err := graphBridge.OnFileDeleted(context.Background(), indexCache, path); err != nil && logger != nil {
+						logger.Warn("failed to evict deleted file from graph", "path", path, "error", err)
+					}
+				}(path)
 				go projMgr.OnFileDeleted(path)
 			}
 		}

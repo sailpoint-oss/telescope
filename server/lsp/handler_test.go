@@ -2307,25 +2307,12 @@ func setupCrossFileEnv(t *testing.T) *crossFileEnv {
 
 	cache := openapi.NewIndexCache()
 
-	compTree := mgr.GetTree(compURI)
-	if compTree == nil {
-		t.Fatal("nil tree for components")
-	}
-	compDoc := store.Get(compURI)
-	compIdx := openapi.BuildIndex(compTree, compDoc)
-	cache.Set(compURI, compIdx)
-
-	rootTree := mgr.GetTree(rootURI)
-	if rootTree == nil {
-		t.Fatal("nil tree for root")
-	}
-	rootDoc := store.Get(rootURI)
-	rootIdx := openapi.BuildIndex(rootTree, rootDoc)
-	cache.Set(rootURI, rootIdx)
-
 	bridge := lsp.NewGraphBridge(nil)
-	bridge.SyncEdgesFromIndex(string(rootURI), rootIdx)
-	bridge.SyncEdgesFromIndex(string(compURI), compIdx)
+	bridge.OnDocumentOpen(string(compURI), []byte(crossFileCompSpec))
+	bridge.OnDocumentOpen(string(rootURI), []byte(crossFileRootSpec))
+	if _, err := bridge.RunPipeline(context.Background(), cache, string(compURI), string(rootURI)); err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
 
 	ctx := &gossip.Context{
 		Context:   context.Background(),
@@ -2556,11 +2543,10 @@ func TestRenameHandler_CrossFile_SchemaUpdatesDefinitionAndRefs(t *testing.T) {
 	if compIdx == nil {
 		t.Fatal("missing components index")
 	}
-	schema, ok := compIdx.Schemas["User"]
-	if !ok {
+	if _, ok := compIdx.Schemas["User"]; !ok {
 		t.Fatal("missing User schema in components index")
 	}
-	start := adapt.RangeToProtocol(schema.NameLoc.Range).Start
+	start := protocol.Position{Line: 6, Character: 6}
 
 	result, err := handler(env.ctx, &protocol.RenameParams{
 		TextDocumentPositionParams: protocol.TextDocumentPositionParams{

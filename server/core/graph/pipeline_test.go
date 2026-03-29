@@ -113,6 +113,55 @@ func TestPipelineRunner_Caching(t *testing.T) {
 	}
 }
 
+func TestBindStage_ResolvesRelativeFileRefs(t *testing.T) {
+	const (
+		rootURI = "file:///workspace/apis/root.yaml"
+		depURI  = "file:///workspace/schemas/common.yaml"
+	)
+
+	g := NewWorkspaceGraph()
+	g.AddSource(NewSyntheticSource(rootURI, []byte(`openapi: "3.1.0"
+info:
+  title: Example
+  version: "1.0"
+paths:
+  /users:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: ../schemas/common.yaml#/components/schemas/User
+`), ClassificationHint{IsOpenAPI: true}))
+	g.AddSource(NewSyntheticSource(depURI, []byte(`components:
+  schemas:
+    User:
+      type: object
+`), ClassificationHint{IsOpenAPI: true}))
+
+	runner, err := NewPipelineRunner(DefaultStages(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runner.RunThrough(context.Background(), rootURI, g, StageBind); err != nil {
+		t.Fatal(err)
+	}
+
+	edges := g.EdgesFrom(rootURI)
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge, got %d", len(edges))
+	}
+	if edges[0].TargetURI != depURI {
+		t.Fatalf("expected edge target %q, got %q", depURI, edges[0].TargetURI)
+	}
+	if edges[0].TargetPointer != "/components/schemas/User" {
+		t.Fatalf("expected edge pointer /components/schemas/User, got %q", edges[0].TargetPointer)
+	}
+}
+
 func TestPipelineRunner_RunThrough(t *testing.T) {
 	g := NewWorkspaceGraph()
 	g.AddSource(NewSyntheticSource("file:///partial.yaml", []byte("test"), ClassificationHint{}))

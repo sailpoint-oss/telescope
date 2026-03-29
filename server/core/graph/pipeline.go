@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LukasParke/gossip/protocol"
 	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/core/parser"
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
@@ -386,9 +387,9 @@ func (BindStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error {
 	}
 
 	g.SetStageResult(uri, StageBind, &StageResult{
-		Stage:   StageBind,
-		Data:    output,
-		Version: lint.Version,
+		Stage:    StageBind,
+		Data:     output,
+		Version:  lint.Version,
 		Duration: time.Since(start),
 	})
 	return nil
@@ -439,16 +440,18 @@ func bindRefs(baseURI, pointer string, node *parser.SemanticNode, g *WorkspaceGr
 
 func resolveRef(baseURI, ref string) (string, string) {
 	if ref == "" {
-		return baseURI, ""
+		return string(protocol.NormalizeURI(protocol.DocumentURI(baseURI))), ""
 	}
 	if ref[0] == '#' {
-		return baseURI, ref[1:]
+		return string(protocol.NormalizeURI(protocol.DocumentURI(baseURI))), ref[1:]
 	}
-	idx := strings.IndexByte(ref, '#')
-	if idx < 0 {
-		return ref, ""
+
+	filePart, fragment := navigator.SplitRefURI(ref)
+	targetURI := navigator.ResolveRelativeURI(baseURI, filePart)
+	if targetURI == "" {
+		targetURI = filePart
 	}
-	return ref[:idx], ref[idx+1:]
+	return string(protocol.NormalizeURI(protocol.DocumentURI(targetURI))), strings.TrimPrefix(fragment, "#")
 }
 
 func escapeJSONPointer(s string) string {

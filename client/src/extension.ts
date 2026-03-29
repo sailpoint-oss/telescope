@@ -63,7 +63,8 @@ function resolveServerPath(context: ExtensionContext): string {
 	throw new Error(
 		"Could not find the Telescope language server binary. " +
 			"Set the TELESCOPE_SERVER_PATH environment variable, the telescope.serverPath setting, " +
-			`install it on your PATH, or ensure the bundled binary exists at bin/${binaryName}.`,
+			`install it on your PATH, or ensure the bundled binary exists at bin/${binaryName}. ` +
+			"If you installed the universal VSIX, you must provide the server binary separately.",
 	);
 }
 

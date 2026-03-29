@@ -18,7 +18,8 @@ func TraceAttr() slog.Attr {
 	return slog.String("trace_id", hex.EncodeToString(b[:]))
 }
 
-// GraphInfo holds workspace graph statistics for the $/telescope/graphInfo notification.
+// GraphInfo holds pipeline-backed workspace graph statistics for the
+// $/telescope/graphInfo notification.
 type GraphInfo struct {
 	NodeCount       int            `json:"nodeCount"`
 	EdgeCount       int            `json:"edgeCount"`
@@ -29,8 +30,9 @@ type GraphInfo struct {
 	SnapshotVersion int64          `json:"snapshotVersion"`
 }
 
-// CollectGraphInfo builds GraphInfo from a workspace graph. If snap is non-nil,
-// SnapshotVersion is set from the snapshot ID.
+// CollectGraphInfo builds GraphInfo from a workspace graph. StageDurations is
+// the aggregate of clean cached stage results across all nodes. If snap is
+// non-nil, SnapshotVersion is set from the snapshot ID.
 func CollectGraphInfo(g *graph.WorkspaceGraph, snap *graph.Snapshot) GraphInfo {
 	info := GraphInfo{
 		StageDurations: make(map[string]int),
@@ -45,6 +47,12 @@ func CollectGraphInfo(g *graph.WorkspaceGraph, snap *graph.Snapshot) GraphInfo {
 		info.EdgeCount += len(g.EdgesFrom(uri))
 		node := g.Node(uri)
 		if node != nil {
+			for stage, result := range node.StageResults {
+				if result == nil || node.DirtyStages[stage] {
+					continue
+				}
+				info.StageDurations[string(stage)] += int(result.Duration.Milliseconds())
+			}
 			for _, d := range node.DirtyStages {
 				if d {
 					info.DirtyNodeCount++

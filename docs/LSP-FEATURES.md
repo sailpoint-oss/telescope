@@ -1,10 +1,11 @@
 # LSP Features Reference
 
-Telescope provides comprehensive Language Server Protocol (LSP) features for OpenAPI documents, YAML/JSON files, and embedded Markdown content. This document details all available features and how to use them.
+Telescope provides a full OpenAPI-focused LSP on top of a few supporting subsystems. This document describes the features that are actually wired today, where they come from, and what is optional versus always-on.
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Distribution](#distribution)
 - [Core Navigation](#core-navigation)
 - [Code Intelligence](#code-intelligence)
 - [Refactoring](#refactoring)
@@ -16,15 +17,40 @@ Telescope provides comprehensive Language Server Protocol (LSP) features for Ope
 
 ## Overview
 
-Telescope implements LSP features through multiple specialized services:
+Telescope's LSP surface is split across a few distinct layers:
 
-| Service                | Scope                  | Features                                              |
-| ---------------------- | ---------------------- | ----------------------------------------------------- |
-| **OpenAPI Service**    | OpenAPI documents      | 15 features including semantic tokens, call hierarchy |
-| **YAML Service**       | Generic YAML files     | 11 features via yaml-language-server                  |
-| **JSON Service**       | Generic JSON files     | 10 features via vscode-json-languageservice           |
-| **Markdown Service**   | Embedded descriptions  | 15 features via vscode-markdown-languageservice       |
-| **Validation Service** | Custom file validation | Diagnostics for custom rules/schemas                  |
+| Layer | Scope | What it actually provides |
+| ----- | ----- | ------------------------- |
+| **Telescope OpenAPI server** | OpenAPI YAML/JSON documents | Navigation, hover, completion, rename, formatting, semantic tokens, code actions, workspace symbols, call hierarchy, inlay hints, code lens, and Telescope-owned diagnostics |
+| **Child YAML validator** | YAML documents routed through Telescope | Syntax and schema diagnostics from `yaml-language-server` |
+| **Child JSON validator** | JSON documents routed through Telescope | Syntax and schema diagnostics from `vscode-json-language-server` |
+| **Embedded Markdown support** | Markdown inside descriptions, summaries, and docs fields | Markdown parsing, document links, and extension-side syntax highlighting for fenced code blocks |
+| **Optional Bun sidecar** | Workspaces that enable JS/TS custom rules | Additional diagnostics for Bun-backed custom rules when the sidecar is bundled and available |
+
+The important distinction is that Telescope does **not** expose the child YAML/JSON servers as full generic editor services. Their completion, hover, and formatting features are disabled in Telescope; they are used as auxiliary validators.
+
+### Capability Truth Table
+
+| Capability | Telescope core | Child YAML/JSON | Bun sidecar |
+| ---------- | -------------- | --------------- | ----------- |
+| OpenAPI navigation and refactoring | Yes | No | No |
+| OpenAPI completion, hover, and semantic tokens | Yes | No | No |
+| YAML/JSON syntax and schema diagnostics | No | Yes | No |
+| Generic YAML/JSON completion, hover, or formatting | No | Disabled | No |
+| Embedded Markdown link handling and code-block highlighting | Yes | No | No |
+| Go plugin and Spectral YAML ruleset diagnostics | Yes | No | No |
+| TypeScript/JavaScript custom-rule diagnostics | No | No | Optional |
+
+## Distribution
+
+| Channel | Extension ID | Notes |
+| ------- | ------------ | ----- |
+| VS Code Marketplace | `SailPointTechnologies.telescope-openapi` | Official Microsoft VS Code listing |
+| Open VSX | `sailpoint.telescope` | Used by Open VSX-compatible editors such as Cursor and VSCodium |
+
+Platform-specific VSIXs currently bundle the Telescope server for `darwin-arm64`, `darwin-x64`, `linux-x64`, and `win32-x64`.
+
+Universal VSIXs do not bundle the native server binary. On unsupported platforms such as Linux ARM64, Windows ARM64, or Alpine/musl environments, install the `telescope` binary separately and point the extension at it with `telescope.serverPath`, `TELESCOPE_SERVER_PATH`, or `PATH`.
 
 ## Core Navigation
 

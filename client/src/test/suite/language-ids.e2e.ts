@@ -6,9 +6,12 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
+	deleteWorkspaceFile,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
+	waitForLanguageId,
+	writeWorkspaceFile,
 } from "./utils/e2e-helpers";
 
 suite("Language IDs", () => {
@@ -29,7 +32,8 @@ suite("Language IDs", () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "valid.yaml");
 
-		const doc = await openAndShow(uri);
+		await openAndShow(uri);
+		const doc = await waitForLanguageId(uri, "openapi-yaml");
 		assert.strictEqual(
 			doc.languageId,
 			"openapi-yaml",
@@ -41,7 +45,8 @@ suite("Language IDs", () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "openapi.json");
 
-		const doc = await openAndShow(uri);
+		await openAndShow(uri);
+		const doc = await waitForLanguageId(uri, "openapi-json");
 		assert.strictEqual(
 			doc.languageId,
 			"openapi-json",
@@ -53,8 +58,45 @@ suite("Language IDs", () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "plain.yaml");
 
-		const doc = await openAndShow(uri);
+		await openAndShow(uri);
+		const doc = await waitForLanguageId(uri, "yaml");
 		assert.strictEqual(doc.languageId, "yaml", `Expected yaml, got ${doc.languageId}`);
+	});
+
+	test("Open YAML should reclassify after becoming OpenAPI", async () => {
+		if (isMultiRootWorkspace()) return;
+		const relativePath = `language-upgrade-${Date.now()}.yaml`;
+		const uri = await writeWorkspaceFile(relativePath, "name: plain-yaml\n");
+
+		try {
+			let doc = await openAndShow(uri);
+			doc = await waitForLanguageId(uri, "yaml");
+			assert.strictEqual(doc.languageId, "yaml", `Expected yaml, got ${doc.languageId}`);
+
+			const editor = vscode.window.activeTextEditor;
+			assert.ok(editor, "Expected an active text editor");
+			const replacement = `openapi: "3.1.0"
+info:
+  title: Dynamic Reclassification
+  version: "1.0.0"
+paths: {}
+`;
+			await editor.edit((editBuilder) => {
+				editBuilder.replace(
+					new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)),
+					replacement,
+				);
+			});
+
+			doc = await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 10000 });
+			assert.strictEqual(
+				doc.languageId,
+				"openapi-yaml",
+				`Expected openapi-yaml after edit, got ${doc.languageId}`,
+			);
+		} finally {
+			await deleteWorkspaceFile(relativePath);
+		}
 	});
 });
 

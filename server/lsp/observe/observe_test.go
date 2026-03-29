@@ -38,6 +38,11 @@ func TestCollectGraphInfo(t *testing.T) {
 	g.AddSource(graph.NewSyntheticSource("file:///b.yaml", []byte("test"), graph.ClassificationHint{}))
 	g.AddEdge(graph.Edge{SourceURI: "file:///a.yaml", TargetURI: "file:///b.yaml", Kind: graph.EdgeRef})
 	g.SetRoot("file:///a.yaml", true)
+	g.SetStageResult("file:///a.yaml", graph.StageParse, &graph.StageResult{
+		Data:     "x",
+		Version:  1,
+		Duration: 25 * time.Millisecond,
+	})
 
 	info := CollectGraphInfo(g, nil)
 	if info.NodeCount != 2 {
@@ -52,6 +57,9 @@ func TestCollectGraphInfo(t *testing.T) {
 	if info.StageDurations == nil {
 		t.Error("StageDurations should be non-nil")
 	}
+	if info.StageDurations[string(graph.StageParse)] != 25 {
+		t.Errorf("StageDurations[parse] = %d, want 25", info.StageDurations[string(graph.StageParse)])
+	}
 	if info.MemoryUsageMB < 0 {
 		t.Errorf("MemoryUsageMB = %f, want >= 0", info.MemoryUsageMB)
 	}
@@ -59,7 +67,6 @@ func TestCollectGraphInfo(t *testing.T) {
 		t.Errorf("SnapshotVersion = %d, want 0 when snap is nil", info.SnapshotVersion)
 	}
 
-	g.SetStageResult("file:///a.yaml", graph.StageParse, &graph.StageResult{Data: "x", Version: 1})
 	g.Invalidate("file:///a.yaml")
 	info2 := CollectGraphInfo(g, nil)
 	if info2.DirtyNodeCount < 1 {

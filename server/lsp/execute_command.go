@@ -27,7 +27,7 @@ import (
 
 // NewExecuteCommandHandler handles custom telescope commands.
 // Commands expect a document URI as the first argument.
-func NewExecuteCommandHandler(cache *openapi.IndexCache, _ *GraphBridge, deps *ExecuteCommandDeps) gossip.ExecuteCommandHandler {
+func NewExecuteCommandHandler(cache *openapi.IndexCache, bridge *GraphBridge, deps *ExecuteCommandDeps) gossip.ExecuteCommandHandler {
 	if deps == nil {
 		deps = &ExecuteCommandDeps{Config: config.DefaultConfig(), Runner: contractrunner.New(config.DefaultConfig())}
 	} else if deps.Config == nil {
@@ -47,7 +47,7 @@ func NewExecuteCommandHandler(cache *openapi.IndexCache, _ *GraphBridge, deps *E
 		case "telescope.generateResponseSkeletons":
 			return executeGenerateResponses(ctx, cache, uri)
 		case "telescope.bundlePreview":
-			return executeBundlePreview(ctx, cache, uri)
+			return executeBundlePreview(ctx, cache, bridge, uri)
 		case "telescope.validateExamples":
 			return executeValidateExamples(cache, uri)
 		case "telescope.runContractTests":
@@ -695,20 +695,27 @@ func executeValidateExamples(cache *openapi.IndexCache, uri protocol.DocumentURI
 	}, nil
 }
 
-func executeBundlePreview(ctx *gossip.Context, cache *openapi.IndexCache, uri protocol.DocumentURI) (interface{}, error) {
+func executeBundlePreview(ctx *gossip.Context, cache *openapi.IndexCache, bridge *GraphBridge, uri protocol.DocumentURI) (interface{}, error) {
 	idx := cache.Get(uri)
 	if idx == nil || idx.Document == nil || !idx.IsOpenAPI() {
 		return nil, nil
 	}
 
-	proj, err := project.BuildProjectContext(string(uri), cache, nil)
-	if err != nil {
-		return nil, fmt.Errorf("bundle preview: %w", err)
+	order := []string{string(uri)}
+	if bridge != nil {
+		if _, err := bridge.RunPipeline(context.Background(), cache, string(uri)); err == nil {
+			order = append(order, bridge.Graph().TransitiveDependencies(string(uri))...)
+		}
 	}
 
-	order := []string{string(uri)}
-	if proj.Graph != nil {
-		order = append(order, proj.Graph.TransitiveDependenciesOf(string(uri))...)
+	if len(order) == 1 {
+		proj, err := project.BuildProjectContext(string(uri), cache, nil)
+		if err != nil {
+			return nil, fmt.Errorf("bundle preview: %w", err)
+		}
+		if proj.Graph != nil {
+			order = append(order, proj.Graph.TransitiveDependenciesOf(string(uri))...)
+		}
 	}
 
 	merged := make(map[string]any)

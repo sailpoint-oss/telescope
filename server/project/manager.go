@@ -30,6 +30,8 @@ type Manager struct {
 	// that are already handled by the incremental analyzer pipeline.
 	shouldPublish func(uri string) bool
 	analyzers     []rules.NamedAnalyzer
+	resolver      rules.CrossRefResolver
+	onDiscovered  func([]*DiscoveredFile)
 	logger        *slog.Logger
 
 	workspaceRoot string
@@ -79,6 +81,23 @@ func (m *Manager) SetAnalyzers(a []rules.NamedAnalyzer) {
 	m.analyzers = a
 }
 
+// SetResolver sets the cross-file resolver used for analyzer inputs and
+// unresolved-ref checks. When nil, the manager falls back to project-local
+// resolvers.
+func (m *Manager) SetResolver(resolver rules.CrossRefResolver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.resolver = resolver
+}
+
+// SetOnDiscovered registers a callback that receives the full workspace file
+// list after discovery completes and before project contexts are built.
+func (m *Manager) SetOnDiscovered(fn func([]*DiscoveredFile)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onDiscovered = fn
+}
+
 // Initialize performs workspace discovery and builds project contexts for all
 // root documents. Call this on server initialized.
 func (m *Manager) Initialize(workspaceRoot string, exclude []string) {
@@ -98,6 +117,13 @@ func (m *Manager) Initialize(workspaceRoot string, exclude []string) {
 	allFiles := m.discovery.AllFiles()
 	m.logger.Info("workspace scan complete", "files", len(allFiles), "roots", len(roots))
 
+	m.mu.RLock()
+	onDiscovered := m.onDiscovered
+	m.mu.RUnlock()
+	if onDiscovered != nil {
+		onDiscovered(allFiles)
+	}
+
 	for _, rootURI := range roots {
 		m.buildProject(rootURI)
 	}
@@ -113,6 +139,7 @@ func (m *Manager) diagnoseStandaloneFragments() {
 	publishFn := m.publish
 	shouldPublishFn := m.shouldPublish
 	analyzers := m.analyzers
+	resolver := m.resolver
 	m.mu.RUnlock()
 
 	if publishFn == nil || len(analyzers) == 0 {
@@ -138,7 +165,11 @@ func (m *Manager) diagnoseStandaloneFragments() {
 			continue
 		}
 
-		diags := rules.RunAnalyzers(analyzers, idx, df.URI, nil)
+		var opts []rules.AnalyzerOption
+		if resolver != nil {
+			opts = append(opts, rules.WithResolver(resolver))
+		}
+		diags := rules.RunAnalyzers(analyzers, idx, df.URI, nil, opts...)
 		if err := publishFn(context.Background(), protocol.DocumentURI(df.URI), adapt.DiagnosticsToProtocol(diags)); err != nil {
 			m.logger.Warn("failed to publish fragment diagnostics", "uri", df.URI, "error", err)
 		}
@@ -179,6 +210,7 @@ func (m *Manager) runProjectDiagnostics(pctx *ProjectContext) {
 	publishFn := m.publish
 	shouldPublishFn := m.shouldPublish
 	analyzers := m.analyzers
+	resolver := m.resolver
 	m.mu.RUnlock()
 
 	if publishFn == nil {
@@ -194,7 +226,13 @@ func (m *Manager) runProjectDiagnostics(pctx *ProjectContext) {
 
 		// Run full analyzer suite if available.
 		if len(analyzers) > 0 && idx.Document != nil {
-			analyzerDiags := rules.RunAnalyzers(analyzers, idx, uri, nil)
+			var opts []rules.AnalyzerOption
+			if resolver != nil {
+				opts = append(opts, rules.WithResolver(resolver))
+			} else if projectResolver := pctx.GetResolver(); projectResolver != nil {
+				opts = append(opts, rules.WithResolver(projectResolver))
+			}
+			analyzerDiags := rules.RunAnalyzers(analyzers, idx, uri, nil, opts...)
 			diags = append(diags, adapt.DiagnosticsToProtocol(analyzerDiags)...)
 		}
 
@@ -208,6 +246,13 @@ func (m *Manager) runProjectDiagnostics(pctx *ProjectContext) {
 // project context. Currently checks unresolved $refs.
 func (m *Manager) diagnoseFile(uri string, idx *openapi.Index, pctx *ProjectContext) []protocol.Diagnostic {
 	var diags []protocol.Diagnostic
+
+	m.mu.RLock()
+	resolver := m.resolver
+	m.mu.RUnlock()
+	if resolver == nil && pctx != nil {
+		resolver = pctx.GetResolver()
+	}
 
 	for target, usages := range idx.Refs {
 		if _, err := idx.Resolve(target); err == nil {
@@ -227,7 +272,7 @@ func (m *Manager) diagnoseFile(uri string, idx *openapi.Index, pctx *ProjectCont
 			continue
 		}
 
-		if pctx.GetResolver().CanResolve(uri, target) {
+		if resolver != nil && resolver.CanResolve(uri, target) {
 			continue
 		}
 
@@ -263,6 +308,12 @@ func (m *Manager) ProjectForFile(uri string) *ProjectContext {
 // satisfying the rules.CrossRefResolver interface. Returns nil if the file
 // is not part of any known project.
 func (m *Manager) ResolverForFile(uri string) rules.CrossRefResolver {
+	m.mu.RLock()
+	resolver := m.resolver
+	m.mu.RUnlock()
+	if resolver != nil {
+		return resolver
+	}
 	pctx := m.ProjectForFile(uri)
 	if pctx == nil {
 		return nil

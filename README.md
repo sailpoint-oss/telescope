@@ -1,7 +1,7 @@
 # Telescope
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=sailpoint.telescope)
+[![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=SailPointTechnologies.telescope-openapi)
 
 **Telescope** is the spec-side editor, CLI, and custom-rule experience layer for the OpenAPI toolchain. It combines Navigator-backed document validation, Barrelman-backed rule execution, and Telescope-owned VS Code/LSP UX for multi-file API-description workspaces.
 
@@ -47,15 +47,20 @@ See [docs/LSP-FEATURES.md](docs/LSP-FEATURES.md) for the complete feature refere
 
 ### Install the VS Code Extension
 
-Search for "Telescope" in the VS Code marketplace, or install from the command line:
+Telescope is published with different IDs depending on the distribution channel:
 
-```bash
-code --install-extension sailpoint.telescope
-```
+| Store | Extension ID | Install command |
+| ----- | ------------ | --------------- |
+| VS Code Marketplace | `SailPointTechnologies.telescope-openapi` | `code --install-extension SailPointTechnologies.telescope-openapi` |
+| Open VSX / Cursor / VSCodium | `sailpoint.telescope` | `code --install-extension sailpoint.telescope` |
+
+Platform-specific VSIXs that bundle the Telescope server are currently published for `darwin-arm64`, `darwin-x64`, `linux-x64`, and `win32-x64`.
+
+The universal VSIX works on other platforms too, but it does not bundle the native `telescope` server. On those installs, provide the binary via `telescope.serverPath`, `TELESCOPE_SERVER_PATH`, or `PATH`.
 
 ### Configuration
 
-Create `.telescope.yaml` in your project root:
+Create `.telescope.yaml` in your project root. Telescope also supports `.telescope.yml`, `.telescope/config.yaml`, and `.telescope/config.yml`:
 
 ```yaml
 extends: telescope:recommended

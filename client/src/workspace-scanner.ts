@@ -404,6 +404,28 @@ export class WorkspaceScanner {
 	}
 
 	/**
+	 * Update the in-memory classification for an open document.
+	 * This is used for live LSP-driven reclassification and does not persist
+	 * unsaved document state across sessions.
+	 */
+	rememberClassification(uri: string, isOpenAPI: boolean): void {
+		const existing = this.cache.get(uri);
+		if (existing?.isOpenAPI !== isOpenAPI) {
+			if (existing?.isOpenAPI) {
+				this.openAPICount--;
+			}
+			if (isOpenAPI) {
+				this.openAPICount++;
+			}
+		}
+		this.cache.set(uri, {
+			uri,
+			isOpenAPI,
+			scannedAt: Date.now(),
+		});
+	}
+
+	/**
 	 * Check if a cached result is still fresh.
 	 *
 	 * @param result - Scan result to check
