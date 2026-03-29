@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/LukasParke/gossip/protocol"
 	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/core/parser"
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
+	"github.com/sailpoint-oss/telescope/server/core/uri"
 )
 
 // Stage represents a single processing step in the pipeline. Stages declare
@@ -181,8 +181,8 @@ func topoSort(stages []Stage) ([]StageName, error) {
 // RawStage reads content from the DocumentSource.
 type RawStage struct{}
 
-func (RawStage) Name() StageName         { return StageRaw }
-func (RawStage) DependsOn() []StageName  { return nil }
+func (RawStage) Name() StageName        { return StageRaw }
+func (RawStage) DependsOn() []StageName { return nil }
 
 func (RawStage) Run(ctx context.Context, uri string, g *WorkspaceGraph) error {
 	start := time.Now()
@@ -297,8 +297,8 @@ func (s ParseStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error 
 // Telescope-local structural or schema diagnostics.
 type LintStage struct{}
 
-func (LintStage) Name() StageName         { return StageLint }
-func (LintStage) DependsOn() []StageName  { return []StageName{StageParse} }
+func (LintStage) Name() StageName        { return StageLint }
+func (LintStage) DependsOn() []StageName { return []StageName{StageParse} }
 
 func (LintStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error {
 	start := time.Now()
@@ -368,8 +368,8 @@ func navigatorSource(category navigator.IssueCategory) string {
 // BindStage resolves $ref values and materializes edges in the workspace graph.
 type BindStage struct{}
 
-func (BindStage) Name() StageName         { return StageBind }
-func (BindStage) DependsOn() []StageName  { return []StageName{StageLint} }
+func (BindStage) Name() StageName        { return StageBind }
+func (BindStage) DependsOn() []StageName { return []StageName{StageLint} }
 
 func (BindStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error {
 	start := time.Now()
@@ -440,10 +440,10 @@ func bindRefs(baseURI, pointer string, node *parser.SemanticNode, g *WorkspaceGr
 
 func resolveRef(baseURI, ref string) (string, string) {
 	if ref == "" {
-		return string(protocol.NormalizeURI(protocol.DocumentURI(baseURI))), ""
+		return uri.Normalize(baseURI), ""
 	}
 	if ref[0] == '#' {
-		return string(protocol.NormalizeURI(protocol.DocumentURI(baseURI))), ref[1:]
+		return uri.Normalize(baseURI), ref[1:]
 	}
 
 	filePart, fragment := navigator.SplitRefURI(ref)
@@ -451,7 +451,7 @@ func resolveRef(baseURI, ref string) (string, string) {
 	if targetURI == "" {
 		targetURI = filePart
 	}
-	return string(protocol.NormalizeURI(protocol.DocumentURI(targetURI))), strings.TrimPrefix(fragment, "#")
+	return uri.Normalize(targetURI), strings.TrimPrefix(fragment, "#")
 }
 
 func escapeJSONPointer(s string) string {
@@ -464,8 +464,8 @@ func escapeJSONPointer(s string) string {
 // stage-based consumers keep the same topology while Navigator owns validation.
 type ValidateStage struct{}
 
-func (s ValidateStage) Name() StageName         { return StageValidate }
-func (s ValidateStage) DependsOn() []StageName  { return []StageName{StageBind} }
+func (s ValidateStage) Name() StageName        { return StageValidate }
+func (s ValidateStage) DependsOn() []StageName { return []StageName{StageBind} }
 
 func (s ValidateStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error {
 	start := time.Now()
@@ -475,10 +475,10 @@ func (s ValidateStage) Run(_ context.Context, uri string, g *WorkspaceGraph) err
 	}
 
 	g.SetStageResult(uri, StageValidate, &StageResult{
-		Stage:       StageValidate,
-		Data:        bind.Data,
-		Version:     bind.Version,
-		Duration:    time.Since(start),
+		Stage:    StageValidate,
+		Data:     bind.Data,
+		Version:  bind.Version,
+		Duration: time.Since(start),
 	})
 	return nil
 }
@@ -491,8 +491,8 @@ type AnalyzeStage struct {
 // AnalyzeFunc is a function that produces diagnostics for a document.
 type AnalyzeFunc func(ctx context.Context, uri string, g *WorkspaceGraph) []ctypes.Diagnostic
 
-func (s AnalyzeStage) Name() StageName         { return StageAnalyze }
-func (s AnalyzeStage) DependsOn() []StageName  { return []StageName{StageValidate} }
+func (s AnalyzeStage) Name() StageName        { return StageAnalyze }
+func (s AnalyzeStage) DependsOn() []StageName { return []StageName{StageValidate} }
 
 func (s AnalyzeStage) Run(ctx context.Context, uri string, g *WorkspaceGraph) error {
 	start := time.Now()
