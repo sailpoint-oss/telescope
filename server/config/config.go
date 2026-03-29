@@ -22,6 +22,7 @@ type Config struct {
 	AdditionalValidation map[string]ValidationGroup `yaml:"additionalValidation,omitempty"`
 	Output               OutputConfig               `yaml:"output,omitempty"`
 	LSP                  LSPConfig                  `yaml:"lsp,omitempty"`
+	ContractTests        ContractTestsConfig        `yaml:"contractTests,omitempty"`
 }
 
 // RuleRef references a custom rule or schema file in .telescope/.

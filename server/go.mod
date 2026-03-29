@@ -7,6 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
+	github.com/sailpoint-oss/barometer v0.0.0-1774727384
 	github.com/sailpoint-oss/barrelman v0.3.1
 	github.com/sailpoint-oss/navigator v0.4.0
 	github.com/sailpoint-oss/tree-sitter-openapi v0.1.0
@@ -30,6 +31,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/oklog/run v1.1.0 // indirect
+	github.com/oliveagle/jsonpath v0.1.4 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	golang.org/x/net v0.50.0 // indirect
@@ -39,3 +41,5 @@ require (
 	google.golang.org/grpc v1.61.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
+
+replace github.com/sailpoint-oss/barometer => ../../barometer

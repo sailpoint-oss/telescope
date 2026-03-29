@@ -1,20 +1,24 @@
 package lsp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/barometer/pkg/barometer"
+	navigator "github.com/sailpoint-oss/navigator"
+	"github.com/sailpoint-oss/telescope/server/config"
+	"github.com/sailpoint-oss/telescope/server/contractrunner"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/project"
@@ -23,7 +27,15 @@ import (
 
 // NewExecuteCommandHandler handles custom telescope commands.
 // Commands expect a document URI as the first argument.
-func NewExecuteCommandHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.ExecuteCommandHandler {
+func NewExecuteCommandHandler(cache *openapi.IndexCache, _ *GraphBridge, deps *ExecuteCommandDeps) gossip.ExecuteCommandHandler {
+	if deps == nil {
+		deps = &ExecuteCommandDeps{Config: config.DefaultConfig(), Runner: contractrunner.New(config.DefaultConfig())}
+	} else if deps.Config == nil {
+		deps.Config = config.DefaultConfig()
+	}
+	if deps.Runner == nil {
+		deps.Runner = contractrunner.New(deps.EffectiveConfig())
+	}
 	return func(ctx *gossip.Context, params *protocol.ExecuteCommandParams) (interface{}, error) {
 		uri := extractDocURI(params.Arguments)
 
@@ -39,7 +51,7 @@ func NewExecuteCommandHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.
 		case "telescope.validateExamples":
 			return executeValidateExamples(cache, uri)
 		case "telescope.runContractTests":
-			return executeRunContractTests(ctx, cache, uri, params.Arguments)
+			return executeRunContractTests(ctx, cache, uri, params.Arguments, deps)
 		default:
 			return nil, nil
 		}
@@ -57,9 +69,11 @@ func extractDocURI(args []interface{}) protocol.DocumentURI {
 }
 
 type contractRunOptions struct {
-	BaseURL     string
-	OperationID string
-	Tags        []string
+	BaseURL             string
+	OperationID         string
+	Tags                []string
+	Sync                bool
+	CredentialOverrides map[string]string
 }
 
 func extractContractRunOptions(args []interface{}) contractRunOptions {
@@ -84,6 +98,17 @@ func extractContractRunOptions(args []interface{}) contractRunOptions {
 			for _, tag := range tags {
 				if s, ok := tag.(string); ok && strings.TrimSpace(s) != "" {
 					opts.Tags = append(opts.Tags, strings.TrimSpace(s))
+				}
+			}
+		}
+		if sync, ok := arg["sync"].(bool); ok {
+			opts.Sync = sync
+		}
+		if raw, ok := arg["credentials"].(map[string]interface{}); ok {
+			opts.CredentialOverrides = make(map[string]string)
+			for k, v := range raw {
+				if s, ok := v.(string); ok {
+					opts.CredentialOverrides[k] = s
 				}
 			}
 		}
@@ -324,7 +349,26 @@ func executeGenerateResponses(ctx *gossip.Context, cache *openapi.IndexCache, ur
 	return nil, nil
 }
 
-func executeRunContractTests(ctx *gossip.Context, cache *openapi.IndexCache, uri protocol.DocumentURI, args []interface{}) (interface{}, error) {
+var contractRunID atomic.Uint64
+
+func nextContractRunID() string {
+	return fmt.Sprintf("ct-%d", contractRunID.Add(1))
+}
+
+func workspaceRootForContract(ctx *gossip.Context, uri protocol.DocumentURI) string {
+	if ctx == nil || ctx.Server() == nil {
+		return ""
+	}
+	if folder := ctx.FolderFor(uri); folder != nil && folder.URI != "" {
+		return uriToFSPath(string(protocol.NormalizeURI(folder.URI)))
+	}
+	if ctx.WorkspaceRoot() != "" {
+		return uriToFSPath(string(protocol.NormalizeURI(ctx.WorkspaceRoot())))
+	}
+	return ""
+}
+
+func executeRunContractTests(ctx *gossip.Context, cache *openapi.IndexCache, uri protocol.DocumentURI, args []interface{}, deps *ExecuteCommandDeps) (interface{}, error) {
 	idx := cache.Get(uri)
 	if idx == nil && ctx != nil && ctx.Documents != nil {
 		if doc := ctx.Documents.Get(uri); doc != nil {
@@ -339,55 +383,189 @@ func executeRunContractTests(ctx *gossip.Context, cache *openapi.IndexCache, uri
 	}
 
 	opts := extractContractRunOptions(args)
-	runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	cfg := deps.EffectiveConfig()
+	if deps.Runner != nil {
+		deps.Runner.SetConfig(cfg)
+	}
+	dotenv := deps.WorkspaceEnv()
+	baseURL := cfg.ContractTests.EffectiveContractBaseURL(opts.BaseURL)
+	workspaceRoot := workspaceRootForContract(ctx, uri)
+	clientCfg := contractrunner.BuildBarometerClientConfig(&cfg.ContractTests, workspaceRoot)
 
+	var navIdx *navigator.Index
+	if idx.DocumentKind() == openapi.DocumentKindOpenAPI {
+		navIdx = idx.NavigatorIndex()
+		if navIdx == nil {
+			return nil, fmt.Errorf("no navigator index for contract tests")
+		}
+	}
+
+	oauthCtx, oauthCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer oauthCancel()
+	tokenHTTP := &http.Client{Timeout: 45 * time.Second}
+	creds, err := cfg.ContractTests.ResolveAndFetchCredentials(oauthCtx, navIdx, opts.CredentialOverrides, dotenv, tokenHTTP)
+	if err != nil {
+		return nil, err
+	}
+
+	if idx.DocumentKind() == openapi.DocumentKindOpenAPI {
+		if opts.Sync {
+			runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			result, err := contractrunner.RunOpenAPISync(runCtx, baseURL, navIdx, creds, opts.Tags, opts.OperationID, clientCfg)
+			if err != nil {
+				return nil, err
+			}
+			return buildContractPayload(baseURL, result, nil), nil
+		}
+		runID := nextContractRunID()
+		go runContractOpenAPIAsync(ctx, deps, uri, idx, baseURL, navIdx, creds, opts, clientCfg, runID)
+		return map[string]interface{}{
+			"runId":  runID,
+			"status": "queued",
+		}, nil
+	}
+
+	// Arazzo: run via Barometer config (file path)
 	docPath, cleanup, err := materializeContractTestDocument(ctx, uri)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
-	configPath, configCleanup, err := materializeContractTestConfig(idx.DocumentKind(), docPath, opts)
-	if err != nil {
-		return nil, err
+	bcfg := &barometer.Config{
+		BaseURL: baseURL,
+		Output:  string(barometer.FormatJSON),
+		Arazzo: &barometer.ArazzoConfig{
+			Doc: docPath,
+		},
 	}
-	defer configCleanup()
-
-	barometerBin, barometerPrefix, err := resolveBarometerCommand()
-	if err != nil {
-		return nil, err
-	}
-	cmdArgs := append([]string{}, barometerPrefix...)
-	cmdArgs = append(cmdArgs, "contract", "test", "--config", configPath, "--output", "json")
-	cmd := exec.CommandContext(runCtx, barometerBin, cmdArgs...)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = cmd.Run()
-	if stdout.Len() == 0 {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
+	if opts.Sync {
+		runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := contractrunner.RunArazzoSync(runCtx, bcfg, clientCfg)
+		if err != nil {
 			return nil, err
 		}
-		if err != nil {
-			return nil, fmt.Errorf("%w: %s", err, msg)
-		}
-		return nil, fmt.Errorf("%s", msg)
+		return buildContractPayload(baseURL, result, nil), nil
 	}
+	runID := nextContractRunID()
+	go runContractArazzoAsync(ctx, deps, uri, idx, bcfg, clientCfg, runID)
+	return map[string]interface{}{
+		"runId":  runID,
+		"status": "queued",
+	}, nil
+}
 
-	var result map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		return nil, fmt.Errorf("parse barometer json: %w", err)
+func buildContractPayload(baseURL string, result *barometer.Result, stderr *string) map[string]interface{} {
+	m := barometerResultToMap(result)
+	payload := map[string]interface{}{
+		"baseUrl": baseURL,
+		"result":  m,
 	}
-	payload := map[string]any{
-		"baseUrl": opts.BaseURL,
-		"result":  result,
+	if stderr != nil && strings.TrimSpace(*stderr) != "" {
+		payload["stderr"] = strings.TrimSpace(*stderr)
 	}
-	if msg := strings.TrimSpace(stderr.String()); msg != "" {
-		payload["stderr"] = msg
+	return payload
+}
+
+func barometerResultToMap(result *barometer.Result) map[string]interface{} {
+	if result == nil {
+		return nil
 	}
-	return payload, nil
+	b, err := json.Marshal(result)
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	return m
+}
+
+func notifyContract(ctx *gossip.Context, method string, params interface{}) {
+	if ctx == nil {
+		return
+	}
+	srv := ctx.Server()
+	if srv == nil {
+		return
+	}
+	conn := srv.Conn()
+	if conn == nil {
+		return
+	}
+	_ = conn.Notify(context.Background(), method, params)
+}
+
+func runContractOpenAPIAsync(ctx *gossip.Context, deps *ExecuteCommandDeps, uri protocol.DocumentURI, idx *openapi.Index, baseURL string, navIdx *navigator.Index, creds map[string]string, opts contractRunOptions, clientCfg *barometer.ClientConfig, runID string) {
+	notifyContract(ctx, "telescope/contractTestProgress", map[string]interface{}{
+		"runId": runID, "phase": "running", "message": "OpenAPI contract tests",
+	})
+	runner := deps.Runner
+	if err := runner.Acquire(context.Background()); err != nil {
+		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+		return
+	}
+	defer runner.Release()
+
+	job, err := contractrunner.StartOpenAPIAsync(context.Background(), baseURL, navIdx, creds, opts.Tags, opts.OperationID, clientCfg)
+	if err != nil {
+		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+		return
+	}
+	result, err := job.Wait(0)
+	if err != nil {
+		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+		return
+	}
+	if deps.Aggregator != nil {
+		cfg := deps.EffectiveConfig()
+		deps.Aggregator.Set(uri, "telescope-contract", contractDiagnosticsForOpenAPI(idx, result, &cfg.ContractTests))
+		deps.Aggregator.FlushNow(uri)
+	}
+	notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{
+		"runId":   runID,
+		"baseUrl": baseURL,
+		"result":  barometerResultToMap(result),
+	})
+}
+
+func runContractArazzoAsync(ctx *gossip.Context, deps *ExecuteCommandDeps, uri protocol.DocumentURI, idx *openapi.Index, bcfg *barometer.Config, clientCfg *barometer.ClientConfig, runID string) {
+	notifyContract(ctx, "telescope/contractTestProgress", map[string]interface{}{
+		"runId": runID, "phase": "running", "message": "Arazzo contract tests",
+	})
+	runner := deps.Runner
+	if err := runner.Acquire(context.Background()); err != nil {
+		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+		return
+	}
+	defer runner.Release()
+
+	cl, err := barometer.NewClient(clientCfg)
+	if err != nil {
+		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+		return
+	}
+	job, err := barometer.Start(context.Background(), bcfg, cl)
+	if err != nil {
+		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+		return
+	}
+	result, err := job.Wait(0)
+	if err != nil {
+		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+		return
+	}
+	if deps.Aggregator != nil {
+		deps.Aggregator.Set(uri, "telescope-contract", contractDiagnosticsForArazzo(uri, result))
+		deps.Aggregator.FlushNow(uri)
+	}
+	notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{
+		"runId":   runID,
+		"baseUrl": bcfg.BaseURL,
+		"result":  barometerResultToMap(result),
+	})
 }
 
 func materializeContractTestDocument(ctx *gossip.Context, uri protocol.DocumentURI) (string, func(), error) {
@@ -460,19 +638,6 @@ func materializeContractTestConfig(kind openapi.DocumentKind, docPath string, op
 		return "", nil, err
 	}
 	return tmp.Name(), func() { _ = os.Remove(tmp.Name()) }, nil
-}
-
-func resolveBarometerCommand() (string, []string, error) {
-	if override := strings.TrimSpace(os.Getenv("TELESCOPE_BAROMETER_BIN")); override != "" {
-		return override, nil, nil
-	}
-	if path, err := exec.LookPath("barometer"); err == nil {
-		return path, nil, nil
-	}
-	if goBin, err := exec.LookPath("go"); err == nil {
-		return goBin, []string{"run", "github.com/sailpoint-oss/barometer/cmd/barometer@latest"}, nil
-	}
-	return "", nil, fmt.Errorf("barometer CLI not found on PATH and Go fallback unavailable")
 }
 
 func statusDescription(code string) string {

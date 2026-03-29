@@ -100,6 +100,11 @@ export async function activate(context: ExtensionContext) {
 			"Telescope Language Server",
 			{ log: true },
 		);
+		const contractOutputChannel = window.createOutputChannel(
+			"Telescope Contract Tests",
+			{ log: true },
+		);
+		context.subscriptions.push(contractOutputChannel);
 		const traceCommand = (
 			command: string,
 			phase: "start" | "end" | "error",
@@ -150,6 +155,7 @@ export async function activate(context: ExtensionContext) {
 		sessionManager = new SessionManager({
 			serverPath,
 			outputChannel,
+			contractOutputChannel,
 			statusBarItem,
 			extensionContext: context,
 		});
@@ -639,6 +645,8 @@ export async function activate(context: ExtensionContext) {
 							[document.uri.toString(), { baseUrl }],
 						)) as
 							| {
+									status?: string;
+									runId?: string;
 									baseUrl?: string;
 									stderr?: string;
 									result?: {
@@ -667,6 +675,23 @@ export async function activate(context: ExtensionContext) {
 									};
 							  }
 							| null;
+						if (
+							response &&
+							typeof response === "object" &&
+							response.status === "queued" &&
+							response.runId
+						) {
+							contractOutputChannel.show(true);
+							contractOutputChannel.appendLine(
+								formatSetupLog(
+									`Contract tests queued (${response.runId}). Progress and final summary appear in this channel.`,
+								),
+							);
+							window.showInformationMessage(
+								`Contract tests started (${response.runId}). See "Telescope Contract Tests" output for progress and results.`,
+							);
+							return;
+						}
 						const result = response?.result;
 						const openapiResult = result?.openapi;
 						const arazzoResult = result?.arazzo;
@@ -674,7 +699,7 @@ export async function activate(context: ExtensionContext) {
 							(openapiResult?.total ?? 0) + (arazzoResult?.total ?? 0);
 						const passed =
 							(openapiResult?.passed ?? 0) + (arazzoResult?.passed ?? 0);
-						outputChannel.appendLine(
+						contractOutputChannel.appendLine(
 							formatSetupLog(
 								`Contract tests against ${response?.baseUrl ?? baseUrl}: ${passed}/${total} passed`,
 							),
@@ -685,18 +710,18 @@ export async function activate(context: ExtensionContext) {
 									? ` status=${item.status}`
 									: "";
 							const detail = item.error ? ` ${item.error}` : "";
-							outputChannel.appendLine(
+							contractOutputChannel.appendLine(
 								`  - ${item.pass ? "PASS" : "FAIL"} ${item.method ?? "GET"} ${item.path ?? ""}${status}${detail}`,
 							);
 						}
 						for (const workflow of arazzoResult?.workflows ?? []) {
 							const detail = workflow.error ? ` ${workflow.error}` : "";
-							outputChannel.appendLine(
+							contractOutputChannel.appendLine(
 								`  - ${workflow.pass ? "PASS" : "FAIL"} workflow ${workflow.workflowId ?? ""}${detail}`,
 							);
 						}
 						if (response?.stderr) {
-							outputChannel.appendLine(`  stderr: ${response.stderr}`);
+							contractOutputChannel.appendLine(`  stderr: ${response.stderr}`);
 						}
 						if (result?.pass) {
 							window.showInformationMessage(
@@ -708,13 +733,13 @@ export async function activate(context: ExtensionContext) {
 							);
 						}
 					} catch (error) {
-						outputChannel.appendLine(
+						contractOutputChannel.appendLine(
 							formatSetupLog(
 								`Contract tests failed for ${document.uri.toString()}: ${String(error)}`,
 							),
 						);
 						window.showErrorMessage(
-							"Telescope contract tests failed. See Telescope output for details.",
+							"Telescope contract tests failed. See Telescope Contract Tests output for details.",
 						);
 					}
 				},

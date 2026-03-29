@@ -92,8 +92,10 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration re
 
 - **Navigator** - Parse, index, schema/meta validation, fragment semantics, and canonical document issues for OpenAPI and Arazzo
 - **Barrelman** - Shared lint/check execution and built-in rule catalogs
-- **Barometer** - Runtime and contract-test coverage outside the editor loop; Telescope may surface it but does not own the engine
+- **Barometer** - Contract-test HTTP execution; linked into the Telescope binary for in-process runs (no separate Barometer install)
 - **Telescope** - VS Code client, LSP handlers, diagnostics aggregation, custom-rule runtimes, and spec-side CLI/editor UX
+
+Contract tests are configured under `contractTests` in `.telescope.yaml` (base URL, credentials keyed by OpenAPI security scheme names, optional `envFiles` for dotenv, optional TLS/mTLS file paths, optional `strategy: oauth2ClientCredentials` / `oauth2Refresh` for token exchange, concurrency). Workspace `.env` / `.env.local` are loaded and reloaded when those files change (same watcher as Telescope config). Credential `*Env` keys resolve from dotenv first, then the process environment—align CI job `env` with those names. The editor runs tests asynchronously via LSP (`telescope.runContractTests`); the CLI runs the same engine with `telescope contract test <spec.yaml>`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) (section **Contract tests**).
 
 Use `Meridian` when you need codebase-side generation, extraction orchestration, or repo-scale report pipelines. Use Telescope when you already have workspace files in spec form and want linting, validation surfacing, and editor intelligence.
 
@@ -261,7 +263,7 @@ telescope serve --tcp :9257  # TCP
 
 Output formats: `text`, `json`, `sarif`, `github` (GitHub Actions annotations).
 
-`validate` is the structural/schema-only surface. `lint` runs the same validation layer plus configured Barrelman-backed rules. In the editor, Telescope also exposes a `Telescope: Run Contract Tests` command that shells into Barometer for live OpenAPI contract checks and Arazzo workflow runs against a base URL.
+`validate` is the structural/schema-only surface. `lint` runs the same validation layer plus configured Barrelman-backed rules. In the editor, Telescope also exposes a `Telescope: Run Contract Tests` command that runs in-process Barometer contract checks and Arazzo workflow runs against a base URL.
 
 ### GitHub Action
 

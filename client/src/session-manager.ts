@@ -40,6 +40,9 @@ export class SessionManager implements vscode.Disposable {
 	/** Shared output channel for all sessions */
 	private outputChannel: vscode.OutputChannel;
 
+	/** Optional channel for async contract-test notifications */
+	private contractOutputChannel: vscode.OutputChannel | undefined;
+
 	/** Shared status bar item */
 	private statusBarItem: vscode.StatusBarItem;
 
@@ -61,11 +64,13 @@ export class SessionManager implements vscode.Disposable {
 	constructor(options: {
 		serverPath: string;
 		outputChannel: vscode.OutputChannel;
+		contractOutputChannel?: vscode.OutputChannel;
 		statusBarItem: vscode.StatusBarItem;
 		extensionContext: vscode.ExtensionContext;
 	}) {
 		this.serverPath = options.serverPath;
 		this.outputChannel = options.outputChannel;
+		this.contractOutputChannel = options.contractOutputChannel;
 		this.statusBarItem = options.statusBarItem;
 		this.extensionContext = options.extensionContext;
 
@@ -245,6 +250,7 @@ export class SessionManager implements vscode.Disposable {
 			workspaceFolder: folder,
 			serverPath: this.serverPath,
 			outputChannel: this.outputChannel,
+			contractOutputChannel: this.contractOutputChannel,
 			statusBarItem: this.statusBarItem,
 			workspaceState: this.extensionContext.workspaceState,
 		});

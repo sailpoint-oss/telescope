@@ -90,7 +90,7 @@ func newCoverageEnv(t *testing.T) *coverageEnv {
 
 func TestExecuteCommandHandler_SortBranchesNoError(t *testing.T) {
 	env := newCoverageEnv(t)
-	handler := NewExecuteCommandHandler(env.cache, nil)
+	handler := NewExecuteCommandHandler(env.cache, nil, nil)
 
 	commands := []string{
 		"telescope.sortTags",

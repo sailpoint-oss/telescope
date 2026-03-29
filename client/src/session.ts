@@ -50,6 +50,8 @@ export interface SessionOptions {
 	serverPath: string;
 	/** Shared output channel for logging */
 	outputChannel: vscode.OutputChannel;
+	/** Optional channel for contract-test progress and Barometer results */
+	contractOutputChannel?: vscode.OutputChannel;
 	/** Shared status bar item (optional) */
 	statusBarItem?: vscode.StatusBarItem;
 	/** Workspace-scoped persistent storage (for scanner caches, etc.) */
@@ -106,6 +108,7 @@ export class Session implements vscode.Disposable {
 	/** Configuration options */
 	private readonly serverPath: string;
 	private readonly outputChannel: vscode.OutputChannel;
+	private readonly contractOutputChannel: vscode.OutputChannel | undefined;
 	private statusBarItem: vscode.StatusBarItem | null;
 	private readonly workspaceState: vscode.Memento;
 
@@ -114,6 +117,7 @@ export class Session implements vscode.Disposable {
 		this.id = options.workspaceFolder.uri.toString();
 		this.serverPath = options.serverPath;
 		this.outputChannel = options.outputChannel;
+		this.contractOutputChannel = options.contractOutputChannel;
 		this.statusBarItem = options.statusBarItem ?? null;
 		this.workspaceState = options.workspaceState;
 	}
@@ -409,6 +413,58 @@ export class Session implements vscode.Disposable {
 				}
 			},
 		);
+
+		if (this.contractOutputChannel) {
+			const ch = this.contractOutputChannel;
+			this.client.onNotification(
+				"telescope/contractTestProgress",
+				(params: {
+					runId?: string;
+					phase?: string;
+					message?: string;
+					percent?: number;
+				}) => {
+					const parts = [
+						params.runId ? `[${params.runId}]` : "",
+						params.phase,
+						params.message,
+						params.percent != null ? `${params.percent}%` : "",
+					].filter((p) => p !== "");
+					ch.appendLine(parts.length > 0 ? parts.join(" ") : "contract test progress");
+				},
+			);
+			this.client.onNotification(
+				"telescope/contractTestFinished",
+				(params: {
+					runId?: string;
+					error?: string;
+					baseUrl?: string;
+					result?: { pass?: boolean };
+				}) => {
+					if (params.error) {
+						ch.appendLine(
+							`[${params.runId ?? "?"}] error: ${params.error}`,
+						);
+						void vscode.window.showWarningMessage(
+							`Contract tests failed: ${params.error}`,
+						);
+						return;
+					}
+					ch.appendLine(
+						`[${params.runId ?? "?"}] finished baseUrl=${params.baseUrl ?? ""} pass=${String(params.result?.pass ?? false)}`,
+					);
+					if (params.result?.pass) {
+						void vscode.window.showInformationMessage(
+							"Contract tests passed.",
+						);
+					} else {
+						void vscode.window.showWarningMessage(
+							"Contract tests reported failures. See Telescope Contract Tests output.",
+						);
+					}
+				},
+			);
+		}
 
 		this.log(`Language client started`);
 	}

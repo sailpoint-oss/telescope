@@ -30,6 +30,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newCICmd())
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newBundleCmd())
+	cmd.AddCommand(newContractCmd())
 
 	return cmd
 }

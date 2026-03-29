@@ -307,6 +307,60 @@ lsp:
 - `bun` - Legacy alias that normalizes to `go`.
 - `compare` - Legacy alias that normalizes to `go`.
 
+## Contract tests (`contractTests`)
+
+Contract tests run OpenAPI operations (or Arazzo workflows) against a live base URL using the in-process Barometer engine. Configure credentials and transport options here; the same block is used by the LSP command `telescope.runContractTests` and the CLI `telescope contract test`.
+
+### Static credentials (apiKey, Basic, Bearer, OAuth2 bearer token)
+
+Map each **OpenAPI security scheme name** (keys under `components.securitySchemes`) to environment-backed values. Resolution order per scheme: LSP overrides, then `usernameEnv`+`passwordEnv` (concatenated as `user:pass` for HTTP Basic), then `apiKeyEnv`, `accessTokenEnv`, `basicAuthEnv`.
+
+Each `*Env` value is read from **workspace dotenv** first (see `envFiles`), then the process environment. This matches how CI should inject secrets: GitHub Actions (or similar) sets `env:` entries with the same names your `.telescope.yaml` references—**never commit secrets**; use repository or environment secrets and name them consistently with `contractTests.credentials`.
+
+Example:
+
+```yaml
+contractTests:
+  defaultBaseUrl: https://api.example.com
+  envFiles:
+    - .env
+    - .env.local
+  skipTlsVerify: false
+  requestTimeout: 60s
+  credentials:
+    ApiKeyAuth:
+      apiKeyEnv: CONTRACT_API_KEY
+    OAuth2:
+      accessTokenEnv: CONTRACT_ACCESS_TOKEN
+```
+
+### OAuth2 token exchange (`strategy`)
+
+When you prefer **client credentials** or **refresh token** grants instead of a pre-issued access token, set `strategy` on a scheme:
+
+- `oauth2ClientCredentials` — POSTs `grant_type=client_credentials` to `oauth2TokenUrl`, or to `flows.clientCredentials.tokenUrl` from the spec when `oauth2TokenUrl` is omitted. Requires `clientIdEnv` and `clientSecretEnv`. Optional `oauth2Scopes` becomes a space-separated `scope` parameter.
+- `oauth2Refresh` — POSTs `grant_type=refresh_token` using `refreshTokenEnv`, `clientIdEnv`, and `clientSecretEnv`. The token URL defaults to `oauth2TokenUrl`, or the spec’s authorization-code `tokenUrl` / `refreshUrl`.
+
+Fetched access tokens are cached in-memory with TTL derived from `expires_in` (minus one minute). Static `accessTokenEnv` still wins when set.
+
+### TLS / mTLS (`tls`)
+
+For mutual TLS or a private CA bundle, set PEM paths (relative to the **workspace root** unless absolute):
+
+```yaml
+contractTests:
+  tls:
+    clientCertFile: certs/client.pem
+    clientKeyFile: certs/client.key
+    caCertFile: certs/ca.pem
+```
+
+`skipTlsVerify` still applies to server certificate verification when no custom CA is configured.
+
+### Interactive OAuth / VS Code SecretStorage (not implemented)
+
+Headless flows above cover CI and local `.env`. **Interactive** OAuth (browser login, device code) and storing refresh tokens in the VS Code Secret Storage are **not** implemented in the language server; the intended pattern is for the editor extension to obtain tokens and pass them as **credential overrides** on `telescope.runContractTests` when that workflow is added.
+
 ## Pattern Matching
 
 Telescope uses glob patterns for file matching.

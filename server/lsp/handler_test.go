@@ -3,6 +3,7 @@ package lsp_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -2771,7 +2772,7 @@ components:
       example: 7
 `
 	env := setupTestEnv(t, "file:///validate-examples.yaml", spec)
-	handler := lsp.NewExecuteCommandHandler(env.cache, nil)
+	handler := lsp.NewExecuteCommandHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.ExecuteCommandParams{
 		Command:   "telescope.validateExamples",
@@ -2801,32 +2802,6 @@ components:
 }
 
 func TestExecuteCommand_RunContractTests(t *testing.T) {
-	dir := t.TempDir()
-	fakeBarometer := filepath.Join(dir, "barometer")
-	if err := os.WriteFile(fakeBarometer, []byte(`#!/bin/sh
-printf '%s\n' '{
-  "version": "1.0",
-  "pass": true,
-  "openapi": {
-    "passed": 1,
-    "total": 1,
-    "results": [
-      {
-        "path": "/health",
-        "method": "get",
-        "operationId": "getHealth",
-        "pass": true,
-        "status": 200,
-        "error": ""
-      }
-    ]
-  }
-}'
-`), 0o755); err != nil {
-		t.Fatalf("write fake barometer: %v", err)
-	}
-	t.Setenv("TELESCOPE_BAROMETER_BIN", fakeBarometer)
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
 			http.NotFound(w, r)
@@ -2849,13 +2824,13 @@ paths:
           description: OK
 `
 	env := setupTestEnv(t, "file:///contract-tests.yaml", spec)
-	handler := lsp.NewExecuteCommandHandler(env.cache, nil)
+	handler := lsp.NewExecuteCommandHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.ExecuteCommandParams{
 		Command: "telescope.runContractTests",
 		Arguments: []interface{}{
 			string(env.uri),
-			map[string]interface{}{"baseUrl": server.URL},
+			map[string]interface{}{"baseUrl": server.URL, "sync": true},
 		},
 	})
 	if err != nil {
@@ -2885,39 +2860,31 @@ paths:
 }
 
 func TestExecuteCommand_RunContractTests_Arazzo(t *testing.T) {
-	dir := t.TempDir()
-	fakeBarometer := filepath.Join(dir, "barometer")
-	if err := os.WriteFile(fakeBarometer, []byte(`#!/bin/sh
-printf '%s\n' '{
-  "version": "1.0",
-  "pass": false,
-  "arazzo": {
-    "passed": 0,
-    "total": 1,
-    "workflows": [
-      {
-        "workflowId": "syncWidgets",
-        "pass": false,
-        "error": "step failed"
-      }
-    ]
-  }
-}'
-printf '%s\n' 'contract test failed' >&2
-exit 1
-`), 0o755); err != nil {
-		t.Fatalf("write fake barometer: %v", err)
-	}
-	t.Setenv("TELESCOPE_BAROMETER_BIN", fakeBarometer)
+	openAPISpec := `{"openapi":"3.1.0","info":{"title":"Widgets","version":"1.0.0"},"paths":{"/widgets":{"get":{"operationId":"listWidgets","responses":{"200":{"description":"OK"}}}}}}`
+	mux := http.NewServeMux()
+	mux.HandleFunc("/openapi.json", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(openAPISpec))
+	})
+	mux.HandleFunc("/widgets", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	specURL := srv.URL + "/openapi.json"
 
-	doc := `arazzo: "1.0.1"
+	doc := fmt.Sprintf(`arazzo: "1.0.1"
 info:
   title: Arazzo Contract Test
   version: "1.0.0"
 sourceDescriptions:
   - name: api
     type: openapi
-    url: https://example.com/openapi.yaml
+    url: %q
 workflows:
   - workflowId: syncWidgets
     steps:
@@ -2925,15 +2892,15 @@ workflows:
         operationId: listWidgets
         successCriteria:
           - condition: $statusCode == 200
-`
+`, specURL)
 	env := setupTestEnv(t, "file:///contract-tests.arazzo.yaml", doc)
-	handler := lsp.NewExecuteCommandHandler(env.cache, nil)
+	handler := lsp.NewExecuteCommandHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.ExecuteCommandParams{
 		Command: "telescope.runContractTests",
 		Arguments: []interface{}{
 			string(env.uri),
-			map[string]interface{}{"baseUrl": "https://api.example.com"},
+			map[string]interface{}{"baseUrl": srv.URL, "sync": true},
 		},
 	})
 	if err != nil {
@@ -2944,19 +2911,16 @@ workflows:
 	if !ok {
 		t.Fatalf("expected map result, got %T", result)
 	}
-	if payload["baseUrl"] != "https://api.example.com" {
+	if payload["baseUrl"] != srv.URL {
 		t.Fatalf("baseUrl = %#v", payload["baseUrl"])
-	}
-	if payload["stderr"] != "contract test failed" {
-		t.Fatalf("stderr = %#v, want contract test failed", payload["stderr"])
 	}
 	barometerResult, ok := payload["result"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("expected barometer result, got %T", payload["result"])
 	}
 	pass, _ := barometerResult["pass"].(bool)
-	if pass {
-		t.Fatalf("expected failing contract result, got %#v", barometerResult)
+	if !pass {
+		t.Fatalf("expected passing Arazzo contract run, got %#v", barometerResult)
 	}
 	arazzoResult, _ := barometerResult["arazzo"].(map[string]interface{})
 	total, _ := arazzoResult["total"].(float64)
@@ -3013,7 +2977,7 @@ func TestExecuteCommand_BundlePreview_UsesOpenWorkspaceContent(t *testing.T) {
 		Context:   context.Background(),
 		Documents: store,
 	}
-	handler := lsp.NewExecuteCommandHandler(cache, nil)
+	handler := lsp.NewExecuteCommandHandler(cache, nil, nil)
 
 	result, err := handler(ctx, &protocol.ExecuteCommandParams{
 		Command:   "telescope.bundlePreview",

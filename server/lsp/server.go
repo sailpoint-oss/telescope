@@ -24,6 +24,7 @@ import (
 	"github.com/LukasParke/gossip/treesitter"
 
 	"github.com/sailpoint-oss/telescope/server/config"
+	"github.com/sailpoint-oss/telescope/server/contractrunner"
 	"github.com/sailpoint-oss/telescope/server/core/graph"
 	"github.com/sailpoint-oss/telescope/server/extensions"
 	"github.com/sailpoint-oss/telescope/server/lsp/bun"
@@ -405,7 +406,14 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 	s.OnInlayHint(NewInlayHintHandler(indexCache, graphBridge))
 	s.OnSemanticTokens(NewSemanticTokensHandler(indexCache, graphBridge))
 	s.OnFoldingRange(NewFoldingRangeHandler(indexCache, graphBridge))
-	s.OnExecuteCommand(NewExecuteCommandHandler(indexCache, graphBridge))
+	execDeps := &ExecuteCommandDeps{
+		Config:               cfg,
+		ConfigProvider:       rsMgr.TelescopeConfig,
+		WorkspaceEnvProvider: rsMgr.WorkspaceEnv,
+		Runner:               contractrunner.New(cfg),
+		Aggregator:           childMgr.Aggregator(),
+	}
+	s.OnExecuteCommand(NewExecuteCommandHandler(indexCache, graphBridge, execDeps))
 	s.OnCompletionResolve(NewCompletionResolveHandler(indexCache, graphBridge))
 	s.OnDocumentHighlight(NewDocumentHighlightHandler(indexCache, graphBridge))
 	s.OnWorkspaceSymbol(NewWorkspaceSymbolHandler(indexCache, graphBridge))

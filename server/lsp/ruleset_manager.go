@@ -18,6 +18,7 @@ type RulesetManager struct {
 	mu            sync.Mutex
 	workspaceRoot string
 	telescopeCfg  *config.Config
+	workspaceEnv  map[string]string // merged .env files for contract credential resolution
 	spectralRS    *rulesets.RuleSet
 	resolved      *rulesets.RuleSet
 	engine        *treesitter.DiagnosticEngine
@@ -70,6 +71,23 @@ func (m *RulesetManager) Reload() error {
 func (m *RulesetManager) reload() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.workspaceRoot != "" {
+		if tc, err := config.Load(m.workspaceRoot); err == nil {
+			m.telescopeCfg = tc
+		} else {
+			m.logger.Debug("telescope config load", "root", m.workspaceRoot, "error", err)
+		}
+		envFiles := config.DefaultEnvFiles
+		if m.telescopeCfg != nil {
+			envFiles = m.telescopeCfg.ContractTests.EffectiveEnvFiles()
+		}
+		if env, err := config.LoadWorkspaceDotenv(m.workspaceRoot, envFiles); err != nil {
+			m.logger.Warn("workspace dotenv load", "error", err)
+		} else {
+			m.workspaceEnv = env
+		}
+	}
 
 	// Load Spectral ruleset
 	spectralRS, err := config.LoadSpectralRuleset(m.workspaceRoot)
@@ -138,6 +156,30 @@ func (m *RulesetManager) SetTelescopeConfig(cfg *config.Config) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.telescopeCfg = cfg
+}
+
+// TelescopeConfig returns the current merged Telescope config (workspace .telescope.yaml).
+func (m *RulesetManager) TelescopeConfig() *config.Config {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.telescopeCfg == nil {
+		return config.DefaultConfig()
+	}
+	return m.telescopeCfg
+}
+
+// WorkspaceEnv returns a copy of merged workspace dotenv variables used for contractTests *Env resolution.
+func (m *RulesetManager) WorkspaceEnv() map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.workspaceEnv) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m.workspaceEnv))
+	for k, v := range m.workspaceEnv {
+		out[k] = v
+	}
+	return out
 }
 
 func (m *RulesetManager) buildTransformer() treesitter.DiagnosticTransformer {
@@ -219,6 +261,8 @@ func WatchPatterns() []string {
 		"**/.telescope/spectral.json",
 		"**/.telescope/config.yaml",
 		"**/.telescope/config.yml",
+		"**/.env",
+		"**/.env.local",
 	}
 }
 
@@ -230,7 +274,8 @@ func IsWatchedFile(filePath string) bool {
 	case ".spectral.yaml", ".spectral.yml", ".spectral.json",
 		".telescope.yaml", ".telescope.yml",
 		"spectral.yaml", "spectral.yml", "spectral.json",
-		"config.yaml", "config.yml":
+		"config.yaml", "config.yml",
+		".env", ".env.local":
 		return true
 	}
 	return false
