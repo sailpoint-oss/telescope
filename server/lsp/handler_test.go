@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unsafe"
@@ -693,6 +694,73 @@ func TestDefinitionHandler_Ref(t *testing.T) {
 					expectedLines, result[0].Range.Start.Line)
 			}
 		})
+	}
+}
+
+// Regression: E2E used to get empty hover/definition on Linux/macOS for local
+// $ref in rich-api.yaml when the index cache preferred a stale graph-projected
+// index. Pins non-empty providers for the same fixture bytes and a Unix-style
+// file URI.
+func TestRichAPIFixture_HoverAndDefinition_UnixFileURI(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixturePath := filepath.Join(filepath.Dir(thisFile), "..", "..", "client", "test-fixtures", "workspace-basic", "rich-api.yaml")
+	b, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", fixturePath, err)
+	}
+	content := string(b)
+
+	uri := protocol.DocumentURI("file:///workspace/rich-api.yaml")
+	env := setupTestEnv(t, uri, content)
+	doc := env.store.Get(uri)
+	if doc == nil {
+		t.Fatal("nil document")
+	}
+
+	refNeedle := "#/components/schemas/User"
+	off := strings.Index(content, refNeedle)
+	if off < 0 {
+		t.Fatal("fixture missing local User $ref")
+	}
+	pos := doc.PositionAt(off + 5)
+
+	hoverH := lsp.NewHoverHandler(env.cache, nil)
+	hoverResult, err := hoverH(env.ctx, &protocol.HoverParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("hover: %v", err)
+	}
+	if hoverResult == nil || hoverResult.Contents.Value == "" {
+		t.Fatal("expected non-empty hover for local $ref")
+	}
+	hv := strings.ToLower(hoverResult.Contents.Value)
+	if !strings.Contains(hv, "user") && !strings.Contains(hv, "email") && !strings.Contains(hv, "schema") {
+		v := hoverResult.Contents.Value
+		if len(v) > 400 {
+			v = v[:400]
+		}
+		t.Fatalf("hover should describe User schema; got: %s", v)
+	}
+
+	defH := lsp.NewDefinitionHandler(env.cache, nil, nil)
+	defResult, err := defH(env.ctx, &protocol.DefinitionParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	if len(defResult) == 0 {
+		t.Fatal("expected definition for local $ref")
 	}
 }
 

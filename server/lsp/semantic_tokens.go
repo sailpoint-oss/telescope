@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/LukasParke/gossip"
+	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
@@ -48,7 +49,11 @@ func NewSemanticTokensHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.
 			return nil, nil
 		}
 
-		tokens := buildSemanticTokens(idx)
+		docText := ""
+		if d := ctx.Documents.Get(params.TextDocument.URI); d != nil {
+			docText = d.Text()
+		}
+		tokens := buildSemanticTokens(idx, docText)
 		data := deltaEncode(tokens)
 		return &protocol.SemanticTokens{Data: data}, nil
 	}
@@ -62,7 +67,11 @@ func NewSemanticTokensRangeHandler(cache *openapi.IndexCache, _ *GraphBridge) go
 			return nil, nil
 		}
 
-		all := buildSemanticTokens(idx)
+		docText := ""
+		if d := ctx.Documents.Get(params.TextDocument.URI); d != nil {
+			docText = d.Text()
+		}
+		all := buildSemanticTokens(idx, docText)
 
 		filtered := make([]semanticToken, 0, len(all))
 		for _, t := range all {
@@ -76,7 +85,7 @@ func NewSemanticTokensRangeHandler(cache *openapi.IndexCache, _ *GraphBridge) go
 	}
 }
 
-func buildSemanticTokens(idx *openapi.Index) []semanticToken {
+func buildSemanticTokens(idx *openapi.Index, docText string) []semanticToken {
 	var tokens []semanticToken
 
 	for pathStr, item := range idx.Document.Paths {
@@ -180,6 +189,10 @@ func buildSemanticTokens(idx *openapi.Index) []semanticToken {
 		}
 	}
 
+	if docText != "" {
+		tokens = clampAndFilterSemanticTokens(tokens, docText)
+	}
+
 	sort.Slice(tokens, func(i, j int) bool {
 		if tokens[i].line != tokens[j].line {
 			return tokens[i].line < tokens[j].line
@@ -225,9 +238,53 @@ func byteOffsetToUTF16(s string, byteOff int) uint32 {
 
 func rangeLen(r protocol.Range) uint32 {
 	if r.Start.Line == r.End.Line {
+		if r.End.Character <= r.Start.Character {
+			return 0
+		}
 		return r.End.Character - r.Start.Character
 	}
-	return r.End.Character
+	// Multi-line ranges are not valid single-line semantic token lengths.
+	return 0
+}
+
+// clampAndFilterSemanticTokens drops tokens that extend past the UTF-16 line
+// length or have zero length, avoiding VS Code "invalid length" diagnostics.
+func clampAndFilterSemanticTokens(tokens []semanticToken, docText string) []semanticToken {
+	out := make([]semanticToken, 0, len(tokens))
+	for _, t := range tokens {
+		lineStr := document.LineAt(docText, t.line)
+		max := utf16StringLen(lineStr)
+		if t.char >= max {
+			continue
+		}
+		if t.char+t.length > max {
+			t.length = max - t.char
+		}
+		if t.length == 0 {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func utf16StringLen(s string) uint32 {
+	var n uint32
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			n++
+			i++
+			continue
+		}
+		rl := utf16.RuneLen(r)
+		if rl < 0 {
+			rl = 1
+		}
+		n += uint32(rl)
+		i += size
+	}
+	return n
 }
 
 func isZeroRange(r protocol.Range) bool {

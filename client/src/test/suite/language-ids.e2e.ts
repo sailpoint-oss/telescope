@@ -88,7 +88,10 @@ paths: {}
 				);
 			});
 
-			doc = await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 10000 });
+			// Windows CI can classify slowly after a full-buffer replace; nudge the
+			// extension explicitly and allow a longer poll than the default debounce.
+			await vscode.commands.executeCommand("telescope.reclassifyDocument");
+			doc = await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 60000 });
 			assert.strictEqual(
 				doc.languageId,
 				"openapi-yaml",

@@ -66,16 +66,19 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 
 		// Register a builder so cache.Get() builds the index on-demand
 		// if it hasn't been cached yet (handles the init race window).
+		// Prefer the live tree-sitter index for open documents so hover,
+		// definition, and semantic tokens match the editor buffer. The graph
+		// bridge index can lag or disagree with the open doc on some platforms;
+		// fall back to it only when there is no parse tree yet.
 		indexCache.SetBuilder(func(uri protocol.DocumentURI) *openapi.Index {
-			if idx := graphBridge.IndexForURI(string(uri)); idx != nil {
-				return idx
-			}
 			doc := s.Documents().Get(uri)
 			tree := s.TreeSitter().GetTree(uri)
-			if doc == nil || tree == nil {
-				return nil
+			if doc != nil && tree != nil {
+				if idx := openapi.BuildIndex(tree, doc); idx != nil {
+					return idx
+				}
 			}
-			return openapi.BuildIndex(tree, doc)
+			return graphBridge.IndexForURI(string(uri))
 		})
 
 		// Wire UserData so Analyzers receive the OpenAPI index and an
@@ -92,13 +95,13 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 				serverLogger.Warn("failed to run graph pipeline", "uri", uri, "error", err)
 			}
 
-			idx := graphBridge.IndexForURI(string(uri))
-			if idx == nil {
-				tree := s.TreeSitter().GetTree(uri)
-				if tree == nil {
-					return nil
-				}
+			var idx *openapi.Index
+			tree := s.TreeSitter().GetTree(uri)
+			if tree != nil {
 				idx = openapi.BuildIndex(tree, doc)
+			}
+			if idx == nil {
+				idx = graphBridge.IndexForURI(string(uri))
 			}
 			if idx == nil {
 				return nil
