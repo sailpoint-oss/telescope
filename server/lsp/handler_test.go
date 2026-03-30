@@ -2793,6 +2793,7 @@ func TestExecuteCommand_RunContractTests(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		w.Header().Set("X-Request-Id", "550e8400-e29b-41d4-a716-446655440000")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -2808,6 +2809,11 @@ paths:
       responses:
         "200":
           description: OK
+          headers:
+            X-Request-Id:
+              schema:
+                type: string
+                format: uuid
 `
 	env := setupTestEnv(t, "file:///contract-tests.yaml", spec)
 	handler := lsp.NewExecuteCommandHandler(env.cache, nil, nil)
