@@ -2,15 +2,23 @@ package config
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestResolveWorkspacePath(t *testing.T) {
-	root := "/workspace"
-	if got := ResolveWorkspacePath(root, "certs/client.pem"); got != filepath.Join(root, "certs/client.pem") {
+	root := filepath.Join(string(filepath.Separator), "workspace")
+	rel := filepath.Join("certs", "client.pem")
+	if got := ResolveWorkspacePath(root, rel); got != filepath.Join(root, rel) {
 		t.Fatalf("relative: %q", got)
 	}
-	if got := ResolveWorkspacePath(root, "/abs/pem"); got != filepath.Clean("/abs/pem") {
+	var abs string
+	if runtime.GOOS == "windows" {
+		abs = `C:\abs\pem`
+	} else {
+		abs = filepath.Join(string(filepath.Separator), "abs", "pem")
+	}
+	if got := ResolveWorkspacePath(root, abs); got != filepath.Clean(abs) {
 		t.Fatalf("absolute: %q", got)
 	}
 }

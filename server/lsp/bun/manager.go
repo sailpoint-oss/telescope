@@ -108,8 +108,12 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.cmd = cmd
 
 	deadline := time.Now().Add(10 * time.Second)
-	if dl, ok := m.listener.(*net.UnixListener); ok {
-		dl.SetDeadline(deadline)
+	switch l := m.listener.(type) {
+	case *net.UnixListener:
+		l.SetDeadline(deadline)
+	case *net.TCPListener:
+		// Windows uses TCP; without a deadline Accept blocks forever if the runner never connects.
+		_ = l.SetDeadline(deadline)
 	}
 
 	conn, err := m.listener.Accept()
