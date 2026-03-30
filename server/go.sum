@@ -70,8 +70,8 @@ github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZN
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
-github.com/sailpoint-oss/barometer v0.1.0 h1:PPNVA5u3itThRSb7y+aBqs4CqvYGJ563UgM0qtH14os=
-github.com/sailpoint-oss/barometer v0.1.0/go.mod h1:V8Uiw7fQ0BOhIM0mLSG1fAbrb19G4EA7GyaeQhPa3ng=
+github.com/sailpoint-oss/barometer v0.1.1 h1:h6A7GlEtxMR2nGMpz420iodr1lhHedZi9vfnDcOfXag=
+github.com/sailpoint-oss/barometer v0.1.1/go.mod h1:zw24VKa1ONBC8Mij1cfyznM4gV6LSHgeupzBL0PIiwo=
 github.com/sailpoint-oss/barrelman v0.3.1 h1:Qeq/bihyeLpEACUjNUC/8SCEdMKVwxZuBIGNyR0UM54=
 github.com/sailpoint-oss/barrelman v0.3.1/go.mod h1:hxWyH/h8SVxezi0+VrqTd0ipNmF7x76Bg6zNGafv2Os=
 github.com/sailpoint-oss/navigator v0.4.0 h1:ZO6UaZyb2wV2QVy6UDqy9sj3B0g7rRdH/Mk+Vx8/Gfo=

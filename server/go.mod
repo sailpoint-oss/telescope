@@ -7,7 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.7.0
-	github.com/sailpoint-oss/barometer v0.1.0
+	github.com/sailpoint-oss/barometer v0.1.1
 	github.com/sailpoint-oss/barrelman v0.3.1
 	github.com/sailpoint-oss/navigator v0.4.0
 	github.com/sailpoint-oss/tree-sitter-openapi v0.1.0
