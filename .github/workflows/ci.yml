@@ -13,6 +13,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   go:
     name: Go (${{ matrix.os }})
@@ -173,7 +176,6 @@ jobs:
     name: E2E (${{ matrix.os }})
     needs: [go, typescript]
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -233,7 +235,7 @@ jobs:
 
       - name: Run E2E sidecar tests
         id: sidecar
-        continue-on-error: true
+        shell: bash
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             xvfb-run -a pnpm --filter ./client test:e2e:run:sidecar
@@ -243,6 +245,7 @@ jobs:
 
       - name: Summarize E2E results
         if: always()
+        shell: bash
         run: |
           {
             echo "### E2E Summary (${{ matrix.os }})"
