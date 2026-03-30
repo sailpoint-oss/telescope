@@ -111,30 +111,30 @@ func NewHoverHandler(cache *openapi.IndexCache, bridge *GraphBridge) gossip.Hove
 		}
 
 		// Component schema — only at definition site (NameLoc)
-		if schema, ok := idx.Schemas[word]; ok && isAtLoc(params.Position, schema.NameLoc) {
+		if schema, ok := idx.Schemas[word]; ok && (isAtLocOrSameLineNameSpan(params.Position, schema.NameLoc, word) || cursorOnWordFirstOccurrence(line, word, params.Position)) {
 			return markdownHover(formatSchemaHoverWithContext(word, schema, newHoverRenderContext(idx.Resolve))), nil
 		}
 
 		// Component parameter — only at definition site (NameLoc)
-		if param, ok := idx.Parameters[word]; ok && isAtLoc(params.Position, param.NameLoc) {
+		if param, ok := idx.Parameters[word]; ok && (isAtLocOrSameLineNameSpan(params.Position, param.NameLoc, word) || cursorOnWordFirstOccurrence(line, word, params.Position)) {
 			return markdownHover(formatParameterHover(word, param)), nil
 		}
 
 		// Component response — only at definition site (NameLoc)
-		if resp, ok := idx.Responses[word]; ok && isAtLoc(params.Position, resp.NameLoc) {
+		if resp, ok := idx.Responses[word]; ok && (isAtLocOrSameLineNameSpan(params.Position, resp.NameLoc, word) || cursorOnWordFirstOccurrence(line, word, params.Position)) {
 			return markdownHover(formatResponseHover(word, resp)), nil
 		}
 
 		// Security scheme — at definition site OR in security: context
 		if ss, ok := idx.SecuritySchemes[word]; ok {
-			if isAtLoc(params.Position, ss.NameLoc) || isSecurityContext(line) {
+			if isAtLocOrSameLineNameSpan(params.Position, ss.NameLoc, word) || cursorOnWordFirstOccurrence(line, word, params.Position) || isSecurityContext(line) {
 				return markdownHover(formatSecuritySchemeHover(word, ss, idx)), nil
 			}
 		}
 
 		// Tag — at root tag definition OR in operation tags: array
 		if tag, ok := idx.Tags[word]; ok {
-			if isAtLoc(params.Position, tag.NameLoc) || isTagUsageAt(idx, word, params.Position) {
+			if isAtLocOrSameLineNameSpan(params.Position, tag.NameLoc, word) || cursorOnWordFirstOccurrence(line, word, params.Position) || isTagUsageAt(idx, word, params.Position) {
 				return markdownHover(formatTagHover(tag, idx)), nil
 			}
 		}
@@ -173,6 +173,51 @@ func isAtLoc(pos protocol.Position, loc openapi.Loc) bool {
 		return false
 	}
 	return true
+}
+
+// isAtLocOrSameLineNameSpan treats tree-sitter key/value spans that are zero-width
+// or shorter than the identifier as covering the full UTF-16 name (same line as
+// NameLoc.Range.Start). This matches E2E and editor cursor placement on the
+// middle of a component key or tag value.
+func isAtLocOrSameLineNameSpan(pos protocol.Position, loc openapi.Loc, name string) bool {
+	if name == "" {
+		return isAtLoc(pos, loc)
+	}
+	if isAtLoc(pos, loc) {
+		return true
+	}
+	r := adapt.RangeToProtocol(loc.Range)
+	if isZeroRange(r) {
+		return false
+	}
+	if pos.Line != r.Start.Line || pos.Line != r.End.Line {
+		return false
+	}
+	want := utf16Len(name)
+	if want == 0 {
+		return false
+	}
+	// Tree-sitter NameLoc spans can be point-like, too short, or occasionally
+	// mis-sized vs LSP positions; anchor on Range.Start and span the identifier.
+	start := r.Start.Character
+	end := start + want
+	return pos.Character >= start && pos.Character < end
+}
+
+// cursorOnWordFirstOccurrence reports whether pos falls on the UTF-16 span of
+// the first occurrence of word on line. Used when NameLoc columns disagree
+// with the editor (tree-sitter vs VS Code).
+func cursorOnWordFirstOccurrence(line string, word string, pos protocol.Position) bool {
+	if word == "" {
+		return false
+	}
+	idx := strings.Index(line, word)
+	if idx < 0 {
+		return false
+	}
+	start := utf16Len(line[:idx])
+	end := start + utf16Len(word)
+	return pos.Character >= start && pos.Character < end
 }
 
 // isTagUsageAt checks if the given position matches any tag usage location in operations.
