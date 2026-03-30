@@ -22,13 +22,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-extension
+  group: telescope-release
   cancel-in-progress: false
 
 jobs:
   build-binaries:
     name: Build ${{ matrix.vscode_target }}
-    if: ${{ !contains(github.event.head_commit.message || '', '[skip publish]') }}
+    if: ${{ !contains(github.event.head_commit.message || '', '[skip publish]') && !contains(github.event.head_commit.message || '', '[skip release]') }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: true
@@ -109,7 +109,7 @@ jobs:
     name: Package & Publish
     needs: build-binaries
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.event.head_commit.message || '', '[skip publish]') }}
+    if: ${{ !contains(github.event.head_commit.message || '', '[skip publish]') && !contains(github.event.head_commit.message || '', '[skip release]') }}
 
     steps:
       - uses: actions/checkout@v4
