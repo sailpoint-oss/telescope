@@ -9,7 +9,7 @@ A powerful VS Code extension for OpenAPI specifications with real-time validatio
 - **Real-time Diagnostics** — See linting issues as you type
 - **88 Built-in Rules** — OpenAPI best practices, security, and OWASP coverage
 - **Multi-file Support** — Full `$ref` resolution across your API project
-- **Custom Rules** — Extend with Go plugin binaries, Spectral-compatible YAML rulesets, and optional Bun-backed JS/TS rules
+- **Custom Rules** — YAML in config, Spectral-compatible YAML rulesets, and optional Bun-backed JS/TS rules
 
 ### Code Intelligence
 
@@ -84,7 +84,7 @@ exclude:
   - "node_modules/**"
   - "dist/**"
 
-plugins:
+spectralRulesets:
   - ./rulesets/custom.yaml
 ```
 
@@ -96,7 +96,7 @@ plugins:
 | `rules`   | Override severity for built-in rules (`error`, `warn`, `info`, `off`) |
 | `include` | Glob patterns to match OpenAPI files                                  |
 | `exclude` | Glob patterns to exclude                                              |
-| `plugins` | Spectral YAML rulesets or Go plugin binary paths                      |
+| `spectralRulesets` | Spectral-compatible YAML ruleset paths                                |
 
 ### Default Patterns
 
@@ -169,9 +169,9 @@ rules:
 
 ## Custom Rules
 
-Telescope supports custom rules via Go plugin binaries, Spectral-compatible YAML rulesets, and TypeScript/JavaScript rules through the optional Bun sidecar. Build Go plugins with the SDK (`server/sdk/`), place compiled binaries in `.telescope/plugins/`, and Telescope discovers them at startup.
+Telescope supports custom rules via declarative YAML in `.telescope.yaml`, Spectral-compatible YAML rulesets (`spectralRulesets`), and TypeScript/JavaScript rules through the optional Bun sidecar.
 
-For full documentation, see the [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md) and the example plugin at [`server/examples/custom-plugin/main.go`](https://github.com/sailpoint-oss/telescope/blob/main/server/examples/custom-plugin/main.go).
+For full documentation, see the [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md).
 
 ## Extension Settings
 

@@ -82,7 +82,7 @@ flowchart TB
 | `core/parser` (embedded) | Embedded content: `EmbeddedLanguageProvider`, `MarkdownProvider` |
 | `core/classify` | File classification: `FileClassifier`, `FileClassification`, heuristic signals |
 | `core/analyze` | Cross-document analysis: `FindUnusedComponents`, `DetectBreakingChanges`, `BundlePreview` |
-| `sdk` | Public Go API: `Workspace`, `Option`, `AnalysisResult`, plugin SDK |
+| `sdk` | Public Go API: `Workspace`, `Option`, `AnalysisResult` |
 | `lsp` | LSP server wiring, handlers, graph bridge |
 | `lsp/adapt` | Type conversion: `core/types` ↔ `gossip/protocol` |
 | `lsp/bun` | Bun sidecar for TypeScript/JavaScript custom rules and Spectral rulesets |
@@ -93,7 +93,7 @@ flowchart TB
 | `rules/testing` | Test harness: `rulestest.Run()` with exact diagnostic assertions |
 | `spectral` | Spectral-compatible YAML rulesets (JSONPath + built-in functions) |
 | `project` | Multi-file workspace: file discovery, dependency graph |
-| `plugin` | Go plugin host via `hashicorp/go-plugin` |
+| `plugin` | In-process `Plugin` interface; YAML/Bun wiring (no Go plugin RPC) |
 | `openapi` | Compatibility layer around Navigator types used by existing Telescope surfaces |
 | `config` | `.telescope.yaml` loading, ruleset merging |
 | `extensions` | `x-*` vendor extension schema validation and completion metadata |
@@ -233,7 +233,7 @@ Custom LSP notifications:
 
 | Extension | Description |
 |-----------|-------------|
-| **Go plugins** | Compiled binaries in `.telescope/plugins/`, RPC via `hashicorp/go-plugin`. Use `sdk.Rule()` and `sdk.NewPlugin()` to define rules. |
+| **User rules** | Declarative YAML in config (`openapi.rules`, `spectralRulesets`) and TS/JS via the Bun sidecar. |
 | **Spectral rulesets** | YAML files with JSONPath + built-in functions. No JS execution. Configure via `.telescope.yaml` `spectralRulesets` field. |
 | **Bun sidecar** | TypeScript/JavaScript rules run in a Bun subprocess with health checks and crash recovery. IPC protocol in `lsp/bun/protocol.go`. |
 | **Additional JSON Schema** | Non-OpenAPI schema validation handled by the Go validator via `additionalValidation.schemas`. |

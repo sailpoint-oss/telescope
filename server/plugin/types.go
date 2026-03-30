@@ -1,5 +1,6 @@
-// Package plugin provides an extension system for adding custom rules and
-// rulesets to Telescope.
+// Package plugin defines the in-process Plugin interface for registering
+// rule providers with Telescope. User-authored rules use YAML config and the
+// Bun sidecar (TypeScript/JavaScript); this package is for internal wiring.
 package plugin
 
 import (

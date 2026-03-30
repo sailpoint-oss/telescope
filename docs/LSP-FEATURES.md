@@ -38,7 +38,7 @@ The important distinction is that Telescope does **not** expose the child YAML/J
 | YAML/JSON syntax and schema diagnostics | No | Yes | No |
 | Generic YAML/JSON completion, hover, or formatting | No | Disabled | No |
 | Embedded Markdown link handling and code-block highlighting | Yes | No | No |
-| Go plugin and Spectral YAML ruleset diagnostics | Yes | No | No |
+| Spectral YAML ruleset diagnostics | Yes | No | No |
 | TypeScript/JavaScript custom-rule diagnostics | No | No | Optional |
 
 ## Distribution
@@ -336,7 +336,7 @@ Validation sources:
 
 1. **OpenAPI Rules**: 88 built-in rules covering best practices, security, and OWASP
 2. **Schema Validation**: JSON Schema structural validation for OpenAPI 3.0/3.1/3.2
-3. **Custom Rules**: Go plugin binaries and Spectral-compatible YAML rulesets
+3. **Custom Rules**: Spectral-compatible YAML rulesets and Bun sidecar TS/JS rules
 4. **Reference Validation**: `$ref` resolution and cycle detection
 
 Diagnostic severities:

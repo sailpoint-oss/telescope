@@ -13,7 +13,7 @@
 - **Navigator-backed Structural Diagnostics** - Canonical parse, schema-shape, and meta-schema issues surfaced live in the editor
 - **88 Built-in OpenAPI Rules** - Barrelman-backed lint coverage for naming, security, paths, documentation, and OWASP guidance
 - **Multi-file Support** - Full `$ref` resolution across your API project
-- **Custom Rules** - Extend Telescope with Go plugins, Bun sidecar TypeScript/JavaScript rules, or Spectral-compatible YAML rulesets
+- **Custom Rules** - YAML rules in config, Bun sidecar TypeScript/JavaScript rules, and Spectral-compatible YAML rulesets
 - **Pattern Matching** - Glob-based file inclusion/exclusion
 
 ### Code Intelligence
@@ -139,7 +139,7 @@ flowchart TB
         subgraph rules ["Rule Engine"]
             Analyzers["Built-in Analyzers (88 rules)"]
             Spectral["Spectral Engine (YAML rulesets)"]
-            Plugins["Go Plugin Binaries (hashicorp/go-plugin)"]
+            BunRules["Bun sidecar (TS/JS rules)"]
             ExtVal["Extension Validator (x-* schemas)"]
             Checks["Syntactic Checks (duplicate keys, ASCII)"]
         end
@@ -200,7 +200,7 @@ flowchart TB
 
 3. **Indexing.** On every tree update, the `DiagnosticEngine` calls the `UserDataProvider`, which runs `openapi.BuildIndex(tree, doc)`. That compatibility layer keeps Telescope's existing typed surface while wrapping Navigator-backed document semantics, operations, components, tags, and `$ref` usages. Indexes are cached per-URI in the `IndexCache` with an on-demand builder fallback.
 
-4. **Rule execution.** The `DiagnosticEngine` runs five categories of checks in parallel: Navigator-issued document issues, Barrelman-backed built-in analyzers/checks, Spectral-compatible YAML rulesets (JSONPath + built-in functions), Go plugin binaries (via `hashicorp/go-plugin` RPC), and Telescope's editor-facing extension schema validators. Each produces diagnostics with precise source locations.
+4. **Rule execution.** The `DiagnosticEngine` runs several categories of checks in parallel: Navigator-issued document issues, Barrelman-backed built-in analyzers/checks, Spectral-compatible YAML rulesets (JSONPath + built-in functions), Bun sidecar TypeScript/JavaScript rules, and Telescope's editor-facing extension schema validators. Each produces diagnostics with precise source locations.
 
 5. **Diagnostic aggregation.** Telescope diagnostics flow through a `DiagnosticAggregator` (from gossip's `lspclient` package) that merges results from three sources: the Telescope rule engine, the child `yaml-language-server`, and the child `vscode-json-language-server`. The aggregator debounces for 80ms, then publishes the merged set to the client via `textDocument/publishDiagnostics`.
 
@@ -286,33 +286,22 @@ Use the reusable action when you want the same CLI contract in GitHub Actions:
 
 ## Custom Rules
 
-Shared built-in rules live upstream in Barrelman. Telescope-specific extensions are for custom or editor-local behavior and can be written as **Go plugin binaries**, **Bun sidecar rules**, or **Spectral-compatible YAML rulesets**:
+Shared built-in rules live upstream in Barrelman. Telescope-specific extensions are for custom or editor-local behavior and can be written as **declarative YAML** in `.telescope.yaml`, **Bun sidecar rules**, or **Spectral-compatible YAML rulesets**:
 
-```go
-package main
-
-import "github.com/sailpoint-oss/telescope/server/sdk"
-
-func main() {
-    p := sdk.NewPlugin("my-rules", "1.0.0")
-
-    sdk.Rule("require-security", sdk.Meta{
-        Description: "All operations must define a security requirement",
-        Severity:    sdk.Error,
-        Category:    sdk.Security,
-    }).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
-        if len(op.Security) == 0 {
-            r.At(op.Loc, "%s %s has no security requirement defined", method, path)
-        }
-    }).Register(p)
-
-    p.Serve()
-}
+```yaml
+extends: telescope:recommended
+spectralRulesets:
+  - .telescope/company-rules.yaml
+openapi:
+  rules:
+    - rule: my-rule
+      severity: warn
+      # ... declarative rule definition (see guide)
 ```
 
-Build and deploy to `.telescope/plugins/`. Spectral-compatible YAML rulesets are also supported.
+Place shared rule files under `.telescope/` and reference them from `.telescope.yaml`. See [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for Spectral rules, Bun workflows, and YAML-native rules.
 
-See [server/README.md](server/README.md) for the full Go plugin SDK reference and [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for more details.
+The Go package [`server/sdk`](server/README.md) is for **programmatic linting** (`Workspace`) and type re-exports for embedders, not for Go plugin binaries.
 
 ## Development
 

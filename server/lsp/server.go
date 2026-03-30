@@ -30,7 +30,6 @@ import (
 	"github.com/sailpoint-oss/telescope/server/lsp/bun"
 	"github.com/sailpoint-oss/telescope/server/lsp/observe"
 	"github.com/sailpoint-oss/telescope/server/openapi"
-	"github.com/sailpoint-oss/telescope/server/plugin"
 	"github.com/sailpoint-oss/telescope/server/project"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
@@ -43,7 +42,7 @@ var Version = "dev"
 
 // telescopeSetup is a gossip Option that wires the OpenAPI index and rules
 // after the tree-sitter manager has been initialized by WithTreeSitter.
-func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, pluginHost *plugin.Host, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, childMgr *ChildLSPManager, graphBridge *GraphBridge, bunMgr *bun.Manager, workspaceRootPtr *string) gossip.Option {
+func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, childMgr *ChildLSPManager, graphBridge *GraphBridge, bunMgr *bun.Manager, workspaceRootPtr *string) gossip.Option {
 	return func(s *gossip.Server) {
 		// Bind the DiagnosticEngine now that WithTreeSitter has been applied.
 		// This must happen here (inside an Option) because gossip.NewServer
@@ -146,9 +145,6 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		spectralEng := rsMgr.SpectralEngine()
 		s.DiagnosticEngine().RegisterAnalyzer("spectral-custom", spectralEng.Analyzer())
 
-		// Register the external plugin host analyzer
-		s.DiagnosticEngine().RegisterAnalyzer("external-plugins", pluginHost.Analyzer())
-
 		// Register the extension validation analyzer
 		s.DiagnosticEngine().RegisterAnalyzer("extension-validation", extensions.Analyzer(extRegistry))
 
@@ -180,7 +176,6 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 	// Create a temporary RulesetManager; it gets the real engine during
 	// telescopeSetup once gossip has initialized the DiagnosticEngine.
 	rsMgr := &RulesetManager{logger: logger}
-	pluginHost := plugin.NewHost(logger)
 	extRegistry := extensions.NewRegistry()
 	addlValidator := validation.NewAdditionalValidator(logger)
 	projMgr := project.NewManager(indexCache, logger)
@@ -223,7 +218,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		gossip.WithMiddleware(middleware.Logging(logger), middleware.Recovery(), observe.TraceID(logger)),
 		gossip.WithCompletionTriggerCharacters("$", "/", "#", ":"),
 		gossip.WithSemanticTokensLegend(semanticTokensLegend),
-		telescopeSetup(cfg, indexCache, rsMgr, pluginHost, extRegistry, addlValidator, projMgr, childMgr, graphBridge, bunMgr, &workspaceRootStr),
+		telescopeSetup(cfg, indexCache, rsMgr, extRegistry, addlValidator, projMgr, childMgr, graphBridge, bunMgr, &workspaceRootStr),
 	)
 
 	// Register document sync handlers to forward to child LSPs and update
@@ -323,12 +318,6 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 				logger.Warn("failed to load rulesets on init", "root", rootPath, "error", err)
 			}
 
-			// Discover external plugins from .telescope/plugins/
-			pluginDir := filepath.Join(rootPath, ".telescope", "plugins")
-			if err := pluginHost.Discover(pluginDir); err != nil {
-				logger.Warn("failed to discover plugins", "dir", pluginDir, "error", err)
-			}
-
 			// Load built-in vendor extensions and user extension schemas
 			if err := extensions.LoadBuiltins(extRegistry); err != nil {
 				logger.Warn("failed to load builtin extensions", "error", err)
@@ -359,17 +348,6 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 				}
 				if err := addlValidator.Configure(rootPath, groups); err != nil {
 					logger.Warn("failed to configure additional validation", "error", err)
-				}
-			}
-
-			// Also load explicitly configured plugins
-			for _, p := range cfg.Plugins {
-				pluginPath := p
-				if !filepath.IsAbs(pluginPath) {
-					pluginPath = filepath.Join(rootPath, pluginPath)
-				}
-				if err := pluginHost.LoadPlugin(pluginPath); err != nil {
-					logger.Warn("failed to load configured plugin", "path", p, "error", err)
 				}
 			}
 

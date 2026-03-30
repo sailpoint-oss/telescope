@@ -1,8 +1,4 @@
 // Package sdk provides the public Go API for using Telescope as a library.
-// It includes two main surfaces:
-//
-//  1. Workspace API — Programmatic linting for CLI tools and external consumers
-//  2. Plugin API — Building custom rules as standalone Go binaries (hashicorp/go-plugin RPC)
 //
 // # Workspace API (Programmatic Linting)
 //
@@ -31,42 +27,17 @@
 //
 // See docs/SDK.md for the full guide.
 //
-// # Plugin API (Custom Rules)
+// # Custom rules
 //
-// Plugins are compiled Go programs that communicate with the Telescope
-// host over RPC (via hashicorp/go-plugin). The SDK re-exports all
-// necessary types from the openapi and rules packages so plugin authors
-// only need a single import.
-//
-//	package main
-//
-//	import "github.com/sailpoint-oss/telescope/server/sdk"
-//
-//	func main() {
-//	    p := sdk.NewPlugin("my-plugin", "1.0.0")
-//
-//	    sdk.Rule("my-rule", sdk.Meta{
-//	        Description: "Operations must have summaries",
-//	        Severity:    sdk.Warn,
-//	        Category:    sdk.Documentation,
-//	        Recommended: true,
-//	    }).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
-//	        if op.Summary.Text == "" {
-//	            r.At(op.Loc, "%s %s needs a summary", method, path)
-//	        }
-//	    }).Register(p)
-//
-//	    p.Serve() // blocks until host disconnects
-//	}
-//
-// Compile the plugin binary and place it in .telescope/plugins/ for
-// automatic discovery, or reference it in .telescope.yaml.
+// User-defined rules are authored as YAML (under openapi.rules and related
+// config) and TypeScript/JavaScript executed by the optional Bun sidecar.
+// There is no Go plugin or subprocess RPC surface for custom rules.
 //
 // # Available Types
 //
-// All OpenAPI model types (Document, Operation, Schema, Parameter, etc.)
-// and rule types (Reporter, Meta, Category, Validator) are re-exported
-// as type aliases so plugin code needs only the sdk import path.
+// Re-exported OpenAPI model types (Document, Operation, Schema, Parameter,
+// etc.) and rule helpers (Reporter, Meta, Category, Validator) are available
+// as type aliases for consumers that embed Telescope.
 //
 // # Validators
 //

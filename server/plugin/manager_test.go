@@ -2,6 +2,8 @@ package plugin_test
 
 import (
 	"fmt"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/LukasParke/gossip/treesitter"
@@ -17,11 +19,15 @@ type mockPlugin struct {
 	metas     []rules.RuleMeta
 }
 
-func (m *mockPlugin) Name() string                           { return m.name }
-func (m *mockPlugin) Version() string                        { return m.version }
-func (m *mockPlugin) Checks() map[string]treesitter.Check    { return m.checks }
+func (m *mockPlugin) Name() string                              { return m.name }
+func (m *mockPlugin) Version() string                           { return m.version }
+func (m *mockPlugin) Checks() map[string]treesitter.Check       { return m.checks }
 func (m *mockPlugin) Analyzers() map[string]treesitter.Analyzer { return m.analyzers }
-func (m *mockPlugin) Meta() []rules.RuleMeta                 { return m.metas }
+func (m *mockPlugin) Meta() []rules.RuleMeta                    { return m.metas }
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func TestNewManager(t *testing.T) {
 	m := plugin.NewManager(testLogger())

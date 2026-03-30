@@ -12,7 +12,7 @@ import (
 )
 
 // benchIndex builds an index via the standalone parser, which is the same
-// path used by Go plugin binaries (no tree-sitter).
+// path used by Standalone parser path (no tree-sitter).
 func benchIndex(b *testing.B, spec specs.Spec) *openapi.Index {
 	b.Helper()
 	idx := openapi.ParseAndIndex(spec.Content)
@@ -24,7 +24,7 @@ func benchIndex(b *testing.B, spec specs.Spec) *openapi.Index {
 
 // --- Individual visitor benchmarks ---
 
-func BenchmarkGoPlugin_Operations(b *testing.B) {
+func BenchmarkRuleVisitors_Operations(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		idx := benchIndex(b, spec)
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
@@ -47,7 +47,7 @@ func BenchmarkGoPlugin_Operations(b *testing.B) {
 	}
 }
 
-func BenchmarkGoPlugin_Schemas(b *testing.B) {
+func BenchmarkRuleVisitors_Schemas(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		idx := benchIndex(b, spec)
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
@@ -71,7 +71,7 @@ func BenchmarkGoPlugin_Schemas(b *testing.B) {
 	}
 }
 
-func BenchmarkGoPlugin_Paths(b *testing.B) {
+func BenchmarkRuleVisitors_Paths(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		idx := benchIndex(b, spec)
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
@@ -94,7 +94,7 @@ func BenchmarkGoPlugin_Paths(b *testing.B) {
 	}
 }
 
-func BenchmarkGoPlugin_Parameters(b *testing.B) {
+func BenchmarkRuleVisitors_Parameters(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		idx := benchIndex(b, spec)
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
@@ -117,9 +117,9 @@ func BenchmarkGoPlugin_Parameters(b *testing.B) {
 	}
 }
 
-// BenchmarkGoPlugin_Combined runs multiple visitor rules in a single Walk,
+// BenchmarkRuleVisitors_Combined runs multiple visitor rules in a single Walk,
 // simulating a plugin with several rules registered.
-func BenchmarkGoPlugin_Combined(b *testing.B) {
+func BenchmarkRuleVisitors_Combined(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		idx := benchIndex(b, spec)
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
@@ -181,10 +181,10 @@ func BenchmarkGoPlugin_Combined(b *testing.B) {
 	}
 }
 
-// BenchmarkGoPlugin_ParseAndWalk benchmarks the full pipeline: parse the spec
+// BenchmarkRuleVisitors_ParseAndWalk benchmarks the full pipeline: parse the spec
 // from raw bytes (standalone YAML parser) then walk with all visitors. This
 // measures the end-to-end cost of a Go plugin binary.
-func BenchmarkGoPlugin_ParseAndWalk(b *testing.B) {
+func BenchmarkRuleVisitors_ParseAndWalk(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			v := rules.Visitors{

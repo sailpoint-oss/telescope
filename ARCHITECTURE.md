@@ -17,14 +17,14 @@ telescope/
 │   ├── lsp/                   # LSP server + 20+ feature handlers
 │   ├── markdown/              # Markdown parsing (goldmark)
 │   ├── openapi/               # Compatibility model + adapters over Navigator data
-│   ├── plugin/                # Go plugin host (hashicorp/go-plugin)
+│   ├── plugin/                # In-process plugin helpers; YAML rule adapters
 │   ├── project/               # Multi-file workspace + $ref resolution
 │   ├── rules/                 # Rule registry, builder, walker
 │   │   ├── analyzers/         # Built-in analyzers (structural, naming, etc.)
 │   │   ├── checks/            # Syntactic checks (duplicate keys, ASCII)
 │   │   └── testing/           # Test harness for rules
 │   ├── rulesets/              # Ruleset loading/merging (Spectral compat)
-│   ├── sdk/                   # Plugin SDK for third-party rule authors
+│   ├── sdk/                   # Public Go API (Workspace, programmatic lint)
 │   ├── spectral/              # Spectral rule engine (JSONPath + functions)
 │   ├── testutil/              # Test utilities and fixture specs
 │   └── validation/            # Non-OpenAPI file validation (`additionalValidation`)
@@ -62,7 +62,7 @@ flowchart TB
             Analyzers["Built-in Analyzers"]
             Checks["Syntactic Checks"]
             Spectral["Spectral Engine"]
-            Plugins["External Plugins"]
+            BunSidecar["Bun sidecar (TS/JS)"]
             ExtVal["Extension Validation"]
         end
     end
@@ -79,14 +79,14 @@ flowchart TB
     Index --> Analyzers
     Index --> Checks
     Index --> Spectral
-    Index --> Plugins
+    Index --> BunSidecar
     Index --> ExtVal
 
     Navigator --> Diagnostics
     Analyzers --> Diagnostics
     Checks --> Diagnostics
     Spectral --> Diagnostics
-    Plugins --> Diagnostics
+    BunSidecar --> Diagnostics
     ExtVal --> Diagnostics
 
     Diagnostics --> RulesetMgr
@@ -100,7 +100,7 @@ flowchart TB
 
     class Extension client
     class Gossip,TreeSitter,Handlers,RulesetMgr lsp
-    class Index,Navigator,Analyzers,Checks,Spectral,Plugins,ExtVal engine
+    class Index,Navigator,Analyzers,Checks,Spectral,BunSidecar,ExtVal engine
     class Diagnostics,Fixes output
 ```
 
@@ -112,7 +112,7 @@ flowchart TB
 2. **Feature handlers** are registered for all LSP capabilities (20+ handlers)
 3. **Configuration** is loaded from `.telescope.yaml`
 4. **RulesetManager** merges config, built-in rulesets, and Spectral rulesets
-5. **Plugin host** discovers and launches Go plugin binaries from `.telescope/plugins/`
+5. **Bun sidecar** may start when custom TS/JS rules or Spectral paths require it
 
 ### Phase 2: Document Processing
 
@@ -129,7 +129,7 @@ flowchart TB
    - **Barrelman/Telescope analyzers** -- Built-in rules using visitor pattern against the OpenAPI index
    - **Telescope checks** -- Tree-sitter pattern-based syntactic checks
    - **Spectral engine** -- JSONPath + built-in functions for declarative YAML rules
-   - **External plugins** -- Compiled Go binaries via `hashicorp/go-plugin` RPC
+   - **Bun sidecar** -- TypeScript/JavaScript custom rules (optional)
    - **Extension validation** -- `x-*` property schema validation
    - **Additional validation** -- Non-OpenAPI files matched by `additionalValidation`
 
@@ -163,8 +163,8 @@ flowchart TB
 | Test Harness | `rules/testing/` | `rulestest.Run()` with exact diagnostic assertions |
 | Rulesets | `rulesets/` | Loading, merging, resolution, Spectral OAS built-in |
 | Spectral Engine | `spectral/` | JSONPath evaluation + built-in functions |
-| Plugin Host | `plugin/host.go` | Plugin binary discovery and RPC management |
-| Plugin SDK | `sdk/` | Batteries-included SDK for plugin authors |
+| Plugin helpers | `plugin/` | In-process `Plugin` interface; YAML adapters |
+| Go SDK | `sdk/` | Workspace API, programmatic lint, type re-exports |
 | Project Manager | `project/` | Workspace scanning, dependency graph, $ref resolution |
 | Markdown | `markdown/` | Markdown parsing in description fields |
 | Validation | `validation/` | Non-OpenAPI file validation matched by `additionalValidation` |
@@ -217,27 +217,15 @@ The **ProjectManager** builds a dependency graph and provides:
 Configuration is loaded from `.telescope.yaml` with these precedence rules:
 
 1. `extends` specifies a base ruleset (`telescope:recommended`, etc.)
-2. Spectral YAML rulesets from `plugins` field are merged
+2. Spectral YAML rulesets from `spectralRulesets` are merged
 3. `rules` section overrides individual rule severities
 4. Final enabled rules + severities are computed by `RulesetManager`
 
 ## Custom Rules
 
-Custom rules are written as **Go plugin binaries** using the SDK:
+End-user custom rules use **YAML** (`.telescope.yaml`, `openapi.rules`, `spectralRulesets`) and optional **Bun**-hosted TypeScript/JavaScript. Spectral-compatible YAML rulesets provide declarative JSONPath rules without executing user JavaScript in-process.
 
-```go
-import "github.com/sailpoint-oss/telescope/server/sdk"
-
-func main() {
-    p := sdk.NewPlugin("my-rules", "1.0.0")
-    sdk.Rule("rule-id", sdk.Meta{...}).Operations(fn).Register(p)
-    p.Serve()
-}
-```
-
-Plugins run as isolated subprocesses via `hashicorp/go-plugin`. The host communicates via RPC (`GetMeta`, `Analyze`).
-
-**Spectral-compatible YAML rulesets** are also supported for declarative rules using JSONPath + built-in functions.
+Contributors can add built-in Go rules in `rules/analyzers` using `rules.Define()` (see [CUSTOM-RULES.md](docs/CUSTOM-RULES.md)).
 
 ## LSP Feature Handlers
 
@@ -261,7 +249,6 @@ Plugins run as isolated subprocesses via `hashicorp/go-plugin`. The host communi
 
 - **Tree-sitter incremental parsing**: Only changed portions of documents are re-parsed
 - **Index caching**: OpenAPI indexes are cached per-document, invalidated on changes
-- **Plugin parallelism**: Multiple Go plugins run concurrently; results are merged
 - **Debounced diagnostics**: LSP diagnostics are debounced (configurable, default 300ms)
 
 ## Key Dependencies
@@ -270,7 +257,6 @@ Plugins run as isolated subprocesses via `hashicorp/go-plugin`. The host communi
 | ------- | ------- |
 | [gossip](https://github.com/LukasParke/gossip) | LSP framework with tree-sitter integration |
 | [go-tree-sitter](https://github.com/tree-sitter/go-tree-sitter) | Incremental YAML/JSON parsing |
-| [hashicorp/go-plugin](https://github.com/hashicorp/go-plugin) | Process-isolated plugin binaries via RPC |
 | [yuin/goldmark](https://github.com/yuin/goldmark) | Markdown parsing and validation |
 | [vmware-labs/yaml-jsonpath](https://github.com/vmware-labs/yaml-jsonpath) | JSONPath for Spectral rules |
 | [spf13/cobra](https://github.com/spf13/cobra) | CLI framework |

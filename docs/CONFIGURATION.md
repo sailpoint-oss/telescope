@@ -32,9 +32,7 @@ If no config file is found, sensible defaults are used.
 ```
 your-project/
 ├── .telescope.yaml              # Configuration file (preferred location)
-├── .telescope/
-│   └── plugins/                 # Plugin binaries directory
-│       └── my-custom-rules
+├── .telescope/                  # Rules, scripts, extension schemas (see Custom Rules)
 └── api/
     └── openapi.yaml
 ```
@@ -52,7 +50,7 @@ rules:
   ascii-only: off
 
 # Spectral-compatible YAML rulesets to load
-plugins:
+spectralRulesets:
   - .telescope/spectral-rules.yaml
   - ./more-rules.yaml
 
@@ -119,7 +117,7 @@ extends: telescope:recommended
 
 ### `rules`
 
-Override severity levels for any rule (built-in, plugin, or Spectral).
+Override severity levels for any rule (built-in or Spectral).
 
 ```yaml
 rules:
@@ -143,12 +141,12 @@ rules:
 | `hint` | Style recommendations |
 | `off` | Disable the rule |
 
-### `plugins`
+### `spectralRulesets`
 
 Load Spectral-compatible YAML rulesets. Paths are relative to the config file location.
 
 ```yaml
-plugins:
+spectralRulesets:
   - .telescope/spectral-rules.yaml
   - ./company-rules.yaml
 ```
@@ -456,10 +454,9 @@ rules:
   operation-summary: warn
   parameter-description: warn
   ascii-only: off
-  # Custom plugin rules can be overridden too
   require-security: error
 
-plugins:
+spectralRulesets:
   - .telescope/spectral-rules.yaml
 
 include:
@@ -511,8 +508,8 @@ lsp:
 ### Rules Not Running
 
 1. Verify the rule is enabled in your `extends` ruleset or explicitly in `rules`
-2. Check that plugin binaries exist in `.telescope/plugins/` and are executable
-3. Check that Spectral YAML rulesets are referenced in `plugins`
+2. Check that Spectral YAML rulesets are listed under `spectralRulesets` (paths must exist)
+3. For Bun/TS custom rules, ensure the Bun sidecar can start and rule files are under `.telescope/` as documented
 
 ## Related Documentation
 

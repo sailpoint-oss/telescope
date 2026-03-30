@@ -22,7 +22,7 @@
 //
 //   - Extends: base ruleset name (e.g., "telescope:recommended")
 //   - Rules: per-rule severity overrides
-//   - Plugins: paths to Spectral YAML rulesets or Go plugin binaries
+//   - SpectralRulesets: Spectral-compatible YAML ruleset paths
 //   - Include/Exclude: glob patterns for file discovery
 //   - OpenAPI: version targeting and extension schemas
 //   - Output: CLI format and color preferences

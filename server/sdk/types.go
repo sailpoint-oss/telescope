@@ -1,27 +1,4 @@
-// Package sdk provides a batteries-included SDK for writing Telescope plugin
-// binaries. Plugin authors import this single package to access the typed
-// OpenAPI model, rule builder, reporter, validators, and the Serve function
-// that turns their binary into a telescope-compatible plugin.
-//
-// Example usage:
-//
-//	package main
-//
-//	import "github.com/sailpoint-oss/telescope/server/sdk"
-//
-//	func main() {
-//	    p := sdk.NewPlugin("my-rules", "1.0.0")
-//	    sdk.Rule("require-security", sdk.Meta{
-//	        Description: "Operations must define security",
-//	        Severity:    sdk.Error,
-//	        Category:    sdk.Security,
-//	    }).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
-//	        if len(op.Security) == 0 {
-//	            r.At(op.Loc, "%s %s has no security", method, path)
-//	        }
-//	    }).Register(p)
-//	    p.Serve()
-//	}
+// Package sdk re-exports OpenAPI model and rules types for library consumers.
 package sdk
 
 import (

@@ -164,28 +164,18 @@ rulestest.Run(t, analyzer, rulestest.Case{
 
 ---
 
-### 5. Plugin System
+### 5. Plugin package (in-process)
 
-**Package:** `server/plugin/` + `server/sdk/`
-**Purpose:** External Go plugin binaries communicate via `hashicorp/go-plugin` RPC.
+**Package:** `server/plugin/`
+**Purpose:** In-process `Plugin` interface for registering analyzers/checks; YAML rule adapters. End-user custom rules use YAML + Bun, not Go subprocess plugins.
 
 | File | Responsibility |
 |------|----------------|
-| `plugin/host.go` | Plugin discovery from `.telescope/plugins/`, subprocess launch |
-| `plugin/protocol.go` | RPC handshake and `RulePlugin` interface |
-| `plugin/manager.go` | Plugin lifecycle management |
-| `plugin/yaml_rules.go` | YAML ruleset adapter for plugin interface |
-| `sdk/plugin.go` | Plugin instance and RPC server for rule authors |
-| `sdk/rule.go` | Plugin-scoped fluent rule builder |
-| `sdk/types.go` | Type aliases and severity/category constants |
+| `plugin/manager.go` | Registers `Plugin` implementations with gossip |
+| `plugin/yaml_rules.go` | Loads Spectral-style YAML into the plugin interface |
+| `plugin/types.go` | `Plugin` interface and `PluginFunc` |
 
-**Plugin workflow:**
-
-1. Telescope discovers executables in `.telescope/plugins/`
-2. Each plugin is launched as a subprocess
-3. Host calls `GetMeta()` to discover rules
-4. On document changes, host calls `Analyze()` with raw content
-5. Plugin returns diagnostics; host merges results
+**SDK:** `server/sdk/` exposes [Workspace], `LintFiles`, and type re-exports for programmatic use — not a Go plugin RPC server.
 
 ---
 
@@ -319,7 +309,6 @@ flowchart TB
 | `config.Config` | `config/config.go` | Parsed `.telescope.yaml` |
 | `rulesets.RuleSet` | `rulesets/model.go` | Ruleset with extends, rules, severity overrides |
 | `spectral.Rule` | `spectral/types.go` | Spectral rule: JSONPath + functions |
-| `plugin.RunningPlugin` | `plugin/host.go` | Tracked plugin subprocess |
 
 ---
 
@@ -329,7 +318,6 @@ flowchart TB
 |---------|---------|
 | [gossip](https://github.com/LukasParke/gossip) | LSP framework with tree-sitter integration |
 | [go-tree-sitter](https://github.com/tree-sitter/go-tree-sitter) | Incremental YAML/JSON parsing |
-| [hashicorp/go-plugin](https://github.com/hashicorp/go-plugin) | Process-isolated plugin binaries via RPC |
 | [yuin/goldmark](https://github.com/yuin/goldmark) | Markdown parsing in descriptions |
 | [vmware-labs/yaml-jsonpath](https://github.com/vmware-labs/yaml-jsonpath) | JSONPath for Spectral rules |
 | [spf13/cobra](https://github.com/spf13/cobra) | CLI framework |
@@ -341,7 +329,7 @@ flowchart TB
 ### Concurrency
 
 - `IndexCache` uses `sync.RWMutex` for thread-safe document caching
-- Plugin host runs multiple plugins concurrently; results are merged
+- Bun sidecar and Spectral engines run alongside built-in analyzers
 - LSP diagnostics are debounced (configurable, default 300ms)
 - Child LSP servers run as separate processes
 

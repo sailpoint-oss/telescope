@@ -8,7 +8,6 @@ go 1.25.0
 
 use (
 	./server
-	./server/examples/custom-plugin
 )
 
 replace github.com/LukasParke/gossip => ../gossip

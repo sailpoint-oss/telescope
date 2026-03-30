@@ -35,8 +35,6 @@ type LintOptions struct {
 	WorkspaceRoot string
 	// NoExternalLSP disables child YAML/JSON linter diagnostics.
 	NoExternalLSP bool
-	// PluginPaths loads extra plugin binaries in addition to config/discovery.
-	PluginPaths []string
 	// Include overrides config include globs when set.
 	Include []string
 	// Exclude overrides config exclude globs when set.
@@ -63,7 +61,6 @@ func LintFiles(files []string, opts LintOptions) ([]LintResult, error) {
 		RulesetPath:   opts.RulesetPath,
 		MinSeverity:   protocol.DiagnosticSeverity(opts.MinSeverity),
 		NoExternalLSP: opts.NoExternalLSP,
-		PluginPaths:   opts.PluginPaths,
 		Include:       opts.Include,
 		Exclude:       opts.Exclude,
 		TargetVersion: opts.TargetVersion,

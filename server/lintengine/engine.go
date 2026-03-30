@@ -21,7 +21,6 @@ import (
 	"github.com/sailpoint-oss/telescope/server/lsp"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
-	"github.com/sailpoint-oss/telescope/server/plugin"
 	"github.com/sailpoint-oss/telescope/server/project"
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
@@ -43,7 +42,6 @@ type Options struct {
 	MinSeverity   protocol.DiagnosticSeverity
 	NoExternalLSP bool
 
-	PluginPaths   []string
 	Include       []string
 	Exclude       []string
 	TargetVersion string
@@ -88,31 +86,6 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 	allAnalyzers = filterAnalyzers(allAnalyzers, enabledRules)
 	allChecks = filterChecks(allChecks, enabledRules)
 
-	pluginHost := plugin.NewHost(logger)
-	pluginDir := filepath.Join(opts.WorkingDir, ".telescope", "plugins")
-	if err := pluginHost.Discover(pluginDir); err != nil {
-		logger.Warn("failed to discover plugins", "error", err)
-	}
-	for _, p := range cfg.Plugins {
-		pluginPath := p
-		if !filepath.IsAbs(pluginPath) {
-			pluginPath = filepath.Join(opts.WorkingDir, pluginPath)
-		}
-		if err := pluginHost.LoadPlugin(pluginPath); err != nil {
-			logger.Warn("failed to load plugin", "path", p, "error", err)
-		}
-	}
-	for _, p := range opts.PluginPaths {
-		pluginPath := p
-		if !filepath.IsAbs(pluginPath) {
-			pluginPath = filepath.Join(opts.WorkingDir, pluginPath)
-		}
-		if err := pluginHost.LoadPlugin(pluginPath); err != nil {
-			logger.Warn("failed to load plugin", "path", p, "error", err)
-		}
-	}
-	defer pluginHost.Shutdown()
-
 	var childLinter *lsp.ChildLSPLinter
 	if !opts.NoExternalLSP && lsp.NodeAvailable() {
 		rootURI := pathToFileURI(opts.WorkingDir)
@@ -136,10 +109,6 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 		}
 		diags := lintFile(file, content, cfg, allAnalyzers, allChecks, projectContexts, childLinter)
 		diags = filterDisabledDiagnostics(diags, enabledRules)
-		if pluginHost.PluginCount() > 0 {
-			pluginResp := pluginHost.AnalyzeDirect(file, content)
-			diags = append(diags, pluginResp...)
-		}
 		diags = applySeverityOverrides(diags, sevOverrides)
 		if opts.MinSeverity > 0 {
 			diags = filterBySeverity(diags, opts.MinSeverity)

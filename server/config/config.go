@@ -15,7 +15,6 @@ type Config struct {
 	Extends              string                     `yaml:"extends,omitempty"`
 	Roots                []string                   `yaml:"roots,omitempty"`
 	Rules                map[string]string          `yaml:"rules,omitempty"`
-	Plugins              []string                   `yaml:"plugins,omitempty"`
 	Include              []string                   `yaml:"include,omitempty"`
 	Exclude              []string                   `yaml:"exclude,omitempty"`
 	SpectralRulesets     []string                   `yaml:"spectralRulesets,omitempty"`

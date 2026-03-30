@@ -1,6 +1,6 @@
 # Custom Rules Guide
 
-Telescope supports multiple ways to extend its linting capabilities: built-in Go rules via the `RuleBuilder` API, Spectral-compatible YAML rulesets, Go plugins, and Bun sidecar execution for TypeScript/JavaScript rules.
+Telescope supports multiple ways to extend its linting capabilities: built-in Go rules via the `RuleBuilder` API (for Telescope contributors), Spectral-compatible YAML rulesets, declarative YAML in `.telescope.yaml`, and Bun sidecar execution for TypeScript/JavaScript rules.
 
 ## Built-in Rule Development
 
@@ -163,55 +163,6 @@ rules:
   no-trailing-slash: off # Disable built-in rule
 ```
 
-## Go Plugin SDK
-
-Build standalone Go binaries that Telescope discovers and runs as subprocesses via `hashicorp/go-plugin` RPC.
-
-### Plugin Structure
-
-```go
-// main.go
-package main
-
-import "github.com/sailpoint-oss/telescope/server/sdk"
-
-func main() {
-	p := sdk.NewPlugin("my-plugin", "1.0.0")
-
-	sdk.Rule("my-rule", sdk.Meta{
-		Description: "Operations must have summaries",
-		Severity:    sdk.Warn,
-		Category:    sdk.Documentation,
-		Recommended: true,
-	}).Operations(func(path, method string, op *sdk.Operation, r *sdk.Reporter) {
-		if op.Summary.Text == "" {
-			r.At(op.Loc, "%s %s needs a summary", method, path)
-		}
-	}).Register(p)
-
-	p.Serve() // Blocks until host disconnects
-}
-```
-
-### Installation
-
-1. Build the plugin: `go build -o my-plugin .`
-2. Place in `.telescope/plugins/` for automatic discovery
-3. Or reference in `.telescope.yaml`:
-
-```yaml
-plugins:
-  - .telescope/plugins/my-plugin
-```
-
-### SDK Types
-
-The plugin SDK re-exports OpenAPI types and rule types so plugin code needs only the `sdk` import:
-
-- `sdk.Document`, `sdk.Operation`, `sdk.Schema`, `sdk.Parameter`, etc.
-- `sdk.Reporter`, `sdk.Meta`, `sdk.Category`
-- `sdk.Error`, `sdk.Warn`, `sdk.Info`, `sdk.Hint`
-
 ## Bun Sidecar (TypeScript/JavaScript Rules)
 
 TypeScript/JavaScript rules run in a Bun subprocess managed by `lsp/bun/Manager`. The sidecar starts during server initialization when custom rules or Spectral rulesets are configured and includes health checks with crash recovery.
@@ -256,8 +207,6 @@ rules:
   rule-id: error | warn | info | hint | off
 spectralRulesets:
   - ./path/to/ruleset.yaml
-plugins:
-  - .telescope/plugins/my-plugin
 include:
   - "**/*.yaml"
   - "**/*.json"
