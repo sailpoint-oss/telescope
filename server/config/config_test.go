@@ -1,9 +1,12 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/LukasParke/gossip"
+	"github.com/sailpoint-oss/barrelman"
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
 	"github.com/sailpoint-oss/telescope/server/rules/checks"
@@ -27,6 +30,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Output.Format != "text" {
 		t.Errorf("Output.Format = %q, want %q", cfg.Output.Format, "text")
 	}
+	if got := cfg.GuidelinesBaseURL; got != barrelman.GuidelinesBaseURL() {
+		t.Errorf("GuidelinesBaseURL = %q, want %q", got, barrelman.GuidelinesBaseURL())
+	}
 	if cfg.LSP.Debounce == 0 {
 		t.Error("LSP.Debounce should not be zero")
 	}
@@ -38,11 +44,19 @@ func TestDefaultConfig(t *testing.T) {
 func TestConfig_BuildEnabledRules(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Rules = map[string]string{
-		"some-rule": "off",
+		"operation-tags": "off",
 	}
 	enabled := cfg.BuildEnabledRules()
-	if enabled["some-rule"] {
-		t.Error("some-rule should be disabled")
+	if enabled["sp-123"] {
+		t.Error("sp-123 should be disabled via legacy alias")
+	}
+}
+
+func TestConfig_EffectiveGuidelinesBaseURL(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.GuidelinesBaseURL = "https://docs.example.com/guidelines"
+	if got := cfg.EffectiveGuidelinesBaseURL(); got != "https://docs.example.com/guidelines/" {
+		t.Errorf("EffectiveGuidelinesBaseURL() = %q, want %q", got, "https://docs.example.com/guidelines/")
 	}
 }
 
@@ -99,5 +113,36 @@ func TestConfig_NeedsBunSidecar(t *testing.T) {
 	cfg.SpectralRulesets = []string{"my-ruleset.yaml"}
 	if !cfg.NeedsBunSidecar() {
 		t.Fatal("spectral ruleset should require bun sidecar")
+	}
+}
+
+func TestLoadFile_NormalizesLegacyRulesAndBaseURL(t *testing.T) {
+	originalBaseURL := barrelman.GuidelinesBaseURL()
+	t.Cleanup(func() {
+		barrelman.SetGuidelinesBaseURL(originalBaseURL)
+	})
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".telescope.yaml")
+	if err := os.WriteFile(path, []byte(`
+guidelinesBaseURL: https://docs.example.com/guidelines
+rules:
+  operation-tags: error
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if _, ok := cfg.Rules["operation-tags"]; ok {
+		t.Fatalf("expected legacy rule ID to be normalized, got %+v", cfg.Rules)
+	}
+	if cfg.Rules["sp-123"] != "error" {
+		t.Fatalf("expected sp-123 override, got %+v", cfg.Rules)
+	}
+	if got := cfg.GuidelinesBaseURL; got != "https://docs.example.com/guidelines/" {
+		t.Fatalf("GuidelinesBaseURL = %q, want %q", got, "https://docs.example.com/guidelines/")
 	}
 }

@@ -69,10 +69,12 @@ func fixSuggestion(ruleID string) string {
 	switch ruleID {
 	case "operation-description", "deprecated-description":
 		return "(add 'description' field)"
-	case "operation-operationId":
+	case "operation-operationId", "sp-122":
 		return "(add 'operationId' field)"
-	case "missing-error-responses":
-		return "(add 4xx/5xx responses)"
+	case "operation-tags", "sp-123":
+		return "(add an operation tag)"
+	case "missing-error-responses", "sp-403":
+		return "(add standard error responses)"
 	case "no-request-body-on-get":
 		return "(remove requestBody)"
 	case "unused-component":
@@ -124,10 +126,10 @@ func buildSARIFResults(results []fileDiagnostics) []map[string]interface{} {
 						"physicalLocation": map[string]interface{}{
 							"artifactLocation": map[string]string{"uri": fd.Path},
 							"region": map[string]interface{}{
-								"startLine":      d.Range.Start.Line + 1,
-								"startColumn":    d.Range.Start.Character + 1,
-								"endLine":        d.Range.End.Line + 1,
-								"endColumn":      d.Range.End.Character + 1,
+								"startLine":   d.Range.Start.Line + 1,
+								"startColumn": d.Range.Start.Character + 1,
+								"endLine":     d.Range.End.Line + 1,
+								"endColumn":   d.Range.End.Character + 1,
 							},
 						},
 					},
@@ -187,4 +189,3 @@ func sarifLevel(s protocol.DiagnosticSeverity) string {
 		return "note"
 	}
 }
-

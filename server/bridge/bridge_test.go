@@ -7,6 +7,7 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	gtreesitter "github.com/LukasParke/gossip/treesitter"
 	"github.com/sailpoint-oss/barrelman"
+	barrelAnalyzers "github.com/sailpoint-oss/barrelman/analyzers"
 	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
@@ -71,27 +72,50 @@ paths:
 		t.Fatal("expected parsed index")
 	}
 
-	diags := []barrelman.Diagnostic{{
-		Code:    duplicateOperationIDCode,
-		Message: "operationId 'dup' is already used at GET /zebra",
-		Related: []barrelman.RelatedInformation{{
-			URI:   "file:///spec.yaml",
-			Range: barrelman.FileStartRange,
-		}},
-	}}
+	tests := []struct {
+		name           string
+		code           string
+		message        string
+		wantMessage    string
+		wantRelatedMsg string
+	}{
+		{
+			name:           "legacy",
+			code:           duplicateOperationIDCodeLegacy,
+			message:        "operationId 'dup' is already used at GET /zebra",
+			wantMessage:    "operationId 'dup' is already used at GET /alpha",
+			wantRelatedMsg: "First defined here at GET /alpha",
+		},
+		{
+			name:           "guideline",
+			code:           duplicateOperationIDCodeGuideline,
+			message:        "[#122] operationId 'dup' is already used at GET /zebra",
+			wantMessage:    "[#122] operationId 'dup' is already used at GET /alpha",
+			wantRelatedMsg: "[#122] First defined here at GET /alpha",
+		},
+	}
 
-	stable := stabilizeDiagnostics(idx, diags)
-	if len(stable) != 1 {
-		t.Fatalf("expected one diagnostic, got %d", len(stable))
-	}
-	if stable[0].Message != "operationId 'dup' is already used at GET /alpha" {
-		t.Fatalf("unexpected stabilized message: %q", stable[0].Message)
-	}
-	if len(stable[0].Related) != 1 {
-		t.Fatalf("expected related info, got %+v", stable[0].Related)
-	}
-	if stable[0].Related[0].Message != "First defined here at GET /alpha" {
-		t.Fatalf("unexpected related message: %q", stable[0].Related[0].Message)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			diags := []barrelman.Diagnostic{{
+				Code:    tt.code,
+				Message: tt.message,
+			}}
+
+			stable := stabilizeDiagnostics(idx, diags)
+			if len(stable) != 1 {
+				t.Fatalf("expected one diagnostic, got %d", len(stable))
+			}
+			if stable[0].Message != tt.wantMessage {
+				t.Fatalf("unexpected stabilized message: %q", stable[0].Message)
+			}
+			if len(stable[0].Related) != 1 {
+				t.Fatalf("expected related info, got %+v", stable[0].Related)
+			}
+			if stable[0].Related[0].Message != tt.wantRelatedMsg {
+				t.Fatalf("unexpected related message: %q", stable[0].Related[0].Message)
+			}
+		})
 	}
 }
 
@@ -131,5 +155,69 @@ components:
 	}
 	if ctx.Index.Version == "" {
 		t.Fatal("expected version to be preserved")
+	}
+}
+
+func TestSP122ProtocolDiagnostics_IncludeGuidelineLinkAndRelatedInfo(t *testing.T) {
+	barrelAnalyzers.RegisterAll(barrelman.DefaultRegistry)
+	reg := barrelman.NewRegistry()
+	barrelAnalyzers.RegisterAll(reg)
+
+	var rule barrelman.Rule
+	found := false
+	for _, candidate := range reg.AllRules() {
+		if candidate.ID == "sp-122" {
+			rule = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected sp-122 rule to be registered")
+	}
+
+	idx := navigator.ParseContent([]byte(`openapi: "3.1.0"
+info:
+  title: Duplicate IDs
+  version: "1.0.0"
+paths:
+  /zebra:
+    get:
+      operationId: dup
+      responses:
+        "200":
+          description: ok
+  /alpha:
+    get:
+      operationId: dup
+      responses:
+        "200":
+          description: ok
+`), "file:///spec.yaml")
+	if idx == nil || idx.Document == nil {
+		t.Fatal("expected parsed index")
+	}
+
+	diags := rule.Run(&barrelman.AnalysisContext{Index: idx, URI: "file:///spec.yaml"})
+	diags = stabilizeDiagnostics(idx, diags)
+	proto := DiagnosticsToProtocol(diags)
+	if len(proto) == 0 {
+		t.Fatal("expected protocol diagnostics")
+	}
+	var match *protocol.Diagnostic
+	for i := range proto {
+		if code, ok := proto[i].Code.(string); ok && code == "sp-122" {
+			match = &proto[i]
+			break
+		}
+	}
+	if match == nil {
+		t.Fatalf("expected sp-122 diagnostic, got %+v", proto)
+	}
+	if match.CodeDescription == nil || match.CodeDescription.Href != protocol.URI(barrelman.GuidelineDocURL("122")) {
+		t.Fatalf("expected CodeDescription href %q, got %+v", barrelman.GuidelineDocURL("122"), match.CodeDescription)
+	}
+	if len(match.RelatedInformation) == 0 {
+		t.Fatalf("expected related information, got %+v", match)
 	}
 }

@@ -24,29 +24,130 @@ paths:
       tags:
         - Health
       security:
-        - apiKey: []
+        - oauth2:
+            - system:health:read
       responses:
         "200":
           description: Service is healthy
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
           content:
             application/json:
+              example:
+                status: HEALTHY
               schema:
                 type: object
                 description: Health response
                 additionalProperties: false
+                required:
+                  - status
                 properties:
                   status:
                     type: string
                     description: Health status
+                    example: HEALTHY
                     enum:
-                      - ok
-                      - degraded
+                      - HEALTHY
+                      - DEGRADED
+        "401":
+          description: Authentication is required.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+              example:
+                type: https://example.com/problems/unauthorized
+                title: Unauthorized
+                status: 401
+                detail: Authentication is required.
+                instance: /health
+                correlationId: 123e4567-e89b-12d3-a456-426614174000
+        "403":
+          description: Access is forbidden.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+              example:
+                type: https://example.com/problems/forbidden
+                title: Forbidden
+                status: 403
+                detail: The caller is not allowed to access this resource.
+                instance: /health
+                correlationId: 123e4567-e89b-12d3-a456-426614174000
         "500":
           description: Internal server error
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+              example:
+                type: https://example.com/problems/internal
+                title: Internal Server Error
+                status: 500
+                detail: An unexpected error occurred.
+                instance: /health
+                correlationId: 123e4567-e89b-12d3-a456-426614174000
 components:
+  headers:
+    X-Request-Id:
+      description: Request correlation id.
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ProblemDetails:
+      type: object
+      description: RFC 7807 problem details payload.
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+        - correlationId
+      properties:
+        type:
+          type: string
+          description: Problem type URI.
+          example: https://example.com/problems/internal
+        title:
+          type: string
+          description: Short human-readable summary.
+          example: Internal Server Error
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code.
+          example: 500
+        detail:
+          type: string
+          description: Human-readable explanation of the problem.
+          example: An unexpected error occurred.
+        instance:
+          type: string
+          description: URI of this specific problem occurrence.
+          example: /health
+        correlationId:
+          type: string
+          description: Request correlation identifier.
+          example: 123e4567-e89b-12d3-a456-426614174000
   securitySchemes:
-    apiKey:
-      type: apiKey
-      name: X-API-Key
-      in: header
-      description: API key authentication
+    oauth2:
+      type: oauth2
+      description: OAuth 2.0 client credentials authentication.
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.com/oauth/token
+          scopes:
+            "system:health:read": Read health check information

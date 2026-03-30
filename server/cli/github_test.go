@@ -57,6 +57,11 @@ func TestGeneratePRComment_SingleChunk_NoIssues(t *testing.T) {
 		DiagnosticCount: 0,
 		Counts:          SeverityCounts{},
 		Files:           nil,
+		Scope: &ScopeMetadata{
+			Mode:              reportScopeAll,
+			ImpactedFileCount: 4,
+			AnalyzedFileCount: 4,
+		},
 	}
 	chunks := GeneratePRComment(report, "owner/repo", "main")
 	if len(chunks) != 1 {
@@ -65,8 +70,11 @@ func TestGeneratePRComment_SingleChunk_NoIssues(t *testing.T) {
 	if !strings.Contains(chunks[0], commentMarkerN(1)) {
 		t.Errorf("chunk 1 missing marker: %s", chunks[0][:min(80, len(chunks[0]))])
 	}
-	if !strings.Contains(chunks[0], "No issues found") {
+	if !strings.Contains(chunks[0], "No findings") {
 		t.Error("chunk should contain no-issues message")
+	}
+	if !strings.Contains(chunks[0], "**Scope:** all configured files · 4 analyzed files · 0 findings · 0 rules") {
+		t.Errorf("chunk missing explicit all-scope summary:\n%s", chunks[0][:min(300, len(chunks[0]))])
 	}
 	if len(chunks[0]) > githubMaxIssueCommentBytes {
 		t.Errorf("chunk size %d exceeds githubMaxIssueCommentBytes %d", len(chunks[0]), githubMaxIssueCommentBytes)
@@ -77,6 +85,7 @@ func TestGeneratePRComment_SingleChunk_WithIssues(t *testing.T) {
 	report := &LintReport{
 		Workspace:       "/repo",
 		RepoRoot:        "/repo",
+		GeneratedAt:     "2026-03-30T15:04:05Z",
 		DiagnosticCount: 2,
 		Counts:          SeverityCounts{Error: 1, Warning: 1},
 		Files: []fileDiagnostics{
@@ -98,6 +107,15 @@ func TestGeneratePRComment_SingleChunk_WithIssues(t *testing.T) {
 				},
 			},
 		},
+		FileDetails: []FileDetail{
+			{Path: "openapi.yaml", Count: 2, Errors: 1, Warnings: 1},
+		},
+		Scope: &ScopeMetadata{
+			Mode:              reportScopeChanged,
+			ChangedFileCount:  1,
+			ImpactedFileCount: 3,
+			AnalyzedFileCount: 3,
+		},
 	}
 	chunks := GeneratePRComment(report, "owner/repo", "abc123")
 	if len(chunks) != 1 {
@@ -109,8 +127,67 @@ func TestGeneratePRComment_SingleChunk_WithIssues(t *testing.T) {
 	if !strings.Contains(chunks[0], "oas3-schema") || !strings.Contains(chunks[0], "operation-id") {
 		t.Error("chunk should contain both rule groups")
 	}
+	if !strings.Contains(chunks[0], "**Scope:** changed (graph-expanded) · 1 changed file · 3 impacted files · 3 analyzed files · 2 findings · 2 rules") {
+		t.Errorf("chunk missing scope line:\n%s", chunks[0][:min(300, len(chunks[0]))])
+	}
+	if !strings.Contains(chunks[0], "<sub>Generated 2026-03-30 15:04 UTC.</sub>") {
+		t.Errorf("chunk missing generated-at line:\n%s", chunks[0][:min(300, len(chunks[0]))])
+	}
+	if !strings.Contains(chunks[0], "| 🔴 Errors | 🟡 Warnings | 🔵 Info | ⚪ Hints | Total |") {
+		t.Errorf("chunk missing expanded severity table:\n%s", chunks[0][:min(300, len(chunks[0]))])
+	}
+	if !strings.Contains(chunks[0], "| 1 | 1 | 0 | 0 | 2 |") {
+		t.Errorf("chunk missing severity totals row:\n%s", chunks[0][:min(300, len(chunks[0]))])
+	}
+	if !strings.Contains(chunks[0], "**Top files**") {
+		t.Errorf("chunk missing top files block:\n%s", chunks[0][:min(500, len(chunks[0]))])
+	}
+	if !strings.Contains(chunks[0], "[`openapi.yaml`](https://github.com/owner/repo/blob/abc123/openapi.yaml) — 2 findings (1 error, 1 warning)") {
+		t.Errorf("chunk missing formatted top file row:\n%s", chunks[0][:min(600, len(chunks[0]))])
+	}
 	if len(chunks[0]) > githubMaxIssueCommentBytes {
 		t.Errorf("chunk size %d exceeds githubMaxIssueCommentBytes %d", len(chunks[0]), githubMaxIssueCommentBytes)
+	}
+}
+
+func TestGeneratePRComment_RuleSummaryUsesWorstSeverityAndFileCount(t *testing.T) {
+	report := &LintReport{
+		Workspace:       "/repo",
+		RepoRoot:        "/repo",
+		DiagnosticCount: 2,
+		Counts:          SeverityCounts{Error: 1, Warning: 1},
+		Files: []fileDiagnostics{
+			{
+				Path: filepath.Join("/repo", "first.yaml"),
+				Diagnostics: []protocol.Diagnostic{
+					{
+						Range:    protocol.NewRange(0, 0, 0, 0),
+						Severity: protocol.SeverityWarning,
+						Code:     "mixed-rule",
+						Message:  "warning first",
+					},
+				},
+			},
+			{
+				Path: filepath.Join("/repo", "second.yaml"),
+				Diagnostics: []protocol.Diagnostic{
+					{
+						Range:    protocol.NewRange(4, 0, 4, 0),
+						Severity: protocol.SeverityError,
+						Code:     "mixed-rule",
+						Message:  "error second",
+					},
+				},
+			},
+		},
+	}
+
+	chunks := GeneratePRComment(report, "", "")
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk, got %d", len(chunks))
+	}
+	if !strings.Contains(chunks[0], "<summary>🔴 <code>mixed-rule</code> — 2 findings · 2 files (1 error, 1 warning)</summary>") {
+		t.Errorf("chunk missing mixed-rule summary with worst severity and file count:\n%s", chunks[0][:min(600, len(chunks[0]))])
 	}
 }
 
@@ -145,6 +222,11 @@ func TestGeneratePRComment_MultipleChunks_SizeLimit(t *testing.T) {
 	chunks := GeneratePRComment(report, "", "")
 	if len(chunks) < 2 {
 		t.Fatalf("expected at least 2 chunks for large report, got %d", len(chunks))
+	}
+	for _, ch := range chunks {
+		if strings.Contains(ch, "## 🔭 Telescope (continued)") {
+			t.Errorf("overflow chunk should not repeat the Telescope (continued) header:\n%s", ch[:min(200, len(ch))])
+		}
 	}
 	for i, ch := range chunks {
 		wantMarker := commentMarkerN(i + 1)

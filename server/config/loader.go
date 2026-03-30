@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sailpoint-oss/barrelman"
+	"github.com/sailpoint-oss/telescope/server/rulesets"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,7 +27,9 @@ func Load(workspaceRoot string) (*Config, error) {
 			return LoadFile(path)
 		}
 	}
-	return DefaultConfig(), nil
+	cfg := DefaultConfig()
+	barrelman.SetGuidelinesBaseURL(cfg.EffectiveGuidelinesBaseURL())
+	return cfg, nil
 }
 
 // LoadFile loads config from a specific file path.
@@ -39,6 +43,33 @@ func LoadFile(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
+	cfg.Rules = normalizeRuleOverrides(cfg.Rules)
+	cfg.GuidelinesBaseURL = cfg.EffectiveGuidelinesBaseURL()
+	barrelman.SetGuidelinesBaseURL(cfg.GuidelinesBaseURL)
 
 	return cfg, nil
+}
+
+func normalizeRuleOverrides(rules map[string]string) map[string]string {
+	if len(rules) == 0 {
+		return rules
+	}
+
+	normalized := make(map[string]string, len(rules))
+	for id, severity := range rules {
+		canonical := rulesets.NormalizeRuleID(id)
+		if canonical == id {
+			normalized[id] = severity
+		}
+	}
+	for id, severity := range rules {
+		canonical := rulesets.NormalizeRuleID(id)
+		if canonical != id {
+			if _, exists := normalized[canonical]; exists {
+				continue
+			}
+		}
+		normalized[canonical] = severity
+	}
+	return normalized
 }

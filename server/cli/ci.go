@@ -20,14 +20,15 @@ import (
 )
 
 var (
-	diffBase   string
-	diffHead   string
-	reportMD   string
-	reportJSON string
-	commentPR  bool
-	ciFailOn   string
-	ciSeverity string
-	ciNoExtLSP bool
+	diffBase      string
+	diffHead      string
+	reportMD      string
+	reportJSON    string
+	commentPR     bool
+	ciFailOn      string
+	ciSeverity    string
+	ciReportScope string
+	ciNoExtLSP    bool
 )
 
 func newCICmd() *cobra.Command {
@@ -45,6 +46,7 @@ func newCICmd() *cobra.Command {
 	cmd.Flags().BoolVar(&commentPR, "comment-pr", false, "Post comment to GitHub PR (requires GITHUB_TOKEN)")
 	cmd.Flags().StringVar(&ciFailOn, "fail-on", "error", "Quality gate severity")
 	cmd.Flags().StringVar(&ciSeverity, "severity", "", "Minimum severity: error, warn, info, hint")
+	cmd.Flags().StringVar(&ciReportScope, "report-scope", reportScopeChanged, "Report scope: changed (graph-expanded impact) or all")
 	cmd.Flags().BoolVar(&ciNoExtLSP, "no-external-lsp", false, "Skip child YAML/JSON language server diagnostics")
 
 	return cmd
@@ -72,40 +74,34 @@ func runCI(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Get changed files between diff-base and diff-head.
-	changedFiles, err := getChangedFiles(diffBase, diffHead)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not get git diff, linting all files: %v\n", err)
-		changedFiles = nil // lint all files
-	}
-
-	// Intersect changed files with OpenAPI files.
-	var files []string
-	if changedFiles != nil {
-		changedSet := make(map[string]bool, len(changedFiles))
-		for _, f := range changedFiles {
-			abs, _ := filepath.Abs(f)
-			changedSet[abs] = true
-		}
-		for _, f := range allFiles {
-			abs, _ := filepath.Abs(f)
-			if changedSet[abs] {
-				files = append(files, f)
-			}
-		}
-	} else {
-		files = allFiles
-	}
-
-	fmt.Fprintf(os.Stderr, "CI mode: checking %d file(s) (base: %s, head: %s)\n", len(files), diffBase, diffHead)
-
-	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "No changed OpenAPI files to lint")
-		return nil
-	}
-
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	wd, _ := os.Getwd()
+	repoRoot := gitRepoRoot()
+
+	changedFiles, err := getChangedFiles(diffBase, diffHead)
+	if err != nil {
+		changedFiles = nil
+	}
+
+	scope, err := resolveCIScope(context.Background(), allFiles, changedFiles, ciReportScope, repoRoot, wd, logger)
+	if err != nil {
+		return err
+	}
+	if scope.FallbackReason != "" {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", scope.FallbackReason)
+	}
+
+	files := scope.Files
+	fmt.Fprintf(os.Stderr, "CI mode: checking %d file(s) (scope: %s, base: %s, head: %s)\n", len(files), scope.Mode, diffBase, diffHead)
+
+	if len(files) == 0 {
+		if scope.Mode == reportScopeChanged {
+			fmt.Fprintln(os.Stderr, "No changed or graph-impacted OpenAPI files to lint")
+		} else {
+			fmt.Fprintln(os.Stderr, "No configured OpenAPI files to lint")
+		}
+		return nil
+	}
 
 	var minSev protocol.DiagnosticSeverity
 	if ciSeverity != "" {
@@ -144,11 +140,9 @@ func runCI(cmd *cobra.Command, args []string) error {
 		outputGitHub(allDiags)
 	}
 
-	// Determine the git repo root for path display.
-	repoRoot := gitRepoRoot()
-
 	// Write reports.
 	report := buildLintReport(wd, repoRoot, allDiags)
+	report.Scope = scope.Metadata(len(run.Files))
 	if reportJSON != "" {
 		if err := writeJSONReport(reportJSON, report); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing JSON report: %v\n", err)
@@ -332,10 +326,36 @@ func postPRReview(report *LintReport) error {
 	}
 
 	// Build inline comments from error-level diagnostics.
+	comments := buildInlineReviewComments(report, relBase, diffMap)
+	if len(comments) == 0 {
+		return nil
+	}
+
+	// Build review comments, capped at 50.
+	if len(comments) > 50 {
+		comments = comments[:50]
+	}
+
+	err = client.CreateReview(prNum, headSHA, "", comments)
+	if err != nil {
+		// 422 errors are common (e.g., line not part of diff) — log and continue.
+		if strings.Contains(err.Error(), "422") {
+			fmt.Fprintf(os.Stderr, "Warning: GitHub rejected some inline comments: %v\n", err)
+			return nil
+		}
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "Posted %d inline review comment(s)\n", len(comments))
+	return nil
+}
+
+func buildInlineReviewComments(report *LintReport, relBase string, diffMap map[string]diffInfo) []reviewComment {
 	type lineKey struct {
 		path string
 		line int
 	}
+
 	grouped := make(map[lineKey][]string)
 	var order []lineKey
 
@@ -356,8 +376,6 @@ func postPRReview(report *LintReport) error {
 				continue
 			}
 			line := int(d.Range.Start.Line) + 1
-
-			// Check if line is in the diff.
 			if !info.AllLines && !info.ValidLines[line] {
 				continue
 			}
@@ -376,16 +394,8 @@ func postPRReview(report *LintReport) error {
 		}
 	}
 
-	if len(order) == 0 {
-		return nil
-	}
-
-	// Build review comments, capped at 50.
 	var comments []reviewComment
 	for _, key := range order {
-		if len(comments) >= 50 {
-			break
-		}
 		body := strings.Join(grouped[key], "\n\n---\n\n")
 		comments = append(comments, reviewComment{
 			Path: key.path,
@@ -394,17 +404,5 @@ func postPRReview(report *LintReport) error {
 			Body: body,
 		})
 	}
-
-	err = client.CreateReview(prNum, headSHA, "", comments)
-	if err != nil {
-		// 422 errors are common (e.g., line not part of diff) — log and continue.
-		if strings.Contains(err.Error(), "422") {
-			fmt.Fprintf(os.Stderr, "Warning: GitHub rejected some inline comments: %v\n", err)
-			return nil
-		}
-		return err
-	}
-
-	fmt.Fprintf(os.Stderr, "Posted %d inline review comment(s)\n", len(comments))
-	return nil
+	return comments
 }

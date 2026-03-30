@@ -23,7 +23,18 @@ type LintReport struct {
 	Counts          SeverityCounts    `json:"counts"`
 	ByFile          map[string]int    `json:"byFile"`
 	ByRule          map[string]int    `json:"byRule"`
+	RuleDocs        map[string]string `json:"ruleDocs,omitempty"`
 	FileDetails     []FileDetail      `json:"fileDetails"`
+	Scope           *ScopeMetadata    `json:"scope,omitempty"`
+}
+
+// ScopeMetadata describes how the CI run selected files for analysis.
+type ScopeMetadata struct {
+	Mode              string `json:"mode,omitempty"`
+	ChangedFileCount  int    `json:"changedFileCount,omitempty"`
+	ImpactedFileCount int    `json:"impactedFileCount,omitempty"`
+	AnalyzedFileCount int    `json:"analyzedFileCount,omitempty"`
+	FallbackReason    string `json:"fallbackReason,omitempty"`
 }
 
 // SeverityCounts breaks down diagnostic counts by severity.
@@ -50,6 +61,7 @@ func buildLintReport(workspace, repoRoot string, allDiags []fileDiagnostics) *Li
 		Files:       allDiags,
 		ByFile:      make(map[string]int),
 		ByRule:      make(map[string]int),
+		RuleDocs:    make(map[string]string),
 	}
 
 	// Use repo root for path display if available, otherwise fall back to workspace.
@@ -86,6 +98,9 @@ func buildLintReport(workspace, repoRoot string, allDiags []fileDiagnostics) *Li
 			}
 			if code != "" {
 				report.ByRule[code]++
+				if d.CodeDescription != nil && d.CodeDescription.Href != "" {
+					report.RuleDocs[code] = string(d.CodeDescription.Href)
+				}
 			}
 		}
 		report.FileDetails = append(report.FileDetails, detail)
@@ -130,6 +145,21 @@ func writeMDReportTo(w io.Writer, report *LintReport) error {
 	b.WriteString("| --- | --- |\n")
 	b.WriteString(fmt.Sprintf("| Workspace | `%s` |\n", report.Workspace))
 	b.WriteString(fmt.Sprintf("| Generated | `%s` |\n", report.GeneratedAt))
+	if report.Scope != nil {
+		b.WriteString(fmt.Sprintf("| Scope | %s |\n", scopeModeLabel(report.Scope)))
+		if report.Scope.Mode == reportScopeChanged || report.Scope.ChangedFileCount > 0 {
+			b.WriteString(fmt.Sprintf("| Changed files | %d |\n", report.Scope.ChangedFileCount))
+		}
+		if report.Scope.Mode == reportScopeChanged {
+			b.WriteString(fmt.Sprintf("| Impacted files | %d |\n", report.Scope.ImpactedFileCount))
+		}
+		if report.Scope.AnalyzedFileCount > 0 {
+			b.WriteString(fmt.Sprintf("| Analyzed files | %d |\n", report.Scope.AnalyzedFileCount))
+		}
+		if report.Scope.FallbackReason != "" {
+			b.WriteString(fmt.Sprintf("| Scope fallback | %s |\n", report.Scope.FallbackReason))
+		}
+	}
 	b.WriteString(fmt.Sprintf("| Diagnostics | %d (errors: %d, warnings: %d, other: %d) |\n",
 		report.DiagnosticCount, report.Counts.Error, report.Counts.Warning, other))
 	b.WriteString(fmt.Sprintf("| Files with issues | %d |\n", len(report.FileDetails)))
@@ -171,7 +201,7 @@ func writeMDReportTo(w io.Writer, report *LintReport) error {
 			return sortedRules[i].count > sortedRules[j].count
 		})
 		for _, rc := range sortedRules {
-			b.WriteString(fmt.Sprintf("| `%s` | %d |\n", rc.rule, rc.count))
+			b.WriteString(fmt.Sprintf("| %s | %d |\n", markdownRuleRef(rc.rule, report.RuleDocs[rc.rule]), rc.count))
 		}
 		b.WriteString("\n")
 	}
@@ -224,8 +254,8 @@ func writeMDReportTo(w io.Writer, report *LintReport) error {
 				}
 			}
 
-			b.WriteString(fmt.Sprintf("<details>\n<summary><code>%s</code> — %d diagnostics (errors: %d, warnings: %d)</summary>\n\n",
-				code, len(entries), errors, warnings))
+			b.WriteString(fmt.Sprintf("<details>\n<summary>%s — %d diagnostics (errors: %d, warnings: %d)</summary>\n\n",
+				htmlRuleRef(code, report.RuleDocs[code]), len(entries), errors, warnings))
 			b.WriteString("| Severity | File | Location | Message |\n")
 			b.WriteString("| --- | --- | --- | --- |\n")
 			for _, e := range entries {
@@ -262,4 +292,24 @@ func severityName(s protocol.DiagnosticSeverity) string {
 	default:
 		return "unknown"
 	}
+}
+
+func markdownRuleRef(code, href string) string {
+	if code == "" {
+		return "`(no rule)`"
+	}
+	if href == "" {
+		return fmt.Sprintf("`%s`", code)
+	}
+	return fmt.Sprintf("[`%s`](%s)", code, href)
+}
+
+func htmlRuleRef(code, href string) string {
+	if code == "" {
+		return "<code>(no rule)</code>"
+	}
+	if href == "" {
+		return fmt.Sprintf("<code>%s</code>", code)
+	}
+	return fmt.Sprintf("<a href=\"%s\"><code>%s</code></a>", href, code)
 }

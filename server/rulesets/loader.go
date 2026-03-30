@@ -22,5 +22,30 @@ func LoadBytes(data []byte) (*RuleSet, error) {
 	if err := yaml.Unmarshal(data, &rs); err != nil {
 		return nil, fmt.Errorf("parse ruleset: %w", err)
 	}
+	rs.Rules = normalizeRuleDefinitions(rs.Rules)
 	return &rs, nil
+}
+
+func normalizeRuleDefinitions(rules map[string]RuleDefinition) map[string]RuleDefinition {
+	if len(rules) == 0 {
+		return rules
+	}
+
+	normalized := make(map[string]RuleDefinition, len(rules))
+	for id, def := range rules {
+		canonical := NormalizeRuleID(id)
+		if canonical == id {
+			normalized[id] = def
+		}
+	}
+	for id, def := range rules {
+		canonical := NormalizeRuleID(id)
+		if canonical != id {
+			if _, exists := normalized[canonical]; exists {
+				continue
+			}
+		}
+		normalized[canonical] = def
+	}
+	return normalized
 }

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LukasParke/gossip/protocol"
 )
@@ -24,6 +25,8 @@ const (
 	// maxRuleDetailsPieceBytes caps a single <details> block; must fit with marker,
 	// page header, and footer in one issue comment.
 	maxRuleDetailsPieceBytes = 58000
+	// maxTopFilesInComment keeps the summary block compact.
+	maxTopFilesInComment = 5
 )
 
 // commentMarkerN returns the HTML comment marker for chunk index n (1-based).
@@ -80,7 +83,7 @@ type reviewComment struct {
 
 // diffInfo tracks which lines are valid for inline comments.
 type diffInfo struct {
-	AllLines   bool        // true for added files (all lines valid)
+	AllLines   bool         // true for added files (all lines valid)
 	ValidLines map[int]bool // valid new-side line numbers from patch
 }
 
@@ -454,19 +457,193 @@ type ruleDiagRow struct {
 	message  string
 }
 
+func countLabel(n int, singular, plural string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %s", n, plural)
+}
+
+func formatGeneratedAt(ts string) string {
+	if ts == "" {
+		return ""
+	}
+	parsed, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ts
+	}
+	return parsed.UTC().Format("2006-01-02 15:04 UTC")
+}
+
+func formatPRScopeSummary(report *LintReport, ruleCount int) string {
+	var parts []string
+	if report.Scope != nil && report.Scope.Mode != "" {
+		parts = append(parts, scopeModeLabel(report.Scope))
+		if report.Scope.Mode == reportScopeChanged {
+			parts = append(parts, countLabel(report.Scope.ChangedFileCount, "changed file", "changed files"))
+			parts = append(parts, countLabel(report.Scope.ImpactedFileCount, "impacted file", "impacted files"))
+		}
+		if report.Scope.AnalyzedFileCount > 0 {
+			parts = append(parts, countLabel(report.Scope.AnalyzedFileCount, "analyzed file", "analyzed files"))
+		}
+	} else {
+		parts = append(parts, countLabel(len(report.Files), "file", "files"))
+	}
+	parts = append(parts,
+		countLabel(report.DiagnosticCount, "finding", "findings"),
+		countLabel(ruleCount, "rule", "rules"),
+	)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "**Scope:** %s\n\n", strings.Join(parts, " · "))
+	if report.Scope != nil && report.Scope.FallbackReason != "" {
+		fmt.Fprintf(&sb, "<sub>Scope fallback: %s.</sub>\n\n", strings.TrimSuffix(report.Scope.FallbackReason, "."))
+	}
+	if generatedAt := formatGeneratedAt(report.GeneratedAt); generatedAt != "" {
+		fmt.Fprintf(&sb, "<sub>Generated %s.</sub>\n\n", generatedAt)
+	}
+	return sb.String()
+}
+
+func blobURL(repo, headRef, relPath string) string {
+	return fmt.Sprintf("https://github.com/%s/blob/%s/%s", repo, headRef, relPath)
+}
+
+func formatFileRef(relPath, repo, headRef string, canLink bool) string {
+	fileRef := fmt.Sprintf("`%s`", relPath)
+	if canLink {
+		fileRef = fmt.Sprintf("[`%s`](%s)", relPath, blobURL(repo, headRef, relPath))
+	}
+	return fileRef
+}
+
+func worstSeverity(diags []ruleDiagRow) protocol.DiagnosticSeverity {
+	if len(diags) == 0 {
+		return protocol.SeverityHint
+	}
+	worst := diags[0].severity
+	for _, d := range diags[1:] {
+		if d.severity < worst {
+			worst = d.severity
+		}
+	}
+	return worst
+}
+
+func distinctFileCount(diags []ruleDiagRow) int {
+	seen := make(map[string]struct{}, len(diags))
+	for _, d := range diags {
+		seen[d.relPath] = struct{}{}
+	}
+	return len(seen)
+}
+
+func topFileDetails(report *LintReport, relBase string) []FileDetail {
+	if len(report.FileDetails) > 0 {
+		details := make([]FileDetail, len(report.FileDetails))
+		copy(details, report.FileDetails)
+		for i := range details {
+			details[i].Path = filepath.ToSlash(details[i].Path)
+		}
+		sort.Slice(details, func(i, j int) bool {
+			if details[i].Count != details[j].Count {
+				return details[i].Count > details[j].Count
+			}
+			if details[i].Errors != details[j].Errors {
+				return details[i].Errors > details[j].Errors
+			}
+			if details[i].Warnings != details[j].Warnings {
+				return details[i].Warnings > details[j].Warnings
+			}
+			return details[i].Path < details[j].Path
+		})
+		if len(details) > maxTopFilesInComment {
+			details = details[:maxTopFilesInComment]
+		}
+		return details
+	}
+
+	details := make([]FileDetail, 0, len(report.Files))
+	for _, fd := range report.Files {
+		rel, err := filepath.Rel(relBase, fd.Path)
+		if err != nil {
+			rel = fd.Path
+		}
+		detail := FileDetail{
+			Path:  filepath.ToSlash(rel),
+			Count: len(fd.Diagnostics),
+		}
+		for _, d := range fd.Diagnostics {
+			switch d.Severity {
+			case protocol.SeverityError:
+				detail.Errors++
+			case protocol.SeverityWarning:
+				detail.Warnings++
+			}
+		}
+		details = append(details, detail)
+	}
+	sort.Slice(details, func(i, j int) bool {
+		if details[i].Count != details[j].Count {
+			return details[i].Count > details[j].Count
+		}
+		if details[i].Errors != details[j].Errors {
+			return details[i].Errors > details[j].Errors
+		}
+		if details[i].Warnings != details[j].Warnings {
+			return details[i].Warnings > details[j].Warnings
+		}
+		return details[i].Path < details[j].Path
+	})
+	if len(details) > maxTopFilesInComment {
+		details = details[:maxTopFilesInComment]
+	}
+	return details
+}
+
+func formatTopFilesBlock(details []FileDetail, repo, headRef string, canLink bool) string {
+	if len(details) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("**Top files**\n")
+	for _, fd := range details {
+		sb.WriteString("- ")
+		sb.WriteString(formatFileRef(fd.Path, repo, headRef, canLink))
+		sb.WriteString(" — ")
+		sb.WriteString(countLabel(fd.Count, "finding", "findings"))
+
+		parts := make([]string, 0, 2)
+		if fd.Errors > 0 {
+			parts = append(parts, countLabel(fd.Errors, "error", "errors"))
+		}
+		if fd.Warnings > 0 {
+			parts = append(parts, countLabel(fd.Warnings, "warning", "warnings"))
+		}
+		if len(parts) > 0 {
+			sb.WriteString(" (")
+			sb.WriteString(strings.Join(parts, ", "))
+			sb.WriteString(")")
+		}
+		sb.WriteByte('\n')
+	}
+	sb.WriteByte('\n')
+	return sb.String()
+}
+
 func formatRuleTableRow(d ruleDiagRow, repo, headRef string, canLink bool) string {
 	emoji := severityEmoji(d.severity)
 	msg := strings.ReplaceAll(d.message, "|", "\\|")
 	msg = strings.ReplaceAll(msg, "\n", " ")
-	fileRef := fmt.Sprintf("`%s`", d.relPath)
+	fileRef := formatFileRef(d.relPath, repo, headRef, canLink)
 	lineRef := fmt.Sprintf("L%d", d.line)
 	if canLink {
-		blobURL := fmt.Sprintf("https://github.com/%s/blob/%s/%s", repo, headRef, d.relPath)
-		fileRef = fmt.Sprintf("[`%s`](%s)", d.relPath, blobURL)
+		targetURL := blobURL(repo, headRef, d.relPath)
 		if d.endLine > d.line {
-			lineRef = fmt.Sprintf("[L%d-L%d](%s#L%d-L%d)", d.line, d.endLine, blobURL, d.line, d.endLine)
+			lineRef = fmt.Sprintf("[L%d-L%d](%s#L%d-L%d)", d.line, d.endLine, targetURL, d.line, d.endLine)
 		} else {
-			lineRef = fmt.Sprintf("[L%d](%s#L%d)", d.line, blobURL, d.line)
+			lineRef = fmt.Sprintf("[L%d](%s#L%d)", d.line, targetURL, d.line)
 		}
 	}
 	return fmt.Sprintf("| %s | %s | %s | %s |\n", emoji, fileRef, lineRef, msg)
@@ -474,41 +651,51 @@ func formatRuleTableRow(d ruleDiagRow, repo, headRef string, canLink bool) strin
 
 // splitRuleDetailsIntoBlocks returns one or more <details> blocks for a rule, each under
 // maxRuleDetailsPieceBytes so packing into an issue comment cannot exceed GitHub limits.
-func splitRuleDetailsIntoBlocks(label string, sev protocol.DiagnosticSeverity, diags []ruleDiagRow, repo, headRef string, canLink bool) []string {
+func splitRuleDetailsIntoBlocks(label, docURL string, sev protocol.DiagnosticSeverity, diags []ruleDiagRow, repo, headRef string, canLink bool) []string {
 	sort.Slice(diags, func(a, b int) bool {
 		return diags[a].severity < diags[b].severity
 	})
-	errors, warns, infos := 0, 0, 0
+	errors, warns, infos, hints := 0, 0, 0, 0
 	for _, d := range diags {
 		switch d.severity {
 		case protocol.SeverityError:
 			errors++
 		case protocol.SeverityWarning:
 			warns++
+		case protocol.SeverityInformation:
+			infos++
+		case protocol.SeverityHint:
+			hints++
 		default:
 			infos++
 		}
 	}
+	fileCount := distinctFileCount(diags)
 	writeOpen := func(sb *strings.Builder, continued bool) {
-		fmt.Fprintf(sb, "<details>\n<summary>%s <code>%s</code> — %d issue(s)",
-			severityEmoji(sev), label, len(diags))
-		if errors > 0 || warns > 0 || infos > 0 {
+		fmt.Fprintf(sb, "<details>\n<summary>%s %s — %s · %s",
+			severityEmoji(sev), htmlRuleLabel(label, docURL),
+			countLabel(len(diags), "finding", "findings"),
+			countLabel(fileCount, "file", "files"))
+		if errors > 0 || warns > 0 || infos > 0 || hints > 0 {
 			parts := []string{}
 			if errors > 0 {
-				parts = append(parts, fmt.Sprintf("%d errors", errors))
+				parts = append(parts, countLabel(errors, "error", "errors"))
 			}
 			if warns > 0 {
-				parts = append(parts, fmt.Sprintf("%d warnings", warns))
+				parts = append(parts, countLabel(warns, "warning", "warnings"))
 			}
 			if infos > 0 {
-				parts = append(parts, fmt.Sprintf("%d info", infos))
+				parts = append(parts, countLabel(infos, "info", "info"))
+			}
+			if hints > 0 {
+				parts = append(parts, countLabel(hints, "hint", "hints"))
 			}
 			sb.WriteString(" (")
 			sb.WriteString(strings.Join(parts, ", "))
 			sb.WriteString(")")
 		}
 		if continued {
-			sb.WriteString(" (continued)")
+			sb.WriteString(" — more")
 		}
 		sb.WriteString("</summary>\n\n")
 	}
@@ -541,6 +728,16 @@ func splitRuleDetailsIntoBlocks(label string, sev protocol.DiagnosticSeverity, d
 	return out
 }
 
+func htmlRuleLabel(code, href string) string {
+	if code == "" {
+		return "<code>(no rule)</code>"
+	}
+	if href == "" {
+		return fmt.Sprintf("<code>%s</code>", code)
+	}
+	return fmt.Sprintf("<a href=\"%s\"><code>%s</code></a>", href, code)
+}
+
 // packMarkdownChunks joins content blocks into issue-comment bodies, each at most
 // githubMaxIssueCommentBytes including the footer on the final chunk.
 func packMarkdownChunks(blocks []string) []string {
@@ -552,7 +749,8 @@ func packMarkdownChunks(blocks []string) []string {
 	var cur strings.Builder
 	chunkIdx := 1
 	mainHeader := "## 🔭 Telescope\n\n"
-	contHeader := "## 🔭 Telescope (continued)\n\n"
+	// Continuation issue comments (GitHub 64KiB limit) have no repeated title—only
+	// the hidden marker plus body so the thread reads as one report.
 
 	for i, block := range blocks {
 		last := i == len(blocks)-1
@@ -561,8 +759,6 @@ func packMarkdownChunks(blocks []string) []string {
 			cur.WriteByte('\n')
 			if chunkIdx == 1 {
 				cur.WriteString(mainHeader)
-			} else {
-				cur.WriteString(contHeader)
 			}
 			cur.WriteString(block)
 			continue
@@ -577,7 +773,6 @@ func packMarkdownChunks(blocks []string) []string {
 			chunkIdx++
 			cur.WriteString(commentMarkerN(chunkIdx))
 			cur.WriteByte('\n')
-			cur.WriteString(contHeader)
 			cur.WriteString(block)
 		} else {
 			cur.WriteString(block)
@@ -599,17 +794,11 @@ func GeneratePRComment(report *LintReport, repo, headRef string) []string {
 
 	if report.DiagnosticCount == 0 {
 		body := commentMarkerN(1) + "\n## 🔭 Telescope\n\n"
-		body += "✅ **No issues found** — all OpenAPI files pass validation.\n\n"
+		body += formatPRScopeSummary(report, 0)
+		body += "✅ **No findings** — all OpenAPI files pass validation.\n\n"
 		body += commentFooter
 		return []string{body}
 	}
-
-	// Build summary block (chunk 1 only).
-	summary := "| 🔴 Errors | 🟡 Warnings | 🔵 Info | Total |\n"
-	summary += "| :---: | :---: | :---: | :---: |\n"
-	summary += fmt.Sprintf("| %d | %d | %d | %d |\n\n",
-		report.Counts.Error, report.Counts.Warning,
-		report.Counts.Info+report.Counts.Hint, report.DiagnosticCount)
 
 	// Group diagnostics by rule.
 	byRule := make(map[string][]ruleDiagRow)
@@ -637,12 +826,17 @@ func GeneratePRComment(report *LintReport, repo, headRef string) []string {
 	}
 
 	type ruleGroup struct {
-		code  string
-		diags []ruleDiagRow
+		code   string
+		docURL string
+		diags  []ruleDiagRow
 	}
 	var groups []ruleGroup
 	for code, diags := range byRule {
-		groups = append(groups, ruleGroup{code: code, diags: diags})
+		groups = append(groups, ruleGroup{
+			code:   code,
+			docURL: report.RuleDocs[code],
+			diags:  diags,
+		})
 	}
 	sort.Slice(groups, func(i, j int) bool {
 		gi, gj := groups[i], groups[j]
@@ -681,6 +875,15 @@ func GeneratePRComment(report *LintReport, repo, headRef string) []string {
 		return len(gi.diags) > len(gj.diags)
 	})
 
+	// Build summary block (chunk 1 only).
+	summary := formatPRScopeSummary(report, len(groups))
+	summary += "| 🔴 Errors | 🟡 Warnings | 🔵 Info | ⚪ Hints | Total |\n"
+	summary += "| :---: | :---: | :---: | :---: | :---: |\n"
+	summary += fmt.Sprintf("| %d | %d | %d | %d | %d |\n\n",
+		report.Counts.Error, report.Counts.Warning,
+		report.Counts.Info, report.Counts.Hint, report.DiagnosticCount)
+	summary += formatTopFilesBlock(topFileDetails(report, relBase), repo, headRef, canLink)
+
 	blocks := make([]string, 0, len(groups)+1)
 	blocks = append(blocks, summary)
 	for _, g := range groups {
@@ -688,7 +891,7 @@ func GeneratePRComment(report *LintReport, repo, headRef string) []string {
 		if label == "" {
 			label = "(no rule)"
 		}
-		parts := splitRuleDetailsIntoBlocks(label, g.diags[0].severity, g.diags, repo, headRef, canLink)
+		parts := splitRuleDetailsIntoBlocks(label, g.docURL, worstSeverity(g.diags), g.diags, repo, headRef, canLink)
 		blocks = append(blocks, parts...)
 	}
 

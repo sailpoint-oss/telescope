@@ -33,7 +33,7 @@ func TestToolchainFixtureParity_BarrelmanRulesAndLSP(t *testing.T) {
 		},
 		{
 			name:  "test-duplicate-operation-ids",
-			codes: []string{"operation-operationId-unique"},
+			codes: []string{"sp-122"},
 		},
 		{
 			name:  "missing-path-parameters",
@@ -139,7 +139,7 @@ func stabilizeDuplicateOperationIDDiagnostics(diags []barrelman.Diagnostic, doc 
 	copy(stable, diags)
 
 	for i := range stable {
-		if stable[i].Code != "operation-operationId-unique" {
+		if stable[i].Code != "operation-operationId-unique" && stable[i].Code != "sp-122" {
 			continue
 		}
 		opID, ok := duplicateOperationIDFromMessage(stable[i].Message)
@@ -150,7 +150,11 @@ func stabilizeDuplicateOperationIDDiagnostics(diags []barrelman.Diagnostic, doc 
 		if !ok {
 			continue
 		}
-		stable[i].Message = fmt.Sprintf("operationId '%s' is already used at %s", opID, first)
+		prefix := "operationId '"
+		if strings.HasPrefix(stable[i].Message, "[#122] operationId '") {
+			prefix = "[#122] operationId '"
+		}
+		stable[i].Message = fmt.Sprintf("%s%s' is already used at %s", prefix, opID, first)
 	}
 
 	return stable
@@ -180,15 +184,18 @@ func duplicateOperationIDFirsts(doc *openapi.Document) map[string]string {
 }
 
 func duplicateOperationIDFromMessage(message string) (string, bool) {
-	rest, ok := strings.CutPrefix(message, "operationId '")
-	if !ok {
-		return "", false
+	for _, prefix := range []string{"operationId '", "[#122] operationId '"} {
+		rest, ok := strings.CutPrefix(message, prefix)
+		if !ok {
+			continue
+		}
+		opID, _, ok := strings.Cut(rest, "' is already used at ")
+		if !ok || opID == "" {
+			return "", false
+		}
+		return opID, true
 	}
-	opID, _, ok := strings.Cut(rest, "' is already used at ")
-	if !ok || opID == "" {
-		return "", false
-	}
-	return opID, true
+	return "", false
 }
 
 func sortedPaths(paths map[string]*openapi.PathItem) []string {

@@ -591,6 +591,7 @@ func TestEdge_VeryDeeplyNestedSchema(t *testing.T) {
 info:
   title: Deep
   version: "1.0"
+  description: Deep nesting coverage spec.
 paths:
   /deep:
     get:
@@ -599,31 +600,153 @@ paths:
       description: Tests deeply nested schema
       tags:
         - deep
+      security:
+        - oauth2:
+            - examples:deep:read
       responses:
         "200":
           description: OK
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
           content:
             application/json:
+              example:
+                levels: [[[[[[[[[[ "value" ]]]]]]]]]]
               schema:
                 type: object
+                description: Deeply nested array response.
+                required:
+                  - levels
                 properties:
-                  a:
-                    type: object
-                    properties:
-                      b:
-                        type: object
-                        properties:
-                          c:
-                            type: object
-                            properties:
-                              d:
-                                type: object
-                                properties:
-                                  e:
-                                    type: string
+                  levels:
+                    type: array
+                    description: Deeply nested arrays.
+                    example: [[[[[[[[[[ "value" ]]]]]]]]]]
+                    items:
+                      type: array
+                      items:
+                        type: array
+                        items:
+                          type: array
+                          items:
+                            type: array
+                            items:
+                              type: array
+                              items:
+                                type: array
+                                items:
+                                  type: array
+                                  items:
+                                    type: array
+                                    items:
+                                      type: array
+                                      items:
+                                        type: string
+        "400":
+          description: Invalid request
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+              example:
+                type: https://example.com/problems/invalid-request
+                title: Invalid Request
+                status: 400
+                detail: The request is invalid.
+                instance: /deep
+                correlationId: 123e4567-e89b-12d3-a456-426614174000
+        "401":
+          description: Authentication is required
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+              example:
+                type: https://example.com/problems/unauthorized
+                title: Unauthorized
+                status: 401
+                detail: Authentication is required.
+                instance: /deep
+                correlationId: 123e4567-e89b-12d3-a456-426614174000
+        "403":
+          description: Forbidden
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+              example:
+                type: https://example.com/problems/forbidden
+                title: Forbidden
+                status: 403
+                detail: You do not have access to this resource.
+                instance: /deep
+                correlationId: 123e4567-e89b-12d3-a456-426614174000
 tags:
   - name: deep
     description: Deep nesting
+components:
+  headers:
+    X-Request-Id:
+      description: Request correlation id.
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ProblemDetails:
+      type: object
+      description: RFC 7807 problem details payload.
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+        - correlationId
+      properties:
+        type:
+          type: string
+          description: Problem type URI.
+          example: https://example.com/problems/invalid-request
+        title:
+          type: string
+          description: Short human-readable summary.
+          example: Invalid Request
+        status:
+          type: integer
+          format: int32
+          description: HTTP status code.
+          example: 400
+        detail:
+          type: string
+          description: Human-readable explanation of the problem.
+          example: The request is invalid.
+        instance:
+          type: string
+          description: URI of this specific problem occurrence.
+          example: /deep
+        correlationId:
+          type: string
+          description: Request correlation identifier.
+          example: 123e4567-e89b-12d3-a456-426614174000
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      description: OAuth 2.0 client credentials flow.
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.com/oauth/token
+          scopes:
+            "examples:deep:read": Read deeply nested payloads
 `
 	c.OpenWithLanguage(uri, "yaml", content)
 	diags := c.WaitForDiagnostics(uri, 5*time.Second)

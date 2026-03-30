@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sailpoint-oss/barrelman"
 	"github.com/sailpoint-oss/telescope/server/rulesets"
 )
 
@@ -18,6 +19,7 @@ type Config struct {
 	Include              []string                   `yaml:"include,omitempty"`
 	Exclude              []string                   `yaml:"exclude,omitempty"`
 	SpectralRulesets     []string                   `yaml:"spectralRulesets,omitempty"`
+	GuidelinesBaseURL    string                     `yaml:"guidelinesBaseURL,omitempty"`
 	OpenAPI              OpenAPIConfig              `yaml:"openapi,omitempty"`
 	AdditionalValidation map[string]ValidationGroup `yaml:"additionalValidation,omitempty"`
 	Output               OutputConfig               `yaml:"output,omitempty"`
@@ -81,9 +83,10 @@ type LSPSchemaValidationSettings struct {
 // DefaultConfig returns a configuration with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
-		Extends: rulesets.Recommended,
-		Include: []string{"**/*.yaml", "**/*.yml", "**/*.json"},
-		Exclude: []string{"node_modules/**", "vendor/**", ".git/**"},
+		Extends:           rulesets.Recommended,
+		Include:           []string{"**/*.yaml", "**/*.yml", "**/*.json"},
+		Exclude:           []string{"node_modules/**", "vendor/**", ".git/**"},
+		GuidelinesBaseURL: barrelman.GuidelinesBaseURL(),
 		Output: OutputConfig{
 			Format: "text",
 			Color:  "auto",
@@ -96,6 +99,19 @@ func DefaultConfig() *Config {
 			},
 		},
 	}
+}
+
+// EffectiveGuidelinesBaseURL returns the configured docs base URL, falling back
+// to barrelman's env/default resolution.
+func (c *Config) EffectiveGuidelinesBaseURL() string {
+	if c == nil {
+		return barrelman.GuidelinesBaseURL()
+	}
+	base := strings.TrimSpace(c.GuidelinesBaseURL)
+	if base == "" {
+		return barrelman.GuidelinesBaseURL()
+	}
+	return strings.TrimRight(base, "/") + "/"
 }
 
 // EffectiveSchemaValidationMode returns the configured LSP schema-validation
@@ -161,7 +177,7 @@ func (c *Config) BuildEnabledRules() map[string]bool {
 
 	// Apply config-level overrides
 	for id, sev := range c.Rules {
-		rs.Rules[id] = rulesets.RuleDefinition{Severity: sev}
+		rs.Rules[rulesets.NormalizeRuleID(id)] = rulesets.RuleDefinition{Severity: sev}
 	}
 
 	return rulesets.BuildEnabledMap(rs)

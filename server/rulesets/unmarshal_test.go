@@ -83,3 +83,18 @@ func TestRuleDefinitionUnmarshalArray(t *testing.T) {
 		t.Errorf("Description = %q, want %q", def.Description, "Must have contact")
 	}
 }
+
+func TestLoadBytes_NormalizesLegacyRuleIDs(t *testing.T) {
+	rs, err := rulesets.LoadBytes([]byte("rules:\n  operation-tags: error\n"))
+	if err != nil {
+		t.Fatalf("LoadBytes: %v", err)
+	}
+	if _, ok := rs.Rules["operation-tags"]; ok {
+		t.Fatalf("expected legacy rule ID to be normalized, got %+v", rs.Rules)
+	}
+	if def, ok := rs.Rules["sp-123"]; !ok {
+		t.Fatalf("expected sp-123 rule, got %+v", rs.Rules)
+	} else if def.Severity != "error" {
+		t.Fatalf("Severity = %q, want error", def.Severity)
+	}
+}

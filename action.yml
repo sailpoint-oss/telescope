@@ -29,6 +29,9 @@ inputs:
   diff-head:
     description: "Head ref for ci mode"
     default: "HEAD"
+  report-scope:
+    description: "CI report scope: changed (graph-expanded impact) or all configured files"
+    default: "changed"
   severity:
     description: "Optional minimum severity filter"
     default: ""
@@ -88,6 +91,7 @@ runs:
         RULESET_PATH: ${{ inputs.ruleset }}
         DIFF_BASE: ${{ inputs.diff-base }}
         DIFF_HEAD: ${{ inputs.diff-head }}
+        REPORT_SCOPE: ${{ inputs.report-scope }}
         SEVERITY: ${{ inputs.severity }}
         FAIL_ON: ${{ inputs.fail-on }}
         NO_EXTERNAL_LSP: ${{ inputs.no-external-lsp }}
@@ -155,7 +159,7 @@ runs:
             cmd+=(--fail-on "$FAIL_ON" --report-md "$report_md_path" --report-json "$report_json_path")
             ;;
           ci)
-            cmd+=(--diff-base "$DIFF_BASE" --diff-head "$DIFF_HEAD" --fail-on "$FAIL_ON" --report-md "$report_md_path" --report-json "$report_json_path")
+            cmd+=(--diff-base "$DIFF_BASE" --diff-head "$DIFF_HEAD" --report-scope "$REPORT_SCOPE" --fail-on "$FAIL_ON" --report-md "$report_md_path" --report-json "$report_json_path")
             if [ "$COMMENT_PR" = "true" ]; then
               cmd+=(--comment-pr)
             fi

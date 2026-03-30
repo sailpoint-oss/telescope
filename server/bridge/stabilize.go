@@ -10,10 +10,13 @@ import (
 )
 
 const (
-	duplicateOperationIDCode    = "operation-operationId-unique"
-	duplicateOperationIDPrefix  = "operationId '"
-	duplicateOperationIDMessage = "' is already used at "
-	duplicateOperationIDRelated = "First defined here at %s"
+	duplicateOperationIDCodeLegacy       = "operation-operationId-unique"
+	duplicateOperationIDCodeGuideline    = "sp-122"
+	duplicateOperationIDPrefixLegacy     = "operationId '"
+	duplicateOperationIDPrefixGuideline  = "[#122] operationId '"
+	duplicateOperationIDMessage          = "' is already used at "
+	duplicateOperationIDRelatedLegacy    = "First defined here at %s"
+	duplicateOperationIDRelatedGuideline = "[#122] First defined here at %s"
 )
 
 type duplicateOperationIDFirst struct {
@@ -35,10 +38,10 @@ func stabilizeDiagnostics(idx *navigator.Index, diags []barrelman.Diagnostic) []
 	copy(stable, diags)
 
 	for i := range stable {
-		if stable[i].Code != duplicateOperationIDCode {
+		if !isDuplicateOperationIDCode(stable[i].Code) {
 			continue
 		}
-		opID, ok := duplicateOperationIDFromMessage(stable[i].Message)
+		opID, prefix, ok := duplicateOperationIDFromMessage(stable[i].Message)
 		if !ok {
 			continue
 		}
@@ -47,14 +50,21 @@ func stabilizeDiagnostics(idx *navigator.Index, diags []barrelman.Diagnostic) []
 			continue
 		}
 
-		stable[i].Message = fmt.Sprintf("%s%s%s%s", duplicateOperationIDPrefix, opID, duplicateOperationIDMessage, first.desc)
+		stable[i].Message = fmt.Sprintf("%s%s%s%s", prefix, opID, duplicateOperationIDMessage, first.desc)
+		if len(stable[i].Related) == 0 {
+			stable[i].Related = append(stable[i].Related, barrelman.RelatedInformation{})
+		}
 		for j := range stable[i].Related {
 			stable[i].Related[j].Range = first.loc.Range
-			stable[i].Related[j].Message = fmt.Sprintf(duplicateOperationIDRelated, first.desc)
+			stable[i].Related[j].Message = fmt.Sprintf(duplicateOperationIDRelatedMessage(prefix), first.desc)
 		}
 	}
 
 	return stable
+}
+
+func isDuplicateOperationIDCode(code string) bool {
+	return code == duplicateOperationIDCodeLegacy || code == duplicateOperationIDCodeGuideline
 }
 
 func canonicalDuplicateOperationIDFirsts(doc *navigator.Document) map[string]duplicateOperationIDFirst {
@@ -88,16 +98,26 @@ func canonicalDuplicateOperationIDFirsts(doc *navigator.Document) map[string]dup
 	return firsts
 }
 
-func duplicateOperationIDFromMessage(message string) (string, bool) {
-	rest, ok := strings.CutPrefix(message, duplicateOperationIDPrefix)
-	if !ok {
-		return "", false
+func duplicateOperationIDFromMessage(message string) (string, string, bool) {
+	for _, prefix := range []string{duplicateOperationIDPrefixLegacy, duplicateOperationIDPrefixGuideline} {
+		rest, ok := strings.CutPrefix(message, prefix)
+		if !ok {
+			continue
+		}
+		opID, _, ok := strings.Cut(rest, duplicateOperationIDMessage)
+		if !ok || opID == "" {
+			return "", "", false
+		}
+		return opID, prefix, true
 	}
-	opID, _, ok := strings.Cut(rest, duplicateOperationIDMessage)
-	if !ok || opID == "" {
-		return "", false
+	return "", "", false
+}
+
+func duplicateOperationIDRelatedMessage(prefix string) string {
+	if prefix == duplicateOperationIDPrefixGuideline {
+		return duplicateOperationIDRelatedGuideline
 	}
-	return opID, true
+	return duplicateOperationIDRelatedLegacy
 }
 
 func sortedDuplicateOperationIDPaths(paths map[string]*navigator.PathItem) []string {
