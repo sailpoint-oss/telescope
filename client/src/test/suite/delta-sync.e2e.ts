@@ -21,7 +21,7 @@ suite("File Change Diagnostics", () => {
 		if (isMultiRootWorkspace()) return;
 		await activateExtension();
 		const api = getTestApi();
-		await api.waitForSessionsRunning(60000);
+		await api.waitForSessionsRunning(120000);
 
 		const folder = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(folder, "Should have a workspace folder");

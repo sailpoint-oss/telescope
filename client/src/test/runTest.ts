@@ -11,7 +11,9 @@ import { runTests } from "@vscode/test-electron";
 async function main() {
 	try {
 		process.env.TELESCOPE_E2E_MODE = "single";
-		process.env.TELESCOPE_E2E_TIMEOUT_MS = process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "120000";
+		// Single-root suite chains long suiteSetup waits (sessions + diagnostics + code lenses).
+		// 120s is too tight on macOS/Windows CI; align with sidecar default.
+		process.env.TELESCOPE_E2E_TIMEOUT_MS = process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "300000";
 
 		const extensionDevelopmentPath = path.resolve(__dirname, "../..");
 		const extensionTestsPath = path.resolve(__dirname, "./suite/index");
@@ -39,6 +41,7 @@ async function main() {
 				workspacePath,
 				"--disable-extensions",
 				"--disable-workspace-trust",
+				"--disable-gpu",
 			],
 			extensionTestsEnv: {
 				TELESCOPE_SERVER_PATH: process.env.TELESCOPE_SERVER_PATH,

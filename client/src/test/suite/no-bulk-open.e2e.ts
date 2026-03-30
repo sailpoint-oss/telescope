@@ -21,7 +21,7 @@ suite("No Bulk Open", () => {
 		if (isMultiRootWorkspace()) return;
 		await activateExtension();
 		api = getTestApi();
-		await api.waitForSessionsRunning(60000);
+		await api.waitForSessionsRunning(120000);
 	});
 
 	test("Startup scan should not open all discovered OpenAPI files", async () => {

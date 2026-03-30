@@ -23,7 +23,7 @@ suite("Diagnostics", () => {
 		if (isMultiRootWorkspace()) return;
 		await activateExtension();
 		testAPI = getTestApi();
-		await testAPI.waitForSessionsRunning(60000);
+		await testAPI.waitForSessionsRunning(120000);
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		workspaceFolder = f;

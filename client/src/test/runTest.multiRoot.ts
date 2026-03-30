@@ -36,6 +36,7 @@ async function main() {
 				workspacePath,
 				"--disable-extensions",
 				"--disable-workspace-trust",
+				"--disable-gpu",
 			],
 			extensionTestsEnv: {
 				TELESCOPE_SERVER_PATH: process.env.TELESCOPE_SERVER_PATH,

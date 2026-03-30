@@ -48,7 +48,7 @@ suite("Multi-Root Workspace", () => {
 				const projectInfo = await waitForProjectInfo(
 					testAPI,
 					(i) => i.knownOpenAPIFiles > 0,
-					{ timeoutMs: 60000, uri: folder.uri },
+					{ timeoutMs: 120000, uri: folder.uri },
 				);
 				assert.ok(
 					projectInfo,
@@ -114,11 +114,11 @@ suite("Multi-Root Workspace", () => {
 		// capturing baselines — the >= 0 predicate was always true and could
 		// snapshot a zero count before the scan finished.
 		const infoA0 = await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
-			timeoutMs: 60000,
+			timeoutMs: 120000,
 			uri: folderA.uri,
 		});
 		const infoB0 = await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
-			timeoutMs: 60000,
+			timeoutMs: 120000,
 			uri: folderB.uri,
 		});
 
@@ -156,7 +156,7 @@ suite("Multi-Root Workspace", () => {
 		await waitForProjectInfo(
 			api,
 			(i) => i.knownOpenAPIFiles > baseA,
-			{ timeoutMs: 60000, uri: folderA.uri },
+			{ timeoutMs: 120000, uri: folderA.uri },
 		);
 		await delay(500);
 		const infoB1 = api.getProjectInfo(folderB.uri);

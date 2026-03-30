@@ -21,7 +21,7 @@ suite("Client File Discovery", () => {
 
 		await activateExtension();
 		const testAPI = getTestApi();
-		await testAPI.waitForSessionsRunning(60000);
+		await testAPI.waitForSessionsRunning(120000);
 
 		const folder = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(folder, "Should have a workspace folder");
@@ -45,7 +45,7 @@ suite("Client File Discovery", () => {
 
 		await activateExtension();
 		const testAPI = getTestApi();
-		await testAPI.waitForSessionsRunning(60000);
+		await testAPI.waitForSessionsRunning(120000);
 
 		const folder = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(folder, "Should have a workspace folder");

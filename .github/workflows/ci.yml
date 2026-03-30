@@ -229,6 +229,7 @@ jobs:
 
       - name: Run E2E tests (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
+        shell: bash
         run: |
           pnpm --filter ./client test:e2e:run:single
           pnpm --filter ./client test:e2e:run:multi

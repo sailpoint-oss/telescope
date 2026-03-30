@@ -54,7 +54,7 @@ suite("Extension Activation", () => {
 		const testAPI = getTestApi();
 
 		// Multi-root workspace launches can be slower to materialize folders in test-electron.
-		const timeout = isMultiRootWorkspace() ? 180000 : 60000;
+		const timeout = isMultiRootWorkspace() ? 180000 : 120000;
 		await testAPI.waitForSessionsRunning(timeout);
 
 		// Verify session states
