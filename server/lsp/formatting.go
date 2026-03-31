@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -15,10 +16,26 @@ import (
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
+// normalizePathForDocCompare maps paths from protocol.URIToPath into a form
+// suitable for os.Stat / filepath.EvalSymlinks on Windows. File URIs like
+// file:///C:/path parse to URL path /C:/path; URIToPath yields \C:\path, which
+// is not a normal drive path and can break SameFile against C:\path.
+func normalizePathForDocCompare(p string) string {
+	p = filepath.Clean(p)
+	if runtime.GOOS == "windows" && len(p) >= 3 && (p[0] == '\\' || p[0] == '/') && p[2] == ':' {
+		if (p[1] >= 'A' && p[1] <= 'Z') || (p[1] >= 'a' && p[1] <= 'z') {
+			p = filepath.Clean(p[1:])
+		}
+	}
+	return p
+}
+
 // pathsEqualOrSameFile reports whether two filesystem paths refer to the same
 // location. Plain string equality misses macOS cases where one URI uses
 // /var/... and another /private/var/... (symlink), or other symlink pairs.
 func pathsEqualOrSameFile(a, b string) bool {
+	a = normalizePathForDocCompare(a)
+	b = normalizePathForDocCompare(b)
 	if a == b {
 		return true
 	}
@@ -47,12 +64,12 @@ func docForFormatting(ctx *gossip.Context, uri protocol.DocumentURI) *document.D
 	if doc := ctx.Documents.Get(uri); doc != nil {
 		return doc
 	}
-	want := protocol.URIToPath(protocol.NormalizeURI(uri))
+	want := normalizePathForDocCompare(protocol.URIToPath(protocol.NormalizeURI(uri)))
 	if want == "" {
 		return nil
 	}
 	for _, u := range ctx.Documents.URIs() {
-		if protocol.URIToPath(u) == want {
+		if normalizePathForDocCompare(protocol.URIToPath(u)) == want {
 			return ctx.Documents.Get(u)
 		}
 	}
