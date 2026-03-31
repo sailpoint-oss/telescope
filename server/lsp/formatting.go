@@ -3,6 +3,8 @@ package lsp
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -12,6 +14,31 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
+
+// pathsEqualOrSameFile reports whether two filesystem paths refer to the same
+// location. Plain string equality misses macOS cases where one URI uses
+// /var/... and another /private/var/... (symlink), or other symlink pairs.
+func pathsEqualOrSameFile(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ca := filepath.Clean(a)
+	cb := filepath.Clean(b)
+	if ca == cb {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(ca)
+	rb, errB := filepath.EvalSymlinks(cb)
+	if errA == nil && errB == nil && filepath.Clean(ra) == filepath.Clean(rb) {
+		return true
+	}
+	sa, err1 := os.Stat(a)
+	sb, err2 := os.Stat(b)
+	if err1 == nil && err2 == nil && os.SameFile(sa, sb) {
+		return true
+	}
+	return false
+}
 
 // docForFormatting resolves the gossip document for formatting. Some clients send
 // textDocument/formatting with a URI string that does not exactly match the key
@@ -26,6 +53,11 @@ func docForFormatting(ctx *gossip.Context, uri protocol.DocumentURI) *document.D
 	}
 	for _, u := range ctx.Documents.URIs() {
 		if protocol.URIToPath(u) == want {
+			return ctx.Documents.Get(u)
+		}
+	}
+	for _, u := range ctx.Documents.URIs() {
+		if pathsEqualOrSameFile(want, protocol.URIToPath(u)) {
 			return ctx.Documents.Get(u)
 		}
 	}

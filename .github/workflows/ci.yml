@@ -218,6 +218,9 @@ jobs:
       - name: Build Bun runner
         run: bash server/lsp/bun/runner/build.sh
 
+      # Rebuilds Go server into client/bin, extension bundle, and out/test. Must run
+      # before any test:e2e:run:* so CI uses a server binary that matches server/lsp
+      # (e.g. macOS document URI / path matching for formatting).
       - name: Build and compile E2E
         run: pnpm --filter ./client test:e2e:compile
 

@@ -1105,7 +1105,10 @@ export async function activate(context: ExtensionContext) {
 				if (!sessionManager) {
 					return null;
 				}
-				const session = sessionManager.getSessionForUri(uri);
+				// Ensure the workspace document is loaded so the URI matches what
+				// didOpen/didChange used when syncing to the language server.
+				const textDoc = await workspace.openTextDocument(uri);
+				const session = sessionManager.getSessionForUri(textDoc.uri);
 				if (!session) {
 					return null;
 				}
@@ -1113,9 +1116,6 @@ export async function activate(context: ExtensionContext) {
 				if (!client) {
 					return null;
 				}
-				// Ensure the workspace document is loaded so the URI matches what
-				// didOpen/didChange used when syncing to the language server.
-				const textDoc = await workspace.openTextDocument(uri);
 				const lspURI = client.code2ProtocolConverter.asUri(textDoc.uri);
 				return (await client.sendRequest(DocumentFormattingRequest.type, {
 					textDocument: { uri: lspURI },
