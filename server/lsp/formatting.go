@@ -28,9 +28,15 @@ func NewFormattingHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Form
 			return []protocol.TextEdit{}, nil
 		}
 
-		var formatted string
+		// Prefer the file extension for JSON vs YAML. Only fall back to the cached index
+		// when the URI has no recognizable extension (FormatUnknown).
+		format := openapi.FormatFromURI(string(params.TextDocument.URI))
+		if format == openapi.FormatUnknown && idx != nil && idx.Format != openapi.FormatUnknown {
+			format = idx.Format
+		}
 
-		if idx != nil && idx.Format == openapi.FormatJSON {
+		var formatted string
+		if format == openapi.FormatJSON {
 			f, err := formatJSON(original, params.Options)
 			if err != nil {
 				return nil, fmt.Errorf("formatting: %w", err)

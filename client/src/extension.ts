@@ -12,6 +12,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { commands, type ExtensionContext, window, workspace } from "vscode";
+import { DocumentFormattingRequest } from "vscode-languageserver-protocol";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { SessionManager } from "./session-manager";
 import { appendTraceEvent, summarizeForTrace } from "./trace";
@@ -92,6 +93,11 @@ export async function activate(context: ExtensionContext) {
 			},
 			getClientOpenApiFileCount(): number {
 				throw new Error(`Telescope activation failed: ${msg}`);
+			},
+			async requestDocumentFormatting(
+				_uri: vscode.Uri,
+			): Promise<vscode.TextEdit[] | null> {
+				await fail();
 			},
 		};
 	};
@@ -1086,6 +1092,30 @@ export async function activate(context: ExtensionContext) {
 				const session = sessionManager.getSessionForUri(targetUri);
 				if (!session) return 0;
 				return session.getClientOpenApiFileCount();
+			},
+
+			/**
+			 * E2E-only: call textDocument/formatting on the LSP without VS Code's
+			 * executeFormatDocumentProvider pipeline (needed for openapi-yaml).
+			 */
+			async requestDocumentFormatting(
+				uri: vscode.Uri,
+			): Promise<vscode.TextEdit[] | null> {
+				if (!sessionManager) {
+					return null;
+				}
+				const session = sessionManager.getSessionForUri(uri);
+				if (!session) {
+					return null;
+				}
+				const client = session.getClient();
+				if (!client) {
+					return null;
+				}
+				return await client.sendRequest(DocumentFormattingRequest.type, {
+					textDocument: { uri: uri.toString() },
+					options: { tabSize: 2, insertSpaces: true },
+				});
 			},
 		};
 

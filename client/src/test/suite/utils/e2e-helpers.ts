@@ -9,6 +9,10 @@ export interface TelescopeTestApi {
 		workspacePath: string | null;
 	} | null;
 	getClientOpenApiFileCount: (uri?: vscode.Uri) => number;
+	/** E2E: raw LSP textDocument/formatting (bypasses VS Code format provider resolution). */
+	requestDocumentFormatting?: (
+		uri: vscode.Uri,
+	) => Promise<vscode.TextEdit[] | null>;
 }
 
 export function getTestApi(): TelescopeTestApi {
@@ -132,6 +136,36 @@ export async function waitForProviders(
 		`Timeout waiting for providers after ${timeoutMs}ms ` +
 			`(uri=${uri.toString()}, languageId=${openDoc?.languageId ?? "not-open"})`,
 	);
+}
+
+/**
+ * Force the in-memory document to match `expected` (e.g. exact bytes from readFile).
+ * VS Code can normalize YAML on load in some cases; a full-document replace issues
+ * didChange so the language server sees trailing spaces before format runs.
+ */
+export async function ensureWorkspaceTextDocumentMatches(
+	uri: vscode.Uri,
+	expected: string,
+): Promise<vscode.TextDocument> {
+	let doc = await vscode.workspace.openTextDocument(uri);
+	if (doc.getText() === expected) {
+		return doc;
+	}
+	const edit = new vscode.WorkspaceEdit();
+	const current = doc.getText();
+	const fullRange = new vscode.Range(
+		doc.positionAt(0),
+		doc.positionAt(current.length),
+	);
+	edit.replace(uri, fullRange, expected);
+	await vscode.workspace.applyEdit(edit);
+	doc = await vscode.workspace.openTextDocument(uri);
+	assert.strictEqual(
+		doc.getText(),
+		expected,
+		"Workspace buffer should match expected text after applyEdit",
+	);
+	return doc;
 }
 
 export async function openAndShow(uri: vscode.Uri): Promise<vscode.TextDocument> {

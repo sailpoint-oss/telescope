@@ -13,6 +13,11 @@ concurrency:
 permissions:
   contents: read
 
+# Align with GitHub Actions Node 24 default; silences deprecation warnings on actions that still declare Node 20.
+# See https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   go:
     name: Go (${{ matrix.os }})

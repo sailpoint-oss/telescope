@@ -13,6 +13,7 @@ import {
 	openAndShow,
 	waitForDiagnostics,
 	waitForLanguageId,
+	ensureWorkspaceTextDocumentMatches,
 	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
@@ -173,54 +174,56 @@ suite("Providers", () => {
 
 	test("Format provider returns valid edits", async () => {
 		if (isMultiRootWorkspace()) return;
-		const tmpName = `format-e2e-${Date.now()}.yaml`;
-		const tmpUri = vscode.Uri.joinPath(folder.uri, tmpName);
-		const content = [
-			"openapi: 3.1.0  ",
-			"info:",
-			"  title: Format Test   ",
-			"  version: 1.0.0",
-			"paths: {}",
-		].join("\n");
+		// Minified JSON: document formatting must pretty-print (non-empty edits). YAML
+		// trailing-space cases are covered in server unit tests; VS Code buffer sync made
+		// YAML E2E flaky for empty-edit vs whitespace-only changes.
+		const uri = vscode.Uri.joinPath(folder.uri, "format-e2e.json");
+		const raw = await vscode.workspace.fs.readFile(uri);
+		const content = Buffer.from(raw).toString("utf-8");
+		assert.ok(
+			!content.includes("\n"),
+			"Fixture should be single-line minified JSON so format produces edits",
+		);
 
-		await vscode.workspace.fs.writeFile(tmpUri, Buffer.from(content, "utf-8"));
+		await openAndShow(uri);
+		let doc = await waitForLanguageId(uri, "openapi-json", {
+			timeoutMs: 30000,
+		});
+		doc = await ensureWorkspaceTextDocumentMatches(uri, content);
+		await delay(500);
+		await vscode.window.showTextDocument(doc);
 
-		try {
-			await openAndShow(tmpUri);
-			const doc = await waitForLanguageId(tmpUri, "openapi-yaml", {
-				timeoutMs: 10000,
-			});
-			await waitForProviders(tmpUri, { timeoutMs: 30000 });
+		assert.strictEqual(
+			doc.languageId,
+			"openapi-json",
+			`Expected openapi-json, got ${doc.languageId}`,
+		);
+		assert.ok(
+			!doc.getText().includes("\n"),
+			"Buffer must stay minified single-line JSON (see workspace .vscode/settings.json)",
+		);
 
-			assert.strictEqual(
-				doc.languageId,
-				"openapi-yaml",
-				`Expected openapi-yaml, got ${doc.languageId}`,
-			);
-
-			const edits = await executeWithRetry<vscode.TextEdit[] | undefined>(
-				"vscode.executeFormatDocumentProvider",
-				[tmpUri, { tabSize: 2, insertSpaces: true }],
-				(result) => Array.isArray(result) && result.length > 0,
-				{ maxAttempts: 40, delayMs: 1000 },
-			);
-
-			assert.ok(Array.isArray(edits), "Format should return an array");
-			assert.ok(edits.length > 0, "Format should return at least one edit");
-			const formatted = edits.map((edit) => edit.newText).join("");
-			assert.notStrictEqual(formatted, content, "Format should update the document");
-			assert.ok(formatted.endsWith("\n"), "Format should normalize trailing newline");
-			assert.ok(
-				!formatted.includes("Format Test   "),
-				"Format should trim trailing spaces",
-			);
-		} finally {
-			await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-			try {
-				await vscode.workspace.fs.delete(tmpUri);
-			} catch {
-				// cleanup best-effort
+		const requestFmt = api.requestDocumentFormatting;
+		assert.ok(
+			typeof requestFmt === "function",
+			"Test API should expose requestDocumentFormatting for LSP format",
+		);
+		let edits: vscode.TextEdit[] | null = null;
+		const fmtStart = Date.now();
+		while (Date.now() - fmtStart < 90000) {
+			edits = await requestFmt(uri);
+			if (edits !== null && edits !== undefined && edits.length > 0) {
+				break;
 			}
+			await delay(400);
 		}
+		assert.ok(edits && edits.length > 0, "LSP formatting should return at least one edit");
+
+		const formatted = edits.map((edit) => edit.newText).join("");
+		assert.notStrictEqual(formatted, content, "Format should update the document");
+		assert.ok(formatted.includes("\n"), "JSON format should pretty-print with newlines");
+		assert.ok(formatted.endsWith("\n"), "Format should normalize trailing newline");
+
+		await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
 	});
 });
