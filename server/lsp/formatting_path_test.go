@@ -1,22 +1,29 @@
 package lsp
 
 import (
-	"net/url"
+	"context"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
-	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
+// fileURI builds a file:// URI for an absolute path (LSP-style).
 func fileURI(t *testing.T, absPath string) protocol.DocumentURI {
 	t.Helper()
-	p := filepath.Clean(absPath)
-	u := url.URL{Scheme: "file", Path: filepath.ToSlash(p)}
-	return protocol.DocumentURI(u.String())
+	p := filepath.ToSlash(filepath.Clean(absPath))
+	if !filepath.IsAbs(p) {
+		t.Fatalf("need absolute path, got %q", p)
+	}
+	if runtime.GOOS == "windows" && len(p) >= 2 && p[1] == ':' {
+		p = "/" + p
+	}
+	return protocol.DocumentURI("file://" + p)
 }
 
 func TestPathsEqualOrSameFile_symlink(t *testing.T) {
@@ -37,7 +44,7 @@ func TestPathsEqualOrSameFile_symlink(t *testing.T) {
 	}
 }
 
-func TestFormattingHandler_JSON_symlinkPathFallback(t *testing.T) {
+func TestDocForFormatting_symlinkURIMatches(t *testing.T) {
 	dir := t.TempDir()
 	real := filepath.Join(dir, "format.json")
 	content := `{"openapi":"3.1.0","info":{"title":"T","version":"1.0.0"},"paths":{}}`
@@ -65,23 +72,20 @@ func TestFormattingHandler_JSON_symlinkPathFallback(t *testing.T) {
 		},
 	})
 
-	cache := openapi.NewIndexCache()
 	ctx := &gossip.Context{
-		Context:   t.Context(),
+		Context:   context.Background(),
 		Documents: store,
 	}
-	handler := NewFormattingHandler(cache, nil)
-	result, err := handler(ctx, &protocol.DocumentFormattingParams{
-		TextDocument: protocol.TextDocumentIdentifier{URI: alt},
-		Options: protocol.FormattingOptions{
-			TabSize:      2,
-			InsertSpaces: true,
-		},
-	})
-	if err != nil {
-		t.Fatalf("formatting error: %v", err)
+	doc := docForFormatting(ctx, alt)
+	if doc == nil {
+		want := protocol.URIToPath(protocol.NormalizeURI(alt))
+		var uris []string
+		for _, u := range store.URIs() {
+			uris = append(uris, string(u)+" -> "+protocol.URIToPath(u))
+		}
+		t.Fatalf("docForFormatting nil for symlink URI; wantPath=%q openURIs=%s", want, strings.Join(uris, "; "))
 	}
-	if len(result) != 1 {
-		t.Fatalf("expected one formatting edit (symlink path fallback), got %d", len(result))
+	if doc.Text() != content {
+		t.Fatalf("resolved document text mismatch")
 	}
 }

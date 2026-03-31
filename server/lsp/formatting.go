@@ -32,8 +32,8 @@ func pathsEqualOrSameFile(a, b string) bool {
 	if errA == nil && errB == nil && filepath.Clean(ra) == filepath.Clean(rb) {
 		return true
 	}
-	sa, err1 := os.Stat(a)
-	sb, err2 := os.Stat(b)
+	sa, err1 := os.Stat(ca)
+	sb, err2 := os.Stat(cb)
 	if err1 == nil && err2 == nil && os.SameFile(sa, sb) {
 		return true
 	}
