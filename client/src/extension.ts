@@ -98,6 +98,7 @@ export async function activate(context: ExtensionContext) {
 				_uri: vscode.Uri,
 			): Promise<vscode.TextEdit[] | null> {
 				await fail();
+				return null; // unreachable; fail() always throws
 			},
 		};
 	};
@@ -1112,10 +1113,10 @@ export async function activate(context: ExtensionContext) {
 				if (!client) {
 					return null;
 				}
-				return await client.sendRequest(DocumentFormattingRequest.type, {
+				return (await client.sendRequest(DocumentFormattingRequest.type, {
 					textDocument: { uri: uri.toString() },
 					options: { tabSize: 2, insertSpaces: true },
-				});
+				})) as vscode.TextEdit[] | null;
 			},
 		};
 
