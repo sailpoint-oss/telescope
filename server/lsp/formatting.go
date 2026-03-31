@@ -8,9 +8,29 @@ import (
 	"unicode/utf8"
 
 	"github.com/LukasParke/gossip"
+	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
+
+// docForFormatting resolves the gossip document for formatting. Some clients send
+// textDocument/formatting with a URI string that does not exactly match the key
+// produced for didOpen/didChange after normalization; fall back to path equality.
+func docForFormatting(ctx *gossip.Context, uri protocol.DocumentURI) *document.Document {
+	if doc := ctx.Documents.Get(uri); doc != nil {
+		return doc
+	}
+	want := protocol.URIToPath(protocol.NormalizeURI(uri))
+	if want == "" {
+		return nil
+	}
+	for _, u := range ctx.Documents.URIs() {
+		if protocol.URIToPath(u) == want {
+			return ctx.Documents.Get(u)
+		}
+	}
+	return nil
+}
 
 // NewFormattingHandler provides document formatting for JSON OpenAPI files.
 // JSON files are re-formatted with consistent indentation via json.MarshalIndent.
@@ -18,7 +38,7 @@ import (
 func NewFormattingHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.FormattingHandler {
 	return func(ctx *gossip.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
 		idx := cache.Get(params.TextDocument.URI)
-		doc := ctx.Documents.Get(params.TextDocument.URI)
+		doc := docForFormatting(ctx, params.TextDocument.URI)
 		if doc == nil {
 			return []protocol.TextEdit{}, nil
 		}
@@ -30,7 +50,8 @@ func NewFormattingHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Form
 
 		// Prefer the file extension for JSON vs YAML. Only fall back to the cached index
 		// when the URI has no recognizable extension (FormatUnknown).
-		format := openapi.FormatFromURI(string(params.TextDocument.URI))
+		// Normalize so fragments/query do not break ".json" / ".yaml" detection.
+		format := openapi.FormatFromURI(string(protocol.NormalizeURI(params.TextDocument.URI)))
 		if format == openapi.FormatUnknown && idx != nil && idx.Format != openapi.FormatUnknown {
 			format = idx.Format
 		}

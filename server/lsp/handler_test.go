@@ -576,6 +576,84 @@ func TestFormattingHandler_YAML(t *testing.T) {
 	_ = result
 }
 
+func TestFormattingHandler_JSON_Minified(t *testing.T) {
+	uri := protocol.DocumentURI("file:///tmp/format-e2e.json")
+	content := `{"openapi":"3.1.0","info":{"title":"Format E2E","version":"1.0.0"},"paths":{}}`
+
+	store := document.NewStore()
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "openapi-json",
+			Version:    1,
+			Text:       content,
+		},
+	})
+
+	cache := openapi.NewIndexCache()
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+
+	handler := lsp.NewFormattingHandler(cache, nil)
+	result, err := handler(ctx, &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+		Options: protocol.FormattingOptions{
+			TabSize:      2,
+			InsertSpaces: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("formatting error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected one formatting edit, got %d", len(result))
+	}
+	if !strings.Contains(result[0].NewText, "\n") {
+		t.Fatalf("expected pretty-printed JSON with newlines, got %q", result[0].NewText)
+	}
+}
+
+func TestFormattingHandler_JSON_Minified_URIVariant(t *testing.T) {
+	// Same file path as TestFormattingHandler_JSON_Minified but a URI string that
+	// differs from the key used at didOpen (simulates client/server URI drift).
+	opened := protocol.DocumentURI("file:///tmp/format-e2e.json")
+	altURI := protocol.DocumentURI("file:///tmp/format-e2e.json#frag")
+	content := `{"openapi":"3.1.0","info":{"title":"Format E2E","version":"1.0.0"},"paths":{}}`
+
+	store := document.NewStore()
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:        opened,
+			LanguageID: "openapi-json",
+			Version:    1,
+			Text:       content,
+		},
+	})
+
+	cache := openapi.NewIndexCache()
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+
+	handler := lsp.NewFormattingHandler(cache, nil)
+	result, err := handler(ctx, &protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: altURI},
+		Options: protocol.FormattingOptions{
+			TabSize:      2,
+			InsertSpaces: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("formatting error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected one formatting edit (path fallback), got %d", len(result))
+	}
+}
+
 func TestFormattingHandler_YAML_TrimsTrailingWhitespace(t *testing.T) {
 	spec := "openapi: 3.1.0  \ninfo:\n  title: Format Test   \n  version: 1.0.0\npaths: {}"
 	env := setupTestEnv(t, "file:///format.yaml", spec)

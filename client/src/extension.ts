@@ -1113,8 +1113,12 @@ export async function activate(context: ExtensionContext) {
 				if (!client) {
 					return null;
 				}
+				// Ensure the workspace document is loaded so the URI matches what
+				// didOpen/didChange used when syncing to the language server.
+				const textDoc = await workspace.openTextDocument(uri);
+				const lspURI = client.code2ProtocolConverter.asUri(textDoc.uri);
 				return (await client.sendRequest(DocumentFormattingRequest.type, {
-					textDocument: { uri: uri.toString() },
+					textDocument: { uri: lspURI },
 					options: { tabSize: 2, insertSpaces: true },
 				})) as vscode.TextEdit[] | null;
 			},
