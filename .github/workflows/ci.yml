@@ -13,9 +13,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   go:
     name: Go (${{ matrix.os }})
@@ -219,20 +216,29 @@ jobs:
       - name: Build and compile E2E
         run: pnpm --filter ./client test:e2e:compile
 
-      - name: Run E2E tests (Linux)
+      - name: Install xvfb (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
-          xvfb-run -a pnpm --filter ./client test:e2e:run:single
-          xvfb-run -a pnpm --filter ./client test:e2e:run:multi
 
-      - name: Run E2E tests (macOS/Windows)
+      - name: Run E2E tests single-root (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: xvfb-run -a pnpm --filter ./client test:e2e:run:single
+
+      - name: Run E2E tests multi-root (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: xvfb-run -a pnpm --filter ./client test:e2e:run:multi
+
+      - name: Run E2E tests single-root (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
         shell: bash
-        run: |
-          pnpm --filter ./client test:e2e:run:single
-          pnpm --filter ./client test:e2e:run:multi
+        run: pnpm --filter ./client test:e2e:run:single
+
+      - name: Run E2E tests multi-root (macOS/Windows)
+        if: matrix.os != 'ubuntu-latest'
+        shell: bash
+        run: pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E sidecar tests
         id: sidecar
@@ -251,6 +257,6 @@ jobs:
           {
             echo "### E2E Summary (${{ matrix.os }})"
             echo ""
-            echo "- Single/Multi root suite: ${{ job.status }}"
+            echo "- Single-root / multi-root E2E: see step results above (${{ job.status }})"
             echo "- Sidecar suite: ${{ steps.sidecar.conclusion }}"
           } >> "$GITHUB_STEP_SUMMARY"

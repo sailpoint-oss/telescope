@@ -88,6 +88,11 @@ paths: {}
 				);
 			});
 
+			// Ensure this document is the active editor before reclassify (macOS CI
+			// can leave focus elsewhere after a full-buffer replace).
+			doc = await vscode.workspace.openTextDocument(uri);
+			await vscode.window.showTextDocument(doc);
+
 			// Windows CI can classify slowly after a full-buffer replace; nudge the
 			// extension explicitly and allow a longer poll than the default debounce.
 			await vscode.commands.executeCommand("telescope.reclassifyDocument");

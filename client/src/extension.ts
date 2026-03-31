@@ -313,12 +313,14 @@ export async function activate(context: ExtensionContext) {
 					const isOpenAPI = await sessionManager?.reclassifyDocument(
 						editor.document,
 					);
-					if (isOpenAPI) {
-						window.showInformationMessage("Document reclassified as: OpenAPI");
-					} else {
-						window.showInformationMessage(
-							"Document is not recognized as an OpenAPI document",
-						);
+					if (!process.env.TELESCOPE_E2E_MODE) {
+						if (isOpenAPI) {
+							window.showInformationMessage("Document reclassified as: OpenAPI");
+						} else {
+							window.showInformationMessage(
+								"Document is not recognized as an OpenAPI document",
+							);
+						}
 					}
 				}
 			}),
