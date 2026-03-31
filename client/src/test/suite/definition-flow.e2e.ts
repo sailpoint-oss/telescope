@@ -12,8 +12,11 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
+	assertUriFsPathEqual,
+	assertUriResolvesToSameFile,
 	executeWithRetry,
+	extractTargetRange,
+	extractTargetUri,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
@@ -21,22 +24,6 @@ import {
 	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
-
-function extractTargetUri(
-	def: vscode.Location | vscode.LocationLink,
-): vscode.Uri {
-	return "uri" in def
-		? (def as vscode.Location).uri
-		: (def as vscode.LocationLink).targetUri;
-}
-
-function extractTargetRange(
-	def: vscode.Location | vscode.LocationLink,
-): vscode.Range {
-	return "uri" in def
-		? (def as vscode.Location).range
-		: (def as vscode.LocationLink).targetRange;
-}
 
 function hoverContentToString(hovers: vscode.Hover[]): string {
 	return hovers
@@ -96,11 +83,7 @@ suite("Definition Flow", () => {
 
 		assert.ok(defs && defs.length > 0, "Should resolve local $ref");
 		const targetUri = extractTargetUri(defs[0]!);
-		assert.strictEqual(
-			targetUri.fsPath,
-			uri.fsPath,
-			"Local $ref should stay in same file",
-		);
+		assertUriFsPathEqual(targetUri, uri, "Local $ref should stay in same file");
 		const range = extractTargetRange(defs[0]!);
 		assert.ok(range.start.line > 0, "Should land at schema, not file start");
 	});
@@ -110,11 +93,11 @@ suite("Definition Flow", () => {
 
 		const compUri = vscode.Uri.joinPath(folder.uri, "ref-components.yaml");
 		await openAndShow(compUri);
-		await delay(2000);
+		await waitForDiagnostics(compUri, () => true, { timeoutMs: 30000 });
 
 		const rootUri = vscode.Uri.joinPath(folder.uri, "ref-root.yaml");
 		const doc = await openAndShow(rootUri);
-		await delay(3000);
+		await waitForDiagnostics(rootUri, () => true, { timeoutMs: 30000 });
 
 		const text = doc.getText();
 		const refIdx = text.indexOf("$ref:");
@@ -133,8 +116,10 @@ suite("Definition Flow", () => {
 		assert.ok(defs && defs.length > 0, "Expected cross-file definition result");
 
 		const targetUri = extractTargetUri(defs[0]!);
-		assert.ok(
-			targetUri.fsPath.endsWith("ref-components.yaml"),
+		const expectedComp = vscode.Uri.joinPath(folder.uri, "ref-components.yaml");
+		await assertUriResolvesToSameFile(
+			targetUri,
+			expectedComp,
 			`Should navigate to ref-components.yaml, got ${targetUri.fsPath}`,
 		);
 	});
@@ -192,7 +177,6 @@ suite("Definition Flow", () => {
 		await openAndShow(compUri);
 
 		await waitForDiagnostics(compUri, () => true, { timeoutMs: 30000 });
-		await delay(3000);
 
 		const symbols = await executeWithRetry<vscode.DocumentSymbol[] | undefined>(
 			"vscode.executeDocumentSymbolProvider",

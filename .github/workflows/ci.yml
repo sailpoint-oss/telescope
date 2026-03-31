@@ -232,25 +232,35 @@ jobs:
 
       - name: Run E2E tests single-root (Linux)
         if: matrix.os == 'ubuntu-latest'
+        env:
+          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
         run: xvfb-run -a pnpm --filter ./client test:e2e:run:single
 
       - name: Run E2E tests multi-root (Linux)
         if: matrix.os == 'ubuntu-latest'
+        env:
+          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
         run: xvfb-run -a pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E tests single-root (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
         shell: bash
+        env:
+          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
         run: pnpm --filter ./client test:e2e:run:single
 
       - name: Run E2E tests multi-root (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
         shell: bash
+        env:
+          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
         run: pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E sidecar tests
         id: sidecar
         shell: bash
+        env:
+          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             xvfb-run -a pnpm --filter ./client test:e2e:run:sidecar

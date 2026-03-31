@@ -42,20 +42,44 @@ export function run(): Promise<void> {
 	const allTestFiles = findTestFiles(testsRoot);
 
 	const mode = process.env.TELESCOPE_E2E_MODE;
-	const testFiles =
-		mode === "multi"
-			? allTestFiles.filter((f) => {
-					const base = path.basename(f);
-					return base === "activation.e2e.js" || base === "multi-root.e2e.js";
-				})
-			: mode === "sidecar"
-				? allTestFiles.filter((f) => {
-						const base = path.basename(f);
-						return base === "activation.e2e.js" || base.startsWith("sidecar-");
-					})
-				: mode === "single"
-					? allTestFiles.filter((f) => path.basename(f) !== "multi-root.e2e.js")
-					: allTestFiles;
+	const smoke =
+		process.env.TELESCOPE_E2E_SMOKE === "1" ||
+		process.env.TELESCOPE_E2E_SMOKE === "true";
+
+	/** Minimal wiring subset for CI on pull requests (see docs/testing-inventory.md). */
+	const smokeSingleBasenames = new Set([
+		"activation.e2e.js",
+		"client-server-sync.e2e.js",
+		"diagnostics.e2e.js",
+		"definition-flow.e2e.js",
+		"language-ids.e2e.js",
+	]);
+
+	let testFiles: string[];
+	if (mode === "multi") {
+		testFiles = allTestFiles.filter((f) => {
+			const base = path.basename(f);
+			return base === "activation.e2e.js" || base === "multi-root.e2e.js";
+		});
+	} else if (mode === "sidecar") {
+		testFiles = allTestFiles.filter((f) => {
+			const base = path.basename(f);
+			return base === "activation.e2e.js" || base.startsWith("sidecar-");
+		});
+		if (smoke) {
+			testFiles = testFiles.filter((f) => {
+				const base = path.basename(f);
+				return base === "activation.e2e.js" || base === "sidecar-lifecycle.e2e.js";
+			});
+		}
+	} else if (mode === "single") {
+		testFiles = allTestFiles.filter((f) => path.basename(f) !== "multi-root.e2e.js");
+		if (smoke) {
+			testFiles = testFiles.filter((f) => smokeSingleBasenames.has(path.basename(f)));
+		}
+	} else {
+		testFiles = allTestFiles;
+	}
 
 	// Add files to the test suite
 	testFiles.forEach((f) => mocha.addFile(f));

@@ -44,14 +44,17 @@ func pathsEqualOrSameFile(a, b string) bool {
 	if ca == cb {
 		return true
 	}
-	ra, errA := filepath.EvalSymlinks(ca)
-	rb, errB := filepath.EvalSymlinks(cb)
-	if errA == nil && errB == nil && filepath.Clean(ra) == filepath.Clean(rb) {
-		return true
-	}
+	// Prefer os.SameFile before EvalSymlinks: on Windows, EvalSymlinks can fail or
+	// diverge for symlink pairs under short-name temp paths (e.g. RUNNER~1), while
+	// Stat+SameFile still identifies the same underlying file.
 	sa, err1 := os.Stat(ca)
 	sb, err2 := os.Stat(cb)
 	if err1 == nil && err2 == nil && os.SameFile(sa, sb) {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(ca)
+	rb, errB := filepath.EvalSymlinks(cb)
+	if errA == nil && errB == nil && filepath.Clean(ra) == filepath.Clean(rb) {
 		return true
 	}
 	return false

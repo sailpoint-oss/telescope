@@ -1,4 +1,6 @@
 import * as assert from "assert";
+import * as fs from "node:fs/promises";
+import * as nodePath from "node:path";
 import * as vscode from "vscode";
 
 export interface TelescopeTestApi {
@@ -119,7 +121,10 @@ export async function waitForProviders(
 	uri: vscode.Uri,
 	options?: { timeoutMs?: number },
 ): Promise<void> {
-	const timeoutMs = options?.timeoutMs ?? 90000;
+	// Windows CI hosts are often slower; code lenses are the last pipeline stage.
+	const timeoutMs =
+		options?.timeoutMs ?? (process.platform === "win32" ? 120000 : 90000);
+	const pollMs = process.platform === "win32" ? 1500 : 2000;
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
 		const result = (await vscode.commands.executeCommand(
@@ -127,7 +132,7 @@ export async function waitForProviders(
 			uri,
 		)) as vscode.CodeLens[] | undefined;
 		if (Array.isArray(result) && result.length > 0) return;
-		await delay(2000);
+		await delay(pollMs);
 	}
 	const openDoc = vscode.workspace.textDocuments.find(
 		(d) => d.uri.toString() === uri.toString(),
@@ -200,9 +205,12 @@ export async function writeWorkspaceFile(
 	const folder = vscode.workspace.workspaceFolders?.[0];
 	assert.ok(folder, "Should have a workspace folder");
 	const uri = vscode.Uri.joinPath(folder.uri, relativePath);
-	await vscode.workspace.fs.createDirectory(
-		vscode.Uri.joinPath(folder.uri, pathDir(relativePath)),
-	);
+	const dir = pathDir(relativePath);
+	if (dir !== "." && dir !== "") {
+		await vscode.workspace.fs.createDirectory(
+			vscode.Uri.joinPath(folder.uri, dir),
+		);
+	}
 	await vscode.workspace.fs.writeFile(uri, Buffer.from(contents, "utf-8"));
 	return uri;
 }
@@ -281,9 +289,73 @@ export async function delay(ms: number): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export function extractTargetUri(
+	def: vscode.Location | vscode.LocationLink,
+): vscode.Uri {
+	return "uri" in def
+		? (def as vscode.Location).uri
+		: (def as vscode.LocationLink).targetUri;
+}
+
+export function extractTargetRange(
+	def: vscode.Location | vscode.LocationLink,
+): vscode.Range {
+	return "uri" in def
+		? (def as vscode.Location).range
+		: (def as vscode.LocationLink).targetRange;
+}
+
+/**
+ * Compare absolute filesystem paths from {@link vscode.Uri.fsPath} across OSes.
+ * On Windows, drive letter and separator normalization can make strict string
+ * equality fail between the editor URI and LSP target URIs.
+ */
+export function fsPathsEqual(a: string, b: string): boolean {
+	const na = nodePath.normalize(a);
+	const nb = nodePath.normalize(b);
+	if (process.platform === "win32") {
+		return na.toLowerCase() === nb.toLowerCase();
+	}
+	return na === nb;
+}
+
+export function assertUriFsPathEqual(
+	a: vscode.Uri,
+	b: vscode.Uri,
+	message?: string,
+): void {
+	assert.ok(
+		fsPathsEqual(a.fsPath, b.fsPath),
+		message ?? `Expected same file path: ${a.fsPath} vs ${b.fsPath}`,
+	);
+}
+
+/**
+ * Resolve two URIs to canonical paths (handles Windows 8.3 short names in TEMP).
+ */
+export async function assertUriResolvesToSameFile(
+	a: vscode.Uri,
+	b: vscode.Uri,
+	message?: string,
+): Promise<void> {
+	try {
+		const [ra, rb] = await Promise.all([
+			fs.realpath(a.fsPath),
+			fs.realpath(b.fsPath),
+		]);
+		assert.ok(
+			fsPathsEqual(ra, rb),
+			message ?? `Expected same file: ${ra} vs ${rb}`,
+		);
+	} catch {
+		assertUriFsPathEqual(a, b, message);
+	}
+}
+
 function pathDir(p: string): string {
-	const idx = p.lastIndexOf("/");
+	const n = p.replace(/\\/g, "/");
+	const idx = n.lastIndexOf("/");
 	if (idx === -1) return ".";
-	const dir = p.slice(0, idx);
+	const dir = n.slice(0, idx);
 	return dir.length ? dir : ".";
 }
