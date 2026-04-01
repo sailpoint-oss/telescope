@@ -198,6 +198,8 @@ suite("Definition Flow", () => {
 		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		const doc = await openAndShow(uri);
 		await waitForDiagnostics(uri, (d) => d.length > 0, { timeoutMs: 60000 });
+		// Re-warm providers after previous tests may have switched documents
+		await waitForProviders(uri);
 
 		const text = doc.getText();
 		const schemasSection = text.indexOf("  schemas:");
@@ -208,8 +210,8 @@ suite("Definition Flow", () => {
 		const refs = await executeWithRetry<vscode.Location[]>(
 			"vscode.executeReferenceProvider",
 			[uri, pos],
-			(r) => r.length > 0,
-			{ maxAttempts: 25 },
+			(r) => Array.isArray(r) && r.length > 0,
+			{ maxAttempts: 20 },
 		);
 
 		assert.ok(refs && refs.length > 0, "Should find references to Pet schema");
