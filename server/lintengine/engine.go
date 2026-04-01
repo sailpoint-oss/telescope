@@ -420,12 +420,11 @@ func suppressResolvableUnresolvedRefs(diags []protocol.Diagnostic, uri string, p
 	if pctx == nil {
 		return diags
 	}
-	const prefix = "Cannot resolve $ref: "
 	out := make([]protocol.Diagnostic, 0, len(diags))
 	for _, d := range diags {
 		code, _ := d.Code.(string)
-		if code == "unresolved-ref" && strings.HasPrefix(d.Message, prefix) {
-			target := strings.TrimSpace(strings.TrimPrefix(d.Message, prefix))
+		if code == "unresolved-ref" {
+			target := extractRefTarget(d.Message)
 			if target != "" && !strings.HasPrefix(target, "#") && pctx.GetResolver().CanResolve(uri, target) {
 				continue
 			}
@@ -433,6 +432,22 @@ func suppressResolvableUnresolvedRefs(diags []protocol.Diagnostic, uri string, p
 		out = append(out, d)
 	}
 	return out
+}
+
+// extractRefTarget extracts the $ref target from an unresolved-ref diagnostic message.
+// Supports both old format ("Cannot resolve $ref: <target>") and new format
+// ("Cannot resolve $ref to Schema Object: <target>").
+func extractRefTarget(message string) string {
+	// Try new format: "Cannot resolve $ref to <Type>: <target>"
+	if idx := strings.LastIndex(message, ": "); idx >= 0 {
+		target := strings.TrimSpace(message[idx+2:])
+		// Strip trailing suggestion: ". Did you mean '...'?"
+		if dotIdx := strings.Index(target, ". Did you mean"); dotIdx >= 0 {
+			target = target[:dotIdx]
+		}
+		return target
+	}
+	return ""
 }
 
 func filterBySeverity(diags []protocol.Diagnostic, minSev protocol.DiagnosticSeverity) []protocol.Diagnostic {
