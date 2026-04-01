@@ -32,3 +32,7 @@ require (
 )
 
 replace github.com/dprotaso/go-yit => github.com/dprotaso/go-yit v0.0.0-20191028211022-135eb7262960
+
+replace github.com/sailpoint-oss/navigator v0.5.0 => ../../navigator
+
+replace github.com/sailpoint-oss/barrelman v0.3.2-0.20260330134117-f7c1e3a14948 => ../../barrelman
