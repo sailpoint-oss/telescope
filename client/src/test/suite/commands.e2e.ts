@@ -56,7 +56,8 @@ suite("Commands", () => {
 		try {
 			await openAndShow(uri);
 			await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 15000 });
-			await waitForDiagnostics(uri, () => true, { timeoutMs: 30000 });
+			// Wait for full analysis (code lenses = index ready) before sort command
+			await waitForDocumentAnalyzed(uri);
 
 			await vscode.commands.executeCommand("telescope.sortTags");
 
@@ -123,7 +124,8 @@ suite("Commands", () => {
 		try {
 			await openAndShow(uri);
 			await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 15000 });
-			await waitForDiagnostics(uri, () => true, { timeoutMs: 30000 });
+			// Wait for full analysis (code lenses = index ready) before sort command
+			await waitForDocumentAnalyzed(uri);
 
 			await vscode.commands.executeCommand("telescope.sortPaths");
 

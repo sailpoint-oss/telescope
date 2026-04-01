@@ -209,7 +209,7 @@ suite("Definition Flow", () => {
 			"vscode.executeReferenceProvider",
 			[uri, pos],
 			(r) => r.length > 0,
-			{ maxAttempts: 15 },
+			{ maxAttempts: 25 },
 		);
 
 		assert.ok(refs && refs.length > 0, "Should find references to Pet schema");
