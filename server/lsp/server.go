@@ -403,6 +403,11 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 				start := time.Now()
 				projMgr.Initialize(rootPath, cfg.Exclude)
 				logger.Info("project initialization complete", "elapsed", time.Since(start).String())
+				// Re-analyze open documents now that cross-file resolvers are
+				// available. The initial recomputeOpenDiagnostics() runs before
+				// the project manager finishes, so external $ref diagnostics are
+				// produced without the resolver. This second pass clears them.
+				recomputeOpenDiagnostics()
 			}()
 		}
 		registerFileWatchers(ctx)
