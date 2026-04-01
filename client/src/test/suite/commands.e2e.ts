@@ -60,23 +60,22 @@ suite("Commands", () => {
 
 			await vscode.commands.executeCommand("telescope.sortTags");
 
-			// Give the edit time to apply
-			await new Promise((r) => setTimeout(r, 2000));
-			const doc = await vscode.workspace.openTextDocument(uri);
-			const text = doc.getText();
-
-			const alphaIdx = text.indexOf("- name: Alpha");
-			const middleIdx = text.indexOf("- name: Middle");
-			const zebraIdx = text.indexOf("- name: Zebra");
-
-			assert.ok(alphaIdx !== -1, "Should still contain Alpha tag");
-			assert.ok(middleIdx !== -1, "Should still contain Middle tag");
-			assert.ok(zebraIdx !== -1, "Should still contain Zebra tag");
-
-			assert.ok(
-				alphaIdx < middleIdx && middleIdx < zebraIdx,
-				`Tags should be alphabetized: Alpha(${alphaIdx}) < Middle(${middleIdx}) < Zebra(${zebraIdx})`,
-			);
+			// Wait for the workspace edit to be applied by polling the document.
+			const deadline = Date.now() + 10000;
+			let sorted = false;
+			while (Date.now() < deadline) {
+				const doc = await vscode.workspace.openTextDocument(uri);
+				const text = doc.getText();
+				const a = text.indexOf("- name: Alpha");
+				const m = text.indexOf("- name: Middle");
+				const z = text.indexOf("- name: Zebra");
+				if (a !== -1 && m !== -1 && z !== -1 && a < m && m < z) {
+					sorted = true;
+					break;
+				}
+				await new Promise((r) => setTimeout(r, 500));
+			}
+			assert.ok(sorted, "Tags should be alphabetized (Alpha < Middle < Zebra)");
 		} finally {
 			try {
 				await vscode.commands.executeCommand("workbench.action.files.revert");
@@ -128,22 +127,22 @@ suite("Commands", () => {
 
 			await vscode.commands.executeCommand("telescope.sortPaths");
 
-			await new Promise((r) => setTimeout(r, 2000));
-			const doc = await vscode.workspace.openTextDocument(uri);
-			const text = doc.getText();
-
-			const alphaIdx = text.indexOf("/alpha:");
-			const middleIdx = text.indexOf("/middle:");
-			const zebraIdx = text.indexOf("/zebra:");
-
-			assert.ok(alphaIdx !== -1, "Should still contain /alpha path");
-			assert.ok(middleIdx !== -1, "Should still contain /middle path");
-			assert.ok(zebraIdx !== -1, "Should still contain /zebra path");
-
-			assert.ok(
-				alphaIdx < middleIdx && middleIdx < zebraIdx,
-				`Paths should be alphabetized: /alpha(${alphaIdx}) < /middle(${middleIdx}) < /zebra(${zebraIdx})`,
-			);
+			// Wait for the workspace edit to be applied by polling the document.
+			const deadline = Date.now() + 10000;
+			let sorted = false;
+			while (Date.now() < deadline) {
+				const doc = await vscode.workspace.openTextDocument(uri);
+				const text = doc.getText();
+				const a = text.indexOf("/alpha:");
+				const m = text.indexOf("/middle:");
+				const z = text.indexOf("/zebra:");
+				if (a !== -1 && m !== -1 && z !== -1 && a < m && m < z) {
+					sorted = true;
+					break;
+				}
+				await new Promise((r) => setTimeout(r, 500));
+			}
+			assert.ok(sorted, "Paths should be alphabetized (/alpha < /middle < /zebra)");
 		} finally {
 			try {
 				await vscode.commands.executeCommand("workbench.action.files.revert");
