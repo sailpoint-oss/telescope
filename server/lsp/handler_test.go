@@ -2453,7 +2453,7 @@ func setupCrossFileEnv(t *testing.T) *crossFileEnv {
 
 	cache := openapi.NewIndexCache()
 
-	bridge := lsp.NewGraphBridge(nil)
+	bridge, _ := lsp.NewGraphBridge(nil)
 	bridge.OnDocumentOpen(string(compURI), []byte(crossFileCompSpec))
 	bridge.OnDocumentOpen(string(rootURI), []byte(crossFileRootSpec))
 	if _, err := bridge.RunPipeline(context.Background(), cache, string(compURI), string(rootURI)); err != nil {

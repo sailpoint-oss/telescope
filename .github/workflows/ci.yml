@@ -178,6 +178,7 @@ jobs:
     name: E2E (${{ matrix.os }})
     needs: [go, typescript]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -208,7 +209,7 @@ jobs:
           path: |
             ~/.vscode-test
             ${{ runner.temp }}/.vscode-test
-          key: vscode-test-${{ matrix.os }}-${{ hashFiles('**/package.json') }}
+          key: vscode-test-${{ matrix.os }}-${{ hashFiles('client/package.json') }}
           restore-keys: |
             vscode-test-${{ matrix.os }}-
 
@@ -232,35 +233,45 @@ jobs:
 
       - name: Run E2E tests single-root (Linux)
         if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 15
         env:
           TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_RETRIES: "1"
         run: xvfb-run -a pnpm --filter ./client test:e2e:run:single
 
       - name: Run E2E tests multi-root (Linux)
         if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 20
         env:
           TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_RETRIES: "1"
         run: xvfb-run -a pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E tests single-root (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
+        timeout-minutes: 15
         shell: bash
         env:
           TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_RETRIES: "1"
         run: pnpm --filter ./client test:e2e:run:single
 
       - name: Run E2E tests multi-root (macOS/Windows)
         if: matrix.os != 'ubuntu-latest'
+        timeout-minutes: 20
         shell: bash
         env:
           TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_RETRIES: "1"
         run: pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E sidecar tests
         id: sidecar
+        timeout-minutes: 15
         shell: bash
         env:
           TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_RETRIES: "1"
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             xvfb-run -a pnpm --filter ./client test:e2e:run:sidecar

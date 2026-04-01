@@ -59,6 +59,28 @@ suite("Inlay Hints", () => {
 		);
 
 		assert.ok(hints && hints.length > 0, "Expected inlay hints for file with $ref values");
+
+		// inlay_hints.go: $ref hints have kind Type (1), paddingLeft: true
+		// and label format ": <schema-type>"
+		const typeHints = hints.filter(
+			(h) => h.kind === vscode.InlayHintKind.Type,
+		);
+		assert.ok(
+			typeHints.length > 0,
+			`Expected at least one Type hint (for $ref resolution). Got kinds: ${hints.map((h) => h.kind).join(", ")}`,
+		);
+
+		// Check that at least one hint label contains a type (e.g., ": object", ": string")
+		const hintLabels = hints.map((h) =>
+			typeof h.label === "string" ? h.label : Array.isArray(h.label) ? h.label.map((p) => p.value).join("") : "",
+		);
+		const hasTypeLabel = hintLabels.some(
+			(l) => l.includes("object") || l.includes("string") || l.includes("integer") || l.includes("array"),
+		);
+		assert.ok(
+			hasTypeLabel,
+			`Expected a hint label with resolved type. Got labels: ${hintLabels.slice(0, 5).join(", ")}`,
+		);
 	});
 
 	test("Inlay hints do not crash on file without refs", async () => {

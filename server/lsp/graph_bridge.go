@@ -33,7 +33,9 @@ type GraphBridge struct {
 }
 
 // NewGraphBridge creates a bridge that wraps the new V2 infrastructure.
-func NewGraphBridge(logger *slog.Logger) *GraphBridge {
+// Returns an error if the pipeline cannot be initialized; callers should
+// degrade gracefully (nil bridge) rather than crashing.
+func NewGraphBridge(logger *slog.Logger) (*GraphBridge, error) {
 	markdownProvider := &parser.MarkdownProvider{}
 	pipeline, err := graph.NewPipelineRunner([]graph.Stage{
 		graph.RawStage{},
@@ -44,7 +46,7 @@ func NewGraphBridge(logger *slog.Logger) *GraphBridge {
 		graph.AnalyzeStage{},
 	}, logger)
 	if err != nil {
-		panic(fmt.Sprintf("build graph pipeline: %v", err))
+		return nil, fmt.Errorf("build graph pipeline: %w", err)
 	}
 	return &GraphBridge{
 		graph:      graph.NewWorkspaceGraph(),
@@ -53,7 +55,7 @@ func NewGraphBridge(logger *slog.Logger) *GraphBridge {
 		classifier: classify.NewFileClassifier(),
 		virtualMgr: parser.NewVirtualDocumentManager(markdownProvider),
 		logger:     logger,
-	}
+	}, nil
 }
 
 // Graph returns the workspace graph.

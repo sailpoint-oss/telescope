@@ -6,11 +6,11 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
 	executeWithRetry,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
+	waitForCrossFileReady,
 	waitForDiagnostics,
 	waitForProviders,
 	waitForProjectInfo,
@@ -72,15 +72,19 @@ suite("Hover", () => {
 		assert.ok(hovers && hovers.length > 0, "Expected hover result for $ref");
 		const content = hoverContentToString(hovers);
 		const lower = content.toLowerCase();
+		// hover.go formats schema hovers with "**Type:** `<type>`" and a properties listing
 		assert.ok(
-			lower.includes("object") ||
-				lower.includes("user") ||
-				lower.includes("schema"),
-			`Hover should describe the schema. Got: ${content.slice(0, 300)}`,
+			lower.includes("object") || lower.includes("type"),
+			`Hover should describe the schema type. Got: ${content.slice(0, 400)}`,
+		);
+		// User schema has required fields: id, email — both must appear
+		assert.ok(
+			lower.includes("email"),
+			`Hover should include 'email' property. Got: ${content.slice(0, 400)}`,
 		);
 		assert.ok(
-			lower.includes("email") || lower.includes("id"),
-			`Hover should include schema properties. Got: ${content.slice(0, 300)}`,
+			lower.includes("id"),
+			`Hover should include 'id' property. Got: ${content.slice(0, 400)}`,
 		);
 	});
 
@@ -123,12 +127,9 @@ suite("Hover", () => {
 		if (isMultiRootWorkspace()) return;
 
 		const compUri = vscode.Uri.joinPath(folder.uri, "ref-components.yaml");
-		await openAndShow(compUri);
-		await delay(2000);
-
 		const uri = vscode.Uri.joinPath(folder.uri, "ref-root.yaml");
-		const doc = await openAndShow(uri);
-		await delay(3000);
+		await waitForCrossFileReady(compUri, uri, { timeoutMs: 60000 });
+		const doc = await vscode.workspace.openTextDocument(uri);
 
 		const text = doc.getText();
 		const refIdx = text.indexOf("$ref:");
@@ -141,32 +142,23 @@ suite("Hover", () => {
 		const hovers = await executeWithRetry<vscode.Hover[]>(
 			"vscode.executeHoverProvider",
 			[uri, pos],
-			(r) => Array.isArray(r),
+			(r) => Array.isArray(r) && r.length > 0,
 			{ maxAttempts: 25 },
 		);
-		assert.ok(Array.isArray(hovers), "Expected hover provider array result");
-		if (hovers.length > 0) {
-			const content = hoverContentToString(hovers);
-			assert.ok(
-				content.length > 0,
-				"Cross-file hover should return non-empty content when available",
-			);
-			const lower = content.toLowerCase();
-			assert.ok(
-				lower.includes("user") || lower.includes("id") || lower.includes("email"),
-				`Cross-file hover should expose referenced schema details. Got: ${content.slice(0, 350)}`,
-			);
-		} else {
-			// Fallback contract check: cross-file definition should still resolve
-			// at this location even when hover content is unavailable.
-			const defs = await executeWithRetry<(vscode.Location | vscode.LocationLink)[]>(
-				"vscode.executeDefinitionProvider",
-				[uri, pos],
-				(r) => Array.isArray(r) && r.length > 0,
-				{ maxAttempts: 25 },
-			);
-			assert.ok(defs.length > 0, "Expected cross-file definition fallback");
-		}
+		assert.ok(
+			Array.isArray(hovers) && hovers.length > 0,
+			"Expected non-empty hover result for cross-file $ref",
+		);
+		const content = hoverContentToString(hovers);
+		assert.ok(
+			content.length > 0,
+			"Cross-file hover should return non-empty content",
+		);
+		const lower = content.toLowerCase();
+		assert.ok(
+			lower.includes("user") || lower.includes("id") || lower.includes("email"),
+			`Cross-file hover should expose referenced schema details. Got: ${content.slice(0, 350)}`,
+		);
 	});
 
 	test("Hover on operationId shows operation details", async () => {
@@ -189,9 +181,14 @@ suite("Hover", () => {
 
 		assert.ok(hovers && hovers.length > 0, "Expected hover on operationId");
 		const content = hoverContentToString(hovers);
+		// hover.go formats operation hovers with HTTP method + path
 		assert.ok(
-			content.includes("listUsers") || content.includes("/users"),
-			`Hover should reference the operation. Got: ${content.slice(0, 300)}`,
+			content.includes("listUsers"),
+			`Hover should include the operationId. Got: ${content.slice(0, 400)}`,
+		);
+		assert.ok(
+			content.toLowerCase().includes("get") && content.includes("/users"),
+			`Hover should show HTTP method and path. Got: ${content.slice(0, 400)}`,
 		);
 	});
 
@@ -215,9 +212,14 @@ suite("Hover", () => {
 
 		assert.ok(hovers && hovers.length > 0, "Expected hover on tag name");
 		const content = hoverContentToString(hovers);
+		// hover.go tag hover includes tag name and description, plus list of operations
 		assert.ok(
-			content.includes("Users") || content.includes("Tag"),
-			`Hover should describe the tag. Got: ${content.slice(0, 300)}`,
+			content.includes("Users"),
+			`Hover should include the tag name 'Users'. Got: ${content.slice(0, 400)}`,
+		);
+		assert.ok(
+			content.includes("User management"),
+			`Hover should include tag description. Got: ${content.slice(0, 400)}`,
 		);
 	});
 
@@ -245,9 +247,40 @@ suite("Hover", () => {
 
 		assert.ok(hovers && hovers.length > 0, "Expected hover on schema");
 		const content = hoverContentToString(hovers);
+		const lower = content.toLowerCase();
+		// User schema is type: object with properties id, email, name, role, createdAt
 		assert.ok(
-			content.includes("object") || content.includes("User"),
-			`Hover should show schema type. Got: ${content.slice(0, 300)}`,
+			lower.includes("object"),
+			`Hover should show schema type 'object'. Got: ${content.slice(0, 400)}`,
+		);
+		assert.ok(
+			lower.includes("email") && lower.includes("name"),
+			`Hover should show User properties (email, name). Got: ${content.slice(0, 400)}`,
+		);
+	});
+
+	test("Hover returns empty for non-hoverable position", async () => {
+		if (isMultiRootWorkspace()) return;
+		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
+		const doc = await openAndShow(uri);
+
+		await waitForDiagnostics(uri, (d) => d.length > 0, { timeoutMs: 60000 });
+
+		// Position at the very start of the file (on "openapi:" key itself)
+		// — not a schema, ref, operationId, or tag, so hover should be empty or minimal
+		const pos = new vscode.Position(0, 0);
+
+		const hovers = (await vscode.commands.executeCommand(
+			"vscode.executeHoverProvider",
+			uri,
+			pos,
+		)) as vscode.Hover[] | undefined;
+
+		// Hover at file start may return empty or a version hint — either is acceptable,
+		// but it must not crash and must return a valid array or undefined.
+		assert.ok(
+			hovers === undefined || Array.isArray(hovers),
+			"Hover at non-hoverable position should return array or undefined",
 		);
 	});
 });

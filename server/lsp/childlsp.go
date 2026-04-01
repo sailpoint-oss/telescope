@@ -211,16 +211,14 @@ func (m *ChildLSPManager) DidClose(ctx context.Context, params *protocol.DidClos
 
 func (m *ChildLSPManager) clientForURI(uri string) *lspclient.Client {
 	m.mu.Lock()
-	yaml := m.yamlClient
-	json := m.jsonClient
-	m.mu.Unlock()
+	defer m.mu.Unlock()
 
 	lower := strings.ToLower(uri)
 	if strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml") {
-		return yaml
+		return m.yamlClient
 	}
 	if strings.HasSuffix(lower, ".json") {
-		return json
+		return m.jsonClient
 	}
 	return nil
 }

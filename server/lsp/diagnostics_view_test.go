@@ -50,7 +50,8 @@ func TestViewDiagnostics(t *testing.T) {
 		t.Run(spec.Name, func(t *testing.T) {
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 			cfg := config.DefaultConfig()
-			s := lsp.NewServer(cfg, logger)
+			s, cleanup := lsp.NewServer(cfg, logger)
+			t.Cleanup(cleanup)
 			client := gossiptest.NewClient(t, s)
 
 			uri := spec.URI()
@@ -115,7 +116,8 @@ func TestViewDiagnosticsForSpec(t *testing.T) {
 
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 			cfg := config.DefaultConfig()
-			s := lsp.NewServer(cfg, logger)
+			s, cleanup := lsp.NewServer(cfg, logger)
+			t.Cleanup(cleanup)
 			client := gossiptest.NewClient(t, s)
 
 			uri := spec.URI()

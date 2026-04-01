@@ -16,7 +16,8 @@ func newTestServer(t *testing.T) *gossiptest.Client {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.DefaultConfig()
-	s := lsp.NewServer(cfg, logger)
+	s, cleanup := lsp.NewServer(cfg, logger)
+	t.Cleanup(cleanup)
 	return gossiptest.NewClient(t, s)
 }
 

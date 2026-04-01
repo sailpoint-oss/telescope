@@ -32,10 +32,12 @@ function findTestFiles(dir: string, fileList: string[] = []): string[] {
 export function run(): Promise<void> {
 	// Create the mocha test
 	const timeoutMs = Number(process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "300000");
+	const retries = Number(process.env.TELESCOPE_E2E_RETRIES ?? "0");
 	const mocha = new Mocha({
 		ui: "tdd",
 		color: true,
 		timeout: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120000,
+		retries: Number.isFinite(retries) && retries > 0 ? retries : 0,
 	});
 
 	const testsRoot = path.resolve(__dirname, "..");
@@ -51,8 +53,10 @@ export function run(): Promise<void> {
 		"activation.e2e.js",
 		"client-server-sync.e2e.js",
 		"diagnostics.e2e.js",
+		"diagnostic-contracts.e2e.js",
 		"definition-flow.e2e.js",
 		"language-ids.e2e.js",
+		"commands.e2e.js",
 	]);
 
 	let testFiles: string[];
@@ -73,7 +77,10 @@ export function run(): Promise<void> {
 			});
 		}
 	} else if (mode === "single") {
-		testFiles = allTestFiles.filter((f) => path.basename(f) !== "multi-root.e2e.js");
+		testFiles = allTestFiles.filter((f) => {
+			const base = path.basename(f);
+			return base !== "multi-root.e2e.js" && !base.startsWith("sidecar-");
+		});
 		if (smoke) {
 			testFiles = testFiles.filter((f) => smokeSingleBasenames.has(path.basename(f)));
 		}

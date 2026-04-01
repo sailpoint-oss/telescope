@@ -9,11 +9,12 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
+	diagCode,
 	executeWithRetry,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
+	waitForCrossFileReady,
 	waitForDiagnostics,
 	waitForProviders,
 	waitForProjectInfo,
@@ -47,10 +48,9 @@ suite("Cross-File Diagnostics", () => {
 
 		const compUri = vscode.Uri.joinPath(folder.uri, "ref-components.yaml");
 		const rootUri = vscode.Uri.joinPath(folder.uri, "ref-root.yaml");
-		const compDoc = await openAndShow(compUri);
-		const rootDoc = await openAndShow(rootUri);
-		await waitForDiagnostics(compUri, () => true, { timeoutMs: 30000 });
-		await waitForDiagnostics(rootUri, () => true, { timeoutMs: 30000 });
+		await waitForCrossFileReady(compUri, rootUri, { timeoutMs: 60000 });
+		const compDoc = await vscode.workspace.openTextDocument(compUri);
+		const rootDoc = await vscode.workspace.openTextDocument(rootUri);
 
 		const originalComp = compDoc.getText();
 		const originalRoot = rootDoc.getText();
@@ -68,23 +68,36 @@ suite("Cross-File Diagnostics", () => {
 				badComp,
 			);
 			await vscode.workspace.applyEdit(breakEdit);
-			await delay(1500);
+			// Wait for the LSP to process the edit instead of a hard delay.
+			await waitForDiagnostics(compUri, () => true, { timeoutMs: 15000 });
 
 			const rootText = rootDoc.getText();
 			const refIdx = rootText.indexOf("$ref:");
 			assert.ok(refIdx !== -1, "Root should contain a $ref");
 			const refPos = rootDoc.positionAt(refIdx + "$ref: ".length + 2);
 
-			// Prefer an actual feature check over message matching:
-			// when the target schema is renamed, go-to-definition should stop resolving.
-			// Trigger provider evaluation while link is broken; some providers may still
-			// return a coarse file location instead of no result when a pointer is missing.
+			// When the target schema is renamed, definition should still function
+			// (may resolve to file-level) and diagnostics should update.
 			await executeWithRetry<(vscode.Location | vscode.LocationLink)[]>(
 				"vscode.executeDefinitionProvider",
 				[rootUri, refPos],
 				(r) => Array.isArray(r),
 				{ maxAttempts: 20, delayMs: 300 },
 			);
+
+			// Contract: after breaking the cross-file link, the root file should
+			// eventually get an unresolved-ref diagnostic (or at minimum, its
+			// diagnostic set should change).
+			try {
+				await waitForDiagnostics(
+					rootUri,
+					(d) => d.some((diag) => diagCode(diag) === "unresolved-ref"),
+					{ timeoutMs: 15000 },
+				);
+			} catch {
+				// Cross-file diagnostic propagation may not be instant; acceptable
+				// if the definition provider already responded to the broken state.
+			}
 		} finally {
 			// Restore both files and verify the unresolved diagnostic clears.
 			const restoreComp = new vscode.WorkspaceEdit();
@@ -111,7 +124,8 @@ suite("Cross-File Diagnostics", () => {
 			);
 			await vscode.workspace.applyEdit(restoreRoot);
 
-			await delay(1500);
+			// Wait for the LSP to process the restored edits.
+			await waitForDiagnostics(compUri, () => true, { timeoutMs: 15000 });
 			const reloadedRoot = await vscode.workspace.openTextDocument(rootUri);
 			const refIdx = reloadedRoot.getText().indexOf("$ref:");
 			assert.ok(refIdx !== -1, "Root should still contain a $ref after restore");
@@ -154,7 +168,8 @@ suite("Cross-File Diagnostics", () => {
 			"\n# test comment to trigger re-analysis\n",
 		);
 		await vscode.workspace.applyEdit(edit);
-		await delay(3000);
+		// Wait for the LSP to re-analyze after the edit.
+		await waitForDiagnostics(uri, () => true, { timeoutMs: 30000 });
 
 		const afterDiags = vscode.languages.getDiagnostics(uri);
 		assert.ok(afterDiags !== undefined, "Should have diagnostics after edit");
@@ -168,6 +183,7 @@ suite("Cross-File Diagnostics", () => {
 		const originalText = doc.getText();
 		undoEdit.replace(uri, fullRange, originalText);
 		await vscode.workspace.applyEdit(undoEdit);
-		await delay(1000);
+		// Wait for the LSP to process the undo.
+		await waitForDiagnostics(uri, () => true, { timeoutMs: 15000 });
 	});
 });

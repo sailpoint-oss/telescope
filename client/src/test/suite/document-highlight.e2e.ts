@@ -63,6 +63,28 @@ suite("Document Highlight", () => {
 			highlights && highlights.length > 0,
 			"Expected document highlights for User schema (definition + $ref usages)",
 		);
+
+		// User schema has 4+ $ref usages in rich-api.yaml, plus the definition itself
+		assert.ok(
+			highlights.length >= 5,
+			`Expected >= 5 highlights (definition + 4+ $ref usages). Got: ${highlights.length}`,
+		);
+
+		// document_highlights.go: definition site has kind Write (3), usages have kind Read (2)
+		const writeHighlights = highlights.filter(
+			(h) => h.kind === vscode.DocumentHighlightKind.Write,
+		);
+		const readHighlights = highlights.filter(
+			(h) => h.kind === vscode.DocumentHighlightKind.Read,
+		);
+		assert.ok(
+			writeHighlights.length >= 1,
+			`Expected at least 1 Write highlight (definition). Got: ${writeHighlights.length}`,
+		);
+		assert.ok(
+			readHighlights.length >= 1,
+			`Expected at least 1 Read highlight ($ref usage). Got: ${readHighlights.length}`,
+		);
 	});
 
 	test("Document highlight on operationId highlights occurrences", async () => {
@@ -79,16 +101,22 @@ suite("Document Highlight", () => {
 		assert.ok(opIdx !== -1, "Fixture should contain listUsers operationId");
 		const pos = doc.positionAt(opIdx + "operationId: list".length);
 
-		const highlights = (await vscode.commands.executeCommand(
+		const highlights = await executeWithRetry<vscode.DocumentHighlight[]>(
 			"vscode.executeDocumentHighlights",
-			uri,
-			pos,
-		)) as vscode.DocumentHighlight[] | undefined;
-
-		// May return highlights or empty — just ensure no crash
-		assert.ok(
-			highlights === undefined || Array.isArray(highlights),
-			"Document highlights provider should return array or undefined",
+			[uri, pos],
+			(r) => Array.isArray(r),
 		);
+
+		assert.ok(
+			Array.isArray(highlights),
+			"Document highlights provider should return an array",
+		);
+		// document_highlights.go: operationId highlights have kind Text (1)
+		if (highlights.length > 0) {
+			assert.ok(
+				highlights.some((h) => h.kind === vscode.DocumentHighlightKind.Text),
+				`Expected at least one Text highlight for operationId. Got kinds: ${highlights.map((h) => h.kind).join(", ")}`,
+			);
+		}
 	});
 });

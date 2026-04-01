@@ -79,12 +79,13 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "1"
           CC: ${{ matrix.cc || env.CC }}
-        run: >-
-          go build
-          -trimpath
-          -ldflags "-s -w"
-          -o ${{ matrix.binary }}
-          .
+        run: |
+          PKG_VERSION=$(node -p "require('../client/package.json').version")
+          go build \
+            -trimpath \
+            -ldflags "-s -w -X github.com/sailpoint-oss/telescope/server/lsp.Version=${PKG_VERSION}" \
+            -o ${{ matrix.binary }} \
+            .
         working-directory: server
 
       - name: Verify binary architecture

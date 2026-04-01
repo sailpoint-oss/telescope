@@ -12,6 +12,7 @@ import {
 	LanguageClient,
 	type LanguageClientOptions,
 	type ServerOptions,
+	State,
 } from "vscode-languageclient/node";
 import { Trace } from "vscode-languageserver-protocol";
 import { parse as yamlParse } from "yaml";
@@ -110,6 +111,12 @@ export class Session implements vscode.Disposable {
 
 	/** Timer for delayed background scan */
 	private backgroundScanTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/** Crash recovery state */
+	private restartAttempts = 0;
+	private static readonly MAX_RESTART_ATTEMPTS = 5;
+	private static readonly BASE_RESTART_DELAY_MS = 1000;
+	private restartTimer: ReturnType<typeof setTimeout> | null = null;
 
 	/** Disposables for this session */
 	private disposables: vscode.Disposable[] = [];
@@ -258,6 +265,10 @@ export class Session implements vscode.Disposable {
 			});
 
 			try {
+				if (this.restartTimer) {
+					clearTimeout(this.restartTimer);
+					this.restartTimer = null;
+				}
 				if (this.backgroundScanTimer) {
 					clearTimeout(this.backgroundScanTimer);
 					this.backgroundScanTimer = null;
@@ -306,12 +317,54 @@ export class Session implements vscode.Disposable {
 	}
 
 	/**
-	 * Restart the session.
+	 * Restart the session (manual or auto-recovery).
 	 */
 	async restart(): Promise<void> {
 		this.log(`Restarting session for ${this.workspaceFolder.name}`);
+		this.restartAttempts = 0;
+		if (this.restartTimer) {
+			clearTimeout(this.restartTimer);
+			this.restartTimer = null;
+		}
 		await this.stop();
 		await this.start();
+	}
+
+	/**
+	 * Schedule an auto-restart with exponential backoff after a crash.
+	 */
+	private scheduleRestart(): void {
+		if (this.restartAttempts >= Session.MAX_RESTART_ATTEMPTS) {
+			this.logError(
+				`Server crashed ${this.restartAttempts} times for ${this.workspaceFolder.name}, giving up. Use 'Telescope: Restart Server' to retry.`,
+			);
+			vscode.window.showErrorMessage(
+				"Telescope language server crashed repeatedly. Use \"Telescope: Restart Server\" to retry.",
+			);
+			return;
+		}
+		const delay =
+			Session.BASE_RESTART_DELAY_MS * 2 ** this.restartAttempts;
+		this.restartAttempts++;
+		this.log(
+			`Scheduling restart attempt ${this.restartAttempts}/${Session.MAX_RESTART_ATTEMPTS} in ${delay}ms`,
+		);
+		this.restartTimer = setTimeout(async () => {
+			this.restartTimer = null;
+			try {
+				await this.stop();
+				await this.start();
+				this.log(
+					`Auto-restart succeeded for ${this.workspaceFolder.name}`,
+				);
+				this.restartAttempts = 0;
+			} catch (err) {
+				this.logError(
+					`Auto-restart attempt ${this.restartAttempts} failed: ${err}`,
+				);
+				this.scheduleRestart();
+			}
+		}, delay);
 	}
 
 	/**
@@ -414,6 +467,25 @@ export class Session implements vscode.Disposable {
 			serverPath: this.serverPath,
 		});
 		await this.client.start();
+
+		// Detect server crashes and attempt auto-restart with backoff.
+		this.client.onDidChangeState((event) => {
+			if (
+				event.newState === State.Stopped &&
+				this._state === SessionState.Running
+			) {
+				this.log(
+					`Server process stopped unexpectedly for ${this.workspaceFolder.name}`,
+				);
+				appendTraceEvent(this.outputChannel, "session.crash.detected", {
+					workspace: this.workspaceFolder.uri.toString(),
+					attempt: this.restartAttempts,
+				});
+				this._state = SessionState.Stopped;
+				this.client = null;
+				this.scheduleRestart();
+			}
+		});
 
 		// Listen for deprecated ranges notifications from the server
 		this.client.onNotification(

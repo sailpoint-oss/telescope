@@ -80,8 +80,8 @@ suite("Providers", () => {
 			timeoutMs: 30000,
 		});
 		doc = await ensureWorkspaceTextDocumentMatches(uri, content);
-		await delay(500);
 		await vscode.window.showTextDocument(doc);
+		await waitForDiagnostics(uri, () => true, { timeoutMs: 15000 });
 
 		assert.strictEqual(
 			doc.languageId,

@@ -172,6 +172,7 @@ runs:
 
         error=""
         err_file="$(mktemp)"
+        trap 'rm -f "$err_file"' EXIT
         if ! "${cmd[@]}" 2> >(tee "$err_file" >&2); then
           error="$(tr -d '\000' < "$err_file")"
         fi

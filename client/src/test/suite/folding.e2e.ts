@@ -57,10 +57,30 @@ suite("Folding Ranges", () => {
 
 		// rich-api.yaml has: info, tags, servers, 4 path items (each with operations),
 		// components (with schemas, responses, parameters, securitySchemes).
-		// We should get at least 10 folding ranges.
 		assert.ok(
 			ranges.length >= 10,
 			`Expected at least 10 folding ranges for rich spec. Got: ${ranges.length}`,
+		);
+
+		// Validate folding ranges cover key structural sections by checking that
+		// ranges span expected line regions from the fixture.
+		const doc = await vscode.workspace.openTextDocument(uri);
+		const text = doc.getText();
+
+		// Find fixture section start lines
+		const pathsLine = doc.positionAt(text.indexOf("paths:")).line;
+		const componentsLine = doc.positionAt(text.indexOf("components:")).line;
+
+		const coversSection = (sectionLine: number) =>
+			ranges.some((r) => r.start === sectionLine);
+
+		assert.ok(
+			coversSection(pathsLine),
+			`Expected a folding range starting at 'paths:' (line ${pathsLine})`,
+		);
+		assert.ok(
+			coversSection(componentsLine),
+			`Expected a folding range starting at 'components:' (line ${componentsLine})`,
 		);
 	});
 

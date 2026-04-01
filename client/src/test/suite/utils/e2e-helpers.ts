@@ -85,11 +85,16 @@ export async function waitForDiagnostics(
 			const openDoc = vscode.workspace.textDocuments.find(
 				(d) => d.uri.toString() === uri.toString(),
 			);
+			const diagSummary = finalDiags
+				.slice(0, 5)
+				.map((d) => `${diagCode(d)}(${d.severity}): ${d.message.slice(0, 60)}`)
+				.join(" | ");
 			reject(
 				new Error(
 					`Timeout waiting for diagnostics after ${timeoutMs}ms ` +
 						`(uri=${uri.toString()}, currentCount=${finalDiags.length}, ` +
-						`languageId=${openDoc?.languageId ?? "not-open"})`,
+						`languageId=${openDoc?.languageId ?? "not-open"}, ` +
+						`diags=[${diagSummary}])`,
 				),
 			);
 		}, timeoutMs);
@@ -221,8 +226,8 @@ export async function deleteWorkspaceFile(relativePath: string): Promise<void> {
 	const uri = vscode.Uri.joinPath(folder.uri, relativePath);
 	try {
 		await vscode.workspace.fs.delete(uri);
-	} catch {
-		// ignore
+	} catch (err) {
+		console.warn(`deleteWorkspaceFile(${relativePath}): ${err}`);
 	}
 }
 
@@ -277,6 +282,84 @@ export async function waitForSidecarReady(
 	);
 }
 
+
+/**
+ * Wait until a document has been fully analyzed by the LSP pipeline.
+ * Combines waitForDiagnostics + waitForProviders (code lenses) into one call.
+ * Use this as the standard readiness gate before asserting on provider results.
+ */
+export async function waitForDocumentAnalyzed(
+	uri: vscode.Uri,
+	options?: {
+		timeoutMs?: number;
+		/** When true, skip waiting for diagnostics (useful for valid files with 0 diagnostics). */
+		skipDiagnostics?: boolean;
+	},
+): Promise<void> {
+	const totalTimeout =
+		options?.timeoutMs ??
+		(process.platform === "win32" ? 150000 : 120000);
+	const start = Date.now();
+
+	if (!options?.skipDiagnostics) {
+		const diagBudget = Math.min(totalTimeout * 0.4, 60000);
+		await waitForDiagnostics(uri, () => true, {
+			timeoutMs: diagBudget,
+		});
+	}
+
+	const remaining = totalTimeout - (Date.now() - start);
+	if (remaining > 0) {
+		await waitForProviders(uri, { timeoutMs: remaining });
+	}
+}
+
+/**
+ * Open two cross-file documents and wait for both to have diagnostics processed.
+ * Replaces the fragile pattern: open A, delay(2000), open B, delay(3000).
+ */
+export async function waitForCrossFileReady(
+	uriA: vscode.Uri,
+	uriB: vscode.Uri,
+	options?: { timeoutMs?: number },
+): Promise<void> {
+	const timeoutMs = options?.timeoutMs ?? 60000;
+	const start = Date.now();
+
+	await openAndShow(uriA);
+	await waitForDiagnostics(uriA, () => true, {
+		timeoutMs: Math.max(timeoutMs - (Date.now() - start), 5000),
+	});
+
+	await openAndShow(uriB);
+	await waitForDiagnostics(uriB, () => true, {
+		timeoutMs: Math.max(timeoutMs - (Date.now() - start), 5000),
+	});
+}
+
+/**
+ * Create a temporary file, run the test function, and guarantee cleanup.
+ * Handles editor revert, close, and file deletion in all code paths.
+ */
+export async function withTempFile(
+	relativePath: string,
+	content: string,
+	fn: (uri: vscode.Uri, doc: vscode.TextDocument) => Promise<void>,
+): Promise<void> {
+	const uri = await writeWorkspaceFile(relativePath, content);
+	try {
+		const doc = await openAndShow(uri);
+		await fn(uri, doc);
+	} finally {
+		try {
+			await vscode.commands.executeCommand("workbench.action.files.revert");
+		} catch { /* may not have unsaved changes */ }
+		try {
+			await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+		} catch { /* editor may already be closed */ }
+		await deleteWorkspaceFile(relativePath);
+	}
+}
 
 export function diagCode(d: vscode.Diagnostic): string {
 	if (typeof d.code === "object" && d.code !== null) {
@@ -350,6 +433,46 @@ export async function assertUriResolvesToSameFile(
 	} catch {
 		assertUriFsPathEqual(a, b, message);
 	}
+}
+
+/**
+ * Decoded semantic token from the delta-encoded Uint32Array.
+ */
+export interface DecodedToken {
+	line: number;
+	char: number;
+	length: number;
+	type: number;
+	modifiers: number;
+}
+
+/**
+ * Decode the delta-encoded semantic tokens data into readable tuples.
+ * Each token is encoded as 5 integers: [deltaLine, deltaChar, length, tokenType, modifiers].
+ *
+ * Token type reference (from server/lsp/semantic_tokens.go):
+ *   0=namespace(path), 1=type(schema), 3=enum(status), 6=typeParameter(pathParam),
+ *   8=variable($ref), 10=function(operationId), 11=method(HTTP), 12=macro(securityScheme),
+ *   13=keyword(schemaType), 14=modifier(deprecated)
+ */
+export function decodeSemanticTokens(data: readonly number[]): DecodedToken[] {
+	const tokens: DecodedToken[] = [];
+	let line = 0;
+	let char = 0;
+	for (let i = 0; i + 4 < data.length; i += 5) {
+		const deltaLine = data[i]!;
+		const deltaChar = data[i + 1]!;
+		line += deltaLine;
+		char = deltaLine > 0 ? deltaChar : char + deltaChar;
+		tokens.push({
+			line,
+			char,
+			length: data[i + 2]!,
+			type: data[i + 3]!,
+			modifiers: data[i + 4]!,
+		});
+	}
+	return tokens;
 }
 
 function pathDir(p: string): string {

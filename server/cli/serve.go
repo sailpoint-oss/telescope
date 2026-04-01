@@ -51,7 +51,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 		cfg = config.DefaultConfig()
 	}
 
-	server := lsp.NewServer(cfg, logger)
+	server, cleanup := lsp.NewServer(cfg, logger)
+	defer cleanup()
 
 	var serveOpts []gossip.ServeOption
 	switch {

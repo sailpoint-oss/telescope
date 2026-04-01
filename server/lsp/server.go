@@ -167,8 +167,10 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 	}
 }
 
-// NewServer creates a fully wired Telescope LSP server.
-func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
+// NewServer creates a fully wired Telescope LSP server and returns a cleanup
+// function that must be called when the server exits to stop child processes
+// and clean up temporary resources.
+func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func()) {
 	yamlLang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
 	jsonLang := tree_sitter.NewLanguage(unsafe.Pointer(ts_json.Language()))
 
@@ -186,13 +188,20 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 
 	// V2 graph engine: runs alongside the existing IndexCache/ProjectManager
 	// during the migration period. Handlers can opt-in to using graphBridge.
-	graphBridge := NewGraphBridge(logger)
+	graphBridge, err := NewGraphBridge(logger)
+	if err != nil {
+		logger.Error("graph pipeline init failed, running without graph features", "error", err)
+	}
 	rulePerfTracker := observe.NewRulePerfTracker()
 
 	// The ChildLSPManager publishes merged diagnostics. The publish function
 	// is nil initially; it gets wired to the real ClientProxy in OnInitialized
 	// once the server connection is established.
 	childMgr := NewChildLSPManager(nil, logger)
+
+	// Cancellable context for all background goroutines. Cancelled in the
+	// cleanup function returned to the caller.
+	bgCtx, bgCancel := context.WithCancel(context.Background())
 
 	s := gossip.NewServer("telescope", Version,
 		gossip.WithTreeSitter(treesitter.Config{
@@ -358,21 +367,21 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 			if cfg.NeedsBunSidecar() && bunMgr != nil {
 				telescopeDir := filepath.Join(rootPath, ".telescope")
 				go func() {
-					if err := bunMgr.Start(context.Background()); err != nil {
+					if err := bunMgr.Start(bgCtx); err != nil {
 						logger.Warn("failed to start bun sidecar", "error", err)
 						return
 					}
 					loadReq := buildLoadRulesRequest(cfg, telescopeDir)
 					if loadReq != nil {
-						if err := bunMgr.LoadRules(context.Background(), loadReq); err != nil {
+						if err := bunMgr.LoadRules(bgCtx, loadReq); err != nil {
 							logger.Warn("failed to load custom rules", "error", err)
 						}
 					}
 					recomputeOpenDiagnostics()
-					bunMgr.WatchRules(context.Background(), telescopeDir, func() {
+					bunMgr.WatchRules(bgCtx, telescopeDir, func() {
 						reloadReq := buildLoadRulesRequest(cfg, telescopeDir)
 						if reloadReq != nil {
-							if err := bunMgr.LoadRules(context.Background(), reloadReq); err != nil {
+							if err := bunMgr.LoadRules(bgCtx, reloadReq); err != nil {
 								logger.Warn("failed to reload custom rules", "error", err)
 							}
 						}
@@ -383,7 +392,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 
 			// Start child YAML/JSON language servers for enhanced syntax and
 			// schema diagnostics. Runs in background to avoid blocking init.
-			go childMgr.Start(context.Background(), root)
+			go childMgr.Start(bgCtx, root)
 
 			// Collect analyzers for startup diagnostics on all discovered files.
 			collectedAnalyzers := rules.CollectAnalyzers(analyzers.RegisterAll)
@@ -448,7 +457,16 @@ func NewServer(cfg *config.Config, logger *slog.Logger) *gossip.Server {
 		return perf, nil
 	})
 
-	return s
+	cleanup := func() {
+		bgCancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		childMgr.Stop(ctx)
+		bunMgr.Stop()
+		logger.Info("server cleanup complete")
+	}
+
+	return s, cleanup
 }
 
 // bunSidecarAnalyzer creates a gossip Analyzer that delegates to the Bun sidecar

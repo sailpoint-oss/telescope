@@ -88,19 +88,14 @@ suite("Sidecar: Lifecycle", () => {
 
 		// Primary assertion: the edited document should eventually surface the
 		// custom summary diagnostic.
-		let sawEditedDocDiagnostic = false;
-		try {
-			const afterDiags = await waitForDiagnostics(
-				fileUri,
-				(d) => d.some((diag) => diagCode(diag) === "custom-operation-summary"),
-				{ timeoutMs: 30000 },
-			);
-			sawEditedDocDiagnostic = afterDiags.some(
-				(diag) => diagCode(diag) === "custom-operation-summary",
-			);
-		} catch {
-			// Some CI runs are eventually consistent for this specific fixture.
-		}
+		const afterDiags = await waitForDiagnostics(
+			fileUri,
+			(d) => d.some((diag) => diagCode(diag) === "custom-operation-summary"),
+			{ timeoutMs: 60000 },
+		);
+		const sawEditedDocDiagnostic = afterDiags.some(
+			(diag) => diagCode(diag) === "custom-operation-summary",
+		);
 
 		await vscode.workspace.fs.writeFile(fileUri, Buffer.from(originalText, "utf-8"));
 

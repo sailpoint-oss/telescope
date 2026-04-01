@@ -6,6 +6,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
+	decodeSemanticTokens,
 	executeWithRetry,
 	getTestApi,
 	isMultiRootWorkspace,
@@ -57,7 +58,7 @@ suite("Semantic Tokens", () => {
 		assert.ok(tokens.data.length > 0, "Expected non-empty semantic tokens data");
 	});
 
-	test("Semantic tokens data has reasonable size for rich spec", async () => {
+	test("Semantic tokens include expected token types for rich spec", async () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		await openAndShow(uri);
@@ -73,12 +74,28 @@ suite("Semantic Tokens", () => {
 		);
 
 		assert.ok(tokens, "Expected semantic tokens");
-		// Each token is encoded as 5 integers (line, startChar, length, tokenType, modifiers)
-		// A rich API spec should produce many tokens
-		const tokenCount = tokens.data.length / 5;
+		const decoded = decodeSemanticTokens(Array.from(tokens.data));
+		assert.ok(decoded.length >= 10, `Expected >= 10 tokens. Got: ${decoded.length}`);
+
+		const tokenTypes = new Set(decoded.map((t) => t.type));
+
+		// semantic_tokens.go token types:
+		// 0=namespace(path), 8=variable($ref), 10=function(operationId), 11=method(HTTP)
 		assert.ok(
-			tokenCount >= 5,
-			`Expected at least 5 semantic tokens for rich spec. Got: ${tokenCount}`,
+			tokenTypes.has(0),
+			`Expected namespace token (type 0) for path strings. Got types: ${[...tokenTypes].join(",")}`,
+		);
+		assert.ok(
+			tokenTypes.has(10),
+			`Expected function token (type 10) for operationId. Got types: ${[...tokenTypes].join(",")}`,
+		);
+		assert.ok(
+			tokenTypes.has(11),
+			`Expected method token (type 11) for HTTP methods. Got types: ${[...tokenTypes].join(",")}`,
+		);
+		assert.ok(
+			tokenTypes.has(8),
+			`Expected variable token (type 8) for $ref values. Got types: ${[...tokenTypes].join(",")}`,
 		);
 	});
 });

@@ -6,12 +6,12 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
 	executeWithRetry,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForLanguageId,
 	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
@@ -75,19 +75,14 @@ suite("Completion", () => {
 		assert.ok(items.length > 0, "Expected completion items for $ref path");
 
 		const labels = items.map(getLabel);
-		const hasSchemaName = labels.some(
-			(l) => l.includes("User") || l.includes("Pet") || l.includes("Error"),
-		);
-		assert.ok(
-			hasSchemaName,
-			`Expected schema names (User/Pet/Error) in completions. Got: ${labels.slice(0, 10).join(", ")}`,
-		);
-
-		const hasCreateUser = labels.some((l) => l.includes("CreateUserRequest"));
-		assert.ok(
-			hasCreateUser || labels.some((l) => l.includes("User")),
-			`Expected at least User in completions. Got: ${labels.slice(0, 10).join(", ")}`,
-		);
+		// rich-api.yaml has exactly 4 schemas: User, CreateUserRequest, Pet, Error
+		const expectedSchemas = ["User", "CreateUserRequest", "Pet", "Error"];
+		for (const schema of expectedSchemas) {
+			assert.ok(
+				labels.some((l) => l.includes(schema)),
+				`Expected '${schema}' in completions. Got: ${labels.slice(0, 15).join(", ")}`,
+			);
+		}
 	});
 
 	test("Completion inside path item offers HTTP methods", async () => {
@@ -110,7 +105,8 @@ suite("Completion", () => {
 
 		try {
 			await openAndShow(tmpUri);
-			await delay(2000);
+			await waitForLanguageId(tmpUri, "openapi-yaml", { timeoutMs: 15000 });
+			await waitForDiagnostics(tmpUri, () => true, { timeoutMs: 30000 });
 
 			const pos = new vscode.Position(6, 4);
 

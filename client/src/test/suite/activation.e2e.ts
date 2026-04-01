@@ -65,6 +65,27 @@ suite("Extension Activation", () => {
 			`All sessions should be running. States: ${JSON.stringify(states)}`,
 		);
 	});
-});
+	test("Sessions recover state after manual restart", async () => {
+		await activateExtension();
+		const api = getTestApi();
+		await api.waitForSessionsRunning(120000);
 
+		const statesBefore = api.getSessionStates();
+		assert.ok(
+			statesBefore.every((s) => s.state === "running"),
+			`All sessions should be running before restart. States: ${JSON.stringify(statesBefore)}`,
+		);
+
+		// Trigger manual restart (exercises the restart + crash recovery reset path)
+		await vscode.commands.executeCommand("telescope.restartServer");
+		await api.waitForSessionsRunning(120000);
+
+		const statesAfter = api.getSessionStates();
+		assert.ok(statesAfter.length > 0, "Should have sessions after restart");
+		assert.ok(
+			statesAfter.every((s) => s.state === "running"),
+			`All sessions should be running after restart. States: ${JSON.stringify(statesAfter)}`,
+		);
+	});
+});
 

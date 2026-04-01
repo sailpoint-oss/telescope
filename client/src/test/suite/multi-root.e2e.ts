@@ -6,7 +6,6 @@
  */
 
 import * as assert from "assert";
-import { rm } from "node:fs/promises";
 import * as vscode from "vscode";
 import {
 	activateExtension,
@@ -16,7 +15,6 @@ import {
 	openAndShow,
 	waitForDiagnostics,
 	waitForProjectInfo,
-	delay,
 } from "./utils/e2e-helpers";
 
 suite("Multi-Root Workspace", () => {
@@ -129,7 +127,6 @@ suite("Multi-Root Workspace", () => {
 		const fileName = `mr-${Date.now()}.yaml`;
 		const dirUri = vscode.Uri.joinPath(folderA.uri, "tmp-e2e");
 		const fileUri = vscode.Uri.joinPath(dirUri, fileName);
-		const absPath = fileUri.fsPath;
 		await vscode.workspace.fs.createDirectory(dirUri);
 		await vscode.workspace.fs.writeFile(
 			fileUri,
@@ -146,28 +143,33 @@ suite("Multi-Root Workspace", () => {
 			),
 		);
 
-		// Opening the file ensures VS Code processes it and triggers
-		// didOpen, which reliably updates the scanner count even when
-		// the filesystem watcher is slow.
-		const newDoc = await vscode.workspace.openTextDocument(fileUri);
-		await vscode.window.showTextDocument(newDoc, { preview: true, preserveFocus: true });
+		try {
+			// Opening the file ensures VS Code processes it and triggers
+			// didOpen, which reliably updates the scanner count even when
+			// the filesystem watcher is slow.
+			const newDoc = await vscode.workspace.openTextDocument(fileUri);
+			await vscode.window.showTextDocument(newDoc, { preview: true, preserveFocus: true });
 
-		// Wait for folderA to increment; folderB should remain stable
-		await waitForProjectInfo(
-			api,
-			(i) => i.knownOpenAPIFiles > baseA,
-			{ timeoutMs: 120000, uri: folderA.uri },
-		);
-		await delay(500);
-		const infoB1 = api.getProjectInfo(folderB.uri);
-		assert.ok(infoB1, "Expected project info for folderB");
-		assert.strictEqual(
-			infoB1.knownOpenAPIFiles,
-			baseB,
-			"folderB OpenAPI file count should not change when folderA changes",
-		);
-
-		await rm(absPath, { force: true });
+			// Wait for folderA to increment; folderB should remain stable
+			await waitForProjectInfo(
+				api,
+				(i) => i.knownOpenAPIFiles > baseA,
+				{ timeoutMs: 120000, uri: folderA.uri },
+			);
+			const infoB1 = api.getProjectInfo(folderB.uri);
+			assert.ok(infoB1, "Expected project info for folderB");
+			assert.strictEqual(
+				infoB1.knownOpenAPIFiles,
+				baseB,
+				"folderB OpenAPI file count should not change when folderA changes",
+			);
+		} finally {
+			try {
+				await vscode.workspace.fs.delete(dirUri, { recursive: true });
+			} catch (err) {
+				console.warn(`cleanup tmp-e2e failed: ${err}`);
+			}
+		}
 	});
 
 	test("Definition, hover, references, and rename work per-folder", async () => {

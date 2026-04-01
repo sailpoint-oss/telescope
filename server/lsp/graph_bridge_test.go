@@ -142,7 +142,7 @@ paths:
           type: string
 `
 
-	bridge := lsp.NewGraphBridge(nil)
+	bridge, _ := lsp.NewGraphBridge(nil)
 	cache := openapi.NewIndexCache()
 	bridge.OnDocumentOpen(rootURI, []byte(rootSpec))
 	bridge.OnDocumentOpen(compURI, []byte(compSpec))
@@ -190,7 +190,7 @@ paths: {}
 	}
 
 	uri := project.PathToURI(path)
-	bridge := lsp.NewGraphBridge(nil)
+	bridge, _ := lsp.NewGraphBridge(nil)
 	cache := openapi.NewIndexCache()
 
 	bridge.OnDocumentOpen(uri, []byte(content))

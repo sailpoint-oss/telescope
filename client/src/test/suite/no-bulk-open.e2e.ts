@@ -8,7 +8,6 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
 	getTestApi,
 	isMultiRootWorkspace,
 	waitForProjectInfo,
@@ -28,12 +27,9 @@ suite("No Bulk Open", () => {
 		if (isMultiRootWorkspace()) return;
 		const before = vscode.workspace.textDocuments.length;
 
-		await waitForProjectInfo(api, (info) => info.knownOpenAPIFiles >= 0, {
+		await waitForProjectInfo(api, (info) => info.knownOpenAPIFiles > 0, {
 			timeoutMs: 60000,
 		});
-
-		// Give VS Code a short tick to settle any pending document opens.
-		await delay(500);
 
 		const after = vscode.workspace.textDocuments.length;
 

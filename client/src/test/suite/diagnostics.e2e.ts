@@ -12,6 +12,7 @@ import {
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForDocumentAnalyzed,
 	writeWorkspaceFile,
 } from "./utils/e2e-helpers";
 
@@ -45,6 +46,31 @@ suite("Diagnostics", () => {
 			diagnostics.length > 0,
 			`Should have diagnostics. Found: ${diagnostics.length}`,
 		);
+
+		// Validate diagnostics have proper structure
+		for (const d of diagnostics) {
+			assert.ok(d.severity !== undefined, "Every diagnostic should have a severity");
+			assert.ok(d.range, "Every diagnostic should have a range");
+		}
+
+		// rich-api.yaml is valid OpenAPI — should produce warnings only, not errors
+		const errors = diagnostics.filter(
+			(d) => d.severity === vscode.DiagnosticSeverity.Error,
+		);
+		assert.strictEqual(
+			errors.length,
+			0,
+			`rich-api.yaml should have no errors (only warnings). Errors: ${errors.map((e) => `${diagCode(e)}: ${e.message}`).join("; ")}`,
+		);
+
+		// At least some diagnostics should come from telescope
+		const telescopeDiags = diagnostics.filter(
+			(d) => d.source?.toLowerCase().includes("telescope"),
+		);
+		assert.ok(
+			telescopeDiags.length > 0,
+			`Expected telescope-sourced diagnostics. Sources: ${[...new Set(diagnostics.map((d) => d.source))].join(", ")}`,
+		);
 	});
 
 	test("Schema validation diagnostics should surface as errors", async () => {
@@ -67,8 +93,11 @@ suite("Diagnostics", () => {
 				`Expected at least one oas3-schema diagnostic on ${relativePath}`,
 			);
 			assert.ok(
-				schemaDiags.every((d) => d.severity !== undefined),
-				"Expected oas3-schema diagnostics to include a severity value",
+				schemaDiags.every(
+					(d) => d.severity === vscode.DiagnosticSeverity.Error ||
+						d.severity === vscode.DiagnosticSeverity.Warning,
+				),
+				"Expected oas3-schema diagnostics to have Error or Warning severity",
 			);
 		} finally {
 			await deleteWorkspaceFile(relativePath);
@@ -80,7 +109,8 @@ suite("Diagnostics", () => {
 
 		const validFile = vscode.Uri.joinPath(workspaceFolder.uri, "valid.yaml");
 		await openAndShow(validFile);
-		await waitForDiagnostics(validFile, () => true, { timeoutMs: 60000 });
+		// Ensure the full analysis pipeline completes before asserting zero errors.
+		await waitForDocumentAnalyzed(validFile, { skipDiagnostics: true });
 
 		const diagnostics = vscode.languages.getDiagnostics(validFile);
 		const errors = diagnostics.filter(

@@ -6,12 +6,12 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
 	executeWithRetry,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForDocumentAnalyzed,
 	waitForProviders,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
@@ -69,9 +69,7 @@ suite("Rename", () => {
 
 		try {
 			const doc = await openAndShow(tmpUri);
-			await delay(3000);
-			await waitForDiagnostics(tmpUri, () => true, { timeoutMs: 30000 });
-			await delay(1000);
+			await waitForDocumentAnalyzed(tmpUri, { skipDiagnostics: true });
 
 			// Position on the "Users" tag name in the tags definition
 			const text = doc.getText();
@@ -86,8 +84,11 @@ suite("Rename", () => {
 					[tmpUri, pos, "People"],
 					(r) => r !== undefined && r !== null,
 				);
-			} catch {
-				// Rename may not be supported at this position — that's OK
+			} catch (err) {
+				const msg = String(err);
+				if (!msg.includes("can't be renamed")) {
+					throw err;
+				}
 			}
 
 			if (edit) {
@@ -180,10 +181,10 @@ suite("Rename", () => {
 
 		try {
 			const compDoc = await openAndShow(compUri);
-			await openAndShow(rootUri);
 			await waitForDiagnostics(compUri, () => true, { timeoutMs: 30000 });
+			await openAndShow(rootUri);
 			await waitForDiagnostics(rootUri, () => true, { timeoutMs: 30000 });
-			await delay(1000);
+			await waitForDocumentAnalyzed(compUri, { skipDiagnostics: true });
 
 			const text = compDoc.getText();
 			const idx = text.indexOf("    User:");

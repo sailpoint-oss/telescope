@@ -9,11 +9,11 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForLanguageId,
 } from "./utils/e2e-helpers";
 
 suite("File Change Diagnostics", () => {
@@ -50,8 +50,8 @@ suite("File Change Diagnostics", () => {
 		);
 
 		await openAndShow(createdUri);
-		// Allow time for language reclassification cycle (yaml -> openapi-yaml)
-		await delay(1000);
+		// Wait for language reclassification cycle (yaml -> openapi-yaml)
+		await waitForLanguageId(createdUri, "openapi-yaml", { timeoutMs: 15000 });
 		const phase1 = await waitForDiagnostics(
 			createdUri,
 			(d) => d.length > 0,

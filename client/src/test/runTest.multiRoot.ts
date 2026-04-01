@@ -46,6 +46,7 @@ async function main() {
 				TELESCOPE_E2E_MODE: process.env.TELESCOPE_E2E_MODE,
 				TELESCOPE_E2E_TIMEOUT_MS: process.env.TELESCOPE_E2E_TIMEOUT_MS,
 				TELESCOPE_E2E_SMOKE: process.env.TELESCOPE_E2E_SMOKE,
+				TELESCOPE_E2E_RETRIES: process.env.TELESCOPE_E2E_RETRIES,
 			},
 			version: "stable",
 		});

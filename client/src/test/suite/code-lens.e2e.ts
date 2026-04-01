@@ -56,12 +56,48 @@ suite("Code Lens", () => {
 
 		assert.ok(lenses && lenses.length > 0, "Expected code lenses on component definitions");
 
-		const hasRefLens = lenses.some(
-			(lens) => lens.command?.title?.toLowerCase().includes("reference"),
+		const titles = lenses.map((l) => l.command?.title ?? "").filter(Boolean);
+
+		// code_lens.go: reference count lens has format "<N> references"
+		const refLens = titles.filter((t) => /\d+ references?/.test(t));
+		assert.ok(
+			refLens.length > 0,
+			`Expected at least one lens matching '<N> references'. Got titles: ${titles.join(", ")}`,
+		);
+
+		// code_lens.go: file header lens shows "OpenAPI <version>"
+		const headerLens = titles.find((t) => t.includes("OpenAPI"));
+		assert.ok(
+			headerLens,
+			`Expected header lens with 'OpenAPI'. Got titles: ${titles.join(", ")}`,
+		);
+	});
+
+	test("Health score lens shows API quality breakdown", async () => {
+		if (isMultiRootWorkspace()) return;
+		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
+		await openAndShow(uri);
+
+		await waitForDiagnostics(uri, (d) => d.length > 0, { timeoutMs: 60000 });
+		await waitForProviders(uri, { timeoutMs: 60000 });
+
+		const lenses = await executeWithRetry<vscode.CodeLens[]>(
+			"vscode.executeCodeLensProvider",
+			[uri],
+			(r) => Array.isArray(r) && r.length > 0,
+		);
+
+		const titles = lenses.map((l) => l.command?.title ?? "").filter(Boolean);
+
+		// code_lens.go: health lens format "API Health: <N>/100 | <paths> paths | <schemas> schemas | ..."
+		const healthLens = titles.find((t) => /API Health: \d+\/100/.test(t));
+		assert.ok(
+			healthLens,
+			`Expected health score lens matching 'API Health: N/100'. Got titles: ${titles.join(", ")}`,
 		);
 		assert.ok(
-			hasRefLens,
-			`Expected at least one lens showing reference count. Got titles: ${lenses.map((l) => l.command?.title).join(", ")}`,
+			healthLens!.includes("paths") && healthLens!.includes("schemas"),
+			`Health lens should include paths and schemas counts. Got: ${healthLens}`,
 		);
 	});
 

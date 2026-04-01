@@ -67,11 +67,26 @@ suite("Symbols", () => {
 		assert.ok(symbols && symbols.length > 0, "Expected document symbols");
 
 		const all = flattenSymbols(symbols);
-		const names = all.map((s) => s.name.toLowerCase());
+		const names = all.map((s) => s.name);
+		const lower = names.map((n) => n.toLowerCase());
 
+		// Validate key structural symbols from rich-api.yaml
 		assert.ok(
-			names.some((n) => n.includes("/users") || n.includes("paths")),
-			`Expected path symbols. Got: ${names.slice(0, 20).join(", ")}`,
+			lower.some((n) => n.includes("/users") || n.includes("paths")),
+			`Expected path symbols (/users). Got: ${names.slice(0, 20).join(", ")}`,
+		);
+		assert.ok(
+			lower.some((n) => n.includes("/pets")),
+			`Expected path symbol /pets. Got: ${names.slice(0, 20).join(", ")}`,
+		);
+		// Schema names should appear as symbols
+		assert.ok(
+			names.some((n) => n.includes("User")),
+			`Expected 'User' schema symbol. Got: ${names.slice(0, 30).join(", ")}`,
+		);
+		assert.ok(
+			names.some((n) => n.includes("Pet")),
+			`Expected 'Pet' schema symbol. Got: ${names.slice(0, 30).join(", ")}`,
 		);
 	});
 
