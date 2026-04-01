@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -259,13 +260,15 @@ func (m *Manager) diagnoseFile(uri string, idx *openapi.Index, pctx *ProjectCont
 			continue
 		}
 
+		componentType := inferComponentType(target)
+
 		if strings.HasPrefix(target, "#") {
 			for _, usage := range usages {
 				diags = append(diags, protocol.Diagnostic{
 					Range:    adapt.RangeToProtocol(usage.Loc.Range),
 					Severity: protocol.SeverityError,
 					Source:   "unresolved-ref",
-					Message:  "Cannot resolve $ref: " + target,
+					Message:  fmt.Sprintf("Cannot resolve $ref to %s: %s", componentType, target),
 					Code:     "unresolved-ref",
 				})
 			}
@@ -281,7 +284,7 @@ func (m *Manager) diagnoseFile(uri string, idx *openapi.Index, pctx *ProjectCont
 				Range:    adapt.RangeToProtocol(usage.Loc.Range),
 				Severity: protocol.SeverityError,
 				Source:   "unresolved-ref",
-				Message:  "Cannot resolve $ref: " + target,
+				Message:  fmt.Sprintf("Cannot resolve $ref to %s: %s", componentType, target),
 				Code:     "unresolved-ref",
 			})
 		}
@@ -466,4 +469,39 @@ func (m *Manager) Projects() map[string]*ProjectContext {
 		result[k] = v
 	}
 	return result
+}
+
+// inferComponentType maps a $ref target to a human-readable OpenAPI Object type.
+func inferComponentType(target string) string {
+	frag := target
+	if idx := strings.LastIndex(target, "#"); idx >= 0 {
+		frag = target[idx+1:]
+	}
+	parts := strings.Split(strings.TrimPrefix(frag, "/"), "/")
+	if len(parts) >= 2 && parts[0] == "components" {
+		switch parts[1] {
+		case "schemas":
+			return "Schema Object"
+		case "responses":
+			return "Response Object"
+		case "parameters":
+			return "Parameter Object"
+		case "requestBodies":
+			return "Request Body"
+		case "headers":
+			return "Header Object"
+		case "securitySchemes":
+			return "Security Scheme"
+		case "links":
+			return "Link Object"
+		case "callbacks":
+			return "Callback Object"
+		case "examples":
+			return "Example Object"
+		}
+	}
+	if len(parts) >= 1 && parts[0] == "definitions" {
+		return "Schema Object"
+	}
+	return "component"
 }
