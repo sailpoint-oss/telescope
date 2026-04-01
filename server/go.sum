@@ -45,10 +45,10 @@ github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/sailpoint-oss/barometer v0.2.0 h1:BhEYkZoISgQhkI6x3hdkLLQcN4f4SpQsJPWXEbW/NeM=
 github.com/sailpoint-oss/barometer v0.2.0/go.mod h1:zw24VKa1ONBC8Mij1cfyznM4gV6LSHgeupzBL0PIiwo=
-github.com/sailpoint-oss/barrelman v0.4.0 h1:2bUSPnz+I4JHDq1c9yBJ2T4r2DjXbIyZbZ2Sq7LEuP0=
-github.com/sailpoint-oss/barrelman v0.4.0/go.mod h1:tvJp0BoeO/LTEeQHR5zy20bOa8+Uqfs3ZmKCZq/2tvU=
-github.com/sailpoint-oss/navigator v0.6.0 h1:cKniFbrCZFlJI7n2OsUaJ85XI89UJcnJUBIQJTvK84c=
-github.com/sailpoint-oss/navigator v0.6.0/go.mod h1:iVh7sjbrrUVMUvMbjWEqlHTzxnlm1VhdzXDxjmCPfok=
+github.com/sailpoint-oss/barrelman v0.4.1 h1:tNFia5wWu9xe9pkG4QxcNRX+wqCOQyyxyUSGRGBVQnk=
+github.com/sailpoint-oss/barrelman v0.4.1/go.mod h1:NSEgLTvyFxRoIjt2nh5J9W6/xYXVrm+1RMjVIoTcyjY=
+github.com/sailpoint-oss/navigator v0.7.0 h1:n4W7R0DLHweJIO6lUuDqcd5wkO5HHOI74fc7mLHy0Us=
+github.com/sailpoint-oss/navigator v0.7.0/go.mod h1:iVh7sjbrrUVMUvMbjWEqlHTzxnlm1VhdzXDxjmCPfok=
 github.com/sailpoint-oss/tree-sitter-openapi v0.1.0 h1:Vgv/dTfNrItDpK3p1A7yr33gdOzVf6Kfgqu5mQ/6Mjk=
 github.com/sailpoint-oss/tree-sitter-openapi v0.1.0/go.mod h1:cl6yh1ylyM6f20nIj1dHj+GxMvGt44zmfgHApacMNj0=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 h1:KRzFb2m7YtdldCEkzs6KqmJw4nqEVZGK7IN2kJkjTuQ=
