@@ -70,16 +70,14 @@ suite("Sidecar: Lifecycle", () => {
 			Buffer.from(originalText, "utf-8"),
 		);
 
-		const beforeDiags = await waitForDiagnostics(fileUri, () => true, {
-			timeoutMs: 60000,
-		});
-		const beforeCustom = beforeDiags.filter(
-			(d) => diagCode(d) === "custom-operation-summary",
-		);
-		assert.strictEqual(
-			beforeCustom.length,
-			0,
-			"Valid file should initially have no custom-operation-summary",
+		// Wait for diagnostics to settle — the valid file should have zero
+		// custom-operation-summary diagnostics. Use a predicate that waits
+		// for them to clear in case a prior analysis or recompute produced
+		// stale results.
+		await waitForDiagnostics(
+			fileUri,
+			(d) => !d.some((diag) => diagCode(diag) === "custom-operation-summary"),
+			{ timeoutMs: 60000 },
 		);
 
 		const mutatedText = doc

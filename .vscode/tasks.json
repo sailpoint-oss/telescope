@@ -21,6 +21,26 @@
 			}
 		},
 		{
+			"label": "build:bun-runner",
+			"type": "shell",
+			"command": "bash",
+			"args": ["lsp/bun/runner/build.sh"],
+			"options": {
+				"cwd": "${workspaceFolder}/server"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"focus": false,
+				"clear": true
+			}
+		},
+		{
 			"label": "build:extension",
 			"type": "shell",
 			"command": "bun",
@@ -39,7 +59,7 @@
 		},
 		{
 			"label": "build:all",
-			"dependsOn": ["build:server", "build:extension"],
+			"dependsOn": ["build:bun-runner", "build:server", "build:extension"],
 			"dependsOrder": "sequence",
 			"group": {
 				"kind": "build",
