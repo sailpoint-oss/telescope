@@ -2,6 +2,7 @@ package contractrunner
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -51,7 +52,14 @@ func TestBuildBarometerClientConfig_mapsTLSAndTimeouts(t *testing.T) {
 }
 
 func TestBuildBarometerClientConfig_absoluteTLSPathsUnchanged(t *testing.T) {
-	absCert := filepath.FromSlash("/etc/ssl/client.pem")
+	// Windows: paths like \etc\ssl\client.pem are not filepath.IsAbs (no drive letter),
+	// so ResolveWorkspacePath would incorrectly join them with the workspace root.
+	var absCert string
+	if runtime.GOOS == "windows" {
+		absCert = `C:\etc\ssl\client.pem`
+	} else {
+		absCert = "/etc/ssl/client.pem"
+	}
 	ct := &config.ContractTestsConfig{
 		TLS: config.ContractTLSConfig{
 			ClientCertFile: absCert,
