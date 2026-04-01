@@ -227,6 +227,7 @@ func writeMDReportTo(w io.Writer, report *LintReport) error {
 					file:     rel,
 					line:     int(d.Range.Start.Line) + 1,
 					severity: severityName(d.Severity),
+					code:     code,
 					message:  d.Message,
 				})
 			}
@@ -261,6 +262,9 @@ func writeMDReportTo(w io.Writer, report *LintReport) error {
 			for _, e := range entries {
 				msg := strings.ReplaceAll(e.message, "|", "\\|")
 				msg = strings.ReplaceAll(msg, "\n", " ")
+				if e.code != "" {
+					msg = fmt.Sprintf("`%s` %s", e.code, msg)
+				}
 				b.WriteString(fmt.Sprintf("| %s | [`%s`](%s) | [L%d](%s#L%d) | %s |\n",
 					e.severity, e.file, e.file, e.line, e.file, e.line, msg))
 			}
@@ -276,6 +280,7 @@ type diagEntry struct {
 	file     string
 	line     int
 	severity string
+	code     string
 	message  string
 }
 

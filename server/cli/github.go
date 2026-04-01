@@ -448,12 +448,30 @@ func buildDiffMap(files []prFile) map[string]diffInfo {
 
 const commentFooter = "---\n<sub>🔭 <a href=\"https://github.com/sailpoint-oss/telescope\">Telescope</a></sub>\n"
 
+// formatDiagnosticMarkdown formats a diagnostic message for markdown contexts
+// (PR comments, markdown reports) with a code badge and optional rule doc link.
+//
+// Output: **`rule-id`** message text [View rule docs →](url)
+func formatDiagnosticMarkdown(code, message, docURL string) string {
+	var b strings.Builder
+	if code != "" {
+		fmt.Fprintf(&b, "**`%s`** ", code)
+	}
+	b.WriteString(message)
+	if docURL != "" {
+		fmt.Fprintf(&b, " [View rule docs →](%s)", docURL)
+	}
+	return b.String()
+}
+
 // ruleDiagRow is one diagnostic row for PR markdown tables.
 type ruleDiagRow struct {
 	severity protocol.DiagnosticSeverity
 	relPath  string
 	line     int
 	endLine  int
+	code     string
+	docURL   string
 	message  string
 }
 
@@ -636,6 +654,10 @@ func formatRuleTableRow(d ruleDiagRow, repo, headRef string, canLink bool) strin
 	emoji := severityEmoji(d.severity)
 	msg := strings.ReplaceAll(d.message, "|", "\\|")
 	msg = strings.ReplaceAll(msg, "\n", " ")
+	// Wrap message with rule code badge for richer markdown rendering
+	if d.code != "" {
+		msg = fmt.Sprintf("`%s` %s", d.code, msg)
+	}
 	fileRef := formatFileRef(d.relPath, repo, headRef, canLink)
 	lineRef := fmt.Sprintf("L%d", d.line)
 	if canLink {
@@ -820,6 +842,7 @@ func GeneratePRComment(report *LintReport, repo, headRef string) []string {
 				relPath:  rel,
 				line:     startLine,
 				endLine:  endLine,
+				code:     code,
 				message:  d.Message,
 			})
 		}

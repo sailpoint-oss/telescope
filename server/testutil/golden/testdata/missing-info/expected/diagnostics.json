@@ -4,6 +4,6 @@
     "line": 0,
     "code": "structural.missing-info",
     "severity": "error",
-    "message": "require an `info` object"
+    "message": "requires an Info Object with 'title' and 'version'"
   }
 ]

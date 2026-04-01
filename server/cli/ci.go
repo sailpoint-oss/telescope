@@ -385,7 +385,11 @@ func buildInlineReviewComments(report *LintReport, relBase string, diffMap map[s
 				code = fmt.Sprintf("%v", d.Code)
 			}
 
-			body := fmt.Sprintf("**%s**: %s", code, d.Message)
+			docURL := ""
+			if d.CodeDescription != nil {
+				docURL = string(d.CodeDescription.Href)
+			}
+			body := formatDiagnosticMarkdown(code, d.Message, docURL)
 			key := lineKey{path: rel, line: line}
 			if _, exists := grouped[key]; !exists {
 				order = append(order, key)
