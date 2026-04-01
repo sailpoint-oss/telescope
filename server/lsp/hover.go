@@ -86,12 +86,22 @@ func NewHoverHandler(cache *openapi.IndexCache, bridge *GraphBridge) gossip.Hove
 				if bridge != nil {
 					if targetURI, targetPtr, ok := bridge.LookupDefinition(string(uri), refTarget); ok {
 						normTarget := protocol.NormalizeURI(protocol.DocumentURI(targetURI))
-						if targetIdx := cache.Get(normTarget); targetIdx != nil && targetPtr != "" {
-							if target, err := targetIdx.Resolve("#" + targetPtr); err == nil {
-								content := formatRefHoverWithContext(refTarget, target, newHoverRenderContext(targetIdx.Resolve))
-								return &protocol.Hover{
-									Contents: protocol.MarkupContent{Kind: protocol.Markdown, Value: content},
-								}, nil
+						if targetIdx := cache.Get(normTarget); targetIdx != nil {
+							if targetPtr != "" {
+								if target, err := targetIdx.Resolve("#" + targetPtr); err == nil {
+									content := formatRefHoverWithContext(refTarget, target, newHoverRenderContext(targetIdx.Resolve))
+									return &protocol.Hover{
+										Contents: protocol.MarkupContent{Kind: protocol.Markdown, Value: content},
+									}, nil
+								}
+							} else {
+								// Whole-file ref (no fragment): use the target's primary value.
+								if pv := targetIdx.PrimaryValue(); pv != nil {
+									content := formatRefHoverWithContext(refTarget, pv, newHoverRenderContext(targetIdx.Resolve))
+									return &protocol.Hover{
+										Contents: protocol.MarkupContent{Kind: protocol.Markdown, Value: content},
+									}, nil
+								}
 							}
 						}
 					}

@@ -273,11 +273,25 @@ func resolveRefToLocation(
 			// Prepend "#" because TargetPointer is a JSON Pointer
 			// (e.g. "/components/schemas/Pet") but Resolve expects
 			// a ref string (e.g. "#/components/schemas/Pet").
-			if targetIdx := cache.Get(normTarget); targetIdx != nil && targetPtr != "" {
-				if target, err := targetIdx.Resolve("#" + targetPtr); err == nil {
-					if loc := locationFromTarget(normTarget, target); loc != nil {
+			if targetIdx := cache.Get(normTarget); targetIdx != nil {
+				if targetPtr != "" {
+					if target, err := targetIdx.Resolve("#" + targetPtr); err == nil {
+						if loc := locationFromTarget(normTarget, target); loc != nil {
+							if logger != nil {
+								logger.Debug("definition: resolved via graph edge",
+									slog.String("trace_id", traceID),
+									slog.String("ref", ref),
+									slog.String("targetURI", targetURI))
+							}
+							invalidateTarget(ctx, normTarget)
+							return []protocol.Location{*loc}
+						}
+					}
+				} else if pv := targetIdx.PrimaryValue(); pv != nil {
+					// Whole-file ref (no fragment): resolve to primary value location.
+					if loc := locationFromTarget(normTarget, pv); loc != nil {
 						if logger != nil {
-							logger.Debug("definition: resolved via graph edge",
+							logger.Debug("definition: resolved whole-file ref via graph edge",
 								slog.String("trace_id", traceID),
 								slog.String("ref", ref),
 								slog.String("targetURI", targetURI))
