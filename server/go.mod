@@ -6,8 +6,8 @@ require (
 	github.com/LukasParke/gossip v0.1.9
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/sailpoint-oss/barometer v0.2.0
-	github.com/sailpoint-oss/barrelman v0.3.2-0.20260330134117-f7c1e3a14948
-	github.com/sailpoint-oss/navigator v0.5.0
+	github.com/sailpoint-oss/barrelman v0.4.0
+	github.com/sailpoint-oss/navigator v0.6.0
 	github.com/sailpoint-oss/tree-sitter-openapi v0.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/tree-sitter/go-tree-sitter v0.25.0
@@ -21,7 +21,6 @@ require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dprotaso/go-yit v0.0.0-20260209000607-dfb86291624d // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/oliveagle/jsonpath v0.1.4 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
@@ -32,7 +31,3 @@ require (
 )
 
 replace github.com/dprotaso/go-yit => github.com/dprotaso/go-yit v0.0.0-20191028211022-135eb7262960
-
-replace github.com/sailpoint-oss/navigator v0.5.0 => ../../navigator
-
-replace github.com/sailpoint-oss/barrelman v0.3.2-0.20260330134117-f7c1e3a14948 => ../../barrelman

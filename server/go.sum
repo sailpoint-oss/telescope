@@ -3,7 +3,6 @@ github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2
 github.com/LukasParke/gossip v0.1.9 h1:CSUjKvplsjL5hxrtbzusgd1UdHt98FcRhPEG89foj0I=
 github.com/LukasParke/gossip v0.1.9/go.mod h1:MACwjk5oN8wbEmb0KGbTobA/ggC5BplAHtdkdEr6CFM=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
-github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/danielgtaylor/huma/v2 v2.37.2 h1:Nf9vjy2sxBJFaupPlthXL/Hy2+LurfVbaKHmCMEI7xE=
 github.com/danielgtaylor/huma/v2 v2.37.2/go.mod h1:95S04G/lExFRYlBkKaBaZm9lVmxRmqX9f2CgoOZ11AM=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -46,10 +45,10 @@ github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/sailpoint-oss/barometer v0.2.0 h1:BhEYkZoISgQhkI6x3hdkLLQcN4f4SpQsJPWXEbW/NeM=
 github.com/sailpoint-oss/barometer v0.2.0/go.mod h1:zw24VKa1ONBC8Mij1cfyznM4gV6LSHgeupzBL0PIiwo=
-github.com/sailpoint-oss/barrelman v0.3.2-0.20260330134117-f7c1e3a14948 h1:nzdhwxsMQQjahvOdJDK45bOpXVg2rt0xuvZf2ScEjcU=
-github.com/sailpoint-oss/barrelman v0.3.2-0.20260330134117-f7c1e3a14948/go.mod h1:hxWyH/h8SVxezi0+VrqTd0ipNmF7x76Bg6zNGafv2Os=
-github.com/sailpoint-oss/navigator v0.5.0 h1:HeqUBvb5JA9uE5zAkF4ypJqvpK9w4qNHJwLOFkWe0l0=
-github.com/sailpoint-oss/navigator v0.5.0/go.mod h1:iVh7sjbrrUVMUvMbjWEqlHTzxnlm1VhdzXDxjmCPfok=
+github.com/sailpoint-oss/barrelman v0.4.0 h1:2bUSPnz+I4JHDq1c9yBJ2T4r2DjXbIyZbZ2Sq7LEuP0=
+github.com/sailpoint-oss/barrelman v0.4.0/go.mod h1:tvJp0BoeO/LTEeQHR5zy20bOa8+Uqfs3ZmKCZq/2tvU=
+github.com/sailpoint-oss/navigator v0.6.0 h1:cKniFbrCZFlJI7n2OsUaJ85XI89UJcnJUBIQJTvK84c=
+github.com/sailpoint-oss/navigator v0.6.0/go.mod h1:iVh7sjbrrUVMUvMbjWEqlHTzxnlm1VhdzXDxjmCPfok=
 github.com/sailpoint-oss/tree-sitter-openapi v0.1.0 h1:Vgv/dTfNrItDpK3p1A7yr33gdOzVf6Kfgqu5mQ/6Mjk=
 github.com/sailpoint-oss/tree-sitter-openapi v0.1.0/go.mod h1:cl6yh1ylyM6f20nIj1dHj+GxMvGt44zmfgHApacMNj0=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 h1:KRzFb2m7YtdldCEkzs6KqmJw4nqEVZGK7IN2kJkjTuQ=
