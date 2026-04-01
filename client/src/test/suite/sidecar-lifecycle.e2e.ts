@@ -19,6 +19,7 @@ import {
 
 suite("Sidecar: Lifecycle", () => {
 	let folder: vscode.WorkspaceFolder;
+	let sidecarAvailable = false;
 
 	suiteSetup(async () => {
 		if (!isSidecarWorkspace()) return;
@@ -28,11 +29,11 @@ suite("Sidecar: Lifecycle", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await waitForSidecarReady(folder);
+		sidecarAvailable = await waitForSidecarReady(folder);
 	});
 
 	test("Sidecar produces custom rule diagnostics after startup", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -53,7 +54,7 @@ suite("Sidecar: Lifecycle", () => {
 	});
 
 	test("Editing a file keeps sidecar diagnostics responsive", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,

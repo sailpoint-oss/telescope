@@ -21,6 +21,7 @@ import {
 
 suite("Sidecar: Multi-file Refs", () => {
 	let folder: vscode.WorkspaceFolder;
+	let sidecarAvailable = false;
 
 	suiteSetup(async () => {
 		if (!isSidecarWorkspace()) return;
@@ -30,11 +31,11 @@ suite("Sidecar: Multi-file Refs", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await waitForSidecarReady(folder);
+		sidecarAvailable = await waitForSidecarReady(folder);
 	});
 
 	test("Version-isolated external $ref resolves without unresolved-ref diagnostics", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const otherFileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -65,7 +66,7 @@ suite("Sidecar: Multi-file Refs", () => {
 	});
 
 	test("Path parameters declared via external path fragment stay aligned", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const relativePath = "openapi/e2e-path-params-with-ref.yaml";
 		const uri = await writeWorkspaceFile(

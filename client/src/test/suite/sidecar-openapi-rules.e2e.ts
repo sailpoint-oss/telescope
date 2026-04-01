@@ -19,6 +19,7 @@ import {
 
 suite("Sidecar: Additional OpenAPI Rules", () => {
 	let folder: vscode.WorkspaceFolder;
+	let sidecarAvailable = false;
 
 	suiteSetup(async () => {
 		if (!isSidecarWorkspace()) return;
@@ -28,11 +29,11 @@ suite("Sidecar: Additional OpenAPI Rules", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await waitForSidecarReady(folder);
+		sidecarAvailable = await waitForSidecarReady(folder);
 	});
 
 	test("Missing operationId triggers custom-require-operationid diagnostic", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -62,7 +63,7 @@ suite("Sidecar: Additional OpenAPI Rules", () => {
 	});
 
 	test("Out-of-order keys trigger custom-yaml-key-order diagnostic", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,

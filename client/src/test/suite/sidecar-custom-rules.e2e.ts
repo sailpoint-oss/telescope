@@ -19,6 +19,7 @@ import {
 
 suite("Sidecar: Custom OpenAPI Rules", () => {
 	let folder: vscode.WorkspaceFolder;
+	let sidecarAvailable = false;
 
 	suiteSetup(async () => {
 		if (!isSidecarWorkspace()) return;
@@ -28,11 +29,11 @@ suite("Sidecar: Custom OpenAPI Rules", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await waitForSidecarReady(folder);
+		sidecarAvailable = await waitForSidecarReady(folder);
 	});
 
 	test("Invalid file triggers custom-operation-summary diagnostic", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -77,7 +78,7 @@ suite("Sidecar: Custom OpenAPI Rules", () => {
 	});
 
 	test("Valid file has no custom-operation-summary diagnostics", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,

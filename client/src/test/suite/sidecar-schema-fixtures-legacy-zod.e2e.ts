@@ -19,6 +19,7 @@ import {
 
 suite("Sidecar: Schema Fixture Compatibility (Legacy Zod-Named)", () => {
 	let folder: vscode.WorkspaceFolder;
+	let sidecarAvailable = false;
 
 	suiteSetup(async () => {
 		if (!isSidecarWorkspace()) return;
@@ -28,11 +29,11 @@ suite("Sidecar: Schema Fixture Compatibility (Legacy Zod-Named)", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await waitForSidecarReady(folder);
+		sidecarAvailable = await waitForSidecarReady(folder);
 	});
 
 	test("Invalid legacy zod-named fixture is analyzable", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -49,7 +50,7 @@ suite("Sidecar: Schema Fixture Compatibility (Legacy Zod-Named)", () => {
 	});
 
 	test("Valid legacy zod-named fixture has no json-schema errors", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,

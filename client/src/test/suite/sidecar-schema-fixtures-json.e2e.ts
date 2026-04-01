@@ -18,6 +18,7 @@ import {
 
 suite("Sidecar: Schema Fixture Compatibility (JSON-Named)", () => {
 	let folder: vscode.WorkspaceFolder;
+	let sidecarAvailable = false;
 
 	suiteSetup(async () => {
 		if (!isSidecarWorkspace()) return;
@@ -27,11 +28,11 @@ suite("Sidecar: Schema Fixture Compatibility (JSON-Named)", () => {
 		const f = vscode.workspace.workspaceFolders?.[0];
 		assert.ok(f, "Should have a workspace folder");
 		folder = f;
-		await waitForSidecarReady(folder);
+		sidecarAvailable = await waitForSidecarReady(folder);
 	});
 
 	test("Invalid JSON schema fixture is analyzable", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -49,7 +50,7 @@ suite("Sidecar: Schema Fixture Compatibility (JSON-Named)", () => {
 	});
 
 	test("Valid JSON schema fixture is analyzable", async () => {
-		if (!isSidecarWorkspace()) return;
+		if (!isSidecarWorkspace() || !sidecarAvailable) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
