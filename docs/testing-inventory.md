@@ -18,14 +18,14 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Diagnostics (invalid spec, schema errors) | `integration_test.go`, rules | `diagnostics.e2e.ts` | Mix **A/B** |
 | Delta / file lifecycle | integration + graph | `delta-sync.e2e.ts`, `cross-file-diagnostics.e2e.ts` | **A** |
 | Definition / refs / links / format | `handler_test.go` | `definition-flow.e2e.ts`, `providers.e2e.ts` | Providers slimmed to **links + format** (defs/refs in definition-flow) |
-| Hover | handler + integration | `hover.e2e.ts` | **B** with integration; **A** for full host path |
+| Hover | handler + integration (`TestRichAPIFixture_HoverAndDefinition_UnixFileURI`, etc.) | `hover.e2e.ts` | **A** — host wiring only; detailed content in Go |
 | Completion | `handler_test.go` | `completion.e2e.ts` | **B** + **A** |
 | Rename | `handler_test.go` | `rename.e2e.ts` | **B** + **A** |
 | Code actions | `handler_test.go` | `code-actions.e2e.ts` | **B** + **A** |
 | Code lens | — | `code-lens.e2e.ts` | **A** |
 | Symbols | — | `symbols.e2e.ts` | **A** |
 | Folding | — | `folding.e2e.ts` | **A** |
-| Document highlight | — | `document-highlight.e2e.ts` | **A** |
+| Document highlight | `handler_test.go` (`TestRichAPIFixture_DocumentHighlight_UserSchema`, `TestDocumentHighlight_RefDirect`) | `document-highlight.e2e.ts` | **A** — host wiring; semantics in Go |
 | Semantic tokens | — | `semantic-tokens.e2e.ts` | **A** |
 | Inlay hints | — | `inlay-hints.e2e.ts` | **A** |
 | Language IDs / classifier | `client/test/classifier.test.ts`, `src/utils.ts` | `language-ids.e2e.ts` | **C** |
@@ -108,8 +108,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 | Test name | Tag |
 |-----------|-----|
-| Document highlight on $ref target highlights usages | A |
-| Document highlight on operationId highlights occurrences | A |
+| Document highlight on User schema includes definition (Write) and usages (Read) | A |
 
 ### `folding.e2e.ts`
 
@@ -122,12 +121,9 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 | Test name | Tag |
 |-----------|-----|
-| Hover on local $ref shows resolved schema with properties | B |
-| Hover on Pet schema shows deep owner ref preview | B |
-| Hover on cross-file $ref shows resolved schema content | B |
-| Hover on operationId shows operation details | B |
-| Hover on tag name shows tag info | B |
-| Hover on schema definition shows type and properties | B |
+| Hover on local $ref returns non-empty schema content (host wiring) | A |
+| Hover on cross-file $ref is well-behaved when graph resolves | A |
+| Hover returns empty or array at non-hoverable position | A |
 
 ### `inlay-hints.e2e.ts`
 

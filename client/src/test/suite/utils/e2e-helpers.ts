@@ -126,10 +126,17 @@ export async function waitForProviders(
 	uri: vscode.Uri,
 	options?: { timeoutMs?: number },
 ): Promise<void> {
-	// Windows CI hosts are often slower; code lenses are the last pipeline stage.
-	const timeoutMs =
-		options?.timeoutMs ?? (process.platform === "win32" ? 120000 : 90000);
-	const pollMs = process.platform === "win32" ? 1500 : 2000;
+	// Windows and macOS CI hosts are often slower than Linux; code lenses are the
+	// last pipeline stage and gate hover / document-highlight readiness.
+	const defaultTimeout =
+		process.platform === "win32" || process.platform === "darwin"
+			? 120000
+			: 90000;
+	const timeoutMs = options?.timeoutMs ?? defaultTimeout;
+	const pollMs =
+		process.platform === "win32" || process.platform === "darwin"
+			? 1500
+			: 2000;
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
 		const result = (await vscode.commands.executeCommand(
@@ -250,6 +257,56 @@ export async function executeWithRetry<T>(
 		await delay(delayMs);
 	}
 	return last as T;
+}
+
+/**
+ * Poll until hover provider returns a non-empty result at `pos`, or timeout.
+ * Call after {@link waitForDocumentAnalyzed} so the index is ready (macOS CI).
+ */
+export async function waitForNonEmptyHover(
+	uri: vscode.Uri,
+	pos: vscode.Position,
+	options?: { timeoutMs?: number; pollMs?: number },
+): Promise<vscode.Hover[]> {
+	const timeoutMs = options?.timeoutMs ?? 90000;
+	const pollMs = options?.pollMs ?? 500;
+	const start = Date.now();
+	let last: vscode.Hover[] | undefined;
+	while (Date.now() - start < timeoutMs) {
+		last = (await vscode.commands.executeCommand(
+			"vscode.executeHoverProvider",
+			uri,
+			pos,
+		)) as vscode.Hover[] | undefined;
+		if (Array.isArray(last) && last.length > 0) return last;
+		await delay(pollMs);
+	}
+	return Array.isArray(last) ? last : [];
+}
+
+/**
+ * Poll until document highlights satisfy `predicate`, or timeout.
+ */
+export async function waitForDocumentHighlights(
+	uri: vscode.Uri,
+	pos: vscode.Position,
+	predicate: (h: vscode.DocumentHighlight[]) => boolean,
+	options?: { timeoutMs?: number; pollMs?: number },
+): Promise<vscode.DocumentHighlight[]> {
+	const timeoutMs = options?.timeoutMs ?? 90000;
+	const pollMs = options?.pollMs ?? 400;
+	const start = Date.now();
+	let last: vscode.DocumentHighlight[] | undefined;
+	while (Date.now() - start < timeoutMs) {
+		last = (await vscode.commands.executeCommand(
+			"vscode.executeDocumentHighlights",
+			uri,
+			pos,
+		)) as vscode.DocumentHighlight[] | undefined;
+		if (Array.isArray(last) && predicate(last)) return last;
+		await delay(pollMs);
+	}
+	return Array.isArray(last) ? last : [];
 }
 
 export function isMultiRootWorkspace(): boolean {

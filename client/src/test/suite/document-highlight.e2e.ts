@@ -1,18 +1,22 @@
 /**
- * E2E Tests: Document highlight provider
+ * E2E Tests: Document highlight provider (VS Code host wiring)
+ *
+ * Core highlight semantics for refs are covered in `server/lsp/handler_test.go`
+ * (`TestDocumentHighlight_RefDirect`, `TestRichAPIFixture_DocumentHighlight_*`).
  */
 
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	executeWithRetry,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
-	waitForProviders,
+	waitForDocumentAnalyzed,
+	waitForDocumentHighlights,
 	waitForProjectInfo,
+	waitForProviders,
 } from "./utils/e2e-helpers";
 
 suite("Document Highlight", () => {
@@ -38,85 +42,30 @@ suite("Document Highlight", () => {
 		await waitForProviders(warmupUri);
 	});
 
-	test("Document highlight on $ref target highlights usages", async () => {
+	test("Document highlight on User schema includes definition (Write) and usages (Read)", async () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		const doc = await openAndShow(uri);
+		await waitForDocumentAnalyzed(uri);
 
-		await waitForDiagnostics(uri, (d) => d.length > 0, {
-			timeoutMs: 60000,
-		});
-
-		// Find the User schema definition in components
 		const text = doc.getText();
 		const userIdx = text.indexOf("    User:");
 		assert.ok(userIdx !== -1, "Fixture should contain User schema");
 		const pos = doc.positionAt(userIdx + "    Us".length);
 
-		const highlights = await executeWithRetry<vscode.DocumentHighlight[]>(
-			"vscode.executeDocumentHighlights",
-			[uri, pos],
-			(r) => Array.isArray(r) && r.length > 0,
+		const highlights = await waitForDocumentHighlights(
+			uri,
+			pos,
+			(h) =>
+				h.length > 0 &&
+				h.some((x) => x.kind === vscode.DocumentHighlightKind.Write) &&
+				h.some((x) => x.kind === vscode.DocumentHighlightKind.Read),
+			{ timeoutMs: 90000 },
 		);
 
 		assert.ok(
-			highlights && highlights.length > 0,
-			"Expected document highlights for User schema (definition + $ref usages)",
+			highlights.length >= 2,
+			`Expected definition + at least one usage highlight. Got: ${highlights.length}`,
 		);
-
-		// User schema has 4+ $ref usages in rich-api.yaml, plus the definition itself
-		assert.ok(
-			highlights.length >= 5,
-			`Expected >= 5 highlights (definition + 4+ $ref usages). Got: ${highlights.length}`,
-		);
-
-		// document_highlights.go: definition site has kind Write (3), usages have kind Read (2)
-		const writeHighlights = highlights.filter(
-			(h) => h.kind === vscode.DocumentHighlightKind.Write,
-		);
-		const readHighlights = highlights.filter(
-			(h) => h.kind === vscode.DocumentHighlightKind.Read,
-		);
-		assert.ok(
-			writeHighlights.length >= 1,
-			`Expected at least 1 Write highlight (definition). Got: ${writeHighlights.length}`,
-		);
-		assert.ok(
-			readHighlights.length >= 1,
-			`Expected at least 1 Read highlight ($ref usage). Got: ${readHighlights.length}`,
-		);
-	});
-
-	test("Document highlight on operationId highlights occurrences", async () => {
-		if (isMultiRootWorkspace()) return;
-		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
-		const doc = await openAndShow(uri);
-
-		await waitForDiagnostics(uri, (d) => d.length > 0, {
-			timeoutMs: 60000,
-		});
-
-		const text = doc.getText();
-		const opIdx = text.indexOf("operationId: listUsers");
-		assert.ok(opIdx !== -1, "Fixture should contain listUsers operationId");
-		const pos = doc.positionAt(opIdx + "operationId: list".length);
-
-		const highlights = await executeWithRetry<vscode.DocumentHighlight[]>(
-			"vscode.executeDocumentHighlights",
-			[uri, pos],
-			(r) => Array.isArray(r),
-		);
-
-		assert.ok(
-			Array.isArray(highlights),
-			"Document highlights provider should return an array",
-		);
-		// document_highlights.go: operationId highlights have kind Text (1)
-		if (highlights.length > 0) {
-			assert.ok(
-				highlights.some((h) => h.kind === vscode.DocumentHighlightKind.Text),
-				`Expected at least one Text highlight for operationId. Got kinds: ${highlights.map((h) => h.kind).join(", ")}`,
-			);
-		}
 	});
 });

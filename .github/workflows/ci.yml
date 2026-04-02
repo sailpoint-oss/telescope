@@ -17,6 +17,8 @@ permissions:
 # See https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Pinned VS Code for @vscode/test-electron; override to debug a specific release.
+  VSCODE_TEST_VERSION: "1.105.0"
 
 jobs:
   go:
@@ -163,7 +165,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Run client typecheck
         run: pnpm --filter ./client run typecheck
@@ -209,12 +211,12 @@ jobs:
           path: |
             ~/.vscode-test
             ${{ runner.temp }}/.vscode-test
-          key: vscode-test-${{ matrix.os }}-${{ hashFiles('client/package.json') }}
+          key: vscode-test-${{ matrix.os }}-${{ hashFiles('client/package.json', 'client/src/test/vscode-test-version.ts') }}
           restore-keys: |
             vscode-test-${{ matrix.os }}-
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build Bun runner
         run: bash server/lsp/bun/runner/build.sh
@@ -224,6 +226,12 @@ jobs:
       # (e.g. macOS document URI / path matching for formatting).
       - name: Build and compile E2E
         run: pnpm --filter ./client test:e2e:compile
+
+      - name: Record E2E VS Code pin
+        shell: bash
+        run: |
+          echo "### E2E VS Code" >> "$GITHUB_STEP_SUMMARY"
+          echo "- VSCODE_TEST_VERSION=${VSCODE_TEST_VERSION}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install xvfb (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -236,7 +244,6 @@ jobs:
         timeout-minutes: 15
         env:
           TELESCOPE_E2E_SMOKE: ""
-          TELESCOPE_E2E_RETRIES: "1"
         run: xvfb-run -a pnpm --filter ./client test:e2e:run:single
 
       - name: Run E2E tests multi-root (Linux)
@@ -244,7 +251,6 @@ jobs:
         timeout-minutes: 20
         env:
           TELESCOPE_E2E_SMOKE: ""
-          TELESCOPE_E2E_RETRIES: "1"
         run: xvfb-run -a pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E tests single-root (macOS/Windows)
@@ -253,7 +259,6 @@ jobs:
         shell: bash
         env:
           TELESCOPE_E2E_SMOKE: ""
-          TELESCOPE_E2E_RETRIES: "1"
         run: pnpm --filter ./client test:e2e:run:single
 
       - name: Run E2E tests multi-root (macOS/Windows)
@@ -262,7 +267,6 @@ jobs:
         shell: bash
         env:
           TELESCOPE_E2E_SMOKE: ""
-          TELESCOPE_E2E_RETRIES: "1"
         run: pnpm --filter ./client test:e2e:run:multi
 
       - name: Run E2E sidecar tests
@@ -271,7 +275,6 @@ jobs:
         shell: bash
         env:
           TELESCOPE_E2E_SMOKE: ""
-          TELESCOPE_E2E_RETRIES: "1"
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             xvfb-run -a pnpm --filter ./client test:e2e:run:sidecar
@@ -289,3 +292,13 @@ jobs:
             echo "- Single-root / multi-root E2E: see step results above (${{ job.status }})"
             echo "- Sidecar suite: ${{ steps.sidecar.conclusion }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload VS Code test host logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-test-logs-${{ matrix.os }}
+          path: |
+            ~/.vscode-test
+            ${{ runner.temp }}/.vscode-test
+          if-no-files-found: ignore

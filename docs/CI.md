@@ -1,5 +1,17 @@
 # Telescope CI (GitHub Actions)
 
+## Main extension + server CI (`ci.yml`)
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) is the **required** pipeline for this repo:
+
+- **Go** — build, vet, tests with race detector (Ubuntu, macOS, Windows).
+- **TypeScript** — client typecheck, build, Bun unit tests (Ubuntu).
+- **E2E** — full VS Code extension-host runs on **Ubuntu, macOS, and Windows** (single-root, multi-root, sidecar). VS Code is pinned via `VSCODE_TEST_VERSION` (see [`client/src/test/vscode-test-version.ts`](../client/src/test/vscode-test-version.ts)).
+
+Failed E2E jobs upload `~/.vscode-test` logs as artifacts when possible.
+
+Other workflows (benchmarks, release, `telescope.yml` preview) are documented below or in workflow files.
+
 The Go CLI can run in CI via the **same engine** that powers the LSP rule pipeline.
 
 ## This repository: live PR preview workflow

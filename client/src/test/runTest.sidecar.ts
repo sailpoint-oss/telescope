@@ -8,6 +8,7 @@
 
 import * as path from "node:path";
 import { runTests } from "@vscode/test-electron";
+import { VSCODE_TEST_VERSION } from "./vscode-test-version";
 
 async function main() {
 	try {
@@ -35,6 +36,9 @@ async function main() {
 			);
 		}
 
+		// eslint-disable-next-line no-console
+		console.log(`[e2e sidecar] Using VS Code test version: ${VSCODE_TEST_VERSION}`);
+
 		await runTests({
 			extensionDevelopmentPath,
 			extensionTestsPath,
@@ -50,8 +54,9 @@ async function main() {
 				TELESCOPE_E2E_TIMEOUT_MS: process.env.TELESCOPE_E2E_TIMEOUT_MS,
 				TELESCOPE_E2E_SMOKE: process.env.TELESCOPE_E2E_SMOKE,
 				TELESCOPE_E2E_RETRIES: process.env.TELESCOPE_E2E_RETRIES,
+				VSCODE_TEST_VERSION,
 			},
-			version: "stable",
+			version: VSCODE_TEST_VERSION,
 		});
 	} catch (err) {
 		console.error("Failed to run sidecar tests");

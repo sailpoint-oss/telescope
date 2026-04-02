@@ -842,6 +842,61 @@ func TestRichAPIFixture_HoverAndDefinition_UnixFileURI(t *testing.T) {
 	}
 }
 
+// RichAPI fixture: User schema component highlights include Write (definition) and Read (refs).
+func TestRichAPIFixture_DocumentHighlight_UserSchema(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixturePath := filepath.Join(filepath.Dir(thisFile), "..", "..", "client", "test-fixtures", "workspace-basic", "rich-api.yaml")
+	b, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", fixturePath, err)
+	}
+	content := string(b)
+
+	uri := protocol.DocumentURI("file:///workspace/rich-api.yaml")
+	env := setupTestEnv(t, uri, content)
+	doc := env.store.Get(uri)
+	if doc == nil {
+		t.Fatal("nil document")
+	}
+
+	userNeedle := "    User:"
+	off := strings.Index(content, userNeedle)
+	if off < 0 {
+		t.Fatal("fixture missing User schema definition line")
+	}
+	// Cursor on "User" component name (after "    Us")
+	pos := doc.PositionAt(off + len("    Us"))
+
+	h := lsp.NewDocumentHighlightHandler(env.cache, nil)
+	result, err := h(env.ctx, &protocol.DocumentHighlightParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("document highlight: %v", err)
+	}
+	if len(result) < 2 {
+		t.Fatalf("expected definition + usages, got %d highlights", len(result))
+	}
+	var writes, reads int
+	for _, x := range result {
+		if x.Kind == 3 { // highlightWrite
+			writes++
+		}
+		if x.Kind == 2 { // highlightRead
+			reads++
+		}
+	}
+	if writes < 1 || reads < 1 {
+		t.Fatalf("expected at least one Write and one Read highlight, got writes=%d reads=%d", writes, reads)
+	}
+}
+
 func TestNilIndex(t *testing.T) {
 	store := document.NewStore()
 	cache := openapi.NewIndexCache()
