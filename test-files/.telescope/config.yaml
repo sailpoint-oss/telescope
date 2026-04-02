@@ -18,6 +18,7 @@ openapi:
   rules:
     - rule: example-custom-openapi-rule.ts
     - rule: require-operationid.ts
+    - rule: path-trailing-slash.ts
 
 # Additional validation for non-OpenAPI files
 additionalValidation:
