@@ -235,7 +235,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         timeout-minutes: 15
         env:
-          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_SMOKE: ""
           TELESCOPE_E2E_RETRIES: "1"
         run: xvfb-run -a pnpm --filter ./client test:e2e:run:single
 
@@ -243,7 +243,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         timeout-minutes: 20
         env:
-          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_SMOKE: ""
           TELESCOPE_E2E_RETRIES: "1"
         run: xvfb-run -a pnpm --filter ./client test:e2e:run:multi
 
@@ -252,7 +252,7 @@ jobs:
         timeout-minutes: 15
         shell: bash
         env:
-          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_SMOKE: ""
           TELESCOPE_E2E_RETRIES: "1"
         run: pnpm --filter ./client test:e2e:run:single
 
@@ -261,7 +261,7 @@ jobs:
         timeout-minutes: 20
         shell: bash
         env:
-          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_SMOKE: ""
           TELESCOPE_E2E_RETRIES: "1"
         run: pnpm --filter ./client test:e2e:run:multi
 
@@ -270,7 +270,7 @@ jobs:
         timeout-minutes: 15
         shell: bash
         env:
-          TELESCOPE_E2E_SMOKE: ${{ github.event_name == 'pull_request' && '1' || '' }}
+          TELESCOPE_E2E_SMOKE: ""
           TELESCOPE_E2E_RETRIES: "1"
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
