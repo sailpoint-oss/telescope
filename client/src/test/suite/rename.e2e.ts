@@ -6,7 +6,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	executeWithRetry,
+	executeRenameWithRetry,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
@@ -68,7 +68,12 @@ suite("Rename", () => {
 		await vscode.workspace.fs.writeFile(tmpUri, Buffer.from(content, "utf-8"));
 
 		try {
+			const api = getTestApi();
 			const doc = await openAndShow(tmpUri);
+			await waitForProjectInfo(api, (i) => i.workspacePath !== null, {
+				timeoutMs: 60000,
+				uri: tmpUri,
+			});
 			await waitForDocumentAnalyzed(tmpUri, { skipDiagnostics: true });
 
 			// Position on the "Users" tag name in the tags definition
@@ -79,10 +84,11 @@ suite("Rename", () => {
 
 			let edit: vscode.WorkspaceEdit | undefined;
 			try {
-				edit = await executeWithRetry<vscode.WorkspaceEdit | undefined>(
-					"vscode.executeDocumentRenameProvider",
-					[tmpUri, pos, "People"],
-					(r) => r !== undefined && r !== null,
+				edit = await executeRenameWithRetry(
+					tmpUri,
+					pos,
+					"People",
+					{ maxAttempts: 25, delayMs: 1000 },
 				);
 			} catch (err) {
 				const msg = String(err);
@@ -93,7 +99,41 @@ suite("Rename", () => {
 
 			if (edit) {
 				const entries = edit.entries();
-				assert.ok(entries.length > 0, "Expected workspace edit to have entries");
+				const docEntry = entries.find(([uri]) => uri.toString() === tmpUri.toString());
+				assert.ok(docEntry, "Expected rename workspace edit to touch the temp document");
+				const docEdits = docEntry?.[1] ?? [];
+				assert.ok(
+					docEdits.length >= 2,
+					`Expected at least definition + usage rename edits, got ${docEdits.length}`,
+				);
+				assert.ok(
+					docEdits.every((textEdit) => textEdit.newText === "People"),
+					"All rename edits should use the requested new tag name",
+				);
+
+				const updatedText = [...docEdits]
+					.sort((a, b) => {
+						const lineDelta = b.range.start.line - a.range.start.line;
+						if (lineDelta !== 0) return lineDelta;
+						return b.range.start.character - a.range.start.character;
+					})
+					.reduce((currentText, textEdit) => {
+						const start = doc.offsetAt(textEdit.range.start);
+						const end = doc.offsetAt(textEdit.range.end);
+						return (
+							currentText.slice(0, start) +
+							textEdit.newText +
+							currentText.slice(end)
+						);
+					}, text);
+				assert.ok(
+					updatedText.includes("- name: People"),
+					"Rename edit should update the root tag definition text",
+				);
+				assert.ok(
+					updatedText.includes("        - People"),
+					"Rename edit should update the operation tag usage text",
+				);
 			}
 		} finally {
 			await vscode.commands.executeCommand("workbench.action.files.revert");
@@ -193,11 +233,11 @@ suite("Rename", () => {
 
 			let edit: vscode.WorkspaceEdit | undefined;
 			try {
-				edit = await executeWithRetry<vscode.WorkspaceEdit | undefined>(
-					"vscode.executeDocumentRenameProvider",
-					[compUri, pos, "AccountUser"],
-					(r) => r !== undefined,
-					{ maxAttempts: 20 },
+				edit = await executeRenameWithRetry(
+					compUri,
+					pos,
+					"AccountUser",
+					{ maxAttempts: 25, delayMs: 1000 },
 				);
 			} catch (err) {
 				const msg = String(err);

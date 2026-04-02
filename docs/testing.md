@@ -95,7 +95,7 @@ Coverage contract:
 - **Manifest-driven suite selection:** `client/e2e-suites.json` owns smoke/full file selection, workspaces, and timeouts for single-root, multi-root, and sidecar modes.
 - **Multi-root stays focused:** keep one strong journey that proves folder/session routing with duplicate cross-file layouts across workspace folders; do not duplicate the full single-root provider matrix in multi-root mode.
 - **Sidecar availability is explicit:** sidecar suites call `ensureSidecarWorkspaceReady({ skipSuiteIfUnavailable: this })` during `suiteSetup`. If the Bun sidecar never becomes ready, the suite is marked skipped/pending instead of passing via per-test early returns.
-- **Sidecar tolerance:** lifecycle tests still catch re-analysis timeouts gracefully and use probe files as fallback assertions once the sidecar is confirmed available.
+- **Sidecar lifecycle uses sidecar-native health:** lifecycle tests now query `__telescopeTest.requestSidecarInfo()` to wait for the Bun sidecar itself to stay available after an edit, then reopen the canonical missing-summary probe and verify its custom diagnostic still publishes. They do not treat same-document custom diagnostic re-publish timing as the source of truth.
 - **Deterministic cache path:** All test runners set an explicit `cachePath` so VS Code downloads always land in `client/.vscode-test/`, matching CI cache and artifact upload paths.
 - **Optional config-driven runner:** `client/.vscode-test.mjs` provides labeled `@vscode/test-cli` configs for smoke/full single-root, multi-root, and sidecar runs without replacing the existing `runTest*.ts` entrypoints yet.
 

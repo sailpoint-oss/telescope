@@ -22,6 +22,9 @@ export interface TelescopeTestApi {
 		uri: vscode.Uri,
 		pos: vscode.Position,
 	) => Promise<(vscode.Location | vscode.LocationLink)[] | null>;
+	requestSidecarInfo?: (
+		uri?: vscode.Uri,
+	) => Promise<{ configured: boolean; available: boolean } | null>;
 }
 
 let singleRootReadyPromise:
@@ -100,6 +103,31 @@ export async function waitForServerDocumentSymbols(
 	throw new Error(
 		`Timeout waiting for server document symbols after ${timeoutMs}ms ` +
 			`(uri=${uri.toString()})`,
+	);
+}
+
+export async function waitForSidecarAvailable(
+	uri?: vscode.Uri,
+	options?: { timeoutMs?: number; pollMs?: number },
+): Promise<{ configured: boolean; available: boolean }> {
+	const api = getTestApi();
+	if (!api.requestSidecarInfo) {
+		throw new Error("Test API does not expose requestSidecarInfo");
+	}
+	const timeoutMs = options?.timeoutMs ?? 120000;
+	const pollMs = options?.pollMs ?? 1000;
+	const start = Date.now();
+	let lastInfo: { configured: boolean; available: boolean } | null = null;
+	while (Date.now() - start < timeoutMs) {
+		lastInfo = await api.requestSidecarInfo(uri);
+		if (lastInfo?.configured && lastInfo.available) {
+			return lastInfo;
+		}
+		await delay(pollMs);
+	}
+	throw new Error(
+		`Timeout waiting for sidecar availability after ${timeoutMs}ms ` +
+			`(uri=${uri?.toString() ?? "workspace"}, lastInfo=${JSON.stringify(lastInfo)})`,
 	);
 }
 
@@ -310,6 +338,62 @@ export async function executeWithRetry<T>(
 		await delay(delayMs);
 	}
 	return last as T;
+}
+
+/**
+ * Rename providers sometimes transiently throw "No result." before the host has
+ * fully settled on freshly created temp documents. Treat that specific shape as
+ * retryable, but surface real rename errors immediately.
+ */
+export async function executeRenameWithRetry(
+	uri: vscode.Uri,
+	pos: vscode.Position,
+	newName: string,
+	options?: { maxAttempts?: number; delayMs?: number },
+): Promise<vscode.WorkspaceEdit | undefined> {
+	const maxAttempts = options?.maxAttempts ?? 20;
+	const delayMs = options?.delayMs ?? 1000;
+	let lastResult: vscode.WorkspaceEdit | undefined;
+	let lastRetryableError: unknown;
+
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		try {
+			lastResult = (await vscode.commands.executeCommand(
+				"vscode.executeDocumentRenameProvider",
+				uri,
+				pos,
+				newName,
+			)) as vscode.WorkspaceEdit | undefined;
+			if (lastResult !== undefined && lastResult !== null) {
+				return lastResult;
+			}
+		} catch (error) {
+			const msg = String(error);
+			if (!msg.includes("No result.")) {
+				throw error;
+			}
+			lastRetryableError = error;
+		}
+		await delay(delayMs);
+	}
+
+	if (lastRetryableError) {
+		throw lastRetryableError;
+	}
+	return lastResult;
+}
+
+export async function waitForDiagnosticCodeState(
+	uri: vscode.Uri,
+	code: string,
+	present: boolean,
+	options?: { timeoutMs?: number },
+): Promise<vscode.Diagnostic[]> {
+	return await waitForDiagnostics(
+		uri,
+		(diags) => diags.some((diag) => diagCode(diag) === code) === present,
+		options,
+	);
 }
 
 /**

@@ -191,6 +191,12 @@ export async function activate(context: ExtensionContext) {
 				await fail();
 				return null; // unreachable; fail() always throws
 			},
+			async requestSidecarInfo(
+				_uri?: vscode.Uri,
+			): Promise<{ configured: boolean; available: boolean } | null> {
+				await fail();
+				return null; // unreachable; fail() always throws
+			},
 		};
 	};
 
@@ -1288,6 +1294,35 @@ export async function activate(context: ExtensionContext) {
 						  >
 						| null,
 				);
+			},
+
+			/**
+			 * E2E-only: query whether the Bun sidecar is configured and currently
+			 * available for the session that owns `uri`.
+			 */
+			async requestSidecarInfo(
+				uri?: vscode.Uri,
+			): Promise<{ configured: boolean; available: boolean } | null> {
+				if (!sessionManager) {
+					return null;
+				}
+				const targetUri = uri || workspace.workspaceFolders?.[0]?.uri;
+				if (!targetUri) {
+					return null;
+				}
+				const textDoc = await workspace.openTextDocument(targetUri);
+				const session = sessionManager.getSessionForUri(textDoc.uri);
+				if (!session) {
+					return null;
+				}
+				const client = session.getClient();
+				if (!client) {
+					return null;
+				}
+				return (await client.sendRequest("$/telescope/sidecarInfo", {})) as {
+					configured: boolean;
+					available: boolean;
+				} | null;
 			},
 
 			/**

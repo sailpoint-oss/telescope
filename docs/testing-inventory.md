@@ -206,7 +206,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Test name | Tag |
 |-----------|-----|
 | Sidecar produces custom rule diagnostics after startup | A |
-| Editing a file keeps sidecar diagnostics responsive | A |
+| Editing a file keeps sidecar diagnostics responsive | A - edit/save a normal fixture, confirm sidecar health via test API, then reopen the canonical missing-summary probe and expect the custom rule diagnostic |
 
 ### `sidecar-multi-file-refs.e2e.ts`
 

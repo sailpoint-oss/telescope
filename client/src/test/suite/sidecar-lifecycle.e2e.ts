@@ -9,10 +9,12 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	diagCode,
+	ensureWorkspaceTextDocumentMatches,
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
-	waitForDiagnostics,
+	waitForSidecarAvailable,
+	waitForDiagnosticCodeState,
 } from "./utils/e2e-helpers";
 
 suite("Sidecar: Lifecycle", () => {
@@ -39,14 +41,15 @@ suite("Sidecar: Lifecycle", () => {
 		// Re-checking here may race with recomputeOpenDiagnostics clearing/resetting
 		// diagnostics. Allow timeout gracefully.
 		try {
-			const diagnostics = await waitForDiagnostics(
+			const diagnostics = await waitForDiagnosticCodeState(
 				fileUri,
-				(d) => d.some((diag) => diagCode(diag) === "custom-operation-summary"),
+				"custom-operation-summary",
+				true,
 				{ timeoutMs: 60000 },
 			);
 
 			assert.ok(
-				diagnostics.some((d) => diagCode(d) === "custom-operation-summary"),
+				diagnostics.some((diag) => diagCode(diag) === "custom-operation-summary"),
 				"Sidecar should be running and producing custom rule diagnostics",
 			);
 		} catch {
@@ -58,79 +61,72 @@ suite("Sidecar: Lifecycle", () => {
 	test("Editing a file keeps sidecar diagnostics responsive", async () => {
 		if (!isSidecarWorkspace()) return;
 
-		const fileUri = vscode.Uri.joinPath(
+		const editedUri = vscode.Uri.joinPath(
 			folder.uri,
 			"openapi/custom-openapi-valid.yaml",
 		);
-		const doc = await openAndShow(fileUri);
-		const originalText = doc.getText();
-
-		// Ensure the fixture starts from a known baseline in case a prior failed
-		// run left local buffer edits behind.
-		await vscode.workspace.fs.writeFile(
-			fileUri,
-			Buffer.from(originalText, "utf-8"),
-		);
-
-		// Wait for diagnostics to settle — the valid file should eventually have zero
-		// custom-operation-summary diagnostics. The sidecar may produce stale results
-		// after recomputeOpenDiagnostics triggers a re-analysis cycle; allow timeout.
-		try {
-			await waitForDiagnostics(
-				fileUri,
-				(d) => !d.some((diag) => diagCode(diag) === "custom-operation-summary"),
-				{ timeoutMs: 30000 },
-			);
-		} catch {
-			// Sidecar eventually-consistent timing on CI — proceed with test.
-		}
-
-		const mutatedText = doc
-			.getText()
-			.replace(/^\s*summary:.*$/gm, "");
-		await vscode.workspace.fs.writeFile(fileUri, Buffer.from(mutatedText, "utf-8"));
-
-		// Primary assertion: the edited document should eventually surface the
-		// custom summary diagnostic. Sidecar re-analysis after file edits is
-		// eventually consistent — allow timeout and fall through to probe check.
-		let sawEditedDocDiagnostic = false;
-		try {
-			const afterDiags = await waitForDiagnostics(
-				fileUri,
-				(d) => d.some((diag) => diagCode(diag) === "custom-operation-summary"),
-				{ timeoutMs: 30000 },
-			);
-			sawEditedDocDiagnostic = afterDiags.some(
-				(diag) => diagCode(diag) === "custom-operation-summary",
-			);
-		} catch {
-			// Sidecar re-analysis timing is unpredictable in CI.
-		}
-
-		await vscode.workspace.fs.writeFile(fileUri, Buffer.from(originalText, "utf-8"));
-
 		const probeUri = vscode.Uri.joinPath(
 			folder.uri,
 			"openapi/test-missing-summary.yaml",
 		);
-		await openAndShow(probeUri);
-		let probeSawCustomDiag = false;
+		const originalDoc = await openAndShow(editedUri);
+		const originalText = originalDoc.getText();
+		const editedText = `${originalText}\n# lifecycle sidecar ping\n`;
+
 		try {
-			const probeDiags = await waitForDiagnostics(
+			const editedDoc = await ensureWorkspaceTextDocumentMatches(
+				editedUri,
+				editedText,
+			);
+			await editedDoc.save();
+			const editedSidecar = await waitForSidecarAvailable(editedUri, {
+				timeoutMs: 120000,
+			});
+			assert.ok(
+				editedSidecar.available,
+				"Sidecar should remain available after saving an edited fixture",
+			);
+
+			await openAndShow(probeUri);
+			const probeDiagsAfterEdit = await waitForDiagnosticCodeState(
 				probeUri,
-				(d) => d.some((diag) => diagCode(diag) === "custom-operation-summary"),
+				"custom-operation-summary",
+				true,
 				{ timeoutMs: 120000 },
 			);
-			probeSawCustomDiag = probeDiags.some(
-				(diag) => diagCode(diag) === "custom-operation-summary",
+			assert.ok(
+				probeDiagsAfterEdit.some(
+					(diag) => diagCode(diag) === "custom-operation-summary",
+				),
+				"Canonical missing-summary probe should still report the custom summary diagnostic after another file is edited",
 			);
-		} catch {
-			// Sidecar may need longer to re-publish after the edit cycle above.
+
+			const restoredDoc = await ensureWorkspaceTextDocumentMatches(
+				editedUri,
+				originalText,
+			);
+			await restoredDoc.save();
+			const restoredSidecar = await waitForSidecarAvailable(editedUri, {
+				timeoutMs: 120000,
+			});
+			assert.ok(
+				restoredSidecar.available,
+				"Sidecar should still be available after restoring the edited fixture",
+			);
+		} finally {
+			try {
+				await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+			} catch {
+				// best effort
+			}
+			try {
+				await vscode.workspace.fs.writeFile(
+					editedUri,
+					Buffer.from(originalText, "utf-8"),
+				);
+			} catch {
+				// best effort
+			}
 		}
-		assert.ok(
-			sawEditedDocDiagnostic || probeSawCustomDiag,
-			"After editing, sidecar diagnostics should still be responsive " +
-				"(neither edited doc nor probe file produced custom-operation-summary)",
-		);
 	});
 });

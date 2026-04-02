@@ -461,6 +461,12 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		perf := rulePerfTracker.Collect()
 		return perf, nil
 	})
+	s.HandleRequest("$/telescope/sidecarInfo", func(ctx *gossip.Context, _ json.RawMessage) (any, error) {
+		return map[string]any{
+			"configured": cfg.NeedsBunSidecar(),
+			"available":  bunMgr != nil && bunMgr.Available(),
+		}, nil
+	})
 
 	cleanup := func() {
 		bgCancel()
