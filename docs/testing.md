@@ -7,7 +7,7 @@ This repo uses a **test pyramid**: most behavior is proven in **Go** (language s
 | Change | Add tests in |
 |--------|----------------|
 | New or changed **LSP behavior** (diagnostics, completion, rename, format, hover content, etc.) | `server/lsp/` — prefer `handler_test.go` and `integration_test.go` first. |
-| **Sidecar / custom rules / Bun runner** | `server/lsp/bun/` and related integration tests. |
+| **Sidecar / custom rules / Bun runner** | `server/lsp/bun/`, `server/lsp/bun/runner/src/*.test.ts`, and related integration tests. |
 | **Editor-only** behavior (language IDs, workspace scanning, session wiring) | Bun tests under `client/test/` when logic is pure; otherwise E2E. |
 | **End-to-end** | Keep **wiring** coverage: activation, client↔server, one journey per major area. Do not duplicate everything Go already asserts. |
 
@@ -15,11 +15,11 @@ Full mapping of features, Go tests, and E2E cases (including A/B/C tags) lives i
 
 ## CI (required checks)
 
-The [`CI` workflow](.github/workflows/ci.yml) runs on every push/PR to `main`:
+The [`CI` workflow](.github/workflows/ci.yml) runs on every push/PR to `main`. If branch protection is enabled, require the `E2E` check so the sidecar suite stays mandatory on every PR:
 
 - **Go** — `go test -race` on Ubuntu, macOS, and Windows.
 - **Go coverage** — CI reports both `core_coverage` (Tier A packages) and `repo_coverage`. The finish-line gate is `core_coverage >= 90.0%`; both metrics also have ratchet floors that must not regress.
-- **TypeScript** — client typecheck, build, and Bun unit tests (Ubuntu).
+- **TypeScript** — client typecheck, build, Bun unit tests, and Bun sidecar runner tests (Ubuntu).
 - **E2E** — full VS Code extension-host suite on **Ubuntu, macOS, and Windows** (single-root, multi-root, sidecar). No smoke subset on PRs: the matrix is the source of truth for host wiring.
 
 VS Code used by `@vscode/test-electron` is **pinned** via `VSCODE_TEST_VERSION` (default in [`client/src/test/vscode-test-version.ts`](../client/src/test/vscode-test-version.ts)); CI sets the same env in the workflow. Bump alongside `engines.vscode` in `client/package.json` when you intentionally move the minimum editor.
@@ -39,6 +39,12 @@ go test -race ./...
 
 ```bash
 pnpm --filter ./client test
+```
+
+### Bun sidecar runner tests
+
+```bash
+pnpm --filter ./server/lsp/bun/runner test
 ```
 
 ### VS Code E2E
@@ -95,7 +101,7 @@ Coverage contract:
 - **Manifest-driven suite selection:** `client/e2e-suites.json` owns smoke/full file selection, workspaces, and timeouts for single-root, multi-root, and sidecar modes.
 - **Multi-root stays focused:** keep one strong journey that proves folder/session routing with duplicate cross-file layouts across workspace folders; do not duplicate the full single-root provider matrix in multi-root mode.
 - **Sidecar availability is explicit:** sidecar suites call `ensureSidecarWorkspaceReady({ skipSuiteIfUnavailable: this })` during `suiteSetup`. If the Bun sidecar never becomes ready, the suite is marked skipped/pending instead of passing via per-test early returns.
-- **Sidecar lifecycle uses sidecar-native health:** lifecycle tests now query `__telescopeTest.requestSidecarInfo()` to wait for the Bun sidecar itself to stay available after an edit, then reopen the canonical missing-summary probe and verify its custom diagnostic still publishes. They do not treat same-document custom diagnostic re-publish timing as the source of truth.
+- **Sidecar lifecycle uses sidecar-native health:** lifecycle tests assert one startup diagnostic witness on the canonical probe file, then prove the Bun sidecar stays available after editing and restoring another fixture via `__telescopeTest.requestSidecarInfo()`. They do not rely on cross-file diagnostic re-publish timing as the source of truth.
 - **Deterministic cache path:** All test runners set an explicit `cachePath` so VS Code downloads always land in `client/.vscode-test/`, matching CI cache and artifact upload paths.
 - **Optional config-driven runner:** `client/.vscode-test.mjs` provides labeled `@vscode/test-cli` configs for smoke/full single-root, multi-root, and sidecar runs without replacing the existing `runTest*.ts` entrypoints yet.
 

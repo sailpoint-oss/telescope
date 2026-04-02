@@ -5,6 +5,7 @@ type MessageType string
 
 const (
 	MsgLoadRules                            MessageType = "loadRules"
+	MsgLoadResponse                         MessageType = "loadResponse"
 	MsgRunRules                             MessageType = "runRules"
 	MsgRuleResult                           MessageType = "ruleResult"
 	MsgRuleError                            MessageType = "ruleError"

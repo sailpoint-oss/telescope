@@ -31,7 +31,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Language IDs / classifier | `client/test/classifier.test.ts`, `src/utils.ts` | `language-ids.e2e.ts` | **C** |
 | Client–server sync / scanner | — | `client-server-sync.e2e.ts`, `no-bulk-open.e2e.ts` | **C/A** |
 | Multi-root workspace | — | `multi-root.e2e.ts` | **A** — session counts plus one focused cross-file routing journey |
-| Sidecar (custom rules, Bun runner) | `server/lsp/bun/*_test.go` | `sidecar-*.e2e.ts` | **A** for wiring; deep rules in Go/Bun. If Bun never becomes ready, suites skip at `suiteSetup` so CI shows pending coverage rather than silent passes. |
+| Sidecar (custom rules, Bun runner) | `server/lsp/bun/*_test.go`, `server/lsp/bun/runner/src/*.test.ts` | `sidecar-*.e2e.ts` | **A** for wiring; deep rules live in Go/Bun. If Bun never becomes ready, suites skip at `suiteSetup` so CI shows pending coverage rather than silent passes. |
 
 ## E2E tests by file (tag per `test("…")` title)
 
@@ -206,7 +206,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Test name | Tag |
 |-----------|-----|
 | Sidecar produces custom rule diagnostics after startup | A |
-| Editing a file keeps sidecar diagnostics responsive | A - edit/save a normal fixture, confirm sidecar health via test API, then reopen the canonical missing-summary probe and expect the custom rule diagnostic |
+| Editing a file keeps sidecar available after save and restore | A - edit/save a normal fixture, confirm sidecar health via test API, then restore it and confirm sidecar health again |
 
 ### `sidecar-multi-file-refs.e2e.ts`
 

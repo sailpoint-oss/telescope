@@ -376,6 +376,9 @@ func (m *Manager) RunRules(ctx context.Context, req *RunRulesRequest) (*RunRules
 	if resp == nil {
 		return nil, fmt.Errorf("runRules: empty response")
 	}
+	if resp.Type != MsgRuleResult {
+		return nil, fmt.Errorf("runRules: unexpected response type %q", resp.Type)
+	}
 
 	payloadBytes, err := json.Marshal(resp.Payload)
 	if err != nil {
@@ -407,6 +410,9 @@ func (m *Manager) RunSpectral(ctx context.Context, req *RunSpectralRequest) (*Ru
 	}
 	if resp == nil {
 		return nil, fmt.Errorf("runSpectral: empty response")
+	}
+	if resp.Type != MsgSpectralResult {
+		return nil, fmt.Errorf("runSpectral: unexpected response type %q", resp.Type)
 	}
 
 	payloadBytes, err := json.Marshal(resp.Payload)
@@ -446,6 +452,9 @@ func (m *Manager) LoadRules(ctx context.Context, req *LoadRulesRequest) error {
 
 	if resp.Type == MsgRuleError {
 		return fmt.Errorf("rule load error: %v", resp.Payload)
+	}
+	if resp.Type != MsgLoadResponse {
+		return fmt.Errorf("loadRules: unexpected response type %q", resp.Type)
 	}
 
 	return nil

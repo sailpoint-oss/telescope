@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "@stoplight/spectral-core": "^1.21.0",
     "@stoplight/spectral-parsers": "^1.0.5",

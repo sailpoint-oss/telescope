@@ -205,6 +205,9 @@ jobs:
       - name: Run client unit tests
         run: pnpm --filter ./client run test
 
+      - name: Run Bun sidecar runner tests
+        run: pnpm --filter ./server/lsp/bun/runner run test
+
   e2e:
     name: E2E (${{ matrix.os }})
     needs: [go, typescript]

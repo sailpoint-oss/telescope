@@ -92,31 +92,22 @@ suite("Sidecar: Additional OpenAPI Rules", () => {
 		);
 		await openAndShow(fileUri);
 
-		try {
-			const diagnostics = await waitForDiagnostics(
-				fileUri,
-				(d) => d.some((diag) => diagCode(diag) === "custom-trailing-slash"),
-				{ timeoutMs: 120000 },
-			);
+		const diagnostics = await waitForDiagnostics(
+			fileUri,
+			(d) => d.some((diag) => diagCode(diag) === "custom-trailing-slash"),
+			{ timeoutMs: 120000 },
+		);
 
-			const trailingSlashDiags = diagnostics.filter(
-				(d) => diagCode(d) === "custom-trailing-slash",
-			);
-			assert.ok(
-				trailingSlashDiags.length > 0,
-				`PathItem visitor should produce custom-trailing-slash diagnostics. Got codes: ${diagnostics.map((d) => diagCode(d)).join(", ")}`,
-			);
-			// Verify the message includes the path
-			assert.ok(
-				trailingSlashDiags.some((d) =>
-					d.message.includes("trailing slash"),
-				),
-				`Diagnostic message should mention trailing slash. Got: ${trailingSlashDiags.map((d) => d.message).join("; ")}`,
-			);
-		} catch {
-			// Sidecar timing — the PathItem visitor may not have processed yet.
-			// The rule is registered and the visitor is supported; this is a
-			// timing tolerance for CI.
-		}
+		const trailingSlashDiags = diagnostics.filter(
+			(d) => diagCode(d) === "custom-trailing-slash",
+		);
+		assert.ok(
+			trailingSlashDiags.length > 0,
+			`PathItem visitor should produce custom-trailing-slash diagnostics. Got codes: ${diagnostics.map((d) => diagCode(d)).join(", ")}`,
+		);
+		assert.ok(
+			trailingSlashDiags.some((d) => d.message.includes("trailing slash")),
+			`Diagnostic message should mention trailing slash. Got: ${trailingSlashDiags.map((d) => d.message).join("; ")}`,
+		);
 	});
 });
