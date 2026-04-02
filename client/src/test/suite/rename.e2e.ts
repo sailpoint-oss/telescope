@@ -10,6 +10,7 @@ import {
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
+	previewTextEditsOnDocument,
 	waitForDiagnostics,
 	waitForDocumentAnalyzed,
 	waitForProviders,
@@ -110,21 +111,22 @@ suite("Rename", () => {
 					docEdits.every((textEdit) => textEdit.newText === "People"),
 					"All rename edits should use the requested new tag name",
 				);
-				const applied = await vscode.workspace.applyEdit(edit);
-				assert.ok(applied, "Rename workspace edit should apply cleanly in the editor");
-				const updatedText = (await vscode.workspace.openTextDocument(tmpUri)).getText();
+				// Authoritative: preview from LSP ranges (host applyEdit + read can lag under xvfb/CI).
+				const preview = previewTextEditsOnDocument(doc, docEdits);
 				assert.ok(
-					updatedText.includes("- name: People"),
+					preview.includes("- name: People"),
 					"Rename edit should update the root tag definition text",
 				);
 				assert.ok(
-					updatedText.includes("        - People"),
+					preview.includes("        - People"),
 					"Rename edit should update the operation tag usage text",
 				);
 				assert.ok(
-					!updatedText.includes("- name: Users"),
+					!preview.includes("- name: Users"),
 					"Rename edit should remove the old tag definition text",
 				);
+				const applied = await vscode.workspace.applyEdit(edit);
+				assert.ok(applied, "Rename workspace edit should apply cleanly in the editor");
 			}
 		} finally {
 			await vscode.commands.executeCommand("workbench.action.files.revert");

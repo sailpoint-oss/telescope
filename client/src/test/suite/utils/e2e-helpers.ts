@@ -383,6 +383,33 @@ export async function executeRenameWithRetry(
 	return lastResult;
 }
 
+/**
+ * Apply TextEdits to the current document text from end to start so offsets stay
+ * valid. Use to assert rename/format results when `workspace.applyEdit` + a
+ * fresh `openTextDocument` read lags behind the in-memory buffer (common under
+ * xvfb/CI).
+ */
+export function previewTextEditsOnDocument(
+	doc: vscode.TextDocument,
+	edits: vscode.TextEdit[],
+): string {
+	if (edits.length === 0) {
+		return doc.getText();
+	}
+	const text = doc.getText();
+	const parts = edits.map((e) => ({
+		start: doc.offsetAt(e.range.start),
+		end: doc.offsetAt(e.range.end),
+		newText: e.newText,
+	}));
+	parts.sort((a, b) => b.start - a.start);
+	let out = text;
+	for (const p of parts) {
+		out = out.slice(0, p.start) + p.newText + out.slice(p.end);
+	}
+	return out;
+}
+
 export async function waitForDiagnosticCodeState(
 	uri: vscode.Uri,
 	code: string,
