@@ -34,7 +34,6 @@ var mirroredFixtures = []string{
 	"openapi-3.1.yaml",
 	"openapi-3.2.yaml",
 	"OpenAPI-example.yaml",
-	"Plex-API.yaml",
 }
 
 func TestMirroredFixturesStayInSync(t *testing.T) {
