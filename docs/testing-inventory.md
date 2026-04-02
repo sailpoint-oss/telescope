@@ -30,8 +30,8 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Inlay hints | — | `inlay-hints.e2e.ts` | **A** |
 | Language IDs / classifier | `client/test/classifier.test.ts`, `src/utils.ts` | `language-ids.e2e.ts` | **C** |
 | Client–server sync / scanner | — | `client-server-sync.e2e.ts`, `no-bulk-open.e2e.ts` | **C/A** |
-| Multi-root workspace | — | `multi-root.e2e.ts` | **A** |
-| Sidecar (custom rules, Bun runner) | `server/lsp/bun/*_test.go` | `sidecar-*.e2e.ts` | **A** for wiring; deep rules in Go/Bun |
+| Multi-root workspace | — | `multi-root.e2e.ts` | **A** — session counts plus one focused cross-file routing journey |
+| Sidecar (custom rules, Bun runner) | `server/lsp/bun/*_test.go` | `sidecar-*.e2e.ts` | **A** for wiring; deep rules in Go/Bun. If Bun never becomes ready, suites skip at `suiteSetup` so CI shows pending coverage rather than silent passes. |
 
 ## E2E tests by file (tag per `test("…")` title)
 
@@ -108,7 +108,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 | Test name | Tag |
 |-----------|-----|
-| Document highlight on User schema returns non-empty array (host wiring) | A |
+| Document highlight on User schema returns array (host wiring) | A |
 
 ### `folding.e2e.ts`
 
@@ -148,7 +148,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Should create sessions for all workspace folders | A |
 | Should produce diagnostics for files in each workspace folder | A |
 | Delta changes in folderA should not affect folderB project model | A |
-| Definition, hover, references, and rename work per-folder | A |
+| Cross-file definitions stay bound to the owning workspace folder | A |
 
 ### `no-bulk-open.e2e.ts`
 
@@ -251,4 +251,4 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 ## Smoke E2E subset
 
-When `TELESCOPE_E2E_SMOKE=1` is set (e.g. local fast-feedback loop), the extension host runs a **minimal** file list; see `client/src/test/suite/index.ts` and `docs/testing.md`. CI runs the full matrix, not smoke.
+When `TELESCOPE_E2E_SMOKE=1` is set (e.g. local fast-feedback loop), the extension host runs a **minimal** file list from `client/e2e-suites.json`. CI runs the full matrix, not smoke.

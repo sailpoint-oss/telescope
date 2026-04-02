@@ -19,6 +19,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Pinned VS Code for @vscode/test-electron; override to debug a specific release.
   VSCODE_TEST_VERSION: "1.105.0"
+  CORE_COVERAGE_TARGET: "90.0"
+  CORE_COVERAGE_RATCHET_MIN: "59.4"
+  REPO_COVERAGE_RATCHET_MIN: "56.9"
 
 jobs:
   go:
@@ -80,15 +83,41 @@ jobs:
 
       - name: Coverage summary
         if: matrix.os == 'ubuntu-latest'
-        run: go tool cover -func=coverage.out | tail -1
+        shell: bash
+        run: |
+          REPO_TOTAL="$(go tool cover -func=coverage.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')"
+          CORE_PKGS=(./lsp/... ./openapi ./project ./bridge ./core/graph ./core/classify)
+          go test -coverprofile=core-coverage.out "${CORE_PKGS[@]}"
+          CORE_TOTAL="$(go tool cover -func=core-coverage.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')"
+          {
+            echo "### Coverage"
+            echo "- Core Tier A: ${CORE_TOTAL}% (target ${CORE_COVERAGE_TARGET}%, ratchet floor ${CORE_COVERAGE_RATCHET_MIN}%)"
+            echo "- Repo-wide: ${REPO_TOTAL}% (ratchet floor ${REPO_COVERAGE_RATCHET_MIN}%)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "core_coverage=${CORE_TOTAL}" >> "$GITHUB_OUTPUT"
+          echo "repo_coverage=${REPO_TOTAL}" >> "$GITHUB_OUTPUT"
         working-directory: server
+        id: coverage_summary
+
+      - name: Enforce coverage ratchets
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          core="${{ steps.coverage_summary.outputs.core_coverage }}"
+          repo="${{ steps.coverage_summary.outputs.repo_coverage }}"
+          awk -v current="$core" -v floor="$CORE_COVERAGE_RATCHET_MIN" 'BEGIN { exit !(current + 0 >= floor + 0) }' \
+            || { echo "Core coverage ${core}% is below ratchet floor ${CORE_COVERAGE_RATCHET_MIN}%"; exit 1; }
+          awk -v current="$repo" -v floor="$REPO_COVERAGE_RATCHET_MIN" 'BEGIN { exit !(current + 0 >= floor + 0) }' \
+            || { echo "Repo coverage ${repo}% is below ratchet floor ${REPO_COVERAGE_RATCHET_MIN}%"; exit 1; }
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: go-coverage
-          path: server/coverage.out
+          path: |
+            server/coverage.out
+            server/core-coverage.out
 
   benchmarks:
     name: Benchmarks

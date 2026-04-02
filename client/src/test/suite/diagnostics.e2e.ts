@@ -5,10 +5,9 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	deleteWorkspaceFile,
 	diagCode,
-	getTestApi,
+	ensureSingleRootWorkspaceReady,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
@@ -17,17 +16,11 @@ import {
 } from "./utils/e2e-helpers";
 
 suite("Diagnostics", () => {
-	let testAPI: ReturnType<typeof getTestApi>;
 	let workspaceFolder: vscode.WorkspaceFolder;
 
 	suiteSetup(async () => {
 		if (isMultiRootWorkspace()) return;
-		await activateExtension();
-		testAPI = getTestApi();
-		await testAPI.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		workspaceFolder = f;
+		({ folder: workspaceFolder } = await ensureSingleRootWorkspaceReady());
 	});
 
 	test("Should produce diagnostics for OpenAPI file with issues", async () => {

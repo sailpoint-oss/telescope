@@ -11,18 +11,18 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	assertUriFsPathEqual,
 	assertUriResolvesToSameFile,
+	ensureSingleRootWorkspaceReady,
 	executeWithRetry,
 	extractTargetRange,
 	extractTargetUri,
-	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForDefinitionAvailable,
 	waitForProviders,
-	waitForProjectInfo,
+	waitForServerDocumentSymbols,
 } from "./utils/e2e-helpers";
 
 function hoverContentToString(hovers: vscode.Hover[]): string {
@@ -41,23 +41,7 @@ suite("Definition Flow", () => {
 
 	suiteSetup(async () => {
 		if (isMultiRootWorkspace()) return;
-		await activateExtension();
-		const api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
-		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
-			timeoutMs: 60000,
-			uri: folder.uri,
-		});
-
-		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
-		await openAndShow(warmupUri);
-		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
-			timeoutMs: 60000,
-		});
-		await waitForProviders(warmupUri);
+		({ folder } = await ensureSingleRootWorkspaceReady());
 	});
 
 	test("Local definition resolves to component in same file", async () => {
@@ -107,14 +91,9 @@ suite("Definition Flow", () => {
 		assert.ok(refIdx !== -1, "Fixture should contain a $ref in ref-root.yaml");
 		const pos = doc.positionAt(refIdx + "$ref: ".length + 2);
 
-		const defs = await executeWithRetry<
-			(vscode.Location | vscode.LocationLink)[]
-		>(
-			"vscode.executeDefinitionProvider",
-			[rootUri, pos],
-			(r) => r.length > 0,
-			{ maxAttempts: 25 },
-		);
+		const defs = await waitForDefinitionAvailable(rootUri, pos, {
+			timeoutMs: 120000,
+		});
 
 		assert.ok(defs && defs.length > 0, "Expected cross-file definition result");
 
@@ -137,12 +116,9 @@ suite("Definition Flow", () => {
 		const rootRefPos = rootDoc.positionAt(rootRefIdx + "$ref: ".length + 2);
 
 		// Ensure cross-file resolution is ready before hover assertion.
-		const defs = await executeWithRetry<(vscode.Location | vscode.LocationLink)[]>(
-			"vscode.executeDefinitionProvider",
-			[rootUri, rootRefPos],
-			(r) => Array.isArray(r) && r.length > 0,
-			{ maxAttempts: 25 },
-		);
+		const defs = await waitForDefinitionAvailable(rootUri, rootRefPos, {
+			timeoutMs: 120000,
+		});
 		assert.ok(defs.length > 0, "Expected cross-file definition before hover check");
 
 		const compUri = vscode.Uri.joinPath(folder.uri, "ref-components.yaml");
@@ -181,17 +157,12 @@ suite("Definition Flow", () => {
 		const compUri = vscode.Uri.joinPath(folder.uri, "ref-components.yaml");
 		await openAndShow(compUri);
 
-		await waitForDiagnostics(compUri, () => true, { timeoutMs: 30000 });
-
-		const symbols = await executeWithRetry<vscode.DocumentSymbol[] | undefined>(
-			"vscode.executeDocumentSymbolProvider",
-			[compUri],
-			(r) => r === undefined || Array.isArray(r),
-			{ maxAttempts: 25 },
-		);
+		const symbols = await waitForServerDocumentSymbols(compUri, {
+			timeoutMs: 60000,
+		});
 
 		assert.ok(
-			symbols === undefined || Array.isArray(symbols),
+			Array.isArray(symbols),
 			"Document symbol provider should return an array when available",
 		);
 	});

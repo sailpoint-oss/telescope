@@ -12,6 +12,21 @@ import (
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
+func TestDiagnosticsSliceConverters_HandleNilAndEmpty(t *testing.T) {
+	if got := DiagnosticsToProtocol(nil); got != nil {
+		t.Fatalf("expected nil protocol diagnostics, got %+v", got)
+	}
+	if got := DiagnosticsFromProtocol(nil); got != nil {
+		t.Fatalf("expected nil barrelman diagnostics, got %+v", got)
+	}
+	if got := DiagnosticsToProtocol([]barrelman.Diagnostic{}); got != nil {
+		t.Fatalf("expected nil protocol diagnostics for empty input, got %+v", got)
+	}
+	if got := DiagnosticsFromProtocol([]protocol.Diagnostic{}); got != nil {
+		t.Fatalf("expected nil barrelman diagnostics for empty input, got %+v", got)
+	}
+}
+
 func TestDiagnosticsProtocolRoundTrip_PreservesFields(t *testing.T) {
 	diag := barrelman.Diagnostic{
 		Range: barrelman.Range{
@@ -46,6 +61,48 @@ func TestDiagnosticsProtocolRoundTrip_PreservesFields(t *testing.T) {
 	}
 	if got.Severity != diag.Severity {
 		t.Fatalf("severity mismatch: got %v want %v", got.Severity, diag.Severity)
+	}
+}
+
+func TestWrapForGossip_RunsRuleAndConvertsDiagnostics(t *testing.T) {
+	idx := openapi.ParseAndIndex([]byte(`openapi: "3.1.0"
+info:
+  title: Example
+  version: "1.0.0"
+paths: {}
+`))
+	if idx == nil {
+		t.Fatal("expected parsed index")
+	}
+
+	rule := barrelman.Rule{
+		ID: "test-rule",
+		Run: func(ctx *barrelman.AnalysisContext) []barrelman.Diagnostic {
+			if ctx == nil || ctx.Index == nil {
+				t.Fatal("expected analysis context with index")
+			}
+			return []barrelman.Diagnostic{{
+				Code:     "test-rule",
+				Source:   "bridge-test",
+				Message:  "wrapped diagnostic",
+				Severity: barrelman.SeverityWarning,
+			}}
+		},
+	}
+
+	analyzer := WrapForGossip(rule)
+	if analyzer.Scope != gtreesitter.ScopeFile {
+		t.Fatalf("unexpected analyzer scope: %v", analyzer.Scope)
+	}
+	diags := analyzer.Run(&gtreesitter.AnalysisContext{
+		Context:  context.Background(),
+		UserData: idx,
+	})
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d", len(diags))
+	}
+	if diags[0].Message != "wrapped diagnostic" || diags[0].Code != "test-rule" {
+		t.Fatalf("unexpected wrapped diagnostic: %+v", diags[0])
 	}
 }
 

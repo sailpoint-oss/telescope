@@ -10,12 +10,10 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	diagCode,
-	getTestApi,
+	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
-	waitForSidecarReady,
 	waitForDiagnostics,
 } from "./utils/e2e-helpers";
 
@@ -23,19 +21,15 @@ suite("Sidecar: Additional OpenAPI Rules", () => {
 	let folder: vscode.WorkspaceFolder;
 	let sidecarAvailable = false;
 
-	suiteSetup(async () => {
+	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
-		await activateExtension();
-		const api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
-		sidecarAvailable = await waitForSidecarReady(folder);
+		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
+			skipSuiteIfUnavailable: this,
+		}));
 	});
 
 	test("Missing operationId triggers custom-require-operationid diagnostic", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -65,7 +59,7 @@ suite("Sidecar: Additional OpenAPI Rules", () => {
 	});
 
 	test("Out-of-order keys trigger custom-yaml-key-order diagnostic", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -89,7 +83,7 @@ suite("Sidecar: Additional OpenAPI Rules", () => {
 	});
 
 	test("PathItem visitor fires custom-trailing-slash for paths without trailing slash", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		// test-missing-summary.yaml has path "/users" without trailing slash
 		const fileUri = vscode.Uri.joinPath(

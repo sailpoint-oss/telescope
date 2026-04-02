@@ -9,11 +9,14 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	executeWithRetry,
+	assertUriResolvesToSameFile,
+	extractTargetUri,
 	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
+	waitForDefinitionAvailable,
 	waitForDiagnostics,
+	waitForDocumentAnalyzed,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -172,7 +175,7 @@ suite("Multi-Root Workspace", () => {
 		}
 	});
 
-	test("Definition, hover, references, and rename work per-folder", async () => {
+	test("Cross-file definitions stay bound to the owning workspace folder", async () => {
 		await activateExtension();
 		const api = getTestApi();
 		await api.waitForSessionsRunning(180000);
@@ -184,102 +187,123 @@ suite("Multi-Root Workspace", () => {
 		const folders = vscode.workspace.workspaceFolders || [];
 		const targets = folders.filter((f) => f.name === "folderA" || f.name === "folderB");
 		assert.ok(targets.length >= 2, "Expected folderA and folderB in multi-root workspace");
+		const rootName = "mr-routing-root.yaml";
+		const modelName = "mr-routing-models.yaml";
+		const refValue = `./${modelName}#/components/schemas/SharedThing`;
 
-		for (const folder of targets) {
-			const fileName = `mr-features-${Date.now()}-${folder.name}.yaml`;
-			const uri = vscode.Uri.joinPath(folder.uri, fileName);
-			const original = [
+		const modelSpec = (folderName: string) =>
+			[
 				"openapi: 3.1.0",
 				"info:",
-				`  title: ${folder.name} Feature Test`,
+				`  title: ${folderName} Models`,
 				"  version: 1.0.0",
-				"paths:",
-				"  /items:",
-				"    get:",
-				"      operationId: getItems",
-				"      responses:",
-				'        "200":',
-				"          description: OK",
-				"          content:",
-				"            application/json:",
-				"              schema:",
-				"                $ref: '#/components/schemas/Item'",
+				"paths: {}",
 				"components:",
 				"  schemas:",
-				"    Item:",
+				"    SharedThing:",
 				"      type: object",
+				"      description: Bound to " + folderName,
 				"      properties:",
 				"        id:",
 				"          type: string",
 				"",
 			].join("\n");
 
-			await vscode.workspace.fs.writeFile(uri, Buffer.from(original, "utf-8"));
+		const rootSpec = (folderName: string) =>
+			[
+				"openapi: 3.1.0",
+				"info:",
+				`  title: ${folderName} Root`,
+				"  version: 1.0.0",
+				"paths:",
+				"  /items:",
+				"    get:",
+				`      operationId: get${folderName}Items`,
+				"      responses:",
+				'        "200":',
+				"          description: OK",
+				"          content:",
+				"            application/json:",
+				"              schema:",
+				`                $ref: '${refValue}'`,
+				"",
+			].join("\n");
+
+		const createdUris: vscode.Uri[] = [];
+
+		for (const folder of targets) {
+			const modelUri = vscode.Uri.joinPath(folder.uri, modelName);
+			const rootUri = vscode.Uri.joinPath(folder.uri, rootName);
+			await vscode.workspace.fs.writeFile(
+				modelUri,
+				Buffer.from(modelSpec(folder.name), "utf-8"),
+			);
+			await vscode.workspace.fs.writeFile(
+				rootUri,
+				Buffer.from(rootSpec(folder.name), "utf-8"),
+			);
+			createdUris.push(rootUri, modelUri);
+		}
+
+		try {
+			for (const folder of targets) {
+				const modelUri = vscode.Uri.joinPath(folder.uri, modelName);
+				const rootUri = vscode.Uri.joinPath(folder.uri, rootName);
+
+				await openAndShow(modelUri);
+				await waitForDocumentAnalyzed(modelUri, {
+					timeoutMs: 120000,
+					skipDiagnostics: true,
+				});
+
+				const doc = await openAndShow(rootUri);
+				await waitForDocumentAnalyzed(rootUri, {
+					timeoutMs: 120000,
+					skipDiagnostics: true,
+				});
+
+				const projectInfo = await waitForProjectInfo(
+					api,
+					(info) => info.workspacePath !== null,
+					{ timeoutMs: 120000, uri: rootUri },
+				);
+				assert.strictEqual(
+					projectInfo.workspacePath,
+					folder.uri.fsPath,
+					`Project info for ${folder.name} should stay bound to its own workspace folder`,
+				);
+
+				const refIdx = doc.getText().indexOf(refValue);
+				assert.ok(refIdx !== -1, `Expected ${rootName} to reference ${modelName}`);
+				const refPos = doc.positionAt(
+					refIdx + refValue.indexOf("SharedThing") + 2,
+				);
+
+				const defs = await waitForDefinitionAvailable(rootUri, refPos, {
+					timeoutMs: 120000,
+				});
+				assert.ok(
+					defs.length > 0,
+					`Expected a definition result for ${folder.name} cross-file ref`,
+				);
+				await assertUriResolvesToSameFile(
+					extractTargetUri(defs[0]!),
+					modelUri,
+					`${folder.name} should resolve against its own ${modelName}`,
+				);
+			}
+		} finally {
 			try {
-				const doc = await openAndShow(uri);
-				await waitForDiagnostics(uri, () => true, { timeoutMs: 30000 });
-
-				const text = doc.getText();
-				const refIdx = text.indexOf("$ref:");
-				assert.ok(refIdx !== -1, "Should contain a $ref");
-				const refPos = doc.positionAt(refIdx + "$ref: ".length + 2);
-
-				const defs = await executeWithRetry<(vscode.Location | vscode.LocationLink)[]>(
-					"vscode.executeDefinitionProvider",
-					[uri, refPos],
-					(r) => Array.isArray(r),
-					{ maxAttempts: 20 },
-				);
-
-				const hovers = await executeWithRetry<vscode.Hover[]>(
-					"vscode.executeHoverProvider",
-					[uri, refPos],
-					(r) => Array.isArray(r),
-					{ maxAttempts: 20 },
-				);
-
-				const schemaIdx = text.indexOf("    Item:");
-				assert.ok(schemaIdx !== -1, "Should contain schema definition");
-				const schemaPos = doc.positionAt(schemaIdx + "    It".length);
-
-				const refs = await executeWithRetry<vscode.Location[]>(
-					"vscode.executeReferenceProvider",
-					[uri, schemaPos],
-					(r) => Array.isArray(r),
-					{ maxAttempts: 20 },
-				);
-				assert.ok(Array.isArray(refs), "References provider should return an array");
-
-				let renameEdit: vscode.WorkspaceEdit | undefined;
-				let renameUnsupported = false;
-				try {
-					renameEdit = await executeWithRetry<vscode.WorkspaceEdit | undefined>(
-						"vscode.executeDocumentRenameProvider",
-						[uri, schemaPos, "RenamedItem"],
-						(r) => r !== undefined,
-						{ maxAttempts: 20 },
-					);
-				} catch (err) {
-					const message = String(err);
-					if (message.includes("can't be renamed")) {
-						renameUnsupported = true;
-					} else {
-						throw err;
-					}
-				}
-
-				if (!renameUnsupported) {
-					assert.ok(renameEdit, "Rename should return workspace edits when supported");
-					const entries = renameEdit!.entries();
-					assert.ok(entries.length > 0, "Rename should include edits");
-					assert.ok(
-						entries.every(([editUri]) => editUri.toString() === uri.toString()),
-						"Rename should only touch files in the same folder/spec for this local case",
-					);
-				}
-			} finally {
 				await vscode.commands.executeCommand("workbench.action.files.revert");
-				await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+			} catch {
+				// best effort
+			}
+			try {
+				await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+			} catch {
+				// best effort
+			}
+			for (const uri of createdUris) {
 				try {
 					await vscode.workspace.fs.delete(uri);
 				} catch {

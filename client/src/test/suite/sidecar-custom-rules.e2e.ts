@@ -8,12 +8,10 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	diagCode,
-	getTestApi,
+	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
-	waitForSidecarReady,
 	waitForDiagnostics,
 } from "./utils/e2e-helpers";
 
@@ -21,19 +19,15 @@ suite("Sidecar: Custom OpenAPI Rules", () => {
 	let folder: vscode.WorkspaceFolder;
 	let sidecarAvailable = false;
 
-	suiteSetup(async () => {
+	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
-		await activateExtension();
-		const api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
-		sidecarAvailable = await waitForSidecarReady(folder);
+		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
+			skipSuiteIfUnavailable: this,
+		}));
 	});
 
 	test("Invalid file triggers custom-operation-summary diagnostic", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -78,7 +72,7 @@ suite("Sidecar: Custom OpenAPI Rules", () => {
 	});
 
 	test("Valid file has no custom-operation-summary diagnostics", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,

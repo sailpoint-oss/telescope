@@ -1,0 +1,45 @@
+{
+  "modes": {
+    "single": {
+      "workspaceFolder": "test-fixtures/workspace-basic",
+      "timeoutMs": 300000,
+      "smokeBasenames": [
+        "activation.e2e.js",
+        "client-server-sync.e2e.js",
+        "diagnostics.e2e.js",
+        "diagnostic-contracts.e2e.js",
+        "definition-flow.e2e.js",
+        "language-ids.e2e.js",
+        "commands.e2e.js"
+      ],
+      "excludeBasenames": [
+        "multi-root.e2e.js"
+      ],
+      "excludePrefixes": [
+        "sidecar-"
+      ]
+    },
+    "multi": {
+      "workspaceFolder": "test-fixtures/workspace-multi/telescope-multi.code-workspace",
+      "timeoutMs": 600000,
+      "fullBasenames": [
+        "activation.e2e.js",
+        "multi-root.e2e.js"
+      ]
+    },
+    "sidecar": {
+      "workspaceFolder": "../test-files",
+      "timeoutMs": 300000,
+      "smokeBasenames": [
+        "activation.e2e.js",
+        "sidecar-lifecycle.e2e.js"
+      ],
+      "fullBasenames": [
+        "activation.e2e.js"
+      ],
+      "fullPrefixes": [
+        "sidecar-"
+      ]
+    }
+  }
+}

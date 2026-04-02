@@ -8,12 +8,10 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	diagCode,
-	getTestApi,
+	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
-	waitForSidecarReady,
 	waitForDiagnostics,
 } from "./utils/e2e-helpers";
 
@@ -21,19 +19,15 @@ suite("Sidecar: Lifecycle", () => {
 	let folder: vscode.WorkspaceFolder;
 	let sidecarAvailable = false;
 
-	suiteSetup(async () => {
+	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
-		await activateExtension();
-		const api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
-		sidecarAvailable = await waitForSidecarReady(folder);
+		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
+			skipSuiteIfUnavailable: this,
+		}));
 	});
 
 	test("Sidecar produces custom rule diagnostics after startup", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -62,7 +56,7 @@ suite("Sidecar: Lifecycle", () => {
 	});
 
 	test("Editing a file keeps sidecar diagnostics responsive", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -120,15 +114,23 @@ suite("Sidecar: Lifecycle", () => {
 			"openapi/test-missing-summary.yaml",
 		);
 		await openAndShow(probeUri);
-		const probeDiags = await waitForDiagnostics(
-			probeUri,
-			(d) => d.some((diag) => diagCode(diag) === "custom-operation-summary"),
-			{ timeoutMs: 120000 },
-		);
+		let probeSawCustomDiag = false;
+		try {
+			const probeDiags = await waitForDiagnostics(
+				probeUri,
+				(d) => d.some((diag) => diagCode(diag) === "custom-operation-summary"),
+				{ timeoutMs: 120000 },
+			);
+			probeSawCustomDiag = probeDiags.some(
+				(diag) => diagCode(diag) === "custom-operation-summary",
+			);
+		} catch {
+			// Sidecar may need longer to re-publish after the edit cycle above.
+		}
 		assert.ok(
-			sawEditedDocDiagnostic ||
-				probeDiags.some((diag) => diagCode(diag) === "custom-operation-summary"),
-			"After editing, sidecar diagnostics should still be responsive",
+			sawEditedDocDiagnostic || probeSawCustomDiag,
+			"After editing, sidecar diagnostics should still be responsive " +
+				"(neither edited doc nor probe file produced custom-operation-summary)",
 		);
 	});
 });

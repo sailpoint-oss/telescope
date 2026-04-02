@@ -41,9 +41,12 @@ async function main() {
 		// eslint-disable-next-line no-console
 		console.log(`[e2e] Using VS Code test version: ${VSCODE_TEST_VERSION}`);
 
+		const cachePath = path.resolve(extensionDevelopmentPath, ".vscode-test");
+
 		await runTests({
 			extensionDevelopmentPath,
 			extensionTestsPath,
+			cachePath,
 			launchArgs: [
 				workspacePath,
 				"--disable-extensions",

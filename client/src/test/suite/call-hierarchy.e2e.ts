@@ -8,14 +8,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
+	ensureSingleRootWorkspaceReady,
 	executeWithRetry,
-	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
-	waitForProviders,
-	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
 suite("Call Hierarchy", () => {
@@ -23,22 +20,7 @@ suite("Call Hierarchy", () => {
 
 	suiteSetup(async () => {
 		if (isMultiRootWorkspace()) return;
-		await activateExtension();
-		const api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
-		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
-			timeoutMs: 60000,
-			uri: folder.uri,
-		});
-		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
-		await openAndShow(warmupUri);
-		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
-			timeoutMs: 90000,
-		});
-		await waitForProviders(warmupUri);
+		({ folder } = await ensureSingleRootWorkspaceReady());
 	});
 
 	test("Prepare call hierarchy on schema returns item", async () => {

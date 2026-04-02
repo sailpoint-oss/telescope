@@ -15,7 +15,31 @@ export interface TelescopeTestApi {
 	requestDocumentFormatting?: (
 		uri: vscode.Uri,
 	) => Promise<vscode.TextEdit[] | null>;
+	requestDocumentSymbols?: (
+		uri: vscode.Uri,
+	) => Promise<vscode.DocumentSymbol[] | null>;
+	requestDefinition?: (
+		uri: vscode.Uri,
+		pos: vscode.Position,
+	) => Promise<(vscode.Location | vscode.LocationLink)[] | null>;
 }
+
+let singleRootReadyPromise:
+	| Promise<{
+			api: TelescopeTestApi;
+			folder: vscode.WorkspaceFolder;
+			warmupUri: vscode.Uri;
+	  }>
+	| undefined;
+
+let sidecarReadyPromise:
+	| Promise<{
+			api: TelescopeTestApi;
+			folder: vscode.WorkspaceFolder;
+			warmupUri: vscode.Uri;
+			sidecarAvailable: boolean;
+	  }>
+	| undefined;
 
 export function getTestApi(): TelescopeTestApi {
 	const extension = vscode.extensions.getExtension("sailpoint.telescope");
@@ -53,6 +77,30 @@ export async function waitForProjectInfo(
 		await delay(intervalMs);
 	}
 	throw new Error(`Timeout waiting for project info after ${timeoutMs}ms`);
+}
+
+export async function waitForServerDocumentSymbols(
+	uri: vscode.Uri,
+	options?: { timeoutMs?: number; pollMs?: number },
+): Promise<vscode.DocumentSymbol[]> {
+	const api = getTestApi();
+	if (!api.requestDocumentSymbols) {
+		return [];
+	}
+	const timeoutMs = options?.timeoutMs ?? 90000;
+	const pollMs = options?.pollMs ?? 1000;
+	const start = Date.now();
+	while (Date.now() - start < timeoutMs) {
+		const symbols = await api.requestDocumentSymbols(uri);
+		if (Array.isArray(symbols) && symbols.length > 0) {
+			return symbols;
+		}
+		await delay(pollMs);
+	}
+	throw new Error(
+		`Timeout waiting for server document symbols after ${timeoutMs}ms ` +
+			`(uri=${uri.toString()})`,
+	);
 }
 
 export async function waitForDiagnostics(
@@ -138,7 +186,12 @@ export async function waitForProviders(
 			? 1500
 			: 2000;
 	const start = Date.now();
+	const api = getTestApi();
 	while (Date.now() - start < timeoutMs) {
+		if (api.requestDocumentSymbols) {
+			const symbols = await api.requestDocumentSymbols(uri);
+			if (Array.isArray(symbols) && symbols.length > 0) return;
+		}
 		const result = (await vscode.commands.executeCommand(
 			"vscode.executeCodeLensProvider",
 			uri,
@@ -261,8 +314,10 @@ export async function executeWithRetry<T>(
 
 /**
  * Poll until definition provider returns at least one result for `pos`.
- * This is a stronger readiness witness than code lenses alone: it proves the
- * full index (refs, components) is queryable for the specific position.
+ * Prefers the raw server `textDocument/definition` request exposed through the
+ * test API, then falls back to VS Code's definition provider command. This is a
+ * stronger readiness witness than code lenses alone: it proves the full index
+ * (refs, components) is queryable for the specific position.
  */
 export async function waitForDefinitionAvailable(
 	uri: vscode.Uri,
@@ -272,12 +327,15 @@ export async function waitForDefinitionAvailable(
 	const timeoutMs = options?.timeoutMs ?? 90000;
 	const pollMs = options?.pollMs ?? 500;
 	const start = Date.now();
+	const api = getTestApi();
 	while (Date.now() - start < timeoutMs) {
-		const result = (await vscode.commands.executeCommand(
-			"vscode.executeDefinitionProvider",
-			uri,
-			pos,
-		)) as (vscode.Location | vscode.LocationLink)[] | undefined;
+		const result = api.requestDefinition
+			? await api.requestDefinition(uri, pos)
+			: ((await vscode.commands.executeCommand(
+					"vscode.executeDefinitionProvider",
+					uri,
+					pos,
+				)) as (vscode.Location | vscode.LocationLink)[] | undefined);
 		if (Array.isArray(result) && result.length > 0) return result;
 		await delay(pollMs);
 	}
@@ -348,11 +406,95 @@ export function isSidecarWorkspace(): boolean {
 	return process.env.TELESCOPE_E2E_MODE === "sidecar";
 }
 
+export async function ensureSingleRootWorkspaceReady(options?: {
+	warmupRelativePath?: string;
+	timeoutMs?: number;
+}): Promise<{
+	api: TelescopeTestApi;
+	folder: vscode.WorkspaceFolder;
+	warmupUri: vscode.Uri;
+}> {
+	if (isMultiRootWorkspace()) {
+		throw new Error("ensureSingleRootWorkspaceReady cannot be used in multi-root mode");
+	}
+	if (!singleRootReadyPromise) {
+		singleRootReadyPromise = (async () => {
+			await activateExtension();
+			const api = getTestApi();
+			await api.waitForSessionsRunning(options?.timeoutMs ?? 120000);
+			const folder = vscode.workspace.workspaceFolders?.[0];
+			assert.ok(folder, "Should have a workspace folder");
+			const warmupUri = vscode.Uri.joinPath(
+				folder.uri,
+				options?.warmupRelativePath ?? "rich-api.yaml",
+			);
+			await waitForProjectInfo(
+				api,
+				(info) => info.knownOpenAPIFiles > 0,
+				{ timeoutMs: options?.timeoutMs ?? 120000, uri: warmupUri },
+			);
+			await openAndShow(warmupUri);
+			await waitForDocumentAnalyzed(warmupUri, {
+				timeoutMs: options?.timeoutMs,
+			});
+			return { api, folder, warmupUri };
+		})().catch((error) => {
+			singleRootReadyPromise = undefined;
+			throw error;
+		});
+	}
+	return singleRootReadyPromise;
+}
+
+export async function ensureSidecarWorkspaceReady(options?: {
+	warmupRelativePath?: string;
+	timeoutMs?: number;
+	skipSuiteIfUnavailable?: { skip(): never };
+}): Promise<{
+	api: TelescopeTestApi;
+	folder: vscode.WorkspaceFolder;
+	warmupUri: vscode.Uri;
+	sidecarAvailable: boolean;
+}> {
+	if (!isSidecarWorkspace()) {
+		throw new Error("ensureSidecarWorkspaceReady requires sidecar mode");
+	}
+	if (!sidecarReadyPromise) {
+		sidecarReadyPromise = (async () => {
+			await activateExtension();
+			const api = getTestApi();
+			await api.waitForSessionsRunning(options?.timeoutMs ?? 120000);
+			const folder = vscode.workspace.workspaceFolders?.[0];
+			assert.ok(folder, "Should have a workspace folder");
+			const warmupUri = vscode.Uri.joinPath(
+				folder.uri,
+				options?.warmupRelativePath ?? "openapi/test-missing-summary.yaml",
+			);
+			await openAndShow(warmupUri);
+			await waitForDocumentAnalyzed(warmupUri, {
+				timeoutMs: options?.timeoutMs,
+			});
+			const sidecarAvailable = await waitForSidecarReady(folder, options);
+			if (!sidecarAvailable && options?.skipSuiteIfUnavailable) {
+				console.warn(
+					`[e2e sidecar] Skipping suite because the Bun sidecar did not become ready on ${process.platform}`,
+				);
+				options.skipSuiteIfUnavailable.skip();
+			}
+			return { api, folder, warmupUri, sidecarAvailable };
+		})().catch((error) => {
+			sidecarReadyPromise = undefined;
+			throw error;
+		});
+	}
+	return sidecarReadyPromise;
+}
+
 /**
  * Wait for the Bun sidecar to be ready by probing for custom rule diagnostics.
- * Returns true if the sidecar is ready, false if it timed out (e.g., Windows
- * where the Bun sidecar may not start). Callers should skip sidecar-specific
- * assertions when this returns false.
+ * Returns true if the sidecar is ready, false if it timed out. Suites that want
+ * explicit pending results instead of silent no-op tests should pass their
+ * Mocha `this` context through `ensureSidecarWorkspaceReady({ skipSuiteIfUnavailable: this })`.
  */
 export async function waitForSidecarReady(
 	folder: vscode.WorkspaceFolder,
@@ -428,16 +570,15 @@ export async function waitForCrossFileReady(
 	options?: { timeoutMs?: number },
 ): Promise<void> {
 	const timeoutMs = options?.timeoutMs ?? 60000;
-	const start = Date.now();
 
 	await openAndShow(uriA);
-	await waitForDiagnostics(uriA, () => true, {
-		timeoutMs: Math.max(timeoutMs - (Date.now() - start), 5000),
+	await waitForDocumentAnalyzed(uriA, {
+		timeoutMs: Math.max(timeoutMs / 2, 5000),
 	});
 
 	await openAndShow(uriB);
-	await waitForDiagnostics(uriB, () => true, {
-		timeoutMs: Math.max(timeoutMs - (Date.now() - start), 5000),
+	await waitForDocumentAnalyzed(uriB, {
+		timeoutMs: Math.max(timeoutMs / 2, 5000),
 	});
 }
 

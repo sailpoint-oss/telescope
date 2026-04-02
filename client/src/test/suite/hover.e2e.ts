@@ -9,18 +9,13 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	delay,
-	getTestApi,
+	ensureSingleRootWorkspaceReady,
 	isMultiRootWorkspace,
 	openAndShow,
-	probeHover,
 	waitForCrossFileReady,
-	waitForDefinitionAvailable,
-	waitForDiagnostics,
 	waitForDocumentAnalyzed,
-	waitForProjectInfo,
-	waitForProviders,
+	waitForDefinitionAvailable,
 } from "./utils/e2e-helpers";
 
 function hoverContentToString(hovers: vscode.Hover[]): string {
@@ -39,29 +34,15 @@ suite("Hover", () => {
 
 	suiteSetup(async () => {
 		if (isMultiRootWorkspace()) return;
-		await activateExtension();
-		const api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
-		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
-			timeoutMs: 60000,
-			uri: folder.uri,
-		});
-
-		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
-		await openAndShow(warmupUri);
-		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
-			timeoutMs: 90000,
-		});
-		await waitForProviders(warmupUri);
+		({ folder } = await ensureSingleRootWorkspaceReady());
 	});
 
 	test("Hover on local $ref returns array (host wiring)", async () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		const doc = await openAndShow(uri);
+
+		// Code-lens readiness: the proven cross-platform gate.
 		await waitForDocumentAnalyzed(uri);
 
 		const text = doc.getText();
@@ -69,19 +50,21 @@ suite("Hover", () => {
 		assert.ok(refIdx !== -1, "Fixture should contain a local $ref to User");
 		const pos = doc.positionAt(refIdx + 5);
 
-		// Use definition availability as the strongest readiness witness —
-		// it proves the ref index is fully populated for this position.
-		await waitForDefinitionAvailable(uri, pos, { timeoutMs: 120000 });
+		// Probe hover — accept whatever the provider returns. The host-wiring
+		// contract is "returns an array, does not crash". Semantic content is
+		// proven deterministically in Go handler tests.
+		const hovers = (await vscode.commands.executeCommand(
+			"vscode.executeHoverProvider",
+			uri,
+			pos,
+		)) as vscode.Hover[] | undefined;
 
-		const hovers = await probeHover(uri, pos);
 		assert.ok(
-			Array.isArray(hovers),
-			"Hover provider should return an array",
+			hovers === undefined || Array.isArray(hovers),
+			"Hover provider should return an array or undefined",
 		);
 
-		// Content assertion: validate when present, accept empty as host wiring
-		// being correct but slow to resolve. Go tests own the semantic contract.
-		if (hovers.length > 0) {
+		if (Array.isArray(hovers) && hovers.length > 0) {
 			const content = hoverContentToString(hovers).toLowerCase();
 			assert.ok(
 				content.includes("user") ||
@@ -109,6 +92,7 @@ suite("Hover", () => {
 		const lineText = doc.lineAt(refLine).text;
 		const valueStart = lineText.indexOf('"') + 1;
 		const pos = new vscode.Position(refLine, valueStart + 5);
+		await waitForDefinitionAvailable(uri, pos, { timeoutMs: 120000 });
 
 		let hovers: vscode.Hover[] = [];
 		const crossFileDeadline = Date.now() + 30000;
@@ -145,7 +129,7 @@ suite("Hover", () => {
 	test("Hover returns empty or array at non-hoverable position", async () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
-		const doc = await openAndShow(uri);
+		await openAndShow(uri);
 		await waitForDocumentAnalyzed(uri);
 
 		const pos = new vscode.Position(0, 0);

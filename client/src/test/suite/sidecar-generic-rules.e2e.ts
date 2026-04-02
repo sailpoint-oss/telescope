@@ -8,12 +8,10 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	diagCode,
-	getTestApi,
+	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
-	waitForSidecarReady,
 	waitForDiagnostics,
 } from "./utils/e2e-helpers";
 
@@ -21,19 +19,15 @@ suite("Sidecar: Generic Rules", () => {
 	let folder: vscode.WorkspaceFolder;
 	let sidecarAvailable = false;
 
-	suiteSetup(async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
-		await activateExtension();
-		const api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
-		sidecarAvailable = await waitForSidecarReady(folder);
+	suiteSetup(async function () {
+		if (!isSidecarWorkspace()) return;
+		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
+			skipSuiteIfUnavailable: this,
+		}));
 	});
 
 	test("Invalid generic file triggers custom-version-required diagnostic", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,
@@ -62,7 +56,7 @@ suite("Sidecar: Generic Rules", () => {
 	});
 
 	test("Valid generic file has no custom-version-required diagnostics", async () => {
-		if (!isSidecarWorkspace() || !sidecarAvailable) return;
+		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
 			folder.uri,

@@ -12,7 +12,11 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as vscode from "vscode";
 import { commands, type ExtensionContext, window, workspace } from "vscode";
-import { DocumentFormattingRequest } from "vscode-languageserver-protocol";
+import {
+	DefinitionRequest,
+	DocumentFormattingRequest,
+	DocumentSymbolRequest,
+} from "vscode-languageserver-protocol";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { SessionManager } from "./session-manager";
 import { appendTraceEvent, summarizeForTrace } from "./trace";
@@ -22,6 +26,86 @@ const execFileAsync = promisify(execFile);
 
 /** Global session manager instance */
 let sessionManager: SessionManager | null = null;
+
+function protocolRangeToCodeRange(range: {
+	start: { line: number; character: number };
+	end: { line: number; character: number };
+}): vscode.Range {
+	return new vscode.Range(
+		range.start.line,
+		range.start.character,
+		range.end.line,
+		range.end.character,
+	);
+}
+
+function protocolDefinitionToCode(
+	result:
+		| { uri: string; range: { start: { line: number; character: number }; end: { line: number; character: number } } }
+		| {
+				targetUri: string;
+				targetRange: {
+					start: { line: number; character: number };
+					end: { line: number; character: number };
+				};
+				targetSelectionRange: {
+					start: { line: number; character: number };
+					end: { line: number; character: number };
+				};
+				originSelectionRange?: {
+					start: { line: number; character: number };
+					end: { line: number; character: number };
+				};
+		  }
+		| Array<
+				| {
+						uri: string;
+						range: {
+							start: { line: number; character: number };
+							end: { line: number; character: number };
+						};
+				  }
+				| {
+						targetUri: string;
+						targetRange: {
+							start: { line: number; character: number };
+							end: { line: number; character: number };
+						};
+						targetSelectionRange: {
+							start: { line: number; character: number };
+							end: { line: number; character: number };
+						};
+						originSelectionRange?: {
+							start: { line: number; character: number };
+							end: { line: number; character: number };
+						};
+				  }
+		  >
+		| null,
+): (vscode.Location | vscode.LocationLink)[] | null {
+	if (!result) {
+		return null;
+	}
+	const entries = Array.isArray(result) ? result : [result];
+	return entries.map((entry) => {
+		if ("targetUri" in entry) {
+			return {
+				targetUri: vscode.Uri.parse(entry.targetUri),
+				targetRange: protocolRangeToCodeRange(entry.targetRange),
+				targetSelectionRange: protocolRangeToCodeRange(
+					entry.targetSelectionRange,
+				),
+				originSelectionRange: entry.originSelectionRange
+					? protocolRangeToCodeRange(entry.originSelectionRange)
+					: undefined,
+			} satisfies vscode.LocationLink;
+		}
+		return new vscode.Location(
+			vscode.Uri.parse(entry.uri),
+			protocolRangeToCodeRange(entry.range),
+		);
+	});
+}
 
 /**
  * Resolve the path to the Telescope Go language server binary.
@@ -97,6 +181,13 @@ export async function activate(context: ExtensionContext) {
 			async requestDocumentFormatting(
 				_uri: vscode.Uri,
 			): Promise<vscode.TextEdit[] | null> {
+				await fail();
+				return null; // unreachable; fail() always throws
+			},
+			async requestDefinition(
+				_uri: vscode.Uri,
+				_pos: vscode.Position,
+			): Promise<(vscode.Location | vscode.LocationLink)[] | null> {
 				await fail();
 				return null; // unreachable; fail() always throws
 			},
@@ -1093,6 +1184,110 @@ export async function activate(context: ExtensionContext) {
 				const session = sessionManager.getSessionForUri(targetUri);
 				if (!session) return 0;
 				return session.getClientOpenApiFileCount();
+			},
+
+			/**
+			 * E2E-only: query document symbols straight from the LSP client so tests
+			 * can wait on a server-backed analysis signal instead of proxying through
+			 * editor features like code lenses.
+			 */
+			async requestDocumentSymbols(
+				uri: vscode.Uri,
+			): Promise<vscode.DocumentSymbol[] | null> {
+				if (!sessionManager) {
+					return null;
+				}
+				const textDoc = await workspace.openTextDocument(uri);
+				const session = sessionManager.getSessionForUri(textDoc.uri);
+				if (!session) {
+					return null;
+				}
+				const client = session.getClient();
+				if (!client) {
+					return null;
+				}
+				const lspURI = client.code2ProtocolConverter.asUri(textDoc.uri);
+				return (await client.sendRequest(DocumentSymbolRequest.type, {
+					textDocument: { uri: lspURI },
+				})) as vscode.DocumentSymbol[] | null;
+			},
+
+			/**
+			 * E2E-only: query textDocument/definition straight from the LSP client so
+			 * readiness gates can depend on server resolution instead of editor
+			 * provider registration timing.
+			 */
+			async requestDefinition(
+				uri: vscode.Uri,
+				pos: vscode.Position,
+			): Promise<(vscode.Location | vscode.LocationLink)[] | null> {
+				if (!sessionManager) {
+					return null;
+				}
+				const textDoc = await workspace.openTextDocument(uri);
+				const session = sessionManager.getSessionForUri(textDoc.uri);
+				if (!session) {
+					return null;
+				}
+				const client = session.getClient();
+				if (!client) {
+					return null;
+				}
+				const lspURI = client.code2ProtocolConverter.asUri(textDoc.uri);
+				const result = await client.sendRequest(DefinitionRequest.type, {
+					textDocument: { uri: lspURI },
+					position: { line: pos.line, character: pos.character },
+				});
+				return protocolDefinitionToCode(
+					result as
+						| {
+								uri: string;
+								range: {
+									start: { line: number; character: number };
+									end: { line: number; character: number };
+								};
+						  }
+						| {
+								targetUri: string;
+								targetRange: {
+									start: { line: number; character: number };
+									end: { line: number; character: number };
+								};
+								targetSelectionRange: {
+									start: { line: number; character: number };
+									end: { line: number; character: number };
+								};
+								originSelectionRange?: {
+									start: { line: number; character: number };
+									end: { line: number; character: number };
+								};
+						  }
+						| Array<
+								| {
+										uri: string;
+										range: {
+											start: { line: number; character: number };
+											end: { line: number; character: number };
+										};
+								  }
+								| {
+										targetUri: string;
+										targetRange: {
+											start: { line: number; character: number };
+											end: { line: number; character: number };
+										};
+										targetSelectionRange: {
+											start: { line: number; character: number };
+											end: { line: number; character: number };
+										};
+										originSelectionRange?: {
+											start: { line: number; character: number };
+											end: { line: number; character: number };
+										};
+								  }
+						  >
+						| null,
+				);
 			},
 
 			/**
