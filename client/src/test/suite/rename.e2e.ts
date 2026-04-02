@@ -110,22 +110,9 @@ suite("Rename", () => {
 					docEdits.every((textEdit) => textEdit.newText === "People"),
 					"All rename edits should use the requested new tag name",
 				);
-
-				const updatedText = [...docEdits]
-					.sort((a, b) => {
-						const lineDelta = b.range.start.line - a.range.start.line;
-						if (lineDelta !== 0) return lineDelta;
-						return b.range.start.character - a.range.start.character;
-					})
-					.reduce((currentText, textEdit) => {
-						const start = doc.offsetAt(textEdit.range.start);
-						const end = doc.offsetAt(textEdit.range.end);
-						return (
-							currentText.slice(0, start) +
-							textEdit.newText +
-							currentText.slice(end)
-						);
-					}, text);
+				const applied = await vscode.workspace.applyEdit(edit);
+				assert.ok(applied, "Rename workspace edit should apply cleanly in the editor");
+				const updatedText = (await vscode.workspace.openTextDocument(tmpUri)).getText();
 				assert.ok(
 					updatedText.includes("- name: People"),
 					"Rename edit should update the root tag definition text",
@@ -133,6 +120,10 @@ suite("Rename", () => {
 				assert.ok(
 					updatedText.includes("        - People"),
 					"Rename edit should update the operation tag usage text",
+				);
+				assert.ok(
+					!updatedText.includes("- name: Users"),
+					"Rename edit should remove the old tag definition text",
 				);
 			}
 		} finally {
