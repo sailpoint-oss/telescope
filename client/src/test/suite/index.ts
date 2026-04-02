@@ -48,7 +48,7 @@ export function run(): Promise<void> {
 		process.env.TELESCOPE_E2E_SMOKE === "1" ||
 		process.env.TELESCOPE_E2E_SMOKE === "true";
 
-	/** Minimal wiring subset for CI on pull requests (see docs/testing-inventory.md). */
+	/** Minimal wiring subset for local fast feedback (see docs/testing-inventory.md). */
 	const smokeSingleBasenames = new Set([
 		"activation.e2e.js",
 		"client-server-sync.e2e.js",

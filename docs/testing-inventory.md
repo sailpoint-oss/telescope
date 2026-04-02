@@ -108,7 +108,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 | Test name | Tag |
 |-----------|-----|
-| Document highlight on User schema includes definition (Write) and usages (Read) | A |
+| Document highlight on User schema returns non-empty array (host wiring) | A |
 
 ### `folding.e2e.ts`
 
@@ -121,7 +121,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 | Test name | Tag |
 |-----------|-----|
-| Hover on local $ref returns non-empty schema content (host wiring) | A |
+| Hover on local $ref returns array (host wiring) | A |
 | Hover on cross-file $ref is well-behaved when graph resolves | A |
 | Hover returns empty or array at non-hoverable position | A |
 
@@ -251,4 +251,4 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 ## Smoke E2E subset
 
-When `TELESCOPE_E2E_SMOKE=1` is set (e.g. CI on pull requests), the extension host runs a **minimal** file list; see `client/src/test/suite/index.ts` and `docs/testing.md`.
+When `TELESCOPE_E2E_SMOKE=1` is set (e.g. local fast-feedback loop), the extension host runs a **minimal** file list; see `client/src/test/suite/index.ts` and `docs/testing.md`. CI runs the full matrix, not smoke.

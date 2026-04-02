@@ -208,9 +208,7 @@ jobs:
       - name: Restore VS Code test downloads
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.vscode-test
-            ${{ runner.temp }}/.vscode-test
+          path: client/.vscode-test
           key: vscode-test-${{ matrix.os }}-${{ hashFiles('client/package.json', 'client/src/test/vscode-test-version.ts') }}
           restore-keys: |
             vscode-test-${{ matrix.os }}-
@@ -298,7 +296,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vscode-test-logs-${{ matrix.os }}
-          path: |
-            ~/.vscode-test
-            ${{ runner.temp }}/.vscode-test
+          path: client/.vscode-test
           if-no-files-found: ignore

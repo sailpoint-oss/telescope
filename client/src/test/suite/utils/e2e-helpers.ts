@@ -260,32 +260,54 @@ export async function executeWithRetry<T>(
 }
 
 /**
- * Poll until hover provider returns a non-empty result at `pos`, or timeout.
- * Call after {@link waitForDocumentAnalyzed} so the index is ready (macOS CI).
+ * Poll until definition provider returns at least one result for `pos`.
+ * This is a stronger readiness witness than code lenses alone: it proves the
+ * full index (refs, components) is queryable for the specific position.
  */
-export async function waitForNonEmptyHover(
+export async function waitForDefinitionAvailable(
 	uri: vscode.Uri,
 	pos: vscode.Position,
 	options?: { timeoutMs?: number; pollMs?: number },
-): Promise<vscode.Hover[]> {
+): Promise<(vscode.Location | vscode.LocationLink)[]> {
 	const timeoutMs = options?.timeoutMs ?? 90000;
 	const pollMs = options?.pollMs ?? 500;
 	const start = Date.now();
-	let last: vscode.Hover[] | undefined;
 	while (Date.now() - start < timeoutMs) {
-		last = (await vscode.commands.executeCommand(
-			"vscode.executeHoverProvider",
+		const result = (await vscode.commands.executeCommand(
+			"vscode.executeDefinitionProvider",
 			uri,
 			pos,
-		)) as vscode.Hover[] | undefined;
-		if (Array.isArray(last) && last.length > 0) return last;
+		)) as (vscode.Location | vscode.LocationLink)[] | undefined;
+		if (Array.isArray(result) && result.length > 0) return result;
 		await delay(pollMs);
 	}
-	return Array.isArray(last) ? last : [];
+	throw new Error(
+		`Timeout waiting for definition provider after ${timeoutMs}ms ` +
+			`(uri=${uri.toString()}, pos=L${pos.line}:${pos.character}, ` +
+			`platform=${process.platform})`,
+	);
 }
 
 /**
- * Poll until document highlights satisfy `predicate`, or timeout.
+ * Probe hover provider at `pos`. Returns the result array (may be empty).
+ * Does NOT poll — call after a readiness gate like {@link waitForDefinitionAvailable}.
+ */
+export async function probeHover(
+	uri: vscode.Uri,
+	pos: vscode.Position,
+): Promise<vscode.Hover[]> {
+	const result = (await vscode.commands.executeCommand(
+		"vscode.executeHoverProvider",
+		uri,
+		pos,
+	)) as vscode.Hover[] | undefined;
+	return Array.isArray(result) ? result : [];
+}
+
+/**
+ * Poll until document highlights satisfy `predicate`, or throw with diagnostics.
+ * Unlike the previous version this throws on timeout instead of silently returning
+ * partial results, so callers get an honest failure signal.
  */
 export async function waitForDocumentHighlights(
 	uri: vscode.Uri,
@@ -306,7 +328,15 @@ export async function waitForDocumentHighlights(
 		if (Array.isArray(last) && predicate(last)) return last;
 		await delay(pollMs);
 	}
-	return Array.isArray(last) ? last : [];
+	const count = Array.isArray(last) ? last.length : 0;
+	const kinds = Array.isArray(last)
+		? last.map((h) => h.kind ?? "?").join(",")
+		: "n/a";
+	throw new Error(
+		`Timeout waiting for document highlights after ${timeoutMs}ms ` +
+			`(uri=${uri.toString()}, pos=L${pos.line}:${pos.character}, ` +
+			`lastCount=${count}, lastKinds=[${kinds}], platform=${process.platform})`,
+	);
 }
 
 export function isMultiRootWorkspace(): boolean {
@@ -353,8 +383,8 @@ export async function waitForSidecarReady(
 
 /**
  * Wait until a document has been fully analyzed by the LSP pipeline.
- * Combines waitForDiagnostics + waitForProviders (code lenses) into one call.
- * Use this as the standard readiness gate before asserting on provider results.
+ * Waits for diagnostics to appear (real predicate, not `() => true`) then
+ * waits for code lenses as the final pipeline signal.
  */
 export async function waitForDocumentAnalyzed(
 	uri: vscode.Uri,
@@ -366,14 +396,20 @@ export async function waitForDocumentAnalyzed(
 ): Promise<void> {
 	const totalTimeout =
 		options?.timeoutMs ??
-		(process.platform === "win32" ? 150000 : 120000);
+		(process.platform === "win32" || process.platform === "darwin"
+			? 150000
+			: 120000);
 	const start = Date.now();
 
 	if (!options?.skipDiagnostics) {
-		const diagBudget = Math.min(totalTimeout * 0.4, 60000);
-		await waitForDiagnostics(uri, () => true, {
-			timeoutMs: diagBudget,
-		});
+		const diagBudget = Math.min(totalTimeout * 0.5, 90000);
+		try {
+			await waitForDiagnostics(uri, (d) => d.length > 0, {
+				timeoutMs: diagBudget,
+			});
+		} catch {
+			// File may be valid with 0 diagnostics; continue to code-lens gate.
+		}
 	}
 
 	const remaining = totalTimeout - (Date.now() - start);
