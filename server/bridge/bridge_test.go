@@ -12,6 +12,18 @@ import (
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
+func parseMalformedOpenAPIIndex(t *testing.T, content string) *openapi.Index {
+	t.Helper()
+	idx := openapi.ParseAndIndex([]byte(content))
+	if idx == nil {
+		t.Fatal("expected parsed index")
+	}
+	if !idx.IsMalformed() {
+		t.Fatalf("expected malformed index for content:\n%s", content)
+	}
+	return idx
+}
+
 func TestDiagnosticsSliceConverters_HandleNilAndEmpty(t *testing.T) {
 	if got := DiagnosticsToProtocol(nil); got == nil || len(got) != 0 {
 		t.Fatalf("expected empty protocol diagnostics, got %+v", got)
@@ -106,10 +118,102 @@ paths: {}
 	}
 }
 
+func TestWrapForGossip_MalformedIndexStillRunsDuplicateKeyRules(t *testing.T) {
+	idx := parseMalformedOpenAPIIndex(t, `openapi: "3.1.0"
+info:
+  title: Example
+  version: "1.0.0"
+paths:
+  /pets:
+    get:
+      summary: First
+    get:
+      summary: Second
+`)
+
+	called := false
+	rule := barrelman.Rule{
+		ID: "duplicate-keys",
+		Run: func(ctx *barrelman.AnalysisContext) []barrelman.Diagnostic {
+			called = true
+			if ctx == nil || ctx.Index == nil {
+				t.Fatal("expected analysis context with index")
+			}
+			return []barrelman.Diagnostic{{
+				Code:     "duplicate-keys",
+				Source:   "duplicate-keys",
+				Message:  "Duplicate key 'get' previously defined on line 7",
+				Severity: barrelman.SeverityError,
+			}}
+		},
+	}
+
+	diags := WrapForGossip(rule).Run(&gtreesitter.AnalysisContext{
+		Context:  context.Background(),
+		UserData: idx,
+	})
+	if !called {
+		t.Fatal("expected duplicate-keys rule to run for malformed index")
+	}
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d (%+v)", len(diags), diags)
+	}
+	if diags[0].Code != "duplicate-keys" || diags[0].Message == "" {
+		t.Fatalf("unexpected duplicate-keys diagnostic: %+v", diags[0])
+	}
+}
+
+func TestWrapForGossip_CanSuppressMalformedIndexWhenRequested(t *testing.T) {
+	idx := parseMalformedOpenAPIIndex(t, `openapi: "3.1.0"
+info:
+  title: Example
+  version: "1.0.0"
+paths:
+  /pets:
+    get:
+      summary: First
+    get:
+      summary: Second
+`)
+
+	called := false
+	rule := barrelman.Rule{
+		ID: "duplicate-keys",
+		Run: func(ctx *barrelman.AnalysisContext) []barrelman.Diagnostic {
+			called = true
+			return []barrelman.Diagnostic{{
+				Code:    "duplicate-keys",
+				Message: "should be suppressed in LSP mode",
+			}}
+		},
+	}
+
+	diags := WrapForGossip(rule).Run(&gtreesitter.AnalysisContext{
+		Context: context.Background(),
+		UserData: &AnalysisData{
+			Index:                        idx,
+			SuppressMalformedDiagnostics: true,
+		},
+	})
+	if called {
+		t.Fatal("expected malformed index suppression to short-circuit rule execution")
+	}
+	if len(diags) != 0 {
+		t.Fatalf("expected malformed index suppression to drop diagnostics, got %+v", diags)
+	}
+}
+
 func TestWrapForGossip_SuppressesMalformedOAS3SchemaDiagnostics(t *testing.T) {
+	idx := parseMalformedOpenAPIIndex(t, `- not-an-openapi-document
+- editor-should-own-feedback
+`)
+
 	rule := barrelman.Rule{
 		ID: "oas3-schema",
 		Run: func(ctx *barrelman.AnalysisContext) []barrelman.Diagnostic {
+			if ctx == nil || ctx.Index == nil {
+				t.Fatal("expected analysis context with malformed index")
+			}
 			return []barrelman.Diagnostic{
 				{
 					Code:    "oas3-schema",
@@ -144,7 +248,8 @@ func TestWrapForGossip_SuppressesMalformedOAS3SchemaDiagnostics(t *testing.T) {
 
 	analyzer := WrapForGossip(rule)
 	diags := analyzer.Run(&gtreesitter.AnalysisContext{
-		Context: context.Background(),
+		Context:  context.Background(),
+		UserData: idx,
 	})
 	if len(diags) != 1 {
 		t.Fatalf("expected 1 surviving diagnostic, got %d (%+v)", len(diags), diags)

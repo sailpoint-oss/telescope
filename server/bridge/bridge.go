@@ -17,7 +17,7 @@ func WrapForGossip(rule barrelman.Rule) treesitter.Analyzer {
 	return treesitter.Analyzer{
 		Scope: treesitter.ScopeFile,
 		Run: func(gctx *treesitter.AnalysisContext) []protocol.Diagnostic {
-			if analysisHasMalformedIndex(gctx.UserData) {
+			if shouldSuppressMalformedIndex(gctx.UserData) {
 				return nil
 			}
 			bctx := ContextFromGossip(gctx)
@@ -29,15 +29,12 @@ func WrapForGossip(rule barrelman.Rule) treesitter.Analyzer {
 	}
 }
 
-func analysisHasMalformedIndex(userData any) bool {
-	switch data := userData.(type) {
-	case *AnalysisData:
-		return data != nil && data.Index != nil && data.Index.IsMalformed()
-	case *openapi.Index:
-		return data != nil && data.IsMalformed()
-	default:
+func shouldSuppressMalformedIndex(userData any) bool {
+	data, ok := userData.(*AnalysisData)
+	if !ok || data == nil || !data.SuppressMalformedDiagnostics || data.Index == nil {
 		return false
 	}
+	return data.Index.IsMalformed()
 }
 
 func filterLSPOnlyDiagnostics(diags []barrelman.Diagnostic) []barrelman.Diagnostic {

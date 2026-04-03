@@ -121,8 +121,9 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 			}
 
 			data := &rules.AnalysisData{
-				Index:  idx,
-				DocURI: string(uri),
+				Index:                        idx,
+				DocURI:                       string(uri),
+				SuppressMalformedDiagnostics: true,
 			}
 			if resolver := projMgr.ResolverForFile(string(uri)); resolver != nil {
 				data.Resolver = resolver
@@ -165,6 +166,63 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		// Register file watchers for ruleset hot-reload
 		s.OnDidChangeWatchedFiles(NewWatchedFilesHandler(rsMgr, projMgr, graphBridge, indexCache, s.Logger()))
 	}
+}
+
+func shouldSuppressMalformedDocumentDiagnostics(ctx *gossip.Context, indexCache *openapi.IndexCache, uri protocol.DocumentURI) bool {
+	doc := ctx.Documents.Get(uri)
+	if doc != nil {
+		if strings.TrimSpace(doc.Text()) == "" {
+			return true
+		}
+		if tree := ctx.Server().TreeSitter().GetTree(uri); tree != nil {
+			if idx := openapi.BuildIndex(tree, doc); idx != nil {
+				indexCache.Set(uri, idx)
+				return idx.IsMalformed()
+			}
+		}
+		if idx := openapi.ParseAndIndex([]byte(doc.Text())); idx != nil {
+			indexCache.Set(uri, idx)
+			return idx.IsMalformed()
+		}
+		return false
+	}
+
+	if idx := indexCache.Get(uri); idx != nil {
+		return idx.IsMalformed()
+	}
+	return false
+}
+
+func hasMalformedDocumentDiagnostics(diags []protocol.Diagnostic) bool {
+	for _, diag := range diags {
+		code, _ := diag.Code.(string)
+		if code == "duplicate-keys" {
+			return true
+		}
+		if code != "oas3-schema" {
+			continue
+		}
+		if diagnosticDataString(diag.Data, "category") == "syntax" {
+			return true
+		}
+		switch diagnosticDataString(diag.Data, "issueCode") {
+		case "meta.decode", "structural.root-not-mapping":
+			return true
+		}
+	}
+	return false
+}
+
+func diagnosticDataString(data any, key string) string {
+	switch v := data.(type) {
+	case map[string]string:
+		return v[key]
+	case map[string]any:
+		if raw, ok := v[key]; ok {
+			return fmt.Sprint(raw)
+		}
+	}
+	return ""
 }
 
 // NewServer creates a fully wired Telescope LSP server and returns a cleanup
@@ -304,9 +362,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		ctx.Server().DiagnosticEngine().SetPublish(func(bgCtx context.Context, params *protocol.PublishDiagnosticsParams) error {
 			// Malformed YAML/JSON should be owned by the editor's built-in services.
 			enrichedDiags := params.Diagnostics
-			if doc := ctx.Documents.Get(params.URI); doc != nil && strings.TrimSpace(doc.Text()) == "" {
-				enrichedDiags = nil
-			} else if idx := indexCache.Get(params.URI); idx != nil && idx.IsMalformed() {
+			if shouldSuppressMalformedDocumentDiagnostics(ctx, indexCache, params.URI) || hasMalformedDocumentDiagnostics(params.Diagnostics) {
 				enrichedDiags = nil
 			} else {
 				// Enrich diagnostics with RelatedInformation for $ref context.
