@@ -22,21 +22,20 @@ Telescope's LSP surface is split across a few distinct layers:
 | Layer | Scope | What it actually provides |
 | ----- | ----- | ------------------------- |
 | **Telescope OpenAPI server** | OpenAPI YAML/JSON documents | Navigation, hover, completion, rename, formatting, semantic tokens, code actions, workspace symbols, call hierarchy, inlay hints, code lens, and Telescope-owned diagnostics |
-| **Child YAML validator** | YAML documents routed through Telescope | Syntax and schema diagnostics from `yaml-language-server` |
-| **Child JSON validator** | JSON documents routed through Telescope | Syntax and schema diagnostics from `vscode-json-language-server` |
+| **Editor YAML/JSON services** | Any YAML/JSON document in the editor | Generic syntax/schema diagnostics and other non-Telescope language features provided by the editor or installed extensions |
 | **Embedded Markdown support** | Markdown inside descriptions, summaries, and docs fields | Markdown parsing, document links, and extension-side syntax highlighting for fenced code blocks |
 | **Optional Bun sidecar** | Workspaces that enable JS/TS custom rules | Additional diagnostics for Bun-backed custom rules when the sidecar is bundled and available |
 
-The important distinction is that Telescope does **not** expose the child YAML/JSON servers as full generic editor services. Their completion, hover, and formatting features are disabled in Telescope; they are used as auxiliary validators.
+The important distinction is that Telescope does **not** try to replace the editor's generic YAML/JSON language features. Telescope stays focused on OpenAPI-aware behavior, while the editor or other installed language extensions handle generic YAML/JSON syntax feedback.
 
 ### Capability Truth Table
 
-| Capability | Telescope core | Child YAML/JSON | Bun sidecar |
+| Capability | Telescope core | Editor YAML/JSON services | Bun sidecar |
 | ---------- | -------------- | --------------- | ----------- |
 | OpenAPI navigation and refactoring | Yes | No | No |
 | OpenAPI completion, hover, and semantic tokens | Yes | No | No |
 | YAML/JSON syntax and schema diagnostics | No | Yes | No |
-| Generic YAML/JSON completion, hover, or formatting | No | Disabled | No |
+| Generic YAML/JSON completion, hover, or formatting | No | Yes | No |
 | Embedded Markdown link handling and code-block highlighting | Yes | No | No |
 | Spectral YAML ruleset diagnostics | Yes | No | No |
 | TypeScript/JavaScript custom-rule diagnostics | No | No | Optional |
@@ -359,13 +358,13 @@ Validates all OpenAPI files in your workspace:
 
 ### Parse Error Diagnostics
 
-YAML and JSON parse errors are surfaced as diagnostics with precise locations:
+Generic YAML and JSON parse errors are expected to come from the editor's own language services or installed extensions:
 
 - Syntax errors (missing colons, invalid indentation)
 - Invalid YAML/JSON structure
 - Encoding issues
 
-Parse errors appear immediately, even before OpenAPI rule validation runs.
+Telescope suppresses its own malformed-document diagnostics so those editor-owned parse errors stay primary.
 
 ### Progress Reporting
 

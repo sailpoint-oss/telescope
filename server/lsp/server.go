@@ -42,7 +42,7 @@ var Version = "dev"
 
 // telescopeSetup is a gossip Option that wires the OpenAPI index and rules
 // after the tree-sitter manager has been initialized by WithTreeSitter.
-func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, childMgr *ChildLSPManager, graphBridge *GraphBridge, bunMgr *bun.Manager, workspaceRootPtr *string) gossip.Option {
+func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, graphBridge *GraphBridge, bunMgr *bun.Manager, workspaceRootPtr *string) gossip.Option {
 	return func(s *gossip.Server) {
 		// Bind the DiagnosticEngine now that WithTreeSitter has been applied.
 		// This must happen here (inside an Option) because gossip.NewServer
@@ -168,8 +168,7 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 }
 
 // NewServer creates a fully wired Telescope LSP server and returns a cleanup
-// function that must be called when the server exits to stop child processes
-// and clean up temporary resources.
+// function that must be called when the server exits to clean up temporary resources.
 func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func()) {
 	yamlLang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
 	jsonLang := tree_sitter.NewLanguage(unsafe.Pointer(ts_json.Language()))
@@ -194,10 +193,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	}
 	rulePerfTracker := observe.NewRulePerfTracker()
 
-	// The ChildLSPManager publishes merged diagnostics. The publish function
-	// is nil initially; it gets wired to the real ClientProxy in OnInitialized
-	// once the server connection is established.
-	childMgr := NewChildLSPManager(nil, logger)
+	diagMux := NewDiagnosticMux(nil, logger)
 
 	// Cancellable context for all background goroutines. Cancelled in the
 	// cleanup function returned to the caller.
@@ -230,19 +226,16 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		gossip.WithMiddleware(middleware.Logging(logger), middleware.Recovery(), observe.TraceID(logger)),
 		gossip.WithCompletionTriggerCharacters("$", "/", "#", ":"),
 		gossip.WithSemanticTokensLegend(semanticTokensLegend),
-		telescopeSetup(cfg, indexCache, rsMgr, extRegistry, addlValidator, projMgr, childMgr, graphBridge, bunMgr, &workspaceRootStr),
+		telescopeSetup(cfg, indexCache, rsMgr, extRegistry, addlValidator, projMgr, graphBridge, bunMgr, &workspaceRootStr),
 	)
 
-	// Register document sync handlers to forward to child LSPs and update
-	// the V2 graph engine.
+	// Register document sync handlers and update the V2 graph engine.
 	s.OnDidOpen(func(ctx *gossip.Context, params *protocol.DidOpenTextDocumentParams) error {
 		traceID := observe.NewTraceID()
-		notifCtx := observe.WithTraceID(context.Background(), traceID)
 		logger.Debug("telescope.didOpen",
 			"trace_id", traceID,
 			"uri", params.TextDocument.URI,
 			"languageID", params.TextDocument.LanguageID)
-		childMgr.DidOpen(notifCtx, params)
 		uri := string(params.TextDocument.URI)
 		content := []byte(params.TextDocument.Text)
 		graphBridge.OnDocumentOpen(uri, content)
@@ -254,9 +247,8 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	})
 	s.OnDidChange(func(ctx *gossip.Context, params *protocol.DidChangeTextDocumentParams) error {
 		traceID := observe.NewTraceID()
-		notifCtx := observe.WithTraceID(context.Background(), traceID)
 		logger.Debug("telescope.didChange", "trace_id", traceID, "uri", params.TextDocument.URI)
-		childMgr.DidChange(notifCtx, params)
+		diagMux.ClearSource(params.TextDocument.URI, contractDiagSource)
 		if doc := ctx.Documents.Get(params.TextDocument.URI); doc != nil {
 			uri := string(params.TextDocument.URI)
 			content := []byte(doc.Text())
@@ -270,9 +262,8 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	})
 	s.OnDidClose(func(ctx *gossip.Context, params *protocol.DidCloseTextDocumentParams) error {
 		traceID := observe.NewTraceID()
-		notifCtx := observe.WithTraceID(context.Background(), traceID)
 		logger.Debug("telescope.didClose", "trace_id", traceID, "uri", params.TextDocument.URI)
-		childMgr.DidClose(notifCtx, params)
+		diagMux.ClearSource(params.TextDocument.URI, contractDiagSource)
 		graphBridge.OnDocumentClose(string(params.TextDocument.URI))
 		if _, err := graphBridge.RunPipeline(ctx, indexCache, string(params.TextDocument.URI)); err != nil {
 			logger.Warn("failed to refresh closed document state", "uri", params.TextDocument.URI, "error", err)
@@ -280,8 +271,8 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		return nil
 	})
 
-	// Register an initialization hook that loads rulesets from the workspace,
-	// registers dynamic file watchers, and starts child LSPs.
+	// Register an initialization hook that loads rulesets from the workspace
+	// and registers dynamic file watchers.
 	s.OnInitialized(func(ctx *gossip.Context) {
 		workspaceRootStr = uriToFSPath(string(protocol.NormalizeURI(ctx.WorkspaceRoot())))
 		logger.Info("telescope server initialized",
@@ -307,13 +298,11 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 			)
 		})
 
-		// Wire the aggregator's publish to the real client proxy, and redirect
-		// the diagnostic engine's output through the aggregator so telescope's
-		// own diagnostics are merged with child LSP diagnostics.
-		childMgr.Aggregator().SetPublishFunc(ctx.Client.PublishDiagnostics)
-		childMgr.Aggregator().SetLogger(logger)
+		// Merge Telescope-owned diagnostic sources before publishing.
+		diagMux.SetPublishFunc(ctx.Client.PublishDiagnostics)
+		diagMux.SetLogger(logger)
 		ctx.Server().DiagnosticEngine().SetPublish(func(bgCtx context.Context, params *protocol.PublishDiagnosticsParams) error {
-			// Malformed YAML/JSON should be owned by the child language servers.
+			// Malformed YAML/JSON should be owned by the editor's built-in services.
 			enrichedDiags := params.Diagnostics
 			if doc := ctx.Documents.Get(params.URI); doc != nil && strings.TrimSpace(doc.Text()) == "" {
 				enrichedDiags = nil
@@ -323,11 +312,11 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 				// Enrich diagnostics with RelatedInformation for $ref context.
 				enrichedDiags = enrichDiagsWithRefContext(graphBridge, string(params.URI), params.Diagnostics)
 			}
-			logger.Debug("telescope.diagToAggregator",
+			logger.Debug("telescope.diagPublish",
 				"trace_id", observe.GetTraceID(bgCtx),
 				"uri", params.URI,
 				"count", len(enrichedDiags))
-			childMgr.Aggregator().Set(params.URI, "telescope", enrichedDiags)
+			diagMux.Set(params.URI, "telescope", enrichedDiags)
 			return nil
 		})
 
@@ -398,10 +387,6 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 				}()
 			}
 
-			// Start child YAML/JSON language servers for enhanced syntax and
-			// schema diagnostics. Runs in background to avoid blocking init.
-			go childMgr.Start(bgCtx, root)
-
 			// Collect analyzers for startup diagnostics on all discovered files.
 			collectedAnalyzers := rules.CollectAnalyzers(analyzers.RegisterAll)
 			projMgr.SetAnalyzers(collectedAnalyzers)
@@ -445,7 +430,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		ConfigProvider:       rsMgr.TelescopeConfig,
 		WorkspaceEnvProvider: rsMgr.WorkspaceEnv,
 		Runner:               contractrunner.New(cfg),
-		Aggregator:           childMgr.Aggregator(),
+		DiagnosticMux:        diagMux,
 	}
 	s.OnExecuteCommand(NewExecuteCommandHandler(indexCache, graphBridge, execDeps))
 	s.OnCompletionResolve(NewCompletionResolveHandler(indexCache, graphBridge))
@@ -478,9 +463,6 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 
 	cleanup := func() {
 		bgCancel()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		childMgr.Stop(ctx)
 		bunMgr.Stop()
 		logger.Info("server cleanup complete")
 	}

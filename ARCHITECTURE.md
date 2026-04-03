@@ -150,7 +150,7 @@ flowchart TB
 | LSP Server | `lsp/server.go` | gossip wiring, analyzer registration, file watchers |
 | Feature Handlers | `lsp/*.go` | Hover, completion, definition, references, rename, code actions, code lens, semantic tokens, etc. |
 | RulesetManager | `lsp/ruleset_manager.go` | Config merging, severity filtering, hot-reload |
-| ChildLSPManager | `lsp/childlsp.go` | Spawns child YAML/JSON LSPs for syntax validation |
+| DiagnosticMux | `lsp/diagnostic_mux.go` | Merges Telescope-owned diagnostic sources before publish |
 | OpenAPI Parser | `openapi/parser.go` | Compatibility parsing helpers over Navigator-backed content |
 | OpenAPI Index | `openapi/index.go` | Fast lookups by operation ID, path, component |
 | Index Cache | `openapi/index.go` | Thread-safe per-document caching (`sync.RWMutex`) |

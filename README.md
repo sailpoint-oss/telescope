@@ -147,12 +147,7 @@ flowchart TB
         DiagEngine["DiagnosticEngine (caching, incremental)"]
         ProjMgr["Project Manager"]
 
-        subgraph childLSP ["Child LSP Servers"]
-            YamlLS["yaml-language-server"]
-            JsonLS["vscode-json-language-server"]
-        end
-
-        Aggregator["DiagnosticAggregator (80ms debounce)"]
+        DiagMux["DiagnosticMux (Telescope-owned sources)"]
     end
 
     subgraph features ["LSP Feature Handlers"]
@@ -181,9 +176,8 @@ flowchart TB
     DiagEngine --> rules
     rules --> DiagEngine
 
-    DiagEngine -->|"Set(uri, telescope, diags)"| Aggregator
-    childLSP -->|"Set(uri, yaml-ls/json-ls, diags)"| Aggregator
-    Aggregator -->|"publishDiagnostics"| LC
+    DiagEngine -->|"Set(uri, telescope, diags)"| DiagMux
+    DiagMux -->|"publishDiagnostics"| LC
 
     ProjMgr -->|"cross-file $ref resolution"| IndexCache
     ProjMgr -->|"PublishDirect"| LC
@@ -202,7 +196,7 @@ flowchart TB
 
 4. **Rule execution.** The `DiagnosticEngine` runs several categories of checks in parallel: Navigator-issued document issues, Barrelman-backed built-in analyzers/checks, Spectral-compatible YAML rulesets (JSONPath + built-in functions), Bun sidecar TypeScript/JavaScript rules, and Telescope's editor-facing extension schema validators. Each produces diagnostics with precise source locations.
 
-5. **Diagnostic aggregation.** Telescope diagnostics flow through a `DiagnosticAggregator` (from gossip's `lspclient` package) that merges results from three sources: the Telescope rule engine, the child `yaml-language-server`, and the child `vscode-json-language-server`. The aggregator debounces for 80ms, then publishes the merged set to the client via `textDocument/publishDiagnostics`.
+5. **Diagnostic publishing.** Telescope diagnostics flow through a small internal `DiagnosticMux` that merges Telescope-owned sources such as rule-engine diagnostics and contract-test diagnostics before publishing them to the client via `textDocument/publishDiagnostics`. Generic YAML/JSON syntax feedback is left to the editor's own language services.
 
 6. **Cross-file resolution.** The `Project Manager` runs a background workspace scan, builds a dependency graph of root documents and their transitive `$ref` targets, and provides a `CrossFileResolver` to the rule engine. This enables cross-file go-to-definition, find-references, and project-level diagnostics.
 

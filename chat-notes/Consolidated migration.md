@@ -2,7 +2,7 @@
 
 ## Guiding Principles
 
-- **Keep what works.** The gossip framework, DiagnosticAggregator, child LSP delegation, RuleBuilder API, 88 built-in rules, and CLI are not being thrown away — they are being migrated into the new architecture.
+- **Keep what works.** The gossip framework, Telescope-owned diagnostic publishing, RuleBuilder API, 88 built-in rules, and CLI are not being thrown away — they are being migrated into the new architecture.
 - **Upgrade the foundation.** The graph engine, pipeline stages, file classification, snapshot model, and extensibility layer are being replaced wholesale.
 - **Bun is opt-in.** The entire Go core works without Bun. Custom TS/JS rules simply don't load if Bun is unavailable.
 - **No big bang.** Each phase ships a working, testable, releasable state.

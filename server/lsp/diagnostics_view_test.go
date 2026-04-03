@@ -79,8 +79,8 @@ func TestViewDiagnostics(t *testing.T) {
 			t.Logf("  Total: %d diagnostics", len(diags))
 
 			// Regression: YAML specs tagged as having issues should produce diagnostics.
-			// Syntax-only malformed docs are excluded because child YAML/JSON LSPs
-			// own that feedback.
+			// Syntax-only malformed docs are excluded because the editor's YAML/JSON
+			// language services own that feedback.
 			expectDiags := false
 			if spec.Format != openapi.FormatJSON && spec.Name != "invalid-yaml-syntax" {
 				for _, tag := range spec.Tags {

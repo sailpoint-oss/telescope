@@ -1,7 +1,6 @@
 package lsp
 
 import (
-	"github.com/LukasParke/gossip/lspclient"
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/contractrunner"
 )
@@ -36,5 +35,5 @@ type ExecuteCommandDeps struct {
 	ConfigProvider       func() *config.Config
 	WorkspaceEnvProvider func() map[string]string
 	Runner               *contractrunner.Runner
-	Aggregator           *lspclient.DiagnosticAggregator
+	DiagnosticMux        *DiagnosticMux
 }

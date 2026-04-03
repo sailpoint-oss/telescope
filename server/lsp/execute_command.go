@@ -519,10 +519,10 @@ func runContractOpenAPIAsync(ctx *gossip.Context, deps *ExecuteCommandDeps, uri 
 		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
 		return
 	}
-	if deps.Aggregator != nil {
+	if deps.DiagnosticMux != nil {
 		cfg := deps.EffectiveConfig()
-		deps.Aggregator.Set(uri, "telescope-contract", contractDiagnosticsForOpenAPI(idx, result, &cfg.ContractTests))
-		deps.Aggregator.FlushNow(uri)
+		deps.DiagnosticMux.Set(uri, contractDiagSource, contractDiagnosticsForOpenAPI(idx, result, &cfg.ContractTests))
+		deps.DiagnosticMux.FlushNow(uri)
 	}
 	notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{
 		"runId":   runID,
@@ -557,9 +557,9 @@ func runContractArazzoAsync(ctx *gossip.Context, deps *ExecuteCommandDeps, uri p
 		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
 		return
 	}
-	if deps.Aggregator != nil {
-		deps.Aggregator.Set(uri, "telescope-contract", contractDiagnosticsForArazzo(uri, result))
-		deps.Aggregator.FlushNow(uri)
+	if deps.DiagnosticMux != nil {
+		deps.DiagnosticMux.Set(uri, contractDiagSource, contractDiagnosticsForArazzo(uri, result))
+		deps.DiagnosticMux.FlushNow(uri)
 	}
 	notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{
 		"runId":   runID,

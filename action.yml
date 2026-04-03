@@ -39,7 +39,7 @@ inputs:
     description: "Failure threshold: error or warn"
     default: "error"
   no-external-lsp:
-    description: "Skip child YAML/JSON language server diagnostics"
+    description: "Deprecated no-op; retained for compatibility"
     default: "false"
   comment-pr:
     description: "Post PR comment in ci mode"

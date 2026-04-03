@@ -64,7 +64,7 @@ The codebase breaks into **8 distinct functional domains**.
 |------|----------------|
 | `server.go` | Entry point: creates gossip server, registers tree-sitter, wires analyzers |
 | `ruleset_manager.go` | Config + ruleset merging, severity filtering, hot-reload |
-| `childlsp.go` | Spawns child YAML/JSON LSPs for syntax validation |
+| `diagnostic_mux.go` | Merges Telescope-owned diagnostic sources before publish |
 | `hover.go` | `$ref` preview on hover |
 | `completion.go` | `$ref` paths, status codes, media types, tags |
 | `definition.go` | Go to `$ref` targets, operationId definitions |

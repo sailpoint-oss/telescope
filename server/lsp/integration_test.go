@@ -95,8 +95,8 @@ func waitForDiagnosticsState(
 // Broken YAML Parsing Tests (6)
 //
 // These verify the pipeline handles malformed YAML gracefully. Syntax/root
-// failures should be left to child YAML/JSON language servers rather than
-// surfaced as Telescope diagnostics.
+// failures should be left to the editor's YAML/JSON language services rather
+// than surfaced as Telescope diagnostics.
 // ---------------------------------------------------------------------------
 
 func TestBrokenYAML_InvalidIndentation(t *testing.T) {
@@ -160,7 +160,7 @@ paths:
 func TestBrokenYAML_UnterminatedString(t *testing.T) {
 	c := newTestServer(t)
 	uri := "file:///unterminated.yaml"
-	// Unterminated quote in title should be left to child YAML diagnostics.
+	// Unterminated quote in title should be left to the editor's YAML diagnostics.
 	content := `openapi: "3.1.0"
 info:
   title: "unterminated string
@@ -185,7 +185,7 @@ func TestBrokenYAML_TabCharacters(t *testing.T) {
 	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "tab-characters", diags)
 
-	// Tab detection is a child LSP feature; here we verify no crash.
+	// Tab-indented malformed YAML should not crash Telescope.
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
@@ -243,7 +243,7 @@ func TestBrokenYAML_EmptyDocument(t *testing.T) {
 // Broken JSON Parsing Tests (6)
 //
 // Same strategy: verify graceful handling. JSON syntax errors should be
-// reported only by child JSON language servers.
+// reported only by the editor's JSON language services.
 // ---------------------------------------------------------------------------
 
 func TestBrokenJSON_TrailingComma(t *testing.T) {
@@ -261,7 +261,7 @@ func TestBrokenJSON_TrailingComma(t *testing.T) {
 	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
 	dumpDiags(t, "trailing-comma", diags)
 
-	// JSON trailing comma detection is a child LSP feature; verify no crash.
+	// Malformed JSON should not crash Telescope.
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
@@ -274,7 +274,7 @@ func TestBrokenJSON_TrailingComma(t *testing.T) {
 func TestBrokenYAML_RootSequenceDoesNotSurfaceOAS3Schema(t *testing.T) {
 	c := newTestServer(t)
 	uri := "file:///root-sequence.yaml"
-	content := "- not-an-openapi-document\n- child-lsp-should-own-feedback\n"
+	content := "- not-an-openapi-document\n- editor-should-own-feedback\n"
 
 	c.OpenWithLanguage(uri, "yaml", content)
 	diags := waitForDocumentReady(t, c, uri, 5*time.Second)

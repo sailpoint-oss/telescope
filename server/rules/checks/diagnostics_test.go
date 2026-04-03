@@ -118,9 +118,9 @@ func dumpDiags(t *testing.T, label string, diags []protocol.Diagnostic) {
 // ---------------------------------------------------------------------------
 // Syntax error tests
 //
-// Note: syntax-error and missing-token diagnostics are now provided by child
-// YAML/JSON language servers (yaml-language-server, vscode-json-language-server)
-// rather than tree-sitter checks. Those are integration-tested separately.
+// Note: syntax-error and missing-token diagnostics are now provided by the
+// editor's YAML/JSON language services rather than Telescope tree-sitter checks.
+// Telescope integration tests only verify that malformed docs are suppressed.
 // ---------------------------------------------------------------------------
 
 func TestSyntaxErrors_InvalidYAML_DuplicateKeys(t *testing.T) {
@@ -328,7 +328,7 @@ func TestDuplicateKeys_JSON(t *testing.T) {
 	}
 }
 
-// Missing-token tests removed: syntax diagnostics now come from child LSPs.
+// Missing-token tests removed: syntax diagnostics now come from the editor.
 
 // ---------------------------------------------------------------------------
 // Focused ASCII tests
@@ -423,13 +423,13 @@ func TestDiagnosticSeverities_AreCorrect(t *testing.T) {
 	diags := runFullPipelineYAML(t, s.Content)
 
 	warningCodes := map[string]bool{
-		"operation-description":        true,
-		"operation-operationId":        true,
-		"tag-description":              true,
-		"info-contact":                 true,
-		"info-license":                 true,
-		"kebab-case":                   true,
-		"no-http-verbs":                true,
+		"operation-description": true,
+		"operation-operationId": true,
+		"tag-description":       true,
+		"info-contact":          true,
+		"info-license":          true,
+		"kebab-case":            true,
+		"no-http-verbs":         true,
 	}
 
 	for _, d := range diags {

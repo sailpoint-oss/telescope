@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"unsafe"
 
 	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
@@ -18,7 +17,6 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
 	"github.com/sailpoint-oss/telescope/server/config"
-	"github.com/sailpoint-oss/telescope/server/lsp"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/project"
@@ -40,7 +38,7 @@ type Options struct {
 	RulesetPath string
 
 	MinSeverity   protocol.DiagnosticSeverity
-	NoExternalLSP bool
+	NoExternalLSP bool // Deprecated compatibility flag; Telescope no longer spawns external YAML/JSON LSPs.
 
 	Include       []string
 	Exclude       []string
@@ -86,19 +84,6 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 	allAnalyzers = filterAnalyzers(allAnalyzers, enabledRules)
 	allChecks = filterChecks(allChecks, enabledRules)
 
-	var childLinter *lsp.ChildLSPLinter
-	if !opts.NoExternalLSP && lsp.NodeAvailable() {
-		rootURI := pathToFileURI(opts.WorkingDir)
-		childLinter = lsp.NewChildLSPLinter(logger)
-		if err := childLinter.Start(ctx, rootURI); err != nil {
-			logger.Warn("child language servers unavailable; continuing without external LSP diagnostics", "error", err)
-			childLinter = nil
-		}
-	}
-	if childLinter != nil {
-		defer childLinter.Stop(ctx)
-	}
-
 	projectContexts := buildProjectContexts(files, logger)
 	var allDiags []FileDiagnostics
 
@@ -107,7 +92,7 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", file, err)
 		}
-		diags := lintFile(file, content, cfg, allAnalyzers, allChecks, projectContexts, childLinter)
+		diags := lintFile(file, content, cfg, allAnalyzers, allChecks, projectContexts)
 		diags = filterDisabledDiagnostics(diags, enabledRules)
 		diags = applySeverityOverrides(diags, sevOverrides)
 		if opts.MinSeverity > 0 {
@@ -160,23 +145,12 @@ func loadConfig(opts Options) (*config.Config, error) {
 	return cfg, nil
 }
 
-func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []rules.NamedAnalyzer, allChecks []rules.NamedCheck, projectContexts map[string]*project.ProjectContext, childLinter *lsp.ChildLSPLinter) []protocol.Diagnostic {
+func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []rules.NamedAnalyzer, allChecks []rules.NamedCheck, projectContexts map[string]*project.ProjectContext) []protocol.Diagnostic {
 	format := openapi.FormatFromURI(path)
 	if format == openapi.FormatUnknown {
 		return nil
 	}
 	uri := pathToFileURI(path)
-	langID := langIDForPath(path)
-
-	var childDiags []protocol.Diagnostic
-	var childWg sync.WaitGroup
-	if childLinter != nil && langID != "" {
-		childWg.Add(1)
-		go func() {
-			defer childWg.Done()
-			childDiags = childLinter.LintFile(context.Background(), protocol.DocumentURI(uri), langID, content)
-		}()
-	}
 
 	idx := openapi.ParseAndIndex(content)
 	tree, lang := parseTreeSitter(path, content)
@@ -199,8 +173,6 @@ func lintFile(path string, content []byte, cfg *config.Config, allAnalyzers []ru
 			diags = suppressResolvableUnresolvedRefs(diags, uri, pctx)
 		}
 	}
-	childWg.Wait()
-	diags = append(diags, childDiags...)
 	return diags
 }
 
@@ -323,18 +295,6 @@ func pathToFileURI(fsPath string) string {
 	}
 	u := &url.URL{Scheme: "file", Path: p}
 	return u.String()
-}
-
-func langIDForPath(path string) string {
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".yaml", ".yml":
-		return "yaml"
-	case ".json":
-		return "json"
-	default:
-		return ""
-	}
 }
 
 func filterAnalyzers(all []rules.NamedAnalyzer, enabled map[string]bool) []rules.NamedAnalyzer {

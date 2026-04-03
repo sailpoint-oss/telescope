@@ -9,7 +9,6 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
 	activateExtension,
-	delay,
 	executeWithRetry,
 	getTestApi,
 	isMultiRootWorkspace,
@@ -62,11 +61,12 @@ suite("Providers", () => {
 		assert.ok(links && links.length > 0, "Expected at least one document link");
 	});
 
-	test("Format provider returns valid edits", async () => {
+	test("Format command is well-behaved for openapi-json documents", async () => {
 		if (isMultiRootWorkspace()) return;
-		// Minified JSON: document formatting must pretty-print (non-empty edits). YAML
-		// trailing-space cases are covered in server unit tests; VS Code buffer sync made
-		// YAML E2E flaky for empty-edit vs whitespace-only changes.
+		// Generic JSON formatting is editor-owned after child-LSP removal. This
+		// E2E test only verifies that invoking the format command on an
+		// openapi-json document is well-behaved from the editor host's point of
+		// view; concrete formatting semantics stay covered by server unit tests.
 		const uri = vscode.Uri.joinPath(folder.uri, "format-e2e.json");
 		const raw = await vscode.workspace.fs.readFile(uri);
 		const content = Buffer.from(raw).toString("utf-8");
@@ -93,25 +93,16 @@ suite("Providers", () => {
 			"Buffer must stay minified single-line JSON (see workspace .vscode/settings.json)",
 		);
 
-		const requestFmt = api.requestDocumentFormatting;
+		const edits = (await vscode.commands.executeCommand(
+			"vscode.executeFormatDocumentProvider",
+			uri,
+			{ tabSize: 2, insertSpaces: true },
+		)) as vscode.TextEdit[] | null | undefined;
 		assert.ok(
-			typeof requestFmt === "function",
-			"Test API should expose requestDocumentFormatting for LSP format",
+			edits === undefined || edits === null || Array.isArray(edits),
+			"Format command should return undefined/null or a TextEdit array",
 		);
-		let edits: vscode.TextEdit[] | null = null;
-		const fmtStart = Date.now();
-		while (Date.now() - fmtStart < 30000) {
-			edits = await requestFmt(uri);
-			if (edits !== null && edits !== undefined && edits.length > 0) {
-				break;
-			}
-			await delay(500);
-		}
-
-		// Formatting depends on child LSPs (json-language-server via Node.js).
-		// If the child LSP isn't available, formatting returns null — validate
-		// content only when edits are returned.
-		if (edits && edits.length > 0) {
+		if (Array.isArray(edits) && edits.length > 0) {
 			const formatted = edits.map((edit) => edit.newText).join("");
 			assert.notStrictEqual(formatted, content, "Format should update the document");
 			assert.ok(formatted.includes("\n"), "JSON format should pretty-print with newlines");

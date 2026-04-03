@@ -47,7 +47,7 @@ func newCICmd() *cobra.Command {
 	cmd.Flags().StringVar(&ciFailOn, "fail-on", "error", "Quality gate severity")
 	cmd.Flags().StringVar(&ciSeverity, "severity", "", "Minimum severity: error, warn, info, hint")
 	cmd.Flags().StringVar(&ciReportScope, "report-scope", reportScopeChanged, "Report scope: changed (graph-expanded impact) or all")
-	cmd.Flags().BoolVar(&ciNoExtLSP, "no-external-lsp", false, "Skip child YAML/JSON language server diagnostics")
+	cmd.Flags().BoolVar(&ciNoExtLSP, "no-external-lsp", false, "Deprecated no-op; retained for compatibility")
 
 	return cmd
 }

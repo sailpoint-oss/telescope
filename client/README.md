@@ -190,7 +190,7 @@ The extension follows a per-folder session architecture:
 - Each **Session** spawns a Go language server process (`telescope serve`) via `vscode-languageclient`, connected over stdio.
 - A **WorkspaceScanner** runs a background scan to discover and classify OpenAPI files using a lightweight heuristic (checks for `openapi` / `swagger` root keys, rejects known non-OpenAPI patterns like Kubernetes manifests and Docker Compose files).
 - When you open a classified file, the session applies the `openapi-yaml` or `openapi-json` language mode via `vscode.languages.setTextDocumentLanguage`, which triggers the LanguageClient to re-sync the document with the correct language ID.
-- The server uses **push diagnostics** exclusively (`textDocument/publishDiagnostics`). Diagnostics from the Telescope rule engine and child YAML/JSON language servers are merged by a `DiagnosticAggregator` on the server side before being sent to the client.
+- The server uses **push diagnostics** exclusively (`textDocument/publishDiagnostics`). Telescope merges its own diagnostic sources before publishing, while generic YAML/JSON syntax feedback is left to the editor or other installed language extensions.
 - File watchers track creation, deletion, and changes to YAML/JSON files and all supported Telescope config file locations, keeping the scanner and server in sync.
 
 ## E2E (VS Code integration) tests

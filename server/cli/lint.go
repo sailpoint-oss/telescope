@@ -60,7 +60,7 @@ func addAnalysisFlags(cmd *cobra.Command, includeBaselineFlags bool) {
 	cmd.Flags().BoolVar(&noColor, "no-color", false, "Disable color output")
 	cmd.Flags().StringVar(&reportMDPath, "report-md", "", "Write Markdown report to file")
 	cmd.Flags().StringVar(&reportJSONPath, "report-json", "", "Write JSON report to file")
-	cmd.Flags().BoolVar(&noExternalLSP, "no-external-lsp", false, "Skip child YAML/JSON language server diagnostics")
+	cmd.Flags().BoolVar(&noExternalLSP, "no-external-lsp", false, "Deprecated no-op; retained for compatibility")
 	if includeBaselineFlags {
 		cmd.Flags().BoolVar(&saveBaseline, "save-baseline", false, "Save current diagnostics as baseline")
 		cmd.Flags().BoolVar(&failOnNew, "fail-on-new", false, "Only fail if new diagnostics are introduced (compared to baseline)")

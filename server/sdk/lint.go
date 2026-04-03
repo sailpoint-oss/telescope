@@ -33,7 +33,7 @@ type LintOptions struct {
 	RulesetPath string
 	// WorkspaceRoot is used for config discovery and relative plugin paths.
 	WorkspaceRoot string
-	// NoExternalLSP disables child YAML/JSON linter diagnostics.
+	// NoExternalLSP is a deprecated no-op retained for compatibility.
 	NoExternalLSP bool
 	// Include overrides config include globs when set.
 	Include []string
