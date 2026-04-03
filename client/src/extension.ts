@@ -1352,10 +1352,15 @@ export async function activate(context: ExtensionContext) {
 					return null;
 				}
 				const lspURI = client.code2ProtocolConverter.asUri(textDoc.uri);
-				const result = await client.sendRequest("textDocument/prepareRename", {
-					textDocument: { uri: lspURI },
-					position: { line: pos.line, character: pos.character },
-				});
+				let result: unknown;
+				try {
+					result = await client.sendRequest("textDocument/prepareRename", {
+						textDocument: { uri: lspURI },
+						position: { line: pos.line, character: pos.character },
+					});
+				} catch {
+					return null;
+				}
 				return protocolPrepareRenameToCode(
 					result as
 						| {

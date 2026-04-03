@@ -13,6 +13,7 @@ import (
 	"testing"
 	"unsafe"
 
+	navigator "github.com/sailpoint-oss/navigator"
 	ts_yaml "github.com/sailpoint-oss/tree-sitter-openapi/bindings/go/openapi"
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
@@ -2519,6 +2520,111 @@ func TestPrepareRenameHandler_TagRenameFromBuilderOnDemand(t *testing.T) {
 	changes := edit.Changes[uri]
 	if len(changes) < 2 {
 		t.Fatalf("expected at least definition + usage edits, got %d", len(changes))
+	}
+}
+
+// TestPrepareRenameHandler_NavigatorIndexPath verifies that prepareRename
+// works when the index is built via navigator.ParseContent → IndexFromNavigator,
+// which is the code path the graph pipeline uses in the real E2E environment.
+func TestPrepareRenameHandler_NavigatorIndexPath(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixturePath := filepath.Join(filepath.Dir(thisFile), "..", "..", "client", "test-fixtures", "workspace-basic", "rich-api.yaml")
+	b, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", fixturePath, err)
+	}
+	content := string(b)
+
+	uri := protocol.DocumentURI("file:///workspace/rich-api.yaml")
+
+	// Build the index using navigator.ParseContent (same as graph pipeline's ParseStage)
+	navIdx := navigator.ParseContent(b, string(uri))
+	if navIdx == nil {
+		t.Fatal("navigator.ParseContent returned nil")
+	}
+
+	// Convert via IndexFromNavigator (same as graph bridge's IndexForURI)
+	idx := openapi.IndexFromNavigator(navIdx, uri)
+	if idx == nil {
+		t.Fatal("IndexFromNavigator returned nil")
+	}
+
+	// Verify Tags are populated
+	t.Logf("Tags count: %d", len(idx.Tags))
+	for name := range idx.Tags {
+		t.Logf("  Tag: %q", name)
+	}
+
+	if _, ok := idx.Tags["Users"]; !ok {
+		t.Fatalf("expected Tags to contain 'Users', got keys: %v", func() []string {
+			keys := make([]string, 0, len(idx.Tags))
+			for k := range idx.Tags {
+				keys = append(keys, k)
+			}
+			return keys
+		}())
+	}
+	if _, ok := idx.Tags["Pets"]; !ok {
+		t.Fatalf("expected Tags to contain 'Pets'")
+	}
+
+	// Now test that the PrepareRenameHandler works with this navigator-based index
+	store := document.NewStore()
+	lang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
+	mgr := treesitter.NewManager(treesitter.Config{
+		Matchers: []treesitter.LanguageMatcher{
+			{Language: lang, Extensions: []string{".yaml", ".yml"}, LanguageID: "yaml"},
+		},
+	}, store)
+	t.Cleanup(mgr.Close)
+
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "yaml",
+			Version:    1,
+			Text:       content,
+		},
+	})
+
+	cache := openapi.NewIndexCache()
+	cache.Set(uri, idx)
+
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+
+	doc := store.Get(uri)
+	if doc == nil {
+		t.Fatal("nil document")
+	}
+
+	tagNeedle := "  - name: Users"
+	off := strings.Index(content, tagNeedle)
+	if off < 0 {
+		t.Fatal("fixture missing Users tag definition")
+	}
+	pos := doc.PositionAt(off + len("  - name: Use"))
+
+	prepare := lsp.NewPrepareRenameHandler(cache, nil)
+	prepResult, err := prepare(ctx, &protocol.PrepareRenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare rename error: %v", err)
+	}
+	if prepResult == nil {
+		t.Fatal("expected prepare rename result from navigator-based index")
+	}
+	if prepResult.Placeholder != "Users" {
+		t.Fatalf("expected placeholder Users, got %q", prepResult.Placeholder)
 	}
 }
 
