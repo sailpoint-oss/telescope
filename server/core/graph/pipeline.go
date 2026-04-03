@@ -324,6 +324,9 @@ func navigatorIssues(uri string, output *ParseOutput) []ctypes.Diagnostic {
 	if output == nil || output.NavigatorIndex == nil || len(output.NavigatorIndex.Issues) == 0 {
 		return nil
 	}
+	if navigatorIndexIsMalformed(output.NavigatorIndex) {
+		return nil
+	}
 
 	diags := make([]ctypes.Diagnostic, 0, len(output.NavigatorIndex.Issues))
 	for _, issue := range output.NavigatorIndex.Issues {
@@ -341,6 +344,27 @@ func navigatorIssues(uri string, output *ParseOutput) []ctypes.Diagnostic {
 		})
 	}
 	return diags
+}
+
+func navigatorIndexIsMalformed(idx *navigator.Index) bool {
+	if idx == nil {
+		return false
+	}
+	for _, issue := range idx.Issues {
+		if issue.Category == navigator.CategorySyntax {
+			return true
+		}
+		if issue.Code == "structural.root-not-mapping" {
+			return true
+		}
+	}
+	if idx.SemanticRoot() == nil {
+		return true
+	}
+	if idx.PrimaryValue() == nil {
+		return true
+	}
+	return false
 }
 
 func navigatorSeverity(sev navigator.Severity) ctypes.Severity {

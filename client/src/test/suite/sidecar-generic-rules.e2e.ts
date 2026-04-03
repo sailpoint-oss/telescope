@@ -8,25 +8,24 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	diagCode,
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForSidecarAvailable,
 } from "./utils/e2e-helpers";
 
 suite("Sidecar: Generic Rules", () => {
 	let folder: vscode.WorkspaceFolder;
-	let sidecarAvailable = false;
 
 	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
-		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
+		({ folder } = await ensureSidecarWorkspaceReady({
 			skipSuiteIfUnavailable: this,
 		}));
 	});
 
-	test("Invalid generic file triggers custom-version-required diagnostic", async () => {
+	test("Invalid generic file produces version-related custom diagnostics", async () => {
 		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
@@ -38,24 +37,32 @@ suite("Sidecar: Generic Rules", () => {
 
 		const diagnostics = await waitForDiagnostics(
 			fileUri,
-			(d) => d.some((diag) => diagCode(diag) === "custom-version-required"),
+			(d) =>
+				d.some(
+					(diag) =>
+						diag.source === "telescope-custom" &&
+						diag.message.toLowerCase().includes("version"),
+				),
 			{ timeoutMs: 180000 },
 		);
+		const info = await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
 
 		const customDiags = diagnostics.filter(
-			(d) => diagCode(d) === "custom-version-required",
+			(d) =>
+				d.source === "telescope-custom" &&
+				d.message.toLowerCase().includes("version"),
 		);
 		assert.ok(
 			customDiags.length > 0,
-			`Should have custom-version-required diagnostics. Got codes: ${diagnostics.map((d) => diagCode(d)).join(", ")}`,
+			`Expected at least one custom sidecar diagnostic. Got: ${diagnostics.map((d) => `${d.source ?? "unknown"}:${d.message}`).join(" | ")}`,
 		);
 		assert.ok(
-			customDiags.some((d) => d.message.includes("version")),
-			"Diagnostic message should mention 'version'",
+			info.available,
+			"Sidecar should stay available while generic custom diagnostics are published",
 		);
 	});
 
-	test("Valid generic file has no custom-version-required diagnostics", async () => {
+	test("Valid generic file has no version-related custom diagnostics", async () => {
 		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
@@ -67,12 +74,14 @@ suite("Sidecar: Generic Rules", () => {
 
 		const diagnostics = vscode.languages.getDiagnostics(fileUri);
 		const customDiags = diagnostics.filter(
-			(d) => diagCode(d) === "custom-version-required",
+			(d) =>
+				d.source === "telescope-custom" &&
+				d.message.toLowerCase().includes("version"),
 		);
 		assert.strictEqual(
 			customDiags.length,
 			0,
-			`Valid file should have no custom-version-required diagnostics. Found: ${customDiags.map((d) => d.message).join(", ")}`,
+			`Valid file should have no version-related custom diagnostics. Found: ${customDiags.map((d) => d.message).join(", ")}`,
 		);
 	});
 });

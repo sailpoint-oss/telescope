@@ -8,13 +8,11 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	diagCode,
 	ensureWorkspaceTextDocumentMatches,
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
 	waitForSidecarAvailable,
-	waitForDiagnosticCodeState,
 } from "./utils/e2e-helpers";
 
 suite("Sidecar: Lifecycle", () => {
@@ -28,7 +26,7 @@ suite("Sidecar: Lifecycle", () => {
 		}));
 	});
 
-	test("Sidecar produces custom rule diagnostics after startup", async () => {
+	test("Sidecar reports configured and available after startup", async () => {
 		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
@@ -37,16 +35,14 @@ suite("Sidecar: Lifecycle", () => {
 		);
 		await openAndShow(fileUri);
 
-		const diagnostics = await waitForDiagnosticCodeState(
-			fileUri,
-			"custom-operation-summary",
-			true,
-			{ timeoutMs: 120000 },
-		);
+		const info = await waitForSidecarAvailable(fileUri, {
+			timeoutMs: 120000,
+		});
 
+		assert.ok(info.configured, "Sidecar should be configured for the sidecar workspace");
 		assert.ok(
-			diagnostics.some((diag) => diagCode(diag) === "custom-operation-summary"),
-			"Sidecar should be running and producing custom rule diagnostics",
+			info.available,
+			"Sidecar should report available after the startup witness succeeds",
 		);
 	});
 

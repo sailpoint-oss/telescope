@@ -106,6 +106,54 @@ paths: {}
 	}
 }
 
+func TestWrapForGossip_SuppressesMalformedOAS3SchemaDiagnostics(t *testing.T) {
+	rule := barrelman.Rule{
+		ID: "oas3-schema",
+		Run: func(ctx *barrelman.AnalysisContext) []barrelman.Diagnostic {
+			return []barrelman.Diagnostic{
+				{
+					Code:    "oas3-schema",
+					Source:  "barrelman",
+					Message: "syntax error in document",
+					Data: map[string]string{
+						"category":  "syntax",
+						"issueCode": "syntax.parse-error",
+					},
+				},
+				{
+					Code:    "oas3-schema",
+					Source:  "barrelman",
+					Message: "document root must be a YAML/JSON object",
+					Data: map[string]string{
+						"category":  "structural",
+						"issueCode": "structural.root-not-mapping",
+					},
+				},
+				{
+					Code:    "oas3-schema",
+					Source:  "barrelman",
+					Message: "Info Object requires 'title'",
+					Data: map[string]string{
+						"category":  "structural",
+						"issueCode": "structural.missing-info-title",
+					},
+				},
+			}
+		},
+	}
+
+	analyzer := WrapForGossip(rule)
+	diags := analyzer.Run(&gtreesitter.AnalysisContext{
+		Context: context.Background(),
+	})
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 surviving diagnostic, got %d (%+v)", len(diags), diags)
+	}
+	if diags[0].Message != "Info Object requires 'title'" {
+		t.Fatalf("unexpected surviving diagnostic: %+v", diags[0])
+	}
+}
+
 func TestStabilizeDiagnostics_CanonicalizesDuplicateOperationIDMessage(t *testing.T) {
 	idx := navigator.ParseContent([]byte(`openapi: "3.1.0"
 info:

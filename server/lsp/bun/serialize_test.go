@@ -2,7 +2,7 @@ package bun
 
 import "testing"
 
-func TestPointersFromContent_IncludesOperationPointers(t *testing.T) {
+func TestPointersFromContent_IncludesOperationAndPathPointers(t *testing.T) {
 	const uri = "file:///test-missing-summary.yaml"
 	const content = `openapi: "3.0.0"
 info:
@@ -23,5 +23,8 @@ paths:
 	}
 	if _, ok := pointers["/paths/~1users/get"]; !ok {
 		t.Fatalf("expected operation pointer, got %v", pointers)
+	}
+	if _, ok := pointers["/paths/~1users"]; !ok {
+		t.Fatalf("expected path item pointer, got %v", pointers)
 	}
 }

@@ -29,6 +29,10 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 		idx := cache.Get(uri)
 		doc := ctx.Documents.Get(uri)
 
+		if idx != nil && idx.IsMalformed() {
+			return nil, nil
+		}
+
 		var actions []protocol.CodeAction
 
 		// Scaffolding code actions when cursor is on a path

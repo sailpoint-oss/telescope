@@ -16,7 +16,13 @@ type loadRulesResponse struct {
 	Errors    []RuleRunError `json:"errors"`
 }
 
-func TestCustomSummaryRuleRunsThroughSidecar(t *testing.T) {
+func runRuleThroughSidecar(
+	t *testing.T,
+	ruleRelativePath string,
+	ruleID string,
+	kind string,
+	docRelativePath string,
+) []SidecarDiagnostic {
 	t.Setenv("TELESCOPE_DEV", "1")
 
 	origWD, err := os.Getwd()
@@ -41,14 +47,14 @@ func TestCustomSummaryRuleRunsThroughSidecar(t *testing.T) {
 	}
 	t.Cleanup(mgr.Stop)
 
-	rulePath := filepath.Join(repoRoot, "test-files", ".telescope", "rules", "example-custom-openapi-rule.ts")
-	docPath := filepath.Join(repoRoot, "test-files", "openapi", "test-missing-summary.yaml")
+	rulePath := filepath.Join(repoRoot, filepath.FromSlash(ruleRelativePath))
+	docPath := filepath.Join(repoRoot, filepath.FromSlash(docRelativePath))
 
 	loadReq := &LoadRulesRequest{
 		Rules: []RuleConfig{{
-			ID:   "example-custom-openapi-rule",
+			ID:   ruleID,
 			Path: rulePath,
-			Kind: "openapi",
+			Kind: kind,
 		}},
 		WorkDir: repoRoot,
 	}
@@ -84,24 +90,25 @@ func TestCustomSummaryRuleRunsThroughSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read document: %v", err)
 	}
-	ast, err := SerializeRawContent(raw, "yaml")
+	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(docPath)), ".")
+	if format == "yml" {
+		format = "yaml"
+	}
+	ast, err := SerializeRawContent(raw, format)
 	if err != nil {
 		t.Fatalf("serialize raw content: %v", err)
 	}
 	uri := "file://" + filepath.ToSlash(docPath)
 	pointers := PointersFromContent(string(raw), uri)
-	if _, ok := pointers["/paths/~1users/get"]; !ok {
-		t.Fatalf("expected operation pointer in serialized content, got %v pointers", len(pointers))
-	}
 	runReq := &RunRulesRequest{
 		DocumentURI: uri,
-		RuleIDs:     []string{"example-custom-openapi-rule"},
+		RuleIDs:     []string{ruleID},
 		Document: SerializedDoc{
-			URI:     uri,
-			AST:     ast,
-			RawText: string(raw),
-			Format:  "yaml",
-			Version: "3.0.0",
+			URI:      uri,
+			AST:      ast,
+			RawText:  string(raw),
+			Format:   format,
+			Version:  map[bool]string{true: "3.0.0", false: ""}[kind == "openapi"],
 			Pointers: pointers,
 		},
 		Project: SerializedProjectIndex{
@@ -121,17 +128,70 @@ func TestCustomSummaryRuleRunsThroughSidecar(t *testing.T) {
 		t.Fatalf("expected no run errors, got %+v", runResp.Errors)
 	}
 	if len(runResp.Diagnostics) == 0 {
-		t.Fatal("expected custom summary diagnostics")
+		t.Fatalf("expected diagnostics for rule %q", ruleID)
 	}
+	return runResp.Diagnostics
+}
+
+func requireDiagnostic(
+	t *testing.T,
+	diagnostics []SidecarDiagnostic,
+	code string,
+	messageSubstring string,
+) {
 	found := false
-	for _, diag := range runResp.Diagnostics {
-		if diag.Code == "custom-operation-summary" &&
-			strings.Contains(strings.ToLower(diag.Message), "summary") {
+	for _, diag := range diagnostics {
+		if diag.Code == code &&
+			strings.Contains(strings.ToLower(diag.Message), strings.ToLower(messageSubstring)) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected custom-operation-summary diagnostic, got %+v", runResp.Diagnostics)
+		t.Fatalf("expected %s diagnostic, got %+v", code, diagnostics)
 	}
+}
+
+func TestCustomSummaryRuleRunsThroughSidecar(t *testing.T) {
+	diagnostics := runRuleThroughSidecar(
+		t,
+		"test-files/.telescope/rules/example-custom-openapi-rule.ts",
+		"example-custom-openapi-rule",
+		"openapi",
+		"test-files/openapi/test-missing-summary.yaml",
+	)
+	requireDiagnostic(t, diagnostics, "custom-operation-summary", "summary")
+}
+
+func TestRequireOperationIDRuleRunsThroughSidecar(t *testing.T) {
+	diagnostics := runRuleThroughSidecar(
+		t,
+		"test-files/.telescope/rules/require-operationid.ts",
+		"require-operationid",
+		"openapi",
+		"test-files/openapi/test-missing-operationid.yaml",
+	)
+	requireDiagnostic(t, diagnostics, "custom-require-operationid", "operationid")
+}
+
+func TestPathTrailingSlashRuleRunsThroughSidecar(t *testing.T) {
+	diagnostics := runRuleThroughSidecar(
+		t,
+		"test-files/.telescope/rules/path-trailing-slash.ts",
+		"path-trailing-slash",
+		"openapi",
+		"test-files/openapi/test-missing-summary.yaml",
+	)
+	requireDiagnostic(t, diagnostics, "custom-trailing-slash", "trailing slash")
+}
+
+func TestGenericVersionRuleRunsThroughSidecar(t *testing.T) {
+	diagnostics := runRuleThroughSidecar(
+		t,
+		"test-files/.telescope/rules/example-generic-rule.ts",
+		"example-generic-rule",
+		"generic",
+		"test-files/custom/custom-generic-invalid.yaml",
+	)
+	requireDiagnostic(t, diagnostics, "custom-version-required", "version")
 }

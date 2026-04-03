@@ -179,6 +179,54 @@ func TestRenameHandler_Tag(t *testing.T) {
 	}
 }
 
+func TestRenameHandler_TagFallsBackWhenNameLocIsZero(t *testing.T) {
+	env := setupTestEnv(t, "file:///test.yaml", testSpec)
+	handler := lsp.NewRenameHandler(env.cache, nil)
+
+	idx := env.cache.Get(env.uri)
+	tag, ok := idx.Tags["pets"]
+	if !ok {
+		t.Fatal("expected pets tag in index")
+	}
+	tag.NameLoc = openapi.Loc{}
+	idx.Tags["pets"] = tag
+
+	result, err := handler(env.ctx, &protocol.RenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+			Position:     protocol.Position{Line: 6, Character: 12},
+		},
+		NewName: "animals",
+	})
+	if err != nil {
+		t.Fatalf("rename error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("rename returned nil")
+	}
+
+	edits := result.Changes[env.uri]
+	if len(edits) == 0 {
+		t.Fatal("expected rename edits")
+	}
+
+	foundFallbackRange := false
+	for _, edit := range edits {
+		if edit.NewText != "animals" {
+			t.Errorf("edit NewText = %q, want 'animals'", edit.NewText)
+		}
+		if edit.Range.Start.Line == 6 &&
+			edit.Range.Start.Character == 10 &&
+			edit.Range.End.Line == 6 &&
+			edit.Range.End.Character == 14 {
+			foundFallbackRange = true
+		}
+	}
+	if !foundFallbackRange {
+		t.Fatalf("expected fallback range edit for root tag definition, got %+v", edits)
+	}
+}
+
 func TestRenameHandler_Schema(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
 	handler := lsp.NewRenameHandler(env.cache, nil)
@@ -287,6 +335,38 @@ func TestCodeActionHandler(t *testing.T) {
 		t.Fatalf("code action error: %v", err)
 	}
 	_ = result // ensure no panic
+}
+
+func TestCodeActionHandler_MalformedDocumentReturnsNoActions(t *testing.T) {
+	spec := `openapi: "3.1.0"
+info:
+  title: "unterminated
+paths: {}
+`
+	env := setupTestEnv(t, "file:///malformed.yaml", spec)
+	handler := lsp.NewCodeActionHandler(env.cache, nil)
+
+	result, err := handler(env.ctx, &protocol.CodeActionParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
+		Range: protocol.Range{
+			Start: protocol.Position{Line: 0, Character: 0},
+			End:   protocol.Position{Line: 3, Character: 0},
+		},
+		Context: protocol.CodeActionContext{
+			Diagnostics: []protocol.Diagnostic{{
+				Source:   "telescope",
+				Code:     "oas3-schema",
+				Message:  "syntax error in document",
+				Severity: protocol.SeverityError,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("code action error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Fatalf("expected malformed document to return no actions, got %#v", result)
+	}
 }
 
 func TestCodeActionHandler_AddInfoQuickFix(t *testing.T) {

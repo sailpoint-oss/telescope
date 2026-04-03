@@ -31,6 +31,15 @@ func hasDiagContaining(diags []protocol.Diagnostic, substr string) bool {
 	return false
 }
 
+func hasDiagWithSource(diags []protocol.Diagnostic, source string) bool {
+	for _, d := range diags {
+		if d.Source == source {
+			return true
+		}
+	}
+	return false
+}
+
 func dumpDiags(t *testing.T, label string, diags []protocol.Diagnostic) {
 	t.Helper()
 	t.Logf("--- %s (%d diagnostics) ---", label, len(diags))
@@ -85,10 +94,9 @@ func waitForDiagnosticsState(
 // ---------------------------------------------------------------------------
 // Broken YAML Parsing Tests (6)
 //
-// These verify the pipeline handles malformed YAML gracefully. Telescope's
-// own checks (duplicate-keys, ascii, analyzers) still run on content that
-// tree-sitter can partially parse. Pure syntax error reporting requires
-// child LSPs, which are not exercised in the in-memory test harness.
+// These verify the pipeline handles malformed YAML gracefully. Syntax/root
+// failures should be left to child YAML/JSON language servers rather than
+// surfaced as Telescope diagnostics.
 // ---------------------------------------------------------------------------
 
 func TestBrokenYAML_InvalidIndentation(t *testing.T) {
@@ -144,13 +152,15 @@ paths:
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
 	}
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed YAML to avoid telescope diagnostics, got %+v", diags)
+	}
 }
 
 func TestBrokenYAML_UnterminatedString(t *testing.T) {
 	c := newTestServer(t)
 	uri := "file:///unterminated.yaml"
-	// Unterminated quote in title -- tree-sitter still partially parses
-	// this as a valid OpenAPI doc, producing telescope analyzer diagnostics.
+	// Unterminated quote in title should be left to child YAML diagnostics.
 	content := `openapi: "3.1.0"
 info:
   title: "unterminated string
@@ -161,8 +171,8 @@ paths: {}
 	diags := c.WaitForDiagnostics(uri, 5*time.Second)
 	dumpDiags(t, "unterminated-string", diags)
 
-	if len(diags) == 0 {
-		t.Error("expected telescope analyzer diagnostics on partially parsed spec")
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed YAML to avoid telescope diagnostics, got %+v", diags)
 	}
 }
 
@@ -179,6 +189,9 @@ func TestBrokenYAML_TabCharacters(t *testing.T) {
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
+	}
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed YAML to avoid telescope diagnostics, got %+v", diags)
 	}
 }
 
@@ -206,8 +219,8 @@ paths:
 	diags := c.WaitForDiagnostics(uri, 5*time.Second)
 	dumpDiags(t, "dup-keys-root", diags)
 
-	if !hasDiagWithCode(diags, "duplicate-keys") {
-		t.Error("expected duplicate-keys diagnostic for duplicate 'get'")
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed YAML duplicate keys to avoid telescope diagnostics, got %+v", diags)
 	}
 }
 
@@ -229,8 +242,8 @@ func TestBrokenYAML_EmptyDocument(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Broken JSON Parsing Tests (6)
 //
-// Same strategy: verify graceful handling. JSON syntax errors (trailing
-// commas, unquoted keys, etc.) are only reported by child LSPs.
+// Same strategy: verify graceful handling. JSON syntax errors should be
+// reported only by child JSON language servers.
 // ---------------------------------------------------------------------------
 
 func TestBrokenJSON_TrailingComma(t *testing.T) {
@@ -252,6 +265,23 @@ func TestBrokenJSON_TrailingComma(t *testing.T) {
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
+	}
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed JSON syntax to avoid telescope diagnostics, got %+v", diags)
+	}
+}
+
+func TestBrokenYAML_RootSequenceDoesNotSurfaceOAS3Schema(t *testing.T) {
+	c := newTestServer(t)
+	uri := "file:///root-sequence.yaml"
+	content := "- not-an-openapi-document\n- child-lsp-should-own-feedback\n"
+
+	c.OpenWithLanguage(uri, "yaml", content)
+	diags := waitForDocumentReady(t, c, uri, 5*time.Second)
+	dumpDiags(t, "root-sequence", diags)
+
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected non-object root to avoid telescope diagnostics, got %+v", diags)
 	}
 }
 
@@ -279,6 +309,9 @@ func TestBrokenJSON_MissingClosingBrace(t *testing.T) {
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
 	}
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed JSON to avoid telescope diagnostics, got %+v", diags)
+	}
 }
 
 func TestBrokenJSON_MissingClosingBracket(t *testing.T) {
@@ -299,6 +332,9 @@ func TestBrokenJSON_MissingClosingBracket(t *testing.T) {
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
 	}
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed JSON to avoid telescope diagnostics, got %+v", diags)
+	}
 }
 
 func TestBrokenJSON_UnquotedKey(t *testing.T) {
@@ -317,6 +353,9 @@ func TestBrokenJSON_UnquotedKey(t *testing.T) {
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
 	}
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed JSON to avoid telescope diagnostics, got %+v", diags)
+	}
 }
 
 func TestBrokenJSON_SingleQuotes(t *testing.T) {
@@ -334,6 +373,9 @@ func TestBrokenJSON_SingleQuotes(t *testing.T) {
 	_, err := c.Hover(uri, protocol.Position{Line: 0, Character: 0})
 	if err != nil {
 		t.Errorf("server should handle hover gracefully: %v", err)
+	}
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed JSON to avoid telescope diagnostics, got %+v", diags)
 	}
 }
 
@@ -354,8 +396,8 @@ func TestBrokenJSON_DuplicateKeys(t *testing.T) {
 	diags := c.WaitForDiagnostics(uri, 5*time.Second)
 	dumpDiags(t, "dup-json", diags)
 
-	if !hasDiagWithCode(diags, "duplicate-keys") {
-		t.Error("expected duplicate-keys diagnostic for duplicate 'get' in JSON")
+	if hasDiagWithSource(diags, "telescope") {
+		t.Errorf("expected malformed JSON duplicate keys to avoid telescope diagnostics, got %+v", diags)
 	}
 }
 

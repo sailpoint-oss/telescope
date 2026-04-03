@@ -22,6 +22,10 @@ export interface TelescopeTestApi {
 		uri: vscode.Uri,
 		pos: vscode.Position,
 	) => Promise<(vscode.Location | vscode.LocationLink)[] | null>;
+	requestPrepareRename?: (
+		uri: vscode.Uri,
+		pos: vscode.Position,
+	) => Promise<{ range: vscode.Range; placeholder?: string } | null>;
 	requestSidecarInfo?: (
 		uri?: vscode.Uri,
 	) => Promise<{ configured: boolean; available: boolean } | null>;
@@ -383,6 +387,33 @@ export async function executeRenameWithRetry(
 	return lastResult;
 }
 
+export async function waitForPrepareRenameAvailable(
+	uri: vscode.Uri,
+	pos: vscode.Position,
+	options?: { timeoutMs?: number; pollMs?: number },
+): Promise<{ range: vscode.Range; placeholder?: string }> {
+	const api = getTestApi();
+	if (!api.requestPrepareRename) {
+		throw new Error("Test API does not expose requestPrepareRename");
+	}
+	const timeoutMs = options?.timeoutMs ?? 90000;
+	const pollMs = options?.pollMs ?? 1000;
+	const start = Date.now();
+	let lastResult: { range: vscode.Range; placeholder?: string } | null = null;
+	while (Date.now() - start < timeoutMs) {
+		lastResult = await api.requestPrepareRename(uri, pos);
+		if (lastResult?.range) {
+			return lastResult;
+		}
+		await delay(pollMs);
+	}
+	throw new Error(
+		`Timeout waiting for prepareRename after ${timeoutMs}ms ` +
+			`(uri=${uri.toString()}, position=${pos.line}:${pos.character}, ` +
+			`lastResult=${JSON.stringify(lastResult)})`,
+	);
+}
+
 /**
  * Apply TextEdits to the current document text from end to start so offsets stay
  * valid. Use to assert rename/format results when `workspace.applyEdit` + a
@@ -579,7 +610,7 @@ export async function ensureSidecarWorkspaceReady(options?: {
 			assert.ok(folder, "Should have a workspace folder");
 			const warmupUri = vscode.Uri.joinPath(
 				folder.uri,
-				options?.warmupRelativePath ?? "openapi/test-missing-summary.yaml",
+				options?.warmupRelativePath ?? "openapi/custom-openapi-valid.yaml",
 			);
 			await openAndShow(warmupUri);
 			await waitForDocumentAnalyzed(warmupUri, {
@@ -602,10 +633,11 @@ export async function ensureSidecarWorkspaceReady(options?: {
 }
 
 /**
- * Wait for the Bun sidecar to be ready by probing for custom rule diagnostics.
- * Returns true if the sidecar is ready, false if it timed out. Suites that want
- * explicit pending results instead of silent no-op tests should pass their
- * Mocha `this` context through `ensureSidecarWorkspaceReady({ skipSuiteIfUnavailable: this })`.
+ * Wait for the Bun sidecar to report configured + available through the
+ * extension test API. Returns true if the sidecar becomes available, false if
+ * it timed out. Suites that want explicit pending results instead of silent
+ * no-op tests should pass their Mocha `this` context through
+ * `ensureSidecarWorkspaceReady({ skipSuiteIfUnavailable: this })`.
  */
 export async function waitForSidecarReady(
 	folder: vscode.WorkspaceFolder,
@@ -613,21 +645,15 @@ export async function waitForSidecarReady(
 ): Promise<boolean> {
 	const probeUri = vscode.Uri.joinPath(
 		folder.uri,
-		"openapi/test-missing-summary.yaml",
+		"openapi/custom-openapi-valid.yaml",
 	);
 	await openAndShow(probeUri);
 	try {
-		await waitForDiagnostics(
-			probeUri,
-			(diags) =>
-				diags.some(
-					(d) => diagCode(d) === "custom-operation-summary",
-				),
-			{ timeoutMs: options?.timeoutMs ?? 120000 },
-		);
+		await waitForSidecarAvailable(probeUri, {
+			timeoutMs: options?.timeoutMs ?? 120000,
+		});
 		return true;
 	} catch {
-		// Bun sidecar didn't produce custom rule diagnostics within timeout.
 		// This is expected on Windows where the sidecar may not start.
 		return false;
 	}

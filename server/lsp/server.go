@@ -313,12 +313,20 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		childMgr.Aggregator().SetPublishFunc(ctx.Client.PublishDiagnostics)
 		childMgr.Aggregator().SetLogger(logger)
 		ctx.Server().DiagnosticEngine().SetPublish(func(bgCtx context.Context, params *protocol.PublishDiagnosticsParams) error {
+			// Malformed YAML/JSON should be owned by the child language servers.
+			enrichedDiags := params.Diagnostics
+			if doc := ctx.Documents.Get(params.URI); doc != nil && strings.TrimSpace(doc.Text()) == "" {
+				enrichedDiags = nil
+			} else if idx := indexCache.Get(params.URI); idx != nil && idx.IsMalformed() {
+				enrichedDiags = nil
+			} else {
+				// Enrich diagnostics with RelatedInformation for $ref context.
+				enrichedDiags = enrichDiagsWithRefContext(graphBridge, string(params.URI), params.Diagnostics)
+			}
 			logger.Debug("telescope.diagToAggregator",
 				"trace_id", observe.GetTraceID(bgCtx),
 				"uri", params.URI,
-				"count", len(params.Diagnostics))
-			// Enrich diagnostics with RelatedInformation for $ref context
-			enrichedDiags := enrichDiagsWithRefContext(graphBridge, string(params.URI), params.Diagnostics)
+				"count", len(enrichedDiags))
 			childMgr.Aggregator().Set(params.URI, "telescope", enrichedDiags)
 			return nil
 		})

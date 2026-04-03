@@ -41,6 +41,7 @@ function makeRequest(overrides: Partial<RunRulesRequest> = {}): RunRulesRequest 
 			format: "yaml",
 			version: "3.1.0",
 			pointers: {
+				"/paths/~1users": [2, 2, 3, 7],
 				"/paths/~1users/get": [3, 4, 4, 25],
 				"/paths/~1users/get/summary": [4, 6, 4, 24],
 			},
@@ -93,6 +94,49 @@ describe("buildRuleContext", () => {
 });
 
 describe("runOpenAPIRule", () => {
+	test("PathItem visitors can locate and report against the path pointer", () => {
+		const req = makeRequest();
+		const ctx = buildRuleContext(req);
+		ctx._defaultCode = "custom-trailing-slash";
+
+		runOpenAPIRule(
+			{
+				check: () => ({
+					PathItem: (ref) => {
+						const range = ctx.locate(ref.uri, ref.pointer);
+						expect(range).toEqual({
+							start: { line: 2, character: 2 },
+							end: { line: 3, character: 7 },
+						});
+						expect(ref.path).toBe("/users");
+						if (range) {
+							ctx.report({
+								uri: ref.uri,
+								range,
+								message: "Path '/users' should end with a trailing slash",
+								severity: "warning",
+							});
+						}
+					},
+				}),
+			},
+			ctx,
+			req.document,
+			req.project,
+		);
+
+		expect(ctx._diagnostics).toContainEqual({
+			startLine: 2,
+			startChar: 2,
+			endLine: 3,
+			endChar: 7,
+			severity: 2,
+			code: "custom-trailing-slash",
+			message: "Path '/users' should end with a trailing slash",
+			source: "telescope-custom",
+		});
+	});
+
 	test("visits representative OpenAPI nodes", () => {
 		const req = makeRequest();
 		const ctx = buildRuleContext(req);

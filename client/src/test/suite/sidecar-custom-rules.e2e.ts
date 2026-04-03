@@ -8,25 +8,24 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	diagCode,
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForSidecarAvailable,
 } from "./utils/e2e-helpers";
 
 suite("Sidecar: Custom OpenAPI Rules", () => {
 	let folder: vscode.WorkspaceFolder;
-	let sidecarAvailable = false;
 
 	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
-		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
+		({ folder } = await ensureSidecarWorkspaceReady({
 			skipSuiteIfUnavailable: this,
 		}));
 	});
 
-	test("Invalid file triggers custom-operation-summary diagnostic", async () => {
+	test("Invalid file produces summary-related custom diagnostics", async () => {
 		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
@@ -36,42 +35,33 @@ suite("Sidecar: Custom OpenAPI Rules", () => {
 		await openAndShow(fileUri);
 		await waitForDiagnostics(fileUri, (d) => d.length > 0, { timeoutMs: 120000 });
 
-		let diagnostics: vscode.Diagnostic[];
-		try {
-			diagnostics = await waitForDiagnostics(
-				fileUri,
-				(d) =>
-					d.some(
-						(diag) =>
-							diagCode(diag) === "custom-operation-summary" ||
-							diag.message.toLowerCase().includes("summary"),
-					),
-				{ timeoutMs: 180000 },
-			);
-		} catch (err) {
-			const current = vscode.languages.getDiagnostics(fileUri);
-			assert.fail(
-				`Timed out waiting for summary diagnostics: ${String(err)}\n` +
-					`Current diagnostics: ${current.map((d) => `${diagCode(d)}:${d.source ?? "unknown"}:${d.message}`).join(" | ")}`,
-			);
-			return;
-		}
-
+		const diagnostics = await waitForDiagnostics(
+			fileUri,
+			(d) =>
+				d.some(
+					(diag) =>
+						diag.source === "telescope-custom" &&
+						diag.message.toLowerCase().includes("summary"),
+				),
+			{ timeoutMs: 180000 },
+		);
+		const info = await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
 		const customDiags = diagnostics.filter(
-			(d) => diagCode(d) === "custom-operation-summary",
+			(d) =>
+				d.source === "telescope-custom" &&
+				d.message.toLowerCase().includes("summary"),
 		);
 		assert.ok(
-			customDiags.length > 0 ||
-				diagnostics.some((d) => d.message.toLowerCase().includes("summary")),
-			`Should have summary-related diagnostics. Got: ${diagnostics.map((d) => `${diagCode(d)}:${d.message}`).join(" | ")}`,
+			customDiags.length > 0,
+			`Expected at least one custom sidecar diagnostic. Got: ${diagnostics.map((d) => `${d.source ?? "unknown"}:${d.message}`).join(" | ")}`,
 		);
 		assert.ok(
-			customDiags.some((d) => d.message.includes("summary")),
-			"Diagnostic message should mention 'summary'",
+			info.available,
+			"Sidecar should stay available while custom diagnostics are published",
 		);
 	});
 
-	test("Valid file has no custom-operation-summary diagnostics", async () => {
+	test("Valid file has no summary-related custom diagnostics", async () => {
 		if (!isSidecarWorkspace()) return;
 
 		const fileUri = vscode.Uri.joinPath(
@@ -83,12 +73,14 @@ suite("Sidecar: Custom OpenAPI Rules", () => {
 
 		const diagnostics = vscode.languages.getDiagnostics(fileUri);
 		const customDiags = diagnostics.filter(
-			(d) => diagCode(d) === "custom-operation-summary",
+			(d) =>
+				d.source === "telescope-custom" &&
+				d.message.toLowerCase().includes("summary"),
 		);
 		assert.strictEqual(
 			customDiags.length,
 			0,
-			`Valid file should have no custom-operation-summary diagnostics. Found: ${customDiags.map((d) => d.message).join(", ")}`,
+			`Valid file should have no summary-related custom diagnostics. Found: ${customDiags.map((d) => d.message).join(", ")}`,
 		);
 	});
 });

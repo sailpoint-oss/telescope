@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/LukasParke/gossip"
+	"github.com/LukasParke/gossip/document"
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
@@ -36,7 +37,7 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 				if name == word {
 					r := componentDefinitionLoc(idx, kind, name)
 					if isZeroRange(r) {
-						r = rangeForWord(params.Position, word)
+						r = exactWordRange(doc, params.Position, word)
 					}
 					return &protocol.PrepareRenameResult{
 						Range:       r,
@@ -50,7 +51,7 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 		if opRef, ok := idx.Operations[word]; ok {
 			r := adapt.RangeToProtocol(opRef.Operation.OperationIDLoc.Range)
 			if isZeroRange(r) {
-				r = rangeForWord(params.Position, word)
+				r = exactWordRange(doc, params.Position, word)
 			}
 			return &protocol.PrepareRenameResult{
 				Range:       r,
@@ -62,7 +63,7 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 		if tag, ok := idx.Tags[word]; ok {
 			r := adapt.RangeToProtocol(tag.NameLoc.Range)
 			if isZeroRange(r) {
-				r = rangeForWord(params.Position, word)
+				r = exactWordRange(doc, params.Position, word)
 			}
 			return &protocol.PrepareRenameResult{
 				Range:       r,
@@ -136,9 +137,13 @@ func NewRenameHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossi
 
 		// Rename tag
 		if tag, ok := idx.Tags[word]; ok {
+			tagRange := adapt.RangeToProtocol(tag.NameLoc.Range)
+			if isZeroRange(tagRange) {
+				tagRange = exactWordRange(doc, params.Position, word)
+			}
 			// Rename root tag definition
 			changes[uri] = append(changes[uri], protocol.TextEdit{
-				Range:   adapt.RangeToProtocol(tag.NameLoc.Range),
+				Range:   tagRange,
 				NewText: params.NewName,
 			})
 
@@ -344,6 +349,39 @@ func rangeForWord(pos protocol.Position, word string) protocol.Range {
 		Start: protocol.Position{Line: pos.Line, Character: start},
 		End:   protocol.Position{Line: pos.Line, Character: start + wordLen},
 	}
+}
+
+func exactWordRange(doc *document.Document, pos protocol.Position, word string) protocol.Range {
+	if doc == nil {
+		return rangeForWord(pos, word)
+	}
+	text := doc.Text()
+	offset := doc.OffsetAt(pos)
+	if offset < 0 || offset > len(text) {
+		return rangeForWord(pos, word)
+	}
+	start := offset
+	for start > 0 && isRenameWordChar(text[start-1]) {
+		start--
+	}
+	end := offset
+	for end < len(text) && isRenameWordChar(text[end]) {
+		end++
+	}
+	if start == end {
+		return rangeForWord(pos, word)
+	}
+	return protocol.Range{
+		Start: doc.PositionAt(start),
+		End:   doc.PositionAt(end),
+	}
+}
+
+func isRenameWordChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_'
 }
 
 // utf16LenStr returns the number of UTF-16 code units needed to represent s.

@@ -39,6 +39,33 @@ function protocolRangeToCodeRange(range: {
 	);
 }
 
+function protocolPrepareRenameToCode(
+	result:
+		| {
+				start: { line: number; character: number };
+				end: { line: number; character: number };
+		  }
+		| {
+				range: {
+					start: { line: number; character: number };
+					end: { line: number; character: number };
+				};
+				placeholder?: string;
+		  }
+		| null,
+): { range: vscode.Range; placeholder?: string } | null {
+	if (!result) {
+		return null;
+	}
+	if ("start" in result && "end" in result) {
+		return { range: protocolRangeToCodeRange(result) };
+	}
+	return {
+		range: protocolRangeToCodeRange(result.range),
+		placeholder: result.placeholder,
+	};
+}
+
 function protocolDefinitionToCode(
 	result:
 		| { uri: string; range: { start: { line: number; character: number }; end: { line: number; character: number } } }
@@ -188,6 +215,13 @@ export async function activate(context: ExtensionContext) {
 				_uri: vscode.Uri,
 				_pos: vscode.Position,
 			): Promise<(vscode.Location | vscode.LocationLink)[] | null> {
+				await fail();
+				return null; // unreachable; fail() always throws
+			},
+			async requestPrepareRename(
+				_uri: vscode.Uri,
+				_pos: vscode.Position,
+			): Promise<{ range: vscode.Range; placeholder?: string } | null> {
 				await fail();
 				return null; // unreachable; fail() always throws
 			},
@@ -1292,6 +1326,49 @@ export async function activate(context: ExtensionContext) {
 										};
 								  }
 						  >
+						| null,
+				);
+			},
+
+			/**
+			 * E2E-only: query textDocument/prepareRename straight from the LSP client
+			 * so rename tests can wait on a server-owned readiness signal before
+			 * exercising VS Code's rename provider wiring.
+			 */
+			async requestPrepareRename(
+				uri: vscode.Uri,
+				pos: vscode.Position,
+			): Promise<{ range: vscode.Range; placeholder?: string } | null> {
+				if (!sessionManager) {
+					return null;
+				}
+				const textDoc = await workspace.openTextDocument(uri);
+				const session = sessionManager.getSessionForUri(textDoc.uri);
+				if (!session) {
+					return null;
+				}
+				const client = session.getClient();
+				if (!client) {
+					return null;
+				}
+				const lspURI = client.code2ProtocolConverter.asUri(textDoc.uri);
+				const result = await client.sendRequest("textDocument/prepareRename", {
+					textDocument: { uri: lspURI },
+					position: { line: pos.line, character: pos.character },
+				});
+				return protocolPrepareRenameToCode(
+					result as
+						| {
+								start: { line: number; character: number };
+								end: { line: number; character: number };
+						  }
+						| {
+								range: {
+									start: { line: number; character: number };
+									end: { line: number; character: number };
+								};
+								placeholder?: string;
+						  }
 						| null,
 				);
 			},

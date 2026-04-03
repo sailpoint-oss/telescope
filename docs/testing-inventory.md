@@ -20,7 +20,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Definition / refs / links / format | `handler_test.go` | `definition-flow.e2e.ts`, `providers.e2e.ts` | Providers slimmed to **links + format** (defs/refs in definition-flow) |
 | Hover | handler + integration (`TestRichAPIFixture_HoverAndDefinition_UnixFileURI`, etc.) | `hover.e2e.ts` | **A** — host wiring only; detailed content in Go |
 | Completion | `handler_test.go` | `completion.e2e.ts` | **B** + **A** |
-| Rename | `handler_test.go` | `rename.e2e.ts` | **B** + **A** |
+| Rename | `handler_test.go` | `rename.e2e.ts` | **B** + **A** — Go owns range selection/fallbacks; E2E waits on raw `prepareRename` readiness and proves a plausible `WorkspaceEdit` reaches the temp editor buffer. |
 | Code actions | `handler_test.go` | `code-actions.e2e.ts` | **B** + **A** |
 | Code lens | — | `code-lens.e2e.ts` | **A** |
 | Symbols | — | `symbols.e2e.ts` | **A** |
@@ -31,7 +31,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Language IDs / classifier | `client/test/classifier.test.ts`, `src/utils.ts` | `language-ids.e2e.ts` | **C** |
 | Client–server sync / scanner | — | `client-server-sync.e2e.ts`, `no-bulk-open.e2e.ts` | **C/A** |
 | Multi-root workspace | — | `multi-root.e2e.ts` | **A** — session counts plus one focused cross-file routing journey |
-| Sidecar (custom rules, Bun runner) | `server/lsp/bun/*_test.go`, `server/lsp/bun/runner/src/*.test.ts` | `sidecar-*.e2e.ts` | **A** for wiring; deep rules live in Go/Bun. If Bun never becomes ready, suites skip at `suiteSetup` so CI shows pending coverage rather than silent passes. |
+| Sidecar (custom rules, Bun runner) | `server/lsp/bun/*_test.go`, `server/lsp/bun/runner/src/*.test.ts` | `sidecar-*.e2e.ts` | **A** for wiring; deep rules live in Go/Bun. Exact custom rule IDs/messages stay below E2E, while the host suite checks `telescope-custom` wiring plus `sidecarInfo` availability. If Bun never becomes ready, suites skip at `suiteSetup` so CI shows pending coverage rather than silent passes. |
 
 ## E2E tests by file (tag per `test("…")` title)
 
@@ -167,7 +167,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 | Test name | Tag |
 |-----------|-----|
-| Rename tag updates all references | B |
+| Rename tag updates all references | B + A - server tests own fallback range math; E2E waits for raw `prepareRename` readiness and checks that VS Code returns an applicable workspace edit for the temp file |
 | Rename provider does not crash on non-renameable position | A |
 | Cross-file schema rename returns edits for definition and refs | B |
 
@@ -191,21 +191,21 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 | Test name | Tag |
 |-----------|-----|
-| Invalid file triggers custom-operation-summary diagnostic | A |
-| Valid file has no custom-operation-summary diagnostics | A |
+| Invalid file produces summary-related custom diagnostics | A |
+| Valid file has no summary-related custom diagnostics | A |
 
 ### `sidecar-generic-rules.e2e.ts`
 
 | Test name | Tag |
 |-----------|-----|
-| Invalid generic file triggers custom-version-required diagnostic | A |
-| Valid generic file has no custom-version-required diagnostics | A |
+| Invalid generic file produces version-related custom diagnostics | A |
+| Valid generic file has no version-related custom diagnostics | A |
 
 ### `sidecar-lifecycle.e2e.ts`
 
 | Test name | Tag |
 |-----------|-----|
-| Sidecar produces custom rule diagnostics after startup | A |
+| Sidecar reports configured and available after startup | A - suite setup uses the canonical `sidecarInfo` health contract; the test body re-checks sidecar-native availability via the test API |
 | Editing a file keeps sidecar available after save and restore | A - edit/save a normal fixture, confirm sidecar health via test API, then restore it and confirm sidecar health again |
 
 ### `sidecar-multi-file-refs.e2e.ts`
@@ -219,8 +219,9 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 
 | Test name | Tag |
 |-----------|-----|
-| Missing operationId triggers custom-require-operationid diagnostic | A |
-| Out-of-order keys trigger custom-yaml-key-order diagnostic | A |
+| Missing operationId fixture remains analyzable while sidecar stays available | A |
+| Key-order fixture remains analyzable while sidecar stays available | A |
+| PathItem-heavy fixture remains analyzable while sidecar stays available | A - E2E keeps this as a wiring/availability journey; exact trailing-slash rule semantics live in Bun/Go tests |
 
 ### `sidecar-schema-fixtures-json.e2e.ts`
 

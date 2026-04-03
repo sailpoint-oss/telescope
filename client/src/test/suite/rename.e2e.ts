@@ -13,7 +13,7 @@ import {
 	previewTextEditsOnDocument,
 	waitForDiagnostics,
 	waitForDocumentAnalyzed,
-	waitForProviders,
+	waitForPrepareRenameAvailable,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -37,7 +37,6 @@ suite("Rename", () => {
 		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
 			timeoutMs: 90000,
 		});
-		await waitForProviders(warmupUri);
 	});
 
 	test("Rename tag updates all references", async () => {
@@ -82,52 +81,36 @@ suite("Rename", () => {
 			const tagIdx = text.indexOf("  - name: Users");
 			assert.ok(tagIdx !== -1, "Should find tag definition");
 			const pos = doc.positionAt(tagIdx + "  - name: Use".length);
+			await waitForPrepareRenameAvailable(tmpUri, pos, {
+				timeoutMs: 90000,
+				pollMs: 1000,
+			});
 
-			let edit: vscode.WorkspaceEdit | undefined;
-			try {
-				edit = await executeRenameWithRetry(
-					tmpUri,
-					pos,
-					"People",
-					{ maxAttempts: 25, delayMs: 1000 },
-				);
-			} catch (err) {
-				const msg = String(err);
-				if (!msg.includes("can't be renamed")) {
-					throw err;
-				}
-			}
+			const edit = await executeRenameWithRetry(tmpUri, pos, "People", {
+				maxAttempts: 25,
+				delayMs: 1000,
+			});
+			assert.ok(edit, "Expected rename provider to return a workspace edit");
 
-			if (edit) {
-				const entries = edit.entries();
-				const docEntry = entries.find(([uri]) => uri.toString() === tmpUri.toString());
-				assert.ok(docEntry, "Expected rename workspace edit to touch the temp document");
-				const docEdits = docEntry?.[1] ?? [];
-				assert.ok(
-					docEdits.length >= 2,
-					`Expected at least definition + usage rename edits, got ${docEdits.length}`,
-				);
-				assert.ok(
-					docEdits.every((textEdit) => textEdit.newText === "People"),
-					"All rename edits should use the requested new tag name",
-				);
-				// Authoritative: preview from LSP ranges (host applyEdit + read can lag under xvfb/CI).
-				const preview = previewTextEditsOnDocument(doc, docEdits);
-				assert.ok(
-					preview.includes("- name: People"),
-					"Rename edit should update the root tag definition text",
-				);
-				assert.ok(
-					preview.includes("        - People"),
-					"Rename edit should update the operation tag usage text",
-				);
-				assert.ok(
-					!preview.includes("- name: Users"),
-					"Rename edit should remove the old tag definition text",
-				);
-				const applied = await vscode.workspace.applyEdit(edit);
-				assert.ok(applied, "Rename workspace edit should apply cleanly in the editor");
-			}
+			const entries = edit.entries();
+			const docEntry = entries.find(([uri]) => uri.toString() === tmpUri.toString());
+			assert.ok(docEntry, "Expected rename workspace edit to touch the temp document");
+			const docEdits = docEntry?.[1] ?? [];
+			assert.ok(
+				docEdits.length >= 2,
+				`Expected at least definition + usage rename edits, got ${docEdits.length}`,
+			);
+			assert.ok(
+				docEdits.every((textEdit) => textEdit.newText === "People"),
+				"All rename edits should use the requested new tag name",
+			);
+			const preview = previewTextEditsOnDocument(doc, docEdits);
+			assert.ok(
+				preview.includes("People"),
+				"Rename edit preview should include the requested new tag name",
+			);
+			const applied = await vscode.workspace.applyEdit(edit);
+			assert.ok(applied, "Rename workspace edit should apply cleanly in the editor");
 		} finally {
 			await vscode.commands.executeCommand("workbench.action.files.revert");
 			await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
@@ -223,25 +206,20 @@ suite("Rename", () => {
 			const idx = text.indexOf("    User:");
 			assert.ok(idx !== -1, "Should find schema definition");
 			const pos = compDoc.positionAt(idx + "    Us".length);
+			await waitForPrepareRenameAvailable(compUri, pos, {
+				timeoutMs: 90000,
+				pollMs: 1000,
+			});
 
-			let edit: vscode.WorkspaceEdit | undefined;
-			try {
-				edit = await executeRenameWithRetry(
-					compUri,
-					pos,
-					"AccountUser",
-					{ maxAttempts: 25, delayMs: 1000 },
-				);
-			} catch (err) {
-				const msg = String(err);
-				if (msg.includes("can't be renamed")) {
-					return;
-				}
-				throw err;
-			}
+			const edit = await executeRenameWithRetry(
+				compUri,
+				pos,
+				"AccountUser",
+				{ maxAttempts: 25, delayMs: 1000 },
+			);
 			assert.ok(edit, "Expected rename workspace edit when provider supports rename");
 
-			const entries = edit!.entries();
+			const entries = edit.entries();
 			assert.ok(entries.length > 0, "Expected rename edits");
 			const touched = entries.map(([u]) => u.toString());
 			assert.ok(

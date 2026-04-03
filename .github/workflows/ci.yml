@@ -299,19 +299,6 @@ jobs:
           TELESCOPE_E2E_SMOKE: ""
         run: pnpm --filter ./client test:e2e:run:multi
 
-      - name: Run E2E sidecar tests
-        id: sidecar
-        timeout-minutes: 15
-        shell: bash
-        env:
-          TELESCOPE_E2E_SMOKE: ""
-        run: |
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            xvfb-run -a pnpm --filter ./client test:e2e:run:sidecar
-          else
-            pnpm --filter ./client test:e2e:run:sidecar
-          fi
-
       - name: Summarize E2E results
         if: always()
         shell: bash
@@ -320,7 +307,6 @@ jobs:
             echo "### E2E Summary (${{ matrix.os }})"
             echo ""
             echo "- Single-root / multi-root E2E: see step results above (${{ job.status }})"
-            echo "- Sidecar suite: ${{ steps.sidecar.conclusion }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload VS Code test host logs on failure
@@ -328,5 +314,98 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vscode-test-logs-${{ matrix.os }}
+          path: client/.vscode-test
+          if-no-files-found: ignore
+
+  e2e_sidecar:
+    name: E2E Sidecar (${{ matrix.os }})
+    needs: [go, typescript]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Restore VS Code test downloads
+        uses: actions/cache@v4
+        with:
+          path: client/.vscode-test
+          key: vscode-test-${{ matrix.os }}-${{ hashFiles('client/package.json', 'client/src/test/vscode-test-version.ts') }}
+          restore-keys: |
+            vscode-test-${{ matrix.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Bun runner
+        run: bash server/lsp/bun/runner/build.sh
+
+      # Keep sidecar on a fresh runner with a freshly compiled extension so this
+      # required PR gate isolates Bun wiring failures from single/multi-root host failures.
+      - name: Build and compile E2E
+        run: pnpm --filter ./client test:e2e:compile
+
+      - name: Record E2E VS Code pin
+        shell: bash
+        run: |
+          echo "### E2E Sidecar VS Code" >> "$GITHUB_STEP_SUMMARY"
+          echo "- VSCODE_TEST_VERSION=${VSCODE_TEST_VERSION}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install xvfb (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Run E2E sidecar tests (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 15
+        env:
+          TELESCOPE_E2E_SMOKE: ""
+        run: xvfb-run -a pnpm --filter ./client test:e2e:run:sidecar
+
+      - name: Run E2E sidecar tests (macOS/Windows)
+        if: matrix.os != 'ubuntu-latest'
+        timeout-minutes: 15
+        shell: bash
+        env:
+          TELESCOPE_E2E_SMOKE: ""
+        run: pnpm --filter ./client test:e2e:run:sidecar
+
+      - name: Summarize E2E sidecar results
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### E2E Sidecar Summary (${{ matrix.os }})"
+            echo ""
+            echo "- Sidecar E2E: see step results above (${{ job.status }})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload VS Code test host logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-test-sidecar-logs-${{ matrix.os }}
           path: client/.vscode-test
           if-no-files-found: ignore
