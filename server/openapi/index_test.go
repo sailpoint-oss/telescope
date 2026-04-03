@@ -104,6 +104,34 @@ func TestIndexCache_Rebuild_RefreshesCachedEntry(t *testing.T) {
 	}
 }
 
+func TestIndexCache_Rebuild_PassesOriginalURIToBuilder(t *testing.T) {
+	cache := NewIndexCache()
+	// Use a URI with a query/fragment that NormalizeURI would strip.
+	original := protocol.DocumentURI("file:///path/to/spec.yaml?v=2#section")
+	norm := protocol.NormalizeURI(original)
+	if original == norm {
+		t.Skip("NormalizeURI did not change the URI; cannot test original vs norm")
+	}
+
+	fresh := &Index{Document: &Document{Version: "3.1.0"}}
+	var receivedURI protocol.DocumentURI
+	cache.SetBuilder(func(u protocol.DocumentURI) *Index {
+		receivedURI = u
+		return fresh
+	})
+
+	got := cache.Rebuild(original)
+	if receivedURI != original {
+		t.Errorf("builder received %q, want original URI %q", receivedURI, original)
+	}
+	if got != fresh {
+		t.Error("expected Rebuild to return fresh result")
+	}
+	if cache.Get(norm) != fresh {
+		t.Error("expected Rebuild to store under normalized key")
+	}
+}
+
 func TestIndexCache_NormalizedKeys(t *testing.T) {
 	cache := NewIndexCache()
 	idx := &Index{Document: &Document{Version: "3.1.0"}}

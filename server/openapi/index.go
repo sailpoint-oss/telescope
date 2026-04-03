@@ -400,7 +400,7 @@ func (c *IndexCache) Rebuild(uri protocol.DocumentURI) *Index {
 	if builder == nil {
 		return nil
 	}
-	idx := builder(norm)
+	idx := builder(uri)
 	if idx != nil {
 		c.Set(norm, idx)
 	}

@@ -108,7 +108,25 @@ suite("Sidecar: Lifecycle", () => {
 			folder.uri,
 			"openapi/test-missing-summary.yaml",
 		);
-		await openAndShow(fileUri);
+
+		// Close any stale editor for this file so that re-opening triggers a
+		// fresh didOpen -> full reparse cycle. This guarantees the sidecar
+		// analyzer runs with the sidecar already available, even if earlier
+		// tests opened the file before the sidecar had finished starting.
+		try {
+			await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+		} catch {
+			// best effort
+		}
+
+		const doc = await openAndShow(fileUri);
+
+		// Make a trivial edit and undo to force tree-sitter to reparse the
+		// document, ensuring all analyzers (including the sidecar) re-run.
+		const trivialEdit = new vscode.WorkspaceEdit();
+		trivialEdit.insert(fileUri, new vscode.Position(0, 0), " ");
+		await vscode.workspace.applyEdit(trivialEdit);
+		await vscode.commands.executeCommand("undo");
 
 		const diagnostics = await waitForDiagnostics(
 			fileUri,

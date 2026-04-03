@@ -2525,6 +2525,84 @@ paths: {}`)))
 	}
 }
 
+func TestRenameHandler_NilDocumentInCacheDoesNotPanic(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixturePath := filepath.Join(filepath.Dir(thisFile), "..", "..", "client", "test-fixtures", "workspace-basic", "rich-api.yaml")
+	b, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", fixturePath, err)
+	}
+	content := string(b)
+
+	store := document.NewStore()
+	lang := tree_sitter.NewLanguage(unsafe.Pointer(ts_yaml.Language()))
+	mgr := treesitter.NewManager(treesitter.Config{
+		Matchers: []treesitter.LanguageMatcher{
+			{Language: lang, Extensions: []string{".yaml", ".yml"}, LanguageID: "yaml"},
+		},
+	}, store)
+	t.Cleanup(mgr.Close)
+
+	uri := protocol.DocumentURI("file:///workspace/rich-api.yaml")
+	store.Open(&protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{
+			URI:        uri,
+			LanguageID: "yaml",
+			Version:    1,
+			Text:       content,
+		},
+	})
+
+	cache := openapi.NewIndexCache()
+	cache.SetBuilder(func(u protocol.DocumentURI) *openapi.Index {
+		doc := store.Get(u)
+		tree := mgr.GetTree(u)
+		if doc == nil || tree == nil {
+			return nil
+		}
+		return openapi.BuildIndex(tree, doc)
+	})
+
+	// Seed a second cache entry with nil Document to simulate a partially
+	// loaded graph-bridge node. The rename handler must not panic.
+	poisonURI := protocol.DocumentURI("file:///workspace/partial.yaml")
+	cache.Set(poisonURI, &openapi.Index{Document: nil})
+
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: store,
+	}
+	doc := store.Get(uri)
+	if doc == nil {
+		t.Fatal("nil document")
+	}
+
+	tagNeedle := "  - name: Users"
+	off := strings.Index(content, tagNeedle)
+	if off < 0 {
+		t.Fatal("fixture missing Users tag definition")
+	}
+	pos := doc.PositionAt(off + len("  - name: Use"))
+
+	rename := lsp.NewRenameHandler(cache, nil)
+	edit, err := rename(ctx, &protocol.RenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     pos,
+		},
+		NewName: "People",
+	})
+	if err != nil {
+		t.Fatalf("rename should not error: %v", err)
+	}
+	if edit == nil {
+		t.Fatal("expected rename edit even with nil-Document entry in cache")
+	}
+}
+
 func TestDefinitionHandler_LocalRefReturnsSameURI(t *testing.T) {
 	env := setupTestEnv(t, "file:///same-uri.yaml", testSpec)
 	handler := lsp.NewDefinitionHandler(env.cache, nil, nil)

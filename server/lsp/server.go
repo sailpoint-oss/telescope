@@ -421,26 +421,32 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 				telescopeDir := filepath.Join(rootPath, ".telescope")
 				loadReq := buildLoadRulesRequest(cfg, telescopeDir)
 				bunMgr.SetRulesExpected(loadReq != nil)
-				go func() {
-					if err := bunMgr.Start(bgCtx); err != nil {
-						logger.Warn("failed to start bun sidecar", "error", err)
-						return
+			go func() {
+				if err := bunMgr.Start(bgCtx); err != nil {
+					logger.Warn("failed to start bun sidecar", "error", err)
+					return
+				}
+				if loadReq != nil {
+					if err := bunMgr.LoadRules(bgCtx, loadReq); err != nil {
+						logger.Warn("failed to load custom rules", "error", err)
 					}
-					if loadReq != nil {
-						if err := bunMgr.LoadRules(bgCtx, loadReq); err != nil {
-							logger.Warn("failed to load custom rules", "error", err)
-						}
-					}
+				}
+				if bunMgr.Available() {
 					recomputeOpenDiagnostics()
-					bunMgr.WatchRules(bgCtx, telescopeDir, func() {
-						reloadReq := buildLoadRulesRequest(cfg, telescopeDir)
-						if reloadReq != nil {
-							if err := bunMgr.LoadRules(bgCtx, reloadReq); err != nil {
-								logger.Warn("failed to reload custom rules", "error", err)
-							}
+				} else {
+					logger.Debug("skipping post-start diagnostic refresh: sidecar not yet available")
+				}
+				bunMgr.WatchRules(bgCtx, telescopeDir, func() {
+					reloadReq := buildLoadRulesRequest(cfg, telescopeDir)
+					if reloadReq != nil {
+						if err := bunMgr.LoadRules(bgCtx, reloadReq); err != nil {
+							logger.Warn("failed to reload custom rules", "error", err)
 						}
+					}
+					if bunMgr.Available() {
 						recomputeOpenDiagnostics()
-					})
+					}
+				})
 				}()
 			}
 

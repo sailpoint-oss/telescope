@@ -118,9 +118,12 @@ func NewRenameHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossi
 				NewText: params.NewName,
 			})
 
-			// Also rename operationId references in links/callbacks across workspace
-			for docURI, docIdx := range cache.All() {
-				for _, item := range docIdx.Document.Paths {
+		// Also rename operationId references in links/callbacks across workspace
+		for docURI, docIdx := range cache.All() {
+			if docIdx == nil || docIdx.Document == nil {
+				continue
+			}
+			for _, item := range docIdx.Document.Paths {
 					for _, mo := range item.Operations() {
 						for _, link := range mo.Operation.Responses {
 							if link == nil {
@@ -154,9 +157,12 @@ func NewRenameHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossi
 				NewText: params.NewName,
 			})
 
-			// Rename all tag usages in operations across workspace
-			for docURI, docIdx := range cache.All() {
-				for _, item := range docIdx.Document.Paths {
+		// Rename all tag usages in operations across workspace
+		for docURI, docIdx := range cache.All() {
+			if docIdx == nil || docIdx.Document == nil {
+				continue
+			}
+			for _, item := range docIdx.Document.Paths {
 					for _, mo := range item.Operations() {
 						if tu, ok := mo.Operation.HasTag(word); ok && tu.Loc.Node != nil {
 							changes[docURI] = append(changes[docURI], protocol.TextEdit{
@@ -318,6 +324,9 @@ func renameSecurityUsages(
 	changes map[protocol.DocumentURI][]protocol.TextEdit,
 ) {
 	for docURI, docIdx := range cache.All() {
+		if docIdx == nil || docIdx.Document == nil {
+			continue
+		}
 		// Root-level security
 		for _, req := range docIdx.Document.Security {
 			if entry, ok := req.HasScheme(oldName); ok && entry.NameLoc.Node != nil {
