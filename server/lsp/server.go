@@ -419,12 +419,13 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 			// Start Bun sidecar for custom rules and Spectral rulesets
 			if cfg.NeedsBunSidecar() && bunMgr != nil {
 				telescopeDir := filepath.Join(rootPath, ".telescope")
+				loadReq := buildLoadRulesRequest(cfg, telescopeDir)
+				bunMgr.SetRulesExpected(loadReq != nil)
 				go func() {
 					if err := bunMgr.Start(bgCtx); err != nil {
 						logger.Warn("failed to start bun sidecar", "error", err)
 						return
 					}
-					loadReq := buildLoadRulesRequest(cfg, telescopeDir)
 					if loadReq != nil {
 						if err := bunMgr.LoadRules(bgCtx, loadReq); err != nil {
 							logger.Warn("failed to load custom rules", "error", err)
@@ -586,33 +587,26 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 			}
 
 			snap := graphBridge.CurrentSnapshot()
-			node := graphBridge.Graph().Node(uri)
-
-			var doc bun.SerializedDoc
-			if node != nil && node.Raw != nil {
-				doc = bun.SerializeDoc(uri, node, snap)
-			} else {
-				ast, err := bun.SerializeRawContent([]byte(content), format)
-				if err != nil {
-					return nil
-				}
-				version := ""
-				if v, ok := ast["openapi"]; ok {
+			ast, err := bun.SerializeRawContent([]byte(content), format)
+			if err != nil {
+				return nil
+			}
+			version := ""
+			if v, ok := ast["openapi"]; ok {
+				version, _ = v.(string)
+			}
+			if version == "" {
+				if v, ok := ast["swagger"]; ok {
 					version, _ = v.(string)
 				}
-				if version == "" {
-					if v, ok := ast["swagger"]; ok {
-						version, _ = v.(string)
-					}
-				}
-				doc = bun.SerializedDoc{
-					URI:      uri,
-					AST:      ast,
-					RawText:  content,
-					Format:   format,
-					Version:  version,
-					Pointers: bun.PointersFromContent(content, uri),
-				}
+			}
+			doc := bun.SerializedDoc{
+				URI:      uri,
+				AST:      ast,
+				RawText:  content,
+				Format:   format,
+				Version:  version,
+				Pointers: bun.PointersFromContent(content, uri),
 			}
 			if doc.Version == "" {
 				if v, ok := doc.AST["swagger"]; ok {
@@ -659,9 +653,18 @@ func matchesFilePatterns(docURI, workspaceRoot string, patterns []string) bool {
 	if len(patterns) == 0 {
 		return true
 	}
-	docPath := uriToFSPath(string(protocol.NormalizeURI(protocol.DocumentURI(docURI))))
-	relPath := strings.TrimPrefix(docPath, workspaceRoot)
-	relPath = strings.TrimPrefix(relPath, "/")
+	docPath := filepath.Clean(
+		uriToFSPath(string(protocol.NormalizeURI(protocol.DocumentURI(docURI)))),
+	)
+	rootPath := filepath.Clean(workspaceRoot)
+	relPath, err := filepath.Rel(rootPath, docPath)
+	if err != nil {
+		return false
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+		return false
+	}
+	relPath = filepath.ToSlash(relPath)
 	for _, pattern := range patterns {
 		if matched, _ := filepath.Match(pattern, relPath); matched {
 			return true

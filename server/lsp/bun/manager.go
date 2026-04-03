@@ -24,22 +24,25 @@ import (
 
 // Manager manages the lifecycle of the Bun sidecar process.
 type Manager struct {
-	mu        sync.Mutex
-	cmd       *exec.Cmd
-	conn      net.Conn
-	logger    *slog.Logger
-	available atomic.Bool
+	mu         sync.Mutex
+	cmd        *exec.Cmd
+	conn       net.Conn
+	logger     *slog.Logger
+	available  atomic.Bool
+	rulesReady atomic.Bool
 
 	pendingMu sync.Mutex
 	pending   map[string]chan *Envelope
 	nextID    atomic.Uint64
 
-	socketPath string
-	listener   net.Listener
-	readDone   chan struct{}
+	socketPath  string
+	listener    net.Listener
+	readDone    chan struct{}
+	lastLoadReq *LoadRulesRequest
 
 	healthStop    chan struct{}
 	restartFailed atomic.Bool
+	rulesExpected atomic.Bool
 }
 
 // NewManager creates a new Bun sidecar manager.
@@ -55,7 +58,27 @@ func NewManager(logger *slog.Logger) *Manager {
 
 // Available reports whether the Bun runtime is available and connected.
 func (m *Manager) Available() bool {
-	return m.available.Load()
+	if !m.available.Load() {
+		return false
+	}
+	if m.rulesExpected.Load() && !m.rulesReady.Load() {
+		return false
+	}
+	return true
+}
+
+// SetRulesExpected declares whether custom rules must be loaded before the
+// sidecar should be treated as usable.
+func (m *Manager) SetRulesExpected(expected bool) {
+	m.rulesExpected.Store(expected)
+	if expected {
+		m.rulesReady.Store(false)
+		return
+	}
+	m.rulesReady.Store(true)
+	m.mu.Lock()
+	m.lastLoadReq = nil
+	m.mu.Unlock()
 }
 
 // Start spawns the Bun sidecar process and establishes IPC.
@@ -104,6 +127,9 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("starting bun runner: %w", err)
 	}
 	m.cmd = cmd
+	if !m.rulesExpected.Load() {
+		m.rulesReady.Store(true)
+	}
 
 	deadline := time.Now().Add(10 * time.Second)
 	switch l := m.listener.(type) {
@@ -183,6 +209,7 @@ func (m *Manager) tryRestart(ctx context.Context) {
 	}
 	m.mu.Lock()
 	m.available.Store(false)
+	m.rulesReady.Store(false)
 	if m.conn != nil {
 		m.conn.Close()
 		m.conn = nil
@@ -198,12 +225,29 @@ func (m *Manager) tryRestart(ctx context.Context) {
 	}
 	m.mu.Unlock()
 
+	loadReq := m.snapshotLoadRulesRequest()
 	if err := m.Start(ctx); err != nil {
 		m.logger.Error("bun sidecar restart failed permanently", "err", err)
 		m.restartFailed.Store(true)
-	} else {
-		m.logger.Info("bun sidecar restarted successfully")
+		return
 	}
+	if loadReq != nil {
+		if err := m.LoadRules(ctx, loadReq); err != nil {
+			m.logger.Error("bun sidecar restart failed to restore custom rules", "err", err)
+			return
+		}
+	}
+	if m.rulesExpected.Load() && !m.rulesReady.Load() {
+		m.logger.Error("bun sidecar restarted without a restored custom rule set")
+		return
+	}
+	m.logger.Info("bun sidecar restarted successfully")
+}
+
+func (m *Manager) snapshotLoadRulesRequest() *LoadRulesRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return cloneLoadRulesRequest(m.lastLoadReq)
 }
 
 // Stop shuts down the sidecar.
@@ -212,6 +256,7 @@ func (m *Manager) Stop() {
 	defer m.mu.Unlock()
 
 	m.available.Store(false)
+	m.rulesReady.Store(false)
 
 	if m.healthStop != nil {
 		close(m.healthStop)
@@ -425,7 +470,15 @@ func (m *Manager) LoadRules(ctx context.Context, req *LoadRulesRequest) error {
 	if req == nil {
 		return fmt.Errorf("loadRules: nil request")
 	}
-	if !m.Available() {
+	m.rulesExpected.Store(len(req.Rules) > 0)
+	if len(req.Rules) == 0 {
+		m.rulesReady.Store(true)
+		m.mu.Lock()
+		m.lastLoadReq = nil
+		m.mu.Unlock()
+		return nil
+	}
+	if !m.available.Load() {
 		return fmt.Errorf("loadRules: sidecar not available")
 	}
 
@@ -437,20 +490,80 @@ func (m *Manager) LoadRules(ctx context.Context, req *LoadRulesRequest) error {
 
 	resp, err := m.sendRequest(ctx, env, 10*time.Second)
 	if err != nil {
+		m.rulesReady.Store(false)
 		return fmt.Errorf("loadRules: %w", err)
 	}
 	if resp == nil {
+		m.rulesReady.Store(false)
 		return fmt.Errorf("loadRules: empty response")
 	}
 
 	if resp.Type == MsgRuleError {
+		m.rulesReady.Store(false)
 		return fmt.Errorf("rule load error: %v", resp.Payload)
 	}
 	if resp.Type != MsgLoadResponse {
+		m.rulesReady.Store(false)
 		return fmt.Errorf("loadRules: unexpected response type %q", resp.Type)
 	}
 
+	payloadBytes, err := json.Marshal(resp.Payload)
+	if err != nil {
+		m.rulesReady.Store(false)
+		return fmt.Errorf("marshal loadRules payload: %w", err)
+	}
+
+	var result LoadRulesResponse
+	if err := json.Unmarshal(payloadBytes, &result); err != nil {
+		m.rulesReady.Store(false)
+		return fmt.Errorf("unmarshal loadRules response: %w", err)
+	}
+	if len(result.Errors) > 0 {
+		m.rulesReady.Store(false)
+		return fmt.Errorf("rule load errors: %s", formatRuleLoadErrors(result.Errors))
+	}
+
+	m.rulesReady.Store(true)
+	m.mu.Lock()
+	m.lastLoadReq = cloneLoadRulesRequest(req)
+	m.mu.Unlock()
 	return nil
+}
+
+func cloneLoadRulesRequest(req *LoadRulesRequest) *LoadRulesRequest {
+	if req == nil {
+		return nil
+	}
+	cloned := &LoadRulesRequest{
+		WorkDir: req.WorkDir,
+		Rules:   make([]RuleConfig, len(req.Rules)),
+	}
+	for i, rule := range req.Rules {
+		cloned.Rules[i] = cloneRuleConfig(rule)
+	}
+	return cloned
+}
+
+func cloneRuleConfig(rule RuleConfig) RuleConfig {
+	cloned := rule
+	if rule.Patterns != nil {
+		cloned.Patterns = append([]string(nil), rule.Patterns...)
+	}
+	if rule.Options != nil {
+		cloned.Options = make(map[string]any, len(rule.Options))
+		for key, value := range rule.Options {
+			cloned.Options[key] = value
+		}
+	}
+	return cloned
+}
+
+func formatRuleLoadErrors(errors []RuleRunError) string {
+	parts := make([]string, 0, len(errors))
+	for _, err := range errors {
+		parts = append(parts, fmt.Sprintf("%s (%s): %s", err.RuleID, err.Phase, err.Error))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // WatchRules watches .telescope/rules/ and .telescope/schemas/ for changes,

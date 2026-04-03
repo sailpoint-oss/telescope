@@ -221,7 +221,13 @@ func TestRunRulesReturnNilWhenNotAvailable(t *testing.T) {
 
 func TestLoadRulesReturnNilWhenNotAvailable(t *testing.T) {
 	m := NewManager(slog.Default())
-	err := m.LoadRules(context.Background(), &LoadRulesRequest{})
+	err := m.LoadRules(context.Background(), &LoadRulesRequest{
+		Rules: []RuleConfig{{
+			ID:   "example-custom-openapi-rule",
+			Path: "/tmp/example-custom-openapi-rule.ts",
+			Kind: "openapi",
+		}},
+	})
 	if err == nil {
 		t.Fatal("expected error when sidecar is not available")
 	}

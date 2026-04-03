@@ -13,6 +13,7 @@ import {
 	previewTextEditsOnDocument,
 	waitForDiagnostics,
 	waitForDocumentAnalyzed,
+	waitForPrepareRenameAvailable,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -48,6 +49,10 @@ suite("Rename", () => {
 		const tagIdx = text.indexOf("  - name: Users");
 		assert.ok(tagIdx !== -1, "Should find tag definition");
 		const pos = doc.positionAt(tagIdx + "  - name: Use".length);
+		await waitForPrepareRenameAvailable(uri, pos, {
+			timeoutMs: 90000,
+			pollMs: 1000,
+		});
 
 		const edit = await executeRenameWithRetry(uri, pos, "People", {
 			maxAttempts: 25,

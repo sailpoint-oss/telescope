@@ -345,9 +345,10 @@ export async function executeWithRetry<T>(
 }
 
 /**
- * Rename providers sometimes transiently throw "No result." before the host has
- * fully settled on freshly created temp documents. Treat that specific shape as
- * retryable, but surface real rename errors immediately.
+ * Rename providers sometimes transiently throw "No result." or report that the
+ * element cannot yet be renamed before the host has fully settled on freshly
+ * created temp documents. Treat those readiness-shaped failures as retryable,
+ * but surface real rename errors immediately.
  */
 export async function executeRenameWithRetry(
 	uri: vscode.Uri,
@@ -373,7 +374,7 @@ export async function executeRenameWithRetry(
 			}
 		} catch (error) {
 			const msg = String(error);
-			if (!msg.includes("No result.")) {
+			if (!isRetryableRenameError(msg)) {
 				throw error;
 			}
 			lastRetryableError = error;
@@ -385,6 +386,13 @@ export async function executeRenameWithRetry(
 		throw lastRetryableError;
 	}
 	return lastResult;
+}
+
+function isRetryableRenameError(message: string): boolean {
+	return (
+		message.includes("No result.") ||
+		message.toLowerCase().includes("the element can't be renamed")
+	);
 }
 
 export async function waitForPrepareRenameAvailable(

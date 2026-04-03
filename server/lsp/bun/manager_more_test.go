@@ -163,6 +163,14 @@ func TestRunSpectralParsesSpectralResult(t *testing.T) {
 }
 
 func TestLoadRulesRequiresLoadResponse(t *testing.T) {
+	loadReq := &LoadRulesRequest{
+		Rules: []RuleConfig{{
+			ID:   "example-custom-openapi-rule",
+			Path: "/tmp/example-custom-openapi-rule.ts",
+			Kind: "openapi",
+		}},
+	}
+
 	t.Run("accepts loadResponse", func(t *testing.T) {
 		m := NewManager(nil)
 		m.available.Store(true)
@@ -173,7 +181,7 @@ func TestLoadRulesRequiresLoadResponse(t *testing.T) {
 			ch <- &Envelope{ID: "1", Type: MsgLoadResponse, Payload: map[string]any{"ruleCount": 1}}
 		}()
 
-		if err := m.LoadRules(context.Background(), &LoadRulesRequest{}); err != nil {
+		if err := m.LoadRules(context.Background(), loadReq); err != nil {
 			t.Fatalf("LoadRules: %v", err)
 		}
 	})
@@ -188,7 +196,7 @@ func TestLoadRulesRequiresLoadResponse(t *testing.T) {
 			ch <- &Envelope{ID: "1", Type: MsgRuleError, Payload: map[string]any{"error": "bad rule"}}
 		}()
 
-		err := m.LoadRules(context.Background(), &LoadRulesRequest{})
+		err := m.LoadRules(context.Background(), loadReq)
 		if err == nil || !strings.Contains(err.Error(), "rule load error") {
 			t.Fatalf("expected rule load error, got %v", err)
 		}
@@ -204,7 +212,7 @@ func TestLoadRulesRequiresLoadResponse(t *testing.T) {
 			ch <- &Envelope{ID: "1", Type: MsgPong}
 		}()
 
-		err := m.LoadRules(context.Background(), &LoadRulesRequest{})
+		err := m.LoadRules(context.Background(), loadReq)
 		if err == nil || !strings.Contains(err.Error(), "unexpected response type") {
 			t.Fatalf("expected unexpected response type error, got %v", err)
 		}

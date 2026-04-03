@@ -4,17 +4,17 @@ package bun
 type MessageType string
 
 const (
-	MsgLoadRules                            MessageType = "loadRules"
-	MsgLoadResponse                         MessageType = "loadResponse"
-	MsgRunRules                             MessageType = "runRules"
-	MsgRuleResult                           MessageType = "ruleResult"
-	MsgRuleError                            MessageType = "ruleError"
-	MsgRunSpectral                          MessageType = "runSpectral"
-	MsgSpectralResult                       MessageType = "spectralResult"
-	MsgReady                                MessageType = "ready"
-	MsgPing                                 MessageType = "ping"
-	MsgPong                                 MessageType = "pong"
-	MsgShutdown                             MessageType = "shutdown"
+	MsgLoadRules      MessageType = "loadRules"
+	MsgLoadResponse   MessageType = "loadResponse"
+	MsgRunRules       MessageType = "runRules"
+	MsgRuleResult     MessageType = "ruleResult"
+	MsgRuleError      MessageType = "ruleError"
+	MsgRunSpectral    MessageType = "runSpectral"
+	MsgSpectralResult MessageType = "spectralResult"
+	MsgReady          MessageType = "ready"
+	MsgPing           MessageType = "ping"
+	MsgPong           MessageType = "pong"
+	MsgShutdown       MessageType = "shutdown"
 )
 
 // Envelope wraps all IPC messages with a common header.
@@ -38,6 +38,12 @@ type RuleConfig struct {
 type LoadRulesRequest struct {
 	Rules   []RuleConfig `json:"rules"`
 	WorkDir string       `json:"workDir"`
+}
+
+// LoadRulesResponse reports how many rules were loaded and any load errors.
+type LoadRulesResponse struct {
+	RuleCount int            `json:"ruleCount"`
+	Errors    []RuleRunError `json:"errors,omitempty"`
 }
 
 // RunRulesRequest asks the sidecar to run loaded rules on a document.
@@ -89,4 +95,3 @@ type RunSpectralResponse struct {
 	RulesetTimings map[string]float64  `json:"rulesetTimings,omitempty"`
 	Errors         []RuleRunError      `json:"errors,omitempty"`
 }
-
