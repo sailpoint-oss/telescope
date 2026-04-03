@@ -49,6 +49,24 @@ suite("Rename", () => {
 		const tagIdx = text.indexOf("  - name: Users");
 		assert.ok(tagIdx !== -1, "Should find tag definition");
 		const pos = doc.positionAt(tagIdx + "  - name: Use".length);
+		console.log(`[rename-diag] uri=${uri.toString()}`);
+		console.log(`[rename-diag] languageId=${doc.languageId}`);
+		console.log(`[rename-diag] pos=${pos.line}:${pos.character}`);
+		console.log(`[rename-diag] wordAtPos='${doc.getText(doc.getWordRangeAtPosition(pos))}'`);
+
+		// Quick probe: try VS Code's built-in prepareRename command to see if
+		// the rename provider is even registered for this language ID.
+		try {
+			const probeResult = await vscode.commands.executeCommand(
+				"vscode.prepareRename",
+				uri,
+				pos,
+			);
+			console.log(`[rename-diag] vscode.prepareRename probe=${JSON.stringify(probeResult)}`);
+		} catch (e: unknown) {
+			console.log(`[rename-diag] vscode.prepareRename probe error: ${e}`);
+		}
+
 		await waitForPrepareRenameAvailable(uri, pos, {
 			timeoutMs: 90000,
 			pollMs: 1000,
