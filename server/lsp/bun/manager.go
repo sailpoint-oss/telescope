@@ -36,9 +36,7 @@ type Manager struct {
 
 	socketPath string
 	listener   net.Listener
-	workDir    string
 	readDone   chan struct{}
-	tmpDir     string // temp directory holding the extracted runner binary
 
 	healthStop    chan struct{}
 	restartFailed atomic.Bool
@@ -61,8 +59,8 @@ func (m *Manager) Available() bool {
 }
 
 // Start spawns the Bun sidecar process and establishes IPC.
-// The runner binary is embedded per-platform via //go:embed. In development
-// mode (TELESCOPE_DEV=1), falls back to running src/runner.ts with bun.
+// Telescope now requires Bun on PATH for sidecar-backed features and executes
+// a bundled runner script directly with Bun.
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -71,9 +69,9 @@ func (m *Manager) Start(ctx context.Context) error {
 		return nil
 	}
 
-	runnerPath, err := m.extractRunner()
+	bunPath, runnerPath, err := resolveRunnerCommand()
 	if err != nil {
-		m.logger.Warn("bun runner not available", "err", err)
+		m.logger.Warn("bun sidecar unavailable", "err", err)
 		return nil
 	}
 
@@ -95,8 +93,8 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.listener = listener
 	}
 
-	// The extracted runner is a self-contained compiled binary — spawn it directly.
-	cmd := exec.CommandContext(ctx, runnerPath)
+	cmd := exec.CommandContext(ctx, bunPath, runnerPath)
+	cmd.Dir = filepath.Dir(runnerPath)
 	cmd.Env = append(os.Environ(), "TELESCOPE_SOCKET="+m.socketPath)
 	cmd.Stderr = &logWriter{logger: m.logger, level: slog.LevelWarn}
 	cmd.Stdout = &logWriter{logger: m.logger, level: slog.LevelDebug}
@@ -244,11 +242,6 @@ func (m *Manager) Stop() {
 
 	if m.socketPath != "" && runtime.GOOS != "windows" {
 		os.Remove(m.socketPath)
-	}
-
-	if m.tmpDir != "" {
-		os.RemoveAll(m.tmpDir)
-		m.tmpDir = ""
 	}
 
 	if m.readDone != nil {
@@ -515,105 +508,81 @@ func (m *Manager) WatchRules(ctx context.Context, telescopeDir string, reloadFn 
 	}()
 }
 
-// extractRunner extracts the embedded compiled runner binary to a temp directory
-// and returns the path to the executable. In dev mode (TELESCOPE_DEV=1), runs
-// src/runner.ts directly with bun on PATH (takes priority over the embedded
-// binary so developers can iterate on the runner source without recompiling).
-func (m *Manager) extractRunner() (string, error) {
-	if os.Getenv("TELESCOPE_DEV") == "1" {
-		if path, err := m.extractDevRunner(); err == nil {
-			return path, nil
-		}
-	}
-
-	if len(runnerBinary) > 0 {
-		dir, err := os.MkdirTemp("", "telescope-runner-*")
-		if err != nil {
-			return "", fmt.Errorf("creating temp dir: %w", err)
-		}
-		m.tmpDir = dir
-
-		name := "telescope-runner"
-		if runtime.GOOS == "windows" {
-			name += ".exe"
-		}
-		binPath := filepath.Join(dir, name)
-		if err := os.WriteFile(binPath, runnerBinary, 0700); err != nil {
-			return "", fmt.Errorf("writing runner binary: %w", err)
-		}
-		return binPath, nil
-	}
-
-	return "", fmt.Errorf("embedded runner binary not available for %s/%s (set TELESCOPE_DEV=1 for dev mode)", runtime.GOOS, runtime.GOARCH)
-}
-
-// extractDevRunner creates a wrapper script that runs src/runner.ts with bun.
-func (m *Manager) extractDevRunner() (string, error) {
+func resolveRunnerCommand() (string, string, error) {
 	bunPath, err := exec.LookPath("bun")
 	if err != nil {
-		return "", fmt.Errorf("TELESCOPE_DEV=1 but bun not found on PATH: %w", err)
+		return "", "", fmt.Errorf("bun not found on PATH: %w", err)
 	}
 
-	devScript := findDevRunnerScript()
-	if devScript == "" {
-		return "", fmt.Errorf("TELESCOPE_DEV=1 but could not locate runner/src/runner.ts")
-	}
-
-	dir, err := os.MkdirTemp("", "telescope-runner-dev-*")
+	runnerPath, err := findBundledRunnerScript()
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	m.tmpDir = dir
 
-	wrapperPath := filepath.Join(dir, "telescope-runner-dev")
-	wrapper := fmt.Sprintf("#!/bin/sh\nexec %s run %s \"$@\"\n", bunPath, devScript)
-	if runtime.GOOS == "windows" {
-		wrapperPath += ".cmd"
-		wrapper = fmt.Sprintf("@echo off\n\"%s\" run \"%s\" %%*\n", bunPath, devScript)
-	}
-	if err := os.WriteFile(wrapperPath, []byte(wrapper), 0700); err != nil {
-		return "", err
-	}
-	return wrapperPath, nil
+	return bunPath, runnerPath, nil
 }
 
-// findDevRunnerScript locates src/runner.ts for development mode.
-func findDevRunnerScript() string {
-	// Try relative to the working directory (common when running `go run .` from server/)
-	candidates := []string{
-		"lsp/bun/runner/src/runner.ts",
-		"server/lsp/bun/runner/src/runner.ts",
+func findBundledRunnerScript() (string, error) {
+	if override := os.Getenv("TELESCOPE_BUN_RUNNER_PATH"); override != "" {
+		if _, err := os.Stat(override); err != nil {
+			return "", fmt.Errorf("TELESCOPE_BUN_RUNNER_PATH not found: %s", override)
+		}
+		return override, nil
 	}
-	wd, wdErr := os.Getwd()
-	ex, exErr := os.Executable()
 
-	if wdErr == nil {
-		for _, c := range candidates {
-			p := filepath.Join(wd, c)
-			if _, err := os.Stat(p); err == nil {
-				return p
-			}
+	seen := make(map[string]struct{})
+	for _, candidate := range bundledRunnerCandidates() {
+		candidate = filepath.Clean(candidate)
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
 		}
 	}
 
-	// Try walking up from the executable
-	if exErr == nil {
+	return "", fmt.Errorf(
+		"bundled bun runner not found; expected client/sidecar/runner.js or server/lsp/bun/runner/dist/runner.js",
+	)
+}
+
+func bundledRunnerCandidates() []string {
+	subpaths := []string{
+		filepath.Join("sidecar", "runner.js"),
+		filepath.Join("client", "sidecar", "runner.js"),
+		filepath.Join("lsp", "bun", "runner", "dist", "runner.js"),
+		filepath.Join("server", "lsp", "bun", "runner", "dist", "runner.js"),
+	}
+
+	var candidates []string
+	if wd, err := os.Getwd(); err == nil {
+		for _, sub := range subpaths {
+			candidates = append(candidates, filepath.Join(wd, sub))
+		}
+	}
+
+	if ex, err := os.Executable(); err == nil {
 		dir := filepath.Dir(ex)
 		for i := 0; i < 6; i++ {
 			for _, sub := range []string{
-				filepath.Join("lsp", "bun", "runner", "src", "runner.ts"),
-				filepath.Join("server", "lsp", "bun", "runner", "src", "runner.ts"),
+				filepath.Join("..", "sidecar", "runner.js"),
+				filepath.Join("sidecar", "runner.js"),
+				filepath.Join("..", "client", "sidecar", "runner.js"),
+				filepath.Join("..", "lsp", "bun", "runner", "dist", "runner.js"),
+				filepath.Join("..", "..", "server", "lsp", "bun", "runner", "dist", "runner.js"),
 			} {
-				p := filepath.Join(dir, sub)
-				if _, err := os.Stat(p); err == nil {
-					return p
-				}
+				candidates = append(candidates, filepath.Join(dir, sub))
 			}
-			dir = filepath.Dir(dir)
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			dir = parent
 		}
 	}
 
-	return ""
+	return candidates
 }
 
 // convertDiagnostics converts sidecar diagnostics to core types.

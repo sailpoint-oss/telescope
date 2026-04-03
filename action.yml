@@ -72,6 +72,16 @@ runs:
         cache: true
         cache-dependency-path: server/go.sum
 
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+
+    - name: Bundle Bun sidecar
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "${{ github.action_path }}/server"
+        bash lsp/bun/runner/build.sh
+
     - name: Build Telescope
       shell: bash
       run: |

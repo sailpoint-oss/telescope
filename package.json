@@ -4,6 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "pnpm --filter ./client run build",
+		"build:sidecar": "pnpm --filter ./client run build:sidecar",
 		"build:server": "cd server && go build -o ../client/bin/telescope .",
 		"test:e2e": "pnpm --filter ./client run test:e2e --if-present",
 		"trace:merge": "node ./scripts/merge-trace-logs.mjs",

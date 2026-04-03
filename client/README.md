@@ -54,6 +54,8 @@ Platform-specific VSIXs that bundle the Telescope server are currently published
 
 The universal VSIX works on other platforms too, but it does not bundle the `telescope` binary. On those installs, provide the server with `telescope.serverPath`, `TELESCOPE_SERVER_PATH`, or `PATH`.
 
+All VSIX variants include the bundled Bun sidecar script used for TypeScript/JavaScript custom rules and Spectral rulesets. Bun itself is only required on the user's system when those sidecar-backed features are enabled; base OpenAPI language-server features continue to work without Bun.
+
 ### Automatic Detection
 
 The extension automatically detects OpenAPI documents based on:
@@ -170,6 +172,8 @@ rules:
 ## Custom Rules
 
 Telescope supports custom rules via declarative YAML in `.telescope.yaml`, Spectral-compatible YAML rulesets (`spectralRulesets`), and TypeScript/JavaScript rules through the optional Bun sidecar.
+
+If Bun is not installed, YAML-native rules still work and the extension's core OpenAPI diagnostics/navigation remain available, but Bun-backed TypeScript/JavaScript rules and Spectral rulesets stay disabled.
 
 For full documentation, see the [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md).
 

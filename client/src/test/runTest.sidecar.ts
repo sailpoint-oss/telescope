@@ -17,7 +17,6 @@ async function main() {
 		}
 		process.env.TELESCOPE_E2E_MODE = process.env.TELESCOPE_E2E_MODE ?? "sidecar";
 		process.env.TELESCOPE_E2E_TIMEOUT_MS = process.env.TELESCOPE_E2E_TIMEOUT_MS ?? "300000";
-		// E2E binary is built with -tags=embed_runner; omit TELESCOPE_DEV so CI uses the embedded Bun runner (production-like).
 
 		const extensionDevelopmentPath = path.resolve(__dirname, "../..");
 		const extensionTestsPath = path.resolve(__dirname, "./suite/index");

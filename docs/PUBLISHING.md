@@ -7,10 +7,10 @@ This guide covers building and publishing the Telescope VS Code extension to var
 Telescope publishes through GitHub Actions on `main`:
 
 - `.github/workflows/release.yml`:
-  - Builds bundled Go binaries and publishes VSIX artifacts to VS Code Marketplace + OpenVSX.
+  - Builds bundled Go binaries, bundles the Bun sidecar once, and publishes VSIX artifacts to VS Code Marketplace + OpenVSX.
   - Triggered only when release-relevant client/server/workspace files change.
 - `.github/workflows/release-go.yml`:
-  - Runs server build/vet/test plus Bun runner build, then tags/releases `server/vX.Y.Z`.
+  - Runs server build/vet/test plus the Bun sidecar bundle step, then tags/releases `server/vX.Y.Z`.
 - `.github/workflows/release-sdk.yml`:
   - Publishes `@sailpoint-oss/telescope` to npm and creates `sdk/vX.Y.Z` GitHub release tags.
   - Runs when `server/lsp/bun/telescope-server/**` changes on `main`.
@@ -45,6 +45,7 @@ Before publishing a compatibility-sensitive Telescope change:
 ```bash
 # From repository root
 pnpm install
+pnpm --filter ./client run build:sidecar
 ```
 
 ### Install VS Code Extension Manager
@@ -72,6 +73,7 @@ pnpm --filter ./client run build
 
 ```bash
 test -f client/dist/client.js && echo "Client build complete"
+test -f client/sidecar/runner.js && echo "Bundled Bun sidecar ready"
 ```
 
 ## Packaging
@@ -94,8 +96,8 @@ Before packaging, ensure `client/package.json` has:
 ```bash
 cd client
 
-# Package the extension
-vsce package
+# Package the extension (expects sidecar/runner.js to exist)
+pnpm run package
 ```
 
 This creates a `.vsix` file (e.g., `telescope-0.1.0.vsix`) in the `client` directory.

@@ -21,13 +21,10 @@
 			}
 		},
 		{
-			"label": "build:bun-runner",
+			"label": "build:sidecar",
 			"type": "shell",
-			"command": "bash",
-			"args": ["lsp/bun/runner/build.sh"],
-			"options": {
-				"cwd": "${workspaceFolder}/server"
-			},
+			"command": "bun",
+			"args": ["run", "--cwd", "client", "build:sidecar"],
 			"group": {
 				"kind": "build",
 				"isDefault": false
@@ -59,7 +56,7 @@
 		},
 		{
 			"label": "build:all",
-			"dependsOn": ["build:bun-runner", "build:server", "build:extension"],
+			"dependsOn": ["build:sidecar", "build:server", "build:extension"],
 			"dependsOrder": "sequence",
 			"group": {
 				"kind": "build",

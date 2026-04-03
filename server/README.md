@@ -35,6 +35,8 @@ A fast, extensible OpenAPI linter and language server written in Go.
 go install github.com/sailpoint-oss/telescope/server@latest
 ```
 
+For Bun-backed TypeScript/JavaScript custom rules or Spectral rulesets, install Bun as well. Core CLI and LSP features still work without Bun; only sidecar-backed rule execution is disabled.
+
 ## Quick Start
 
 ### Validate files
@@ -144,6 +146,13 @@ lsp:
 ## Custom rules (YAML and Bun)
 
 User-defined rules are **declarative YAML** in `.telescope.yaml` (`openapi.rules`, `spectralRulesets`, and related fields) and **TypeScript/JavaScript** executed by the optional Bun sidecar. See the [Custom Rules Guide](../docs/CUSTOM-RULES.md) for formats and examples.
+
+When running the standalone server from a source checkout, build the bundled sidecar script once before using Bun-backed rules:
+
+```bash
+cd server
+bash lsp/bun/runner/build.sh
+```
 
 The Go package [`server/sdk`](./sdk/) provides the programmatic [Workspace] API and re-exports OpenAPI model types for embedders. There is no Go plugin or subprocess RPC surface for custom rules.
 

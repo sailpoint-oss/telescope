@@ -23,8 +23,6 @@ func runRuleThroughSidecar(
 	kind string,
 	docRelativePath string,
 ) []SidecarDiagnostic {
-	t.Setenv("TELESCOPE_DEV", "1")
-
 	origWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -39,11 +37,18 @@ func runRuleThroughSidecar(
 	t.Cleanup(func() {
 		_ = os.Chdir(origWD)
 	})
+	t.Setenv(
+		"TELESCOPE_BUN_RUNNER_PATH",
+		filepath.Join(repoRoot, "server", "lsp", "bun", "runner", "dist", "runner.js"),
+	)
 
 	mgr := NewManager(slog.Default())
 	ctx := context.Background()
 	if err := mgr.Start(ctx); err != nil {
 		t.Skipf("bun sidecar unavailable: %v", err)
+	}
+	if !mgr.Available() {
+		t.Skip("bun sidecar unavailable: install Bun and build the bundled runner first")
 	}
 	t.Cleanup(mgr.Stop)
 

@@ -295,6 +295,8 @@ openapi:
 
 Place shared rule files under `.telescope/` and reference them from `.telescope.yaml`. See [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for Spectral rules, Bun workflows, and YAML-native rules.
 
+Bun is optional for Telescope's core parsing, linting, and LSP features. It is only required when you enable sidecar-backed TypeScript/JavaScript custom rules or Spectral rulesets.
+
 The Go package [`server/sdk`](server/README.md) is for **programmatic linting** (`Workspace`) and type re-exports for embedders, not for Go plugin binaries.
 
 ## Development
@@ -308,6 +310,7 @@ go build -o ../client/bin/telescope . # build binary for VS Code extension
 
 # VS Code extension
 pnpm install
+pnpm run build:sidecar                # bundle/copy sidecar runner.js for sidecar-backed rules
 pnpm build
 
 # E2E (integration) tests

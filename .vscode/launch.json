@@ -12,8 +12,7 @@
 			"outFiles": ["${workspaceFolder}/client/dist/**/*.js"],
 			"env": {
 				"TELESCOPE_SERVER_PATH": "${workspaceFolder}/client/bin/telescope",
-				"TELESCOPE_LOG_LEVEL": "debug",
-				"TELESCOPE_DEV": "1"
+				"TELESCOPE_LOG_LEVEL": "debug"
 			},
 			"preLaunchTask": "build:all",
 			"presentation": {

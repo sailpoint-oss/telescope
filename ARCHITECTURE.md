@@ -112,7 +112,7 @@ flowchart TB
 2. **Feature handlers** are registered for all LSP capabilities (20+ handlers)
 3. **Configuration** is loaded from `.telescope.yaml`
 4. **RulesetManager** merges config, built-in rulesets, and Spectral rulesets
-5. **Bun sidecar** may start when custom TS/JS rules or Spectral paths require it
+5. **Bun sidecar** may start when custom TS/JS rules or Spectral paths require it, using the bundled `runner.js` plus Bun from `PATH`
 
 ### Phase 2: Document Processing
 

@@ -67,12 +67,6 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
 
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Build Bun runner (all platforms)
-        run: bash lsp/bun/runner/build.sh --all
-        working-directory: server
-
       - name: Build binary
         env:
           GOOS: ${{ matrix.goos }}
@@ -130,6 +124,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+
+      - name: Bundle Bun sidecar
+        run: pnpm --filter ./client run build:sidecar
 
       - name: Build extension
         run: pnpm --filter ./client run build

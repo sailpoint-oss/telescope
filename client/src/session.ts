@@ -413,20 +413,16 @@ export class Session implements vscode.Disposable {
 	 * Start the language client.
 	 */
 	private async startClient(): Promise<void> {
-		const env: Record<string, string> = {};
-		if (process.env.TELESCOPE_DEV) {
-			env.TELESCOPE_DEV = process.env.TELESCOPE_DEV;
-		}
 		const serverOptions: ServerOptions = {
 			run: {
 				command: this.serverPath,
 				args: ["serve"],
-				options: { env: { ...process.env, ...env } },
+				options: { env: process.env },
 			},
 			debug: {
 				command: this.serverPath,
 				args: ["serve"],
-				options: { env: { ...process.env, ...env } },
+				options: { env: process.env },
 			},
 		};
 

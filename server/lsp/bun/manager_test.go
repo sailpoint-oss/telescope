@@ -3,6 +3,8 @@ package bun
 import (
 	"context"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
@@ -145,11 +147,56 @@ func TestConvertDiagnostics(t *testing.T) {
 func TestStartSetsAvailableWhenBunOnPath(t *testing.T) {
 	m := NewManager(slog.Default())
 	ctx := context.Background()
-	// Start checks for bun on PATH but only fully connects
-	// when the runner process is available. This test verifies no panic.
+	// Start only marks available when Bun is installed and the bundled runner can
+	// be located. This test verifies the unavailable path is still well-behaved.
 	_ = m.Start(ctx)
 	_ = m.Available()
 	m.Stop()
+}
+
+func TestFindBundledRunnerScriptUsesOverride(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "runner.js")
+	if err := os.WriteFile(scriptPath, []byte("console.log('ok')\n"), 0o600); err != nil {
+		t.Fatalf("write runner script: %v", err)
+	}
+
+	t.Setenv("TELESCOPE_BUN_RUNNER_PATH", scriptPath)
+
+	got, err := findBundledRunnerScript()
+	if err != nil {
+		t.Fatalf("findBundledRunnerScript: %v", err)
+	}
+	if got != scriptPath {
+		t.Fatalf("got %q, want %q", got, scriptPath)
+	}
+}
+
+func TestFindBundledRunnerScriptRejectsMissingOverride(t *testing.T) {
+	t.Setenv("TELESCOPE_BUN_RUNNER_PATH", filepath.Join(t.TempDir(), "missing-runner.js"))
+
+	if _, err := findBundledRunnerScript(); err == nil {
+		t.Fatal("expected missing override to fail")
+	}
+}
+
+func TestStartLeavesManagerUnavailableWhenBunMissing(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "runner.js")
+	if err := os.WriteFile(scriptPath, []byte("console.log('ok')\n"), 0o600); err != nil {
+		t.Fatalf("write runner script: %v", err)
+	}
+
+	t.Setenv("TELESCOPE_BUN_RUNNER_PATH", scriptPath)
+	t.Setenv("PATH", "")
+
+	m := NewManager(slog.Default())
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("Start should degrade without returning an error, got %v", err)
+	}
+	if m.Available() {
+		t.Fatal("manager should remain unavailable when Bun is missing")
+	}
 }
 
 func TestStopClearsAvailable(t *testing.T) {

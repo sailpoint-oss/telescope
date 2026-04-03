@@ -45,8 +45,8 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - name: Build Bun runner (all platforms)
-        run: bash lsp/bun/runner/build.sh --all
+      - name: Bundle Bun sidecar
+        run: bash lsp/bun/runner/build.sh
         working-directory: server
 
       - name: Build

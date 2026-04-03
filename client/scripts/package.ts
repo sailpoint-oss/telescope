@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import {
+	existsSync,
 	readdirSync,
 	readFileSync,
 	renameSync,
@@ -84,7 +85,14 @@ writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, "\t") + "\n");
 
 try {
 	const packageDir = join(__dirname, "..");
+	const sidecarBundlePath = join(packageDir, "sidecar", "runner.js");
 	const beforeTime = Date.now();
+
+	if (!existsSync(sidecarBundlePath)) {
+		throw new Error(
+			`Bundled Bun sidecar missing at ${sidecarBundlePath}. Run 'pnpm run build:sidecar' before packaging.`,
+		);
+	}
 
 	const vsceArgs = ["vsce", "package", "--no-dependencies"];
 	if (platform && platform !== "universal") {

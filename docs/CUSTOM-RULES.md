@@ -165,7 +165,13 @@ rules:
 
 ## Bun Sidecar (TypeScript/JavaScript Rules)
 
-TypeScript/JavaScript rules run in a Bun subprocess managed by `lsp/bun/Manager`. The sidecar starts during server initialization when custom rules or Spectral rulesets are configured and includes health checks with crash recovery.
+TypeScript/JavaScript rules run in a Bun subprocess managed by `lsp/bun/Manager`. Telescope ships a bundled sidecar script (`runner.js`) and launches it with the system `bun` executable when custom rules or Spectral rulesets are configured. If Bun is missing, Telescope keeps core validation/LSP features available and simply disables the sidecar-backed rule paths.
+
+### Runtime Requirements
+
+- Bun must be installed and available on `PATH`.
+- Source-checkout workflows should bundle the sidecar once with `bash server/lsp/bun/runner/build.sh`.
+- VS Code packaging uses `pnpm --filter ./client run build:sidecar` to copy the bundled script into the extension package.
 
 ### IPC Protocol
 

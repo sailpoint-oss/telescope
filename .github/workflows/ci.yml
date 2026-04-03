@@ -54,7 +54,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
-      - name: Build Bun runner
+      - name: Bundle Bun sidecar
         run: bash lsp/bun/runner/build.sh
         working-directory: server
 
@@ -131,12 +131,6 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
-
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Build Bun runner
-        run: bash lsp/bun/runner/build.sh
-        working-directory: server
 
       - name: Install benchstat
         run: go install golang.org/x/perf/cmd/benchstat@latest
@@ -248,12 +242,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Bun runner
-        run: bash server/lsp/bun/runner/build.sh
-
       # Rebuilds Go server into client/bin, extension bundle, and out/test. Must run
       # before any test:e2e:run:* so CI uses a server binary that matches server/lsp
-      # (e.g. macOS document URI / path matching for formatting).
+      # and the packaged Bun sidecar bundle used by extension-host tests.
       - name: Build and compile E2E
         run: pnpm --filter ./client test:e2e:compile
 
@@ -357,11 +348,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Bun runner
-        run: bash server/lsp/bun/runner/build.sh
-
       # Keep sidecar on a fresh runner with a freshly compiled extension so this
-      # required PR gate isolates Bun wiring failures from single/multi-root host failures.
+      # required PR gate isolates Bun-at-runtime wiring failures from single/multi-root host failures.
       - name: Build and compile E2E
         run: pnpm --filter ./client test:e2e:compile
 
