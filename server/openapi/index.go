@@ -389,6 +389,24 @@ func (c *IndexCache) Get(uri protocol.DocumentURI) *Index {
 	return idx
 }
 
+// Rebuild forces the registered builder to run even when a cached entry
+// already exists. Handlers for open documents can use this to prefer the
+// freshest live-buffer view over a potentially stale cached projection.
+func (c *IndexCache) Rebuild(uri protocol.DocumentURI) *Index {
+	norm := protocol.NormalizeURI(uri)
+	c.mu.RLock()
+	builder := c.builder
+	c.mu.RUnlock()
+	if builder == nil {
+		return nil
+	}
+	idx := builder(norm)
+	if idx != nil {
+		c.Set(norm, idx)
+	}
+	return idx
+}
+
 // Set stores an index for a URI. The URI is normalized before storage.
 func (c *IndexCache) Set(uri protocol.DocumentURI, idx *Index) {
 	norm := protocol.NormalizeURI(uri)

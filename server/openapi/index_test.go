@@ -75,6 +75,35 @@ func TestIndexCache_SetBuilder_OnDemand(t *testing.T) {
 	}
 }
 
+func TestIndexCache_Rebuild_RefreshesCachedEntry(t *testing.T) {
+	cache := NewIndexCache()
+	uri := protocol.DocumentURI("file:///test.yaml")
+
+	stale := &Index{Document: &Document{Version: "3.0.0"}}
+	fresh := &Index{Document: &Document{Version: "3.1.0"}}
+	cache.Set(uri, stale)
+
+	builderCalled := false
+	cache.SetBuilder(func(u protocol.DocumentURI) *Index {
+		builderCalled = true
+		if u != uri {
+			t.Errorf("builder called with %q, want %q", u, uri)
+		}
+		return fresh
+	})
+
+	got := cache.Rebuild(uri)
+	if !builderCalled {
+		t.Error("expected rebuild to call builder")
+	}
+	if got != fresh {
+		t.Error("expected Rebuild to return fresh result")
+	}
+	if cache.Get(uri) != fresh {
+		t.Error("expected Rebuild to replace cached entry")
+	}
+}
+
 func TestIndexCache_NormalizedKeys(t *testing.T) {
 	cache := NewIndexCache()
 	idx := &Index{Document: &Document{Version: "3.1.0"}}
