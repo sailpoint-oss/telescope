@@ -2426,7 +2426,7 @@ func TestDefinitionHandler_OnDemandIndex(t *testing.T) {
 	}
 }
 
-func TestPrepareRenameHandler_RebuildsStaleCachedTagIndex(t *testing.T) {
+func TestPrepareRenameHandler_TagRenameFromBuilderOnDemand(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
@@ -2458,11 +2458,8 @@ func TestPrepareRenameHandler_RebuildsStaleCachedTagIndex(t *testing.T) {
 	})
 
 	cache := openapi.NewIndexCache()
-	cache.Set(uri, openapi.ParseAndIndex([]byte(`openapi: "3.1.0"
-info:
-  title: Stale
-  version: "1.0.0"
-paths: {}`)))
+	// Register the on-demand builder (no stale seed). cache.Get will call
+	// the builder the first time and cache the result.
 	cache.SetBuilder(func(u protocol.DocumentURI) *openapi.Index {
 		doc := store.Get(u)
 		tree := mgr.GetTree(u)
@@ -2499,7 +2496,7 @@ paths: {}`)))
 		t.Fatalf("prepare rename error: %v", err)
 	}
 	if prepResult == nil {
-		t.Fatal("expected prepare rename result after rebuilding stale cache")
+		t.Fatal("expected prepare rename result from on-demand builder")
 	}
 	if prepResult.Placeholder != "Users" {
 		t.Fatalf("expected placeholder Users, got %q", prepResult.Placeholder)
@@ -2517,7 +2514,7 @@ paths: {}`)))
 		t.Fatalf("rename error: %v", err)
 	}
 	if edit == nil {
-		t.Fatal("expected rename edit after rebuilding stale cache")
+		t.Fatal("expected rename edit from on-demand builder")
 	}
 	changes := edit.Changes[uri]
 	if len(changes) < 2 {

@@ -12,18 +12,11 @@ import (
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
-func liveRenameIndex(cache *openapi.IndexCache, uri protocol.DocumentURI) *openapi.Index {
-	if idx := cache.Rebuild(uri); idx != nil {
-		return idx
-	}
-	return cache.Get(uri)
-}
-
 // NewPrepareRenameHandler validates whether a rename is possible at the cursor.
 func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.PrepareRenameHandler {
 	return func(ctx *gossip.Context, params *protocol.PrepareRenameParams) (*protocol.PrepareRenameResult, error) {
 		uri := params.TextDocument.URI
-		idx := liveRenameIndex(cache, uri)
+		idx := cache.Get(uri)
 		if idx == nil {
 			return nil, nil
 		}
@@ -87,7 +80,7 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 func NewRenameHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.RenameHandler {
 	return func(ctx *gossip.Context, params *protocol.RenameParams) (*protocol.WorkspaceEdit, error) {
 		uri := params.TextDocument.URI
-		idx := liveRenameIndex(cache, uri)
+		idx := cache.Get(uri)
 		if idx == nil {
 			return nil, nil
 		}
