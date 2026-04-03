@@ -123,7 +123,7 @@ func DiagnosticFromProtocol(d protocol.Diagnostic) ctypes.Diagnostic {
 // DiagnosticsToProtocol converts a slice of core Diagnostics to protocol Diagnostics.
 func DiagnosticsToProtocol(diags []ctypes.Diagnostic) []protocol.Diagnostic {
 	if len(diags) == 0 {
-		return nil
+		return []protocol.Diagnostic{}
 	}
 	result := make([]protocol.Diagnostic, len(diags))
 	for i, d := range diags {

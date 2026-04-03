@@ -6,7 +6,8 @@
 
 - **Go** — build, vet, tests with race detector (Ubuntu, macOS, Windows).
 - **TypeScript** — client typecheck, build, Bun unit tests (Ubuntu).
-- **E2E** — full VS Code extension-host runs on **Ubuntu, macOS, and Windows** (single-root, multi-root, sidecar). VS Code is pinned via `VSCODE_TEST_VERSION` (see [`client/src/test/vscode-test-version.ts`](../client/src/test/vscode-test-version.ts)).
+- **E2E** — full VS Code extension-host runs on **Ubuntu, macOS, and Windows** for the single-root and multi-root suites. VS Code is pinned via `VSCODE_TEST_VERSION` (see [`client/src/test/vscode-test-version.ts`](../client/src/test/vscode-test-version.ts)).
+- **E2E Sidecar** — a separate required job runs the Bun sidecar host-wiring suite on the same OS matrix so Bun/runtime regressions stay isolated from core extension-host failures.
 
 Failed E2E jobs upload `~/.vscode-test` logs as artifacts when possible.
 

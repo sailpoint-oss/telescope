@@ -7,9 +7,11 @@
         "activation.e2e.js",
         "client-server-sync.e2e.js",
         "diagnostics.e2e.js",
-        "diagnostic-contracts.e2e.js",
         "definition-flow.e2e.js",
         "language-ids.e2e.js",
+        "malformed-documents.e2e.js",
+        "openapi-json.e2e.js",
+        "rename.e2e.js",
         "commands.e2e.js"
       ],
       "excludeBasenames": [
@@ -32,7 +34,8 @@
       "timeoutMs": 300000,
       "smokeBasenames": [
         "activation.e2e.js",
-        "sidecar-lifecycle.e2e.js"
+        "sidecar-lifecycle.e2e.js",
+        "sidecar-custom-rules.e2e.js"
       ],
       "fullBasenames": [
         "activation.e2e.js"

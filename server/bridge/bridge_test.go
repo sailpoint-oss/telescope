@@ -13,14 +13,14 @@ import (
 )
 
 func TestDiagnosticsSliceConverters_HandleNilAndEmpty(t *testing.T) {
-	if got := DiagnosticsToProtocol(nil); got != nil {
-		t.Fatalf("expected nil protocol diagnostics, got %+v", got)
+	if got := DiagnosticsToProtocol(nil); got == nil || len(got) != 0 {
+		t.Fatalf("expected empty protocol diagnostics, got %+v", got)
 	}
 	if got := DiagnosticsFromProtocol(nil); got != nil {
 		t.Fatalf("expected nil barrelman diagnostics, got %+v", got)
 	}
-	if got := DiagnosticsToProtocol([]barrelman.Diagnostic{}); got != nil {
-		t.Fatalf("expected nil protocol diagnostics for empty input, got %+v", got)
+	if got := DiagnosticsToProtocol([]barrelman.Diagnostic{}); got == nil || len(got) != 0 {
+		t.Fatalf("expected empty protocol diagnostics for empty input, got %+v", got)
 	}
 	if got := DiagnosticsFromProtocol([]protocol.Diagnostic{}); got != nil {
 		t.Fatalf("expected nil barrelman diagnostics for empty input, got %+v", got)

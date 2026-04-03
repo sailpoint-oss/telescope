@@ -5,9 +5,8 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	deleteWorkspaceFile,
-	getTestApi,
+	ensureSingleRootWorkspaceReady,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForLanguageId,
@@ -15,17 +14,11 @@ import {
 } from "./utils/e2e-helpers";
 
 suite("Language IDs", () => {
-	let api: ReturnType<typeof getTestApi>;
 	let folder: vscode.WorkspaceFolder;
 
 	suiteSetup(async () => {
 		if (isMultiRootWorkspace()) return;
-		await activateExtension();
-		api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
+		({ folder } = await ensureSingleRootWorkspaceReady());
 	});
 
 	test("OpenAPI YAML should be set to openapi-yaml on open", async () => {

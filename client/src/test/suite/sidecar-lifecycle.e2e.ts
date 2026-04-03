@@ -12,6 +12,7 @@ import {
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
 	openAndShow,
+	waitForDiagnostics,
 	waitForSidecarAvailable,
 } from "./utils/e2e-helpers";
 
@@ -98,5 +99,40 @@ suite("Sidecar: Lifecycle", () => {
 				// best effort
 			}
 		}
+	});
+
+	test("Sidecar surfaces representative custom diagnostics through the extension", async () => {
+		if (!isSidecarWorkspace()) return;
+
+		const fileUri = vscode.Uri.joinPath(
+			folder.uri,
+			"openapi/test-missing-summary.yaml",
+		);
+		await openAndShow(fileUri);
+
+		const diagnostics = await waitForDiagnostics(
+			fileUri,
+			(d) =>
+				d.some(
+					(diag) =>
+						diag.source === "telescope-custom" &&
+						diag.message.toLowerCase().includes("summary"),
+				),
+			{ timeoutMs: 180000 },
+		);
+		const info = await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
+		const customDiags = diagnostics.filter(
+			(d) =>
+				d.source === "telescope-custom" &&
+				d.message.toLowerCase().includes("summary"),
+		);
+		assert.ok(
+			customDiags.length > 0,
+			`Expected representative custom diagnostics through the sidecar. Got: ${diagnostics.map((d) => `${d.source ?? "unknown"}:${d.message}`).join(" | ")}`,
+		);
+		assert.ok(
+			info.available,
+			"Sidecar should remain available while representative custom diagnostics are published",
+		);
 	});
 });

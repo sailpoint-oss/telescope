@@ -16,12 +16,16 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 |--------------|---------------------------|-------------------|--------|
 | Activation & test API | — | `activation.e2e.ts` | **C/A** — wiring |
 | Diagnostics (invalid spec, schema errors) | `integration_test.go`, rules | `diagnostics.e2e.ts` | Mix **A/B** |
+| Diagnostic shape invariants | `integration_test.go`, handler tests | `diagnostic-contracts.e2e.ts` | **A** — user-visible structure/source contract, not deep rule semantics |
 | Delta / file lifecycle | integration + graph | `delta-sync.e2e.ts`, `cross-file-diagnostics.e2e.ts` | **A** |
-| Definition / refs / links / format | `handler_test.go` | `definition-flow.e2e.ts`, `providers.e2e.ts` | Providers slimmed to **links + format** (defs/refs in definition-flow) |
+| OpenAPI JSON behavior | `integration_test.go`, handlers | `openapi-json.e2e.ts` | **A** — proves JSON OpenAPI stays on Telescope-owned diagnostic path |
+| Malformed document non-interference | `integration_test.go`, malformed handling | `malformed-documents.e2e.ts` | **A** — editor owns malformed YAML/JSON feedback; Telescope should stay silent |
+| Definition / refs / links / format | `handler_test.go` | `definition-flow.e2e.ts`, `providers.e2e.ts` | Providers slimmed to **cross-file links + openapi-json format sanity** (defs/refs in definition-flow) |
 | Hover | handler + integration (`TestRichAPIFixture_HoverAndDefinition_UnixFileURI`, etc.) | `hover.e2e.ts` | **A** — host wiring only; detailed content in Go |
 | Completion | `handler_test.go` | `completion.e2e.ts` | **B** + **A** |
 | Rename | `handler_test.go` | `rename.e2e.ts` | **B** + **A** — Go owns range selection/fallbacks; E2E waits on raw `prepareRename` readiness and proves a plausible `WorkspaceEdit` reaches the temp editor buffer. |
 | Code actions | `handler_test.go` | `code-actions.e2e.ts` | **B** + **A** |
+| Execute commands | `execute_command_test.go`, integration | `commands.e2e.ts` | **A** — fixed-fixture command routing only; sort semantics stay in Go |
 | Code lens | — | `code-lens.e2e.ts` | **A** |
 | Symbols | — | `symbols.e2e.ts` | **A** |
 | Folding | — | `folding.e2e.ts` | **A** |
@@ -80,6 +84,14 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Both cross-file documents produce diagnostics independently | A |
 | Editing a file triggers re-analysis with updated diagnostics | A |
 
+### `diagnostic-contracts.e2e.ts`
+
+| Test name | Tag |
+|-----------|-----|
+| rich-api.yaml produces only warnings, no errors | A |
+| All diagnostics have valid structure | A |
+| Valid minimal spec produces zero telescope errors | A |
+
 ### `definition-flow.e2e.ts`
 
 | Test name | Tag |
@@ -103,6 +115,13 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Should produce diagnostics for OpenAPI file with issues | B |
 | Schema validation diagnostics should surface as errors | B |
 | Should not produce errors for valid OpenAPI file | B |
+
+### `commands.e2e.ts`
+
+| Test name | Tag |
+|-----------|-----|
+| generateResponseSkeletons adds missing error responses | A |
+| bundlePreview returns merged content for multi-file spec | A |
 
 ### `document-highlight.e2e.ts`
 
@@ -141,6 +160,13 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 | Non-OpenAPI YAML should remain yaml | C |
 | Open YAML should reclassify after becoming OpenAPI | C |
 
+### `malformed-documents.e2e.ts`
+
+| Test name | Tag |
+|-----------|-----|
+| Malformed YAML does not produce Telescope-owned syntax diagnostics | A |
+| Malformed JSON does not produce Telescope-owned syntax diagnostics | A |
+
 ### `multi-root.e2e.ts`
 
 | Test name | Tag |
@@ -156,11 +182,18 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 |-----------|-----|
 | Startup scan should not open all discovered OpenAPI files | C |
 
+### `openapi-json.e2e.ts`
+
+| Test name | Tag |
+|-----------|-----|
+| OpenAPI JSON routes through Telescope-owned schema diagnostics | A |
+
 ### `providers.e2e.ts` (slim)
 
 | Test name | Tag |
 |-----------|-----|
 | Document links include $ref links | B (handler `TestDocumentLinkHandler`) + **A** wiring |
+| Cross-file $ref links target the referenced file | A |
 | Format provider returns valid edits | B + **A** (buffer + LSP format path) |
 
 ### `rename.e2e.ts`
@@ -207,6 +240,7 @@ This document maps **LSP / extension features** to **non-E2E tests** (Go, Bun) a
 |-----------|-----|
 | Sidecar reports configured and available after startup | A - suite setup uses the canonical `sidecarInfo` health contract; the test body re-checks sidecar-native availability via the test API |
 | Editing a file keeps sidecar available after save and restore | A - edit/save a normal fixture, confirm sidecar health via test API, then restore it and confirm sidecar health again |
+| Sidecar surfaces representative custom diagnostics through the extension | A - proves Bun-at-runtime ingress past availability by observing `telescope-custom` diagnostics through VS Code |
 
 ### `sidecar-multi-file-refs.e2e.ts`
 

@@ -8,7 +8,7 @@ import (
 // DiagnosticsToProtocol converts barrelman diagnostics to gossip protocol format.
 func DiagnosticsToProtocol(diags []barrelman.Diagnostic) []protocol.Diagnostic {
 	if len(diags) == 0 {
-		return nil
+		return []protocol.Diagnostic{}
 	}
 	result := make([]protocol.Diagnostic, len(diags))
 	for i, d := range diags {

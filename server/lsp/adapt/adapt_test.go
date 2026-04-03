@@ -163,15 +163,21 @@ func TestDiagnosticFromProtocol_StringCode(t *testing.T) {
 
 func TestDiagnosticsToProtocol_Nil(t *testing.T) {
 	result := adapt.DiagnosticsToProtocol(nil)
-	if result != nil {
-		t.Error("expected nil for nil input")
+	if result == nil {
+		t.Error("expected empty slice for nil input")
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty slice for nil input, got %d entries", len(result))
 	}
 }
 
 func TestDiagnosticsToProtocol_Empty(t *testing.T) {
 	result := adapt.DiagnosticsToProtocol([]ctypes.Diagnostic{})
-	if result != nil {
-		t.Error("expected nil for empty input")
+	if result == nil {
+		t.Error("expected empty slice for empty input")
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty slice for empty input, got %d entries", len(result))
 	}
 }
 

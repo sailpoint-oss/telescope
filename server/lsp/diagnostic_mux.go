@@ -103,7 +103,7 @@ func (m *DiagnosticMux) publishLocked(uri protocol.DocumentURI) {
 
 func mergeDiagnosticSources(perURI map[string][]protocol.Diagnostic) []protocol.Diagnostic {
 	if len(perURI) == 0 {
-		return nil
+		return []protocol.Diagnostic{}
 	}
 	keys := make([]string, 0, len(perURI))
 	total := 0

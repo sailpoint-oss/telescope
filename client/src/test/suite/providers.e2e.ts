@@ -8,41 +8,22 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
+	ensureSingleRootWorkspaceReady,
+	ensureWorkspaceTextDocumentMatches,
 	executeWithRetry,
-	getTestApi,
 	isMultiRootWorkspace,
 	openAndShow,
+	waitForCrossFileReady,
 	waitForDiagnostics,
 	waitForLanguageId,
-	ensureWorkspaceTextDocumentMatches,
-	waitForProviders,
-	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
 suite("Providers", () => {
-	let api: ReturnType<typeof getTestApi>;
 	let folder: vscode.WorkspaceFolder;
 
 	suiteSetup(async () => {
 		if (isMultiRootWorkspace()) return;
-		await activateExtension();
-		api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
-		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
-			timeoutMs: 60000,
-			uri: folder.uri,
-		});
-
-		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
-		await openAndShow(warmupUri);
-		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
-			timeoutMs: 90000,
-		});
-		await waitForProviders(warmupUri);
+		({ folder } = await ensureSingleRootWorkspaceReady());
 	});
 
 	test("Document links include $ref links", async () => {
@@ -59,6 +40,30 @@ suite("Providers", () => {
 		);
 
 		assert.ok(links && links.length > 0, "Expected at least one document link");
+	});
+
+	test("Cross-file $ref links target the referenced file", async () => {
+		if (isMultiRootWorkspace()) return;
+
+		const compUri = vscode.Uri.joinPath(folder.uri, "ref-components.yaml");
+		const rootUri = vscode.Uri.joinPath(folder.uri, "ref-root.yaml");
+		await waitForCrossFileReady(compUri, rootUri, { timeoutMs: 60000 });
+
+		const links = await executeWithRetry<vscode.DocumentLink[]>(
+			"vscode.executeLinkProvider",
+			[rootUri],
+			(r) => r.length > 0,
+			{ maxAttempts: 15 },
+		);
+
+		assert.ok(links && links.length > 0, "Expected links for cross-file spec");
+		const crossFileLink = links.find(
+			(l) => l.target?.toString().includes("ref-components"),
+		);
+		assert.ok(
+			crossFileLink,
+			`Expected a link targeting ref-components.yaml. Got targets: ${links.map((l) => l.target?.toString() ?? "none").join(", ")}`,
+		);
 	});
 
 	test("Format command is well-behaved for openapi-json documents", async () => {

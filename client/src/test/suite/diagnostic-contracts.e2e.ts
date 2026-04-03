@@ -1,18 +1,17 @@
 /**
  * E2E Tests: Diagnostic contract tests
  *
- * These tests validate that specific fixture content produces specific diagnostic
- * codes and severities. They serve as the canary — if rule behavior changes,
- * these tests surface it.
+ * These tests validate user-visible diagnostic invariants that matter at the
+ * extension-host boundary. Exact rule semantics stay covered by Go integration
+ * tests; E2E keeps the shape/source contract honest.
  */
 
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	activateExtension,
 	deleteWorkspaceFile,
 	diagCode,
-	getTestApi,
+	ensureSingleRootWorkspaceReady,
 	isMultiRootWorkspace,
 	openAndShow,
 	waitForDiagnostics,
@@ -26,12 +25,7 @@ suite("Diagnostic Contracts", () => {
 
 	suiteSetup(async () => {
 		if (isMultiRootWorkspace()) return;
-		await activateExtension();
-		const api = getTestApi();
-		await api.waitForSessionsRunning(120000);
-		const f = vscode.workspace.workspaceFolders?.[0];
-		assert.ok(f, "Should have a workspace folder");
-		folder = f;
+		({ folder } = await ensureSingleRootWorkspaceReady());
 	});
 
 	test("rich-api.yaml produces only warnings, no errors", async () => {
@@ -87,154 +81,6 @@ suite("Diagnostic Contracts", () => {
 					`Telescope diagnostic should have a code. Message: ${d.message}`,
 				);
 			}
-		}
-	});
-
-	test("Missing info field triggers oas3-schema error", async () => {
-		if (isMultiRootWorkspace()) return;
-
-		const relativePath = `diag-contract-no-info-${Date.now()}.yaml`;
-		const content = [
-			'openapi: "3.1.0"',
-			"paths:",
-			"  /test:",
-			"    get:",
-			"      summary: No info block",
-			"      responses:",
-			'        "200":',
-			"          description: OK",
-			"",
-		].join("\n");
-
-		const uri = await writeWorkspaceFile(relativePath, content);
-		try {
-			await openAndShow(uri);
-			await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 15000 });
-			const diagnostics = await waitForDiagnostics(
-				uri,
-				(d) => d.some((diag) => diagCode(diag) === "oas3-schema"),
-				{ timeoutMs: 60000 },
-			);
-
-			const schemaDiags = diagnostics.filter((d) => diagCode(d) === "oas3-schema");
-			assert.ok(
-				schemaDiags.length > 0,
-				`Expected oas3-schema diagnostic for missing 'info'. Codes: ${diagnostics.map((d) => diagCode(d)).join(", ")}`,
-			);
-			assert.ok(
-				schemaDiags.some((d) => d.message.toLowerCase().includes("info")),
-				`Expected diagnostic message to mention 'info'. Messages: ${schemaDiags.map((d) => d.message).join("; ")}`,
-			);
-		} finally {
-			await deleteWorkspaceFile(relativePath);
-		}
-	});
-
-	test("Unresolved $ref produces unresolved-ref diagnostic", async () => {
-		if (isMultiRootWorkspace()) return;
-
-		const relativePath = `diag-contract-bad-ref-${Date.now()}.yaml`;
-		const content = [
-			'openapi: "3.1.0"',
-			"info:",
-			"  title: Bad Ref Test",
-			'  version: "1.0.0"',
-			"paths:",
-			"  /test:",
-			"    get:",
-			"      operationId: getTest",
-			"      summary: Test",
-			"      responses:",
-			'        "200":',
-			"          description: OK",
-			"          content:",
-			"            application/json:",
-			"              schema:",
-			"                $ref: '#/components/schemas/DoesNotExist'",
-			"",
-		].join("\n");
-
-		const uri = await writeWorkspaceFile(relativePath, content);
-		try {
-			await openAndShow(uri);
-			await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 15000 });
-			const diagnostics = await waitForDiagnostics(
-				uri,
-				(d) => d.some((diag) => diagCode(diag) === "unresolved-ref"),
-				{ timeoutMs: 60000 },
-			);
-
-			const unresolvedDiags = diagnostics.filter(
-				(d) => diagCode(d) === "unresolved-ref",
-			);
-			assert.ok(
-				unresolvedDiags.length > 0,
-				`Expected unresolved-ref diagnostic. Codes: ${diagnostics.map((d) => diagCode(d)).join(", ")}`,
-			);
-			assert.ok(
-				unresolvedDiags.some((d) => d.message.includes("DoesNotExist")),
-				`Expected diagnostic to mention 'DoesNotExist'. Messages: ${unresolvedDiags.map((d) => d.message).join("; ")}`,
-			);
-		} finally {
-			await deleteWorkspaceFile(relativePath);
-		}
-	});
-
-	test("Duplicate operationId produces diagnostic", async () => {
-		if (isMultiRootWorkspace()) return;
-
-		const relativePath = `diag-contract-dup-opid-${Date.now()}.yaml`;
-		const content = [
-			'openapi: "3.1.0"',
-			"info:",
-			"  title: Dup OpId Test",
-			'  version: "1.0.0"',
-			"paths:",
-			"  /a:",
-			"    get:",
-			"      operationId: duplicated",
-			"      summary: First",
-			"      responses:",
-			'        "200":',
-			"          description: OK",
-			"  /b:",
-			"    get:",
-			"      operationId: duplicated",
-			"      summary: Second",
-			"      responses:",
-			'        "200":',
-			"          description: OK",
-			"",
-		].join("\n");
-
-		const uri = await writeWorkspaceFile(relativePath, content);
-		try {
-			await openAndShow(uri);
-			await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 15000 });
-			const diagnostics = await waitForDiagnostics(
-				uri,
-				(d) =>
-					d.some(
-						(diag) =>
-							diagCode(diag) === "unique-operation-id" ||
-							diag.message.toLowerCase().includes("operationid") ||
-							diag.message.toLowerCase().includes("duplicate"),
-					),
-				{ timeoutMs: 60000 },
-			);
-
-			const dupDiags = diagnostics.filter(
-				(d) =>
-					diagCode(d) === "unique-operation-id" ||
-					d.message.toLowerCase().includes("operationid") ||
-					d.message.toLowerCase().includes("duplicate"),
-			);
-			assert.ok(
-				dupDiags.length > 0,
-				`Expected duplicate operationId diagnostic. Codes: ${diagnostics.map((d) => `${diagCode(d)}: ${d.message.slice(0, 60)}`).join("; ")}`,
-			);
-		} finally {
-			await deleteWorkspaceFile(relativePath);
 		}
 	});
 
