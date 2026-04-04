@@ -8,6 +8,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
+	delay,
 	ensureWorkspaceTextDocumentMatches,
 	ensureSidecarWorkspaceReady,
 	getTestApi,
@@ -120,6 +121,7 @@ suite("Sidecar: Lifecycle", () => {
 		} catch {
 			// best effort
 		}
+		await delay(500);
 
 		// Confirm the sidecar is ready before reopening the document.
 		await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
@@ -130,14 +132,6 @@ suite("Sidecar: Lifecycle", () => {
 		// settle before triggering a reparse.
 		await waitForLanguageId(fileUri, "openapi-yaml", { timeoutMs: 30000 });
 
-		// Force tree-sitter to reparse after reclassification has settled,
-		// ensuring all analyzers (including the sidecar) run on the final
-		// document state rather than a transient one from the close/reopen.
-		const trivialEdit = new vscode.WorkspaceEdit();
-		trivialEdit.insert(fileUri, new vscode.Position(0, 0), " ");
-		await vscode.workspace.applyEdit(trivialEdit);
-		await vscode.commands.executeCommand("undo");
-
 		const customPredicate = (d: vscode.Diagnostic[]) =>
 			d.some(
 				(diag) =>
@@ -145,27 +139,45 @@ suite("Sidecar: Lifecycle", () => {
 					diag.message.toLowerCase().includes("summary"),
 			);
 
-		// First try: the edit/undo should have triggered a full reparse.
-		let diagnostics: vscode.Diagnostic[] | undefined;
+		// Wait for the analysis pipeline to produce ANY diagnostics first.
+		// This mirrors the pattern used by the Custom Rules test suite and
+		// ensures the server's analysis pipeline is warm before we check for
+		// the specific sidecar-produced diagnostics.
 		try {
-			diagnostics = await waitForDiagnostics(fileUri, customPredicate, {
-				timeoutMs: 60000,
+			await waitForDiagnostics(fileUri, (d) => d.length > 0, {
+				timeoutMs: 120000,
 			});
 		} catch {
-			// Not ready yet — fall through to retry loop.
+			// Valid file might have 0 built-in diagnostics; continue.
 		}
 
-		// Retry loop: force re-analysis via diagnosticRefresh up to 3 times
-		// to handle transient sidecar IPC hiccups.
+		// Check if custom diagnostics have already arrived.
+		let diagnostics: vscode.Diagnostic[] | undefined;
+		const current = vscode.languages.getDiagnostics(fileUri);
+		if (customPredicate(current)) {
+			diagnostics = current;
+		}
+
+		// Retry loop: force a fresh didChange → onTreeUpdate cycle by doing
+		// a trivial edit/undo. This is more reliable than diagnosticRefresh
+		// alone because it guarantees the tree-sitter engine fires onTreeUpdate
+		// with the live document and tree, re-running all analyzers including
+		// the sidecar.
 		if (!diagnostics) {
 			const api = getTestApi();
-			for (let attempt = 1; attempt <= 3; attempt++) {
+			for (let attempt = 1; attempt <= 5; attempt++) {
+				const edit = new vscode.WorkspaceEdit();
+				edit.insert(fileUri, new vscode.Position(0, 0), " ");
+				await vscode.workspace.applyEdit(edit);
+				await vscode.commands.executeCommand("undo");
+
 				await api.requestDiagnosticRefresh?.(fileUri);
+
 				try {
 					diagnostics = await waitForDiagnostics(
 						fileUri,
 						customPredicate,
-						{ timeoutMs: 40000 },
+						{ timeoutMs: 30000 },
 					);
 					break;
 				} catch {
@@ -174,9 +186,15 @@ suite("Sidecar: Lifecycle", () => {
 			}
 		}
 
+		const allDiags = vscode.languages.getDiagnostics(fileUri);
+		const diagSummary = allDiags
+			.map((d) => `${d.source ?? "unknown"}:${d.message.slice(0, 60)}`)
+			.join(" | ");
+
 		assert.ok(
 			diagnostics,
-			"Expected custom diagnostics after retries, but none appeared",
+			`Expected custom diagnostics after retries, but none appeared. ` +
+				`All diagnostics (${allDiags.length}): [${diagSummary}]`,
 		);
 
 		const info = await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });

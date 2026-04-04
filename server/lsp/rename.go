@@ -277,6 +277,9 @@ func renameComponent(
 	} else {
 		// Fallback: scan all documents
 		for docURI, docIdx := range cache.All() {
+			if docIdx == nil {
+				continue
+			}
 			appendComponentRefRenames(docIdx, docURI, refPath, newRefPath, changes)
 		}
 	}
