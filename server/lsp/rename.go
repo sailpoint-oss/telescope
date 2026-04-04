@@ -13,13 +13,9 @@ import (
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
-// wordAtPosition returns the word under the cursor. It first tries the gossip
-// document store; if the document isn't there (can happen during language-ID
-// reclassification on macOS), it falls back to reading the file from disk.
-func wordAtPosition(doc *document.Document, uri protocol.DocumentURI, pos protocol.Position) string {
-	if doc != nil {
-		return doc.WordAt(pos)
-	}
+// readFileContent returns the file content for a URI by reading from disk.
+// Returns "" if the file can't be read.
+func readFileContent(uri protocol.DocumentURI) string {
 	fsPath := protocol.URIToPath(uri)
 	if fsPath == "" {
 		return ""
@@ -28,7 +24,56 @@ func wordAtPosition(doc *document.Document, uri protocol.DocumentURI, pos protoc
 	if err != nil {
 		return ""
 	}
-	return document.WordAt(string(b), pos)
+	return string(b)
+}
+
+// wordAtPosition returns the word under the cursor. It first tries the gossip
+// document store; if the document isn't there (can happen during language-ID
+// reclassification on macOS), it falls back to reading the file from disk.
+func wordAtPosition(doc *document.Document, uri protocol.DocumentURI, pos protocol.Position) string {
+	if doc != nil {
+		return doc.WordAt(pos)
+	}
+	if text := readFileContent(uri); text != "" {
+		return document.WordAt(text, pos)
+	}
+	return ""
+}
+
+// exactWordRangeFromText computes the precise word range from raw text and a
+// position, replicating exactWordRange but without needing a Document.
+func exactWordRangeFromText(text string, pos protocol.Position, word string) protocol.Range {
+	offset := document.OffsetAt(text, pos)
+	if offset < 0 || offset > len(text) {
+		return rangeForWord(pos, word)
+	}
+	start := offset
+	for start > 0 && isRenameWordChar(text[start-1]) {
+		start--
+	}
+	end := offset
+	for end < len(text) && isRenameWordChar(text[end]) {
+		end++
+	}
+	if start == end {
+		return rangeForWord(pos, word)
+	}
+	return protocol.Range{
+		Start: document.PositionAt(text, start),
+		End:   document.PositionAt(text, end),
+	}
+}
+
+// exactWordRangeForURI computes the exact word range using either the document
+// or the file on disk.
+func exactWordRangeForURI(doc *document.Document, uri protocol.DocumentURI, pos protocol.Position, word string) protocol.Range {
+	if doc != nil {
+		return exactWordRange(doc, pos, word)
+	}
+	if text := readFileContent(uri); text != "" {
+		return exactWordRangeFromText(text, pos, word)
+	}
+	return rangeForWord(pos, word)
 }
 
 // NewPrepareRenameHandler validates whether a rename is possible at the cursor.
@@ -51,7 +96,7 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 				if name == word {
 					r := componentDefinitionLoc(idx, kind, name)
 					if isZeroRange(r) {
-						r = exactWordRange(doc, params.Position, word)
+						r = exactWordRangeForURI(doc, uri, params.Position, word)
 					}
 					return &protocol.PrepareRenameResult{Range: r, Placeholder: word}, nil
 				}
@@ -61,7 +106,7 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 		if opRef, ok := idx.Operations[word]; ok {
 			r := adapt.RangeToProtocol(opRef.Operation.OperationIDLoc.Range)
 			if isZeroRange(r) {
-				r = exactWordRange(doc, params.Position, word)
+				r = exactWordRangeForURI(doc, uri, params.Position, word)
 			}
 			return &protocol.PrepareRenameResult{Range: r, Placeholder: word}, nil
 		}
@@ -69,7 +114,7 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 		if tag, ok := idx.Tags[word]; ok {
 			r := adapt.RangeToProtocol(tag.NameLoc.Range)
 			if isZeroRange(r) {
-				r = exactWordRange(doc, params.Position, word)
+				r = exactWordRangeForURI(doc, uri, params.Position, word)
 			}
 			return &protocol.PrepareRenameResult{Range: r, Placeholder: word}, nil
 		}
@@ -141,7 +186,7 @@ func NewRenameHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossi
 		if tag, ok := idx.Tags[word]; ok {
 			tagRange := adapt.RangeToProtocol(tag.NameLoc.Range)
 			if isZeroRange(tagRange) {
-				tagRange = exactWordRange(doc, params.Position, word)
+				tagRange = exactWordRangeForURI(doc, uri, params.Position, word)
 			}
 			// Rename root tag definition
 			changes[uri] = append(changes[uri], protocol.TextEdit{
