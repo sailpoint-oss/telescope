@@ -39,6 +39,15 @@ function protocolRangeToCodeRange(range: {
 	);
 }
 
+function isExpectedRenameReject(msg: string): boolean {
+	const lower = msg.toLowerCase();
+	return (
+		lower.includes("no result") ||
+		lower.includes("the element can't be renamed") ||
+		lower.includes("cannot rename")
+	);
+}
+
 function protocolPrepareRenameToCode(
 	result:
 		| {
@@ -1364,8 +1373,17 @@ export async function activate(context: ExtensionContext) {
 						textDocument: { uri: lspURI },
 						position: { line: pos.line, character: pos.character },
 					});
-				} catch {
-					return null;
+				} catch (err) {
+					const msg =
+						err instanceof Error
+							? err.message
+							: String(err);
+					if (isExpectedRenameReject(msg)) {
+						return null;
+					}
+					throw new Error(
+						`prepareRename error (lspURI=${lspURI}): ${msg}`,
+					);
 				}
 				return protocolPrepareRenameToCode(
 					result as

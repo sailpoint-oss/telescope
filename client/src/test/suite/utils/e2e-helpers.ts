@@ -411,17 +411,29 @@ export async function waitForPrepareRenameAvailable(
 	const pollMs = options?.pollMs ?? 1000;
 	const start = Date.now();
 	let lastResult: { range: vscode.Range; placeholder?: string } | null = null;
+	let lastError: string | undefined;
 	while (Date.now() - start < timeoutMs) {
-		lastResult = await api.requestPrepareRename(uri, pos);
-		if (lastResult?.range) {
-			return lastResult;
+		try {
+			lastResult = await api.requestPrepareRename(uri, pos);
+			lastError = undefined;
+			if (lastResult?.range) {
+				return lastResult;
+			}
+		} catch (err) {
+			lastError = err instanceof Error ? err.message : String(err);
 		}
 		await delay(pollMs);
 	}
+	const diag = [
+		`uri=${uri.toString()}`,
+		`position=${pos.line}:${pos.character}`,
+		`lastResult=${JSON.stringify(lastResult)}`,
+	];
+	if (lastError) {
+		diag.push(`lastError=${lastError}`);
+	}
 	throw new Error(
-		`Timeout waiting for prepareRename after ${timeoutMs}ms ` +
-			`(uri=${uri.toString()}, position=${pos.line}:${pos.character}, ` +
-			`lastResult=${JSON.stringify(lastResult)})`,
+		`Timeout waiting for prepareRename after ${timeoutMs}ms (${diag.join(", ")})`,
 	);
 }
 
