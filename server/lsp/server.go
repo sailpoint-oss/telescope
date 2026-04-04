@@ -131,13 +131,16 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 			return data
 		})
 
-		// Clean up index on document close
+		// Refresh index on document close. During language-ID reclassification
+		// (yaml -> openapi-yaml), VS Code fires didClose then didOpen in quick
+		// succession. Deleting the cached index here would leave a gap where
+		// concurrent request handlers (prepareRename, hover, etc.) see nil.
+		// Instead, keep the stale entry -- it will be overwritten by the
+		// didOpen pipeline moments later.
 		s.Documents().OnClose(func(uri protocol.DocumentURI) {
 			if idx := graphBridge.IndexForURI(string(uri)); idx != nil {
 				indexCache.Set(uri, idx)
-				return
 			}
-			indexCache.Delete(uri)
 		})
 
 		// Register all rules unconditionally; filtering is handled by the

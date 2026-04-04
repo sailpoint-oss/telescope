@@ -13,6 +13,7 @@ import {
 	previewTextEditsOnDocument,
 	waitForDiagnostics,
 	waitForDocumentAnalyzed,
+	waitForLanguageId,
 	waitForPrepareRenameAvailable,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
@@ -43,6 +44,19 @@ suite("Rename", () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		const doc = await openAndShow(uri);
+
+		// Wait for language-ID reclassification (yaml -> openapi-yaml) to
+		// complete so the server's didClose+didOpen cycle has fully settled.
+		await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 30000 });
+
+		// Force a didChange event so the server rebuilds its document + tree
+		// after reclassification. Without this, the index cache can be stale
+		// or empty on slower CI runners (especially Windows).
+		const trivialEdit = new vscode.WorkspaceEdit();
+		trivialEdit.insert(uri, new vscode.Position(0, 0), " ");
+		await vscode.workspace.applyEdit(trivialEdit);
+		await vscode.commands.executeCommand("undo");
+
 		await waitForDocumentAnalyzed(uri, { skipDiagnostics: true });
 
 		const text = doc.getText();
