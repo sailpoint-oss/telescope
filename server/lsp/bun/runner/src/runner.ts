@@ -4,6 +4,7 @@ import type {
 	LoadRulesRequest,
 	RunRulesRequest,
 	RunSpectralRequest,
+	ValidateSchemaRequest,
 	SerializedDiagnostic,
 	RuleRunError,
 	LoadedRule,
@@ -11,6 +12,10 @@ import type {
 import { buildRuleContext, buildGenericContext } from "./context";
 import { runOpenAPIRule, runGenericRule } from "./engine";
 import { runSpectralRulesets } from "./spectral";
+import {
+	validateWithJsonSchema,
+	validateWithZod,
+} from "./schema-validator";
 
 const socketPath = process.env.TELESCOPE_SOCKET;
 if (!socketPath) {
@@ -69,6 +74,9 @@ async function handleMessage(envelope: Envelope): Promise<void> {
 			break;
 		case "runSpectral":
 			await handleRunSpectral(envelope);
+			break;
+		case "validateSchema":
+			await handleValidateSchema(envelope);
 			break;
 		case "ping":
 			send({ id: envelope.id, type: "pong" });
@@ -189,6 +197,44 @@ async function handleRunSpectral(envelope: Envelope): Promise<void> {
 			documentURI: req.documentURI,
 			diagnostics: result.diagnostics,
 			rulesetTimings: result.rulesetTimings,
+			errors: result.errors,
+		},
+	});
+}
+
+async function handleValidateSchema(envelope: Envelope): Promise<void> {
+	const req = envelope.payload as ValidateSchemaRequest;
+	let result: {
+		diagnostics: SerializedDiagnostic[];
+		errors: RuleRunError[];
+	};
+
+	switch (req.schemaType) {
+		case "json-schema":
+			result = await validateWithJsonSchema(req);
+			break;
+		case "zod":
+			result = await validateWithZod(req);
+			break;
+		default:
+			result = {
+				diagnostics: [],
+				errors: [
+					{
+						ruleID: `schema:${req.groupName}`,
+						error: `Unknown schema type: ${req.schemaType}`,
+						phase: "run",
+					},
+				],
+			};
+	}
+
+	send({
+		id: envelope.id,
+		type: "validateResult",
+		payload: {
+			documentURI: req.documentURI,
+			diagnostics: result.diagnostics,
 			errors: result.errors,
 		},
 	});

@@ -4,17 +4,19 @@ package bun
 type MessageType string
 
 const (
-	MsgLoadRules      MessageType = "loadRules"
-	MsgLoadResponse   MessageType = "loadResponse"
-	MsgRunRules       MessageType = "runRules"
-	MsgRuleResult     MessageType = "ruleResult"
-	MsgRuleError      MessageType = "ruleError"
-	MsgRunSpectral    MessageType = "runSpectral"
-	MsgSpectralResult MessageType = "spectralResult"
-	MsgReady          MessageType = "ready"
-	MsgPing           MessageType = "ping"
-	MsgPong           MessageType = "pong"
-	MsgShutdown       MessageType = "shutdown"
+	MsgLoadRules        MessageType = "loadRules"
+	MsgLoadResponse     MessageType = "loadResponse"
+	MsgRunRules         MessageType = "runRules"
+	MsgRuleResult       MessageType = "ruleResult"
+	MsgRuleError        MessageType = "ruleError"
+	MsgRunSpectral      MessageType = "runSpectral"
+	MsgSpectralResult   MessageType = "spectralResult"
+	MsgValidateSchema   MessageType = "validateSchema"
+	MsgValidateResult   MessageType = "validateResult"
+	MsgReady            MessageType = "ready"
+	MsgPing             MessageType = "ping"
+	MsgPong             MessageType = "pong"
+	MsgShutdown         MessageType = "shutdown"
 )
 
 // Envelope wraps all IPC messages with a common header.
@@ -94,4 +96,20 @@ type RunSpectralResponse struct {
 	Diagnostics    []SidecarDiagnostic `json:"diagnostics"`
 	RulesetTimings map[string]float64  `json:"rulesetTimings,omitempty"`
 	Errors         []RuleRunError      `json:"errors,omitempty"`
+}
+
+// ValidateSchemaRequest asks the sidecar to validate a document against a schema.
+type ValidateSchemaRequest struct {
+	DocumentURI string        `json:"documentURI"`
+	Document    SerializedDoc `json:"document"`
+	SchemaPath  string        `json:"schemaPath"`
+	SchemaType  string        `json:"schemaType"` // "json-schema" | "zod"
+	GroupName   string        `json:"groupName"`
+}
+
+// ValidateSchemaResponse contains diagnostics from schema validation.
+type ValidateSchemaResponse struct {
+	DocumentURI string              `json:"documentURI"`
+	Diagnostics []SidecarDiagnostic `json:"diagnostics"`
+	Errors      []RuleRunError      `json:"errors,omitempty"`
 }

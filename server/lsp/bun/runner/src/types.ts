@@ -6,6 +6,8 @@ export type MessageType =
 	| "ruleError"
 	| "runSpectral"
 	| "spectralResult"
+	| "validateSchema"
+	| "validateResult"
 	| "ready"
 	| "ping"
 	| "pong"
@@ -87,4 +89,18 @@ export interface RunSpectralRequest {
 	documentURI: string;
 	document: SerializedDoc;
 	rulesetPaths: string[];
+}
+
+export interface ValidateSchemaRequest {
+	documentURI: string;
+	document: SerializedDoc;
+	schemaPath: string;
+	schemaType: "json-schema" | "zod";
+	groupName: string;
+}
+
+export interface ValidateSchemaResponse {
+	documentURI: string;
+	diagnostics: SerializedDiagnostic[];
+	errors?: RuleRunError[];
 }

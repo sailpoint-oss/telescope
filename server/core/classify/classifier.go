@@ -28,8 +28,10 @@ type FileClassification struct {
 
 // FileClassifier uses scored heuristics to determine if a file is an OpenAPI document.
 type FileClassifier struct {
-	configOverrides map[string]bool // URI glob -> forced classification
-	knownRootDirs   map[string]bool // directories containing known root specs
+	configOverrides map[string]bool   // URI glob -> forced classification
+	knownRootDirs   map[string]bool   // directories containing known root specs
+	includePatterns []string          // config include globs (files that should be considered)
+	excludePatterns []string          // config exclude globs (files that should be excluded)
 }
 
 // NewFileClassifier creates a new FileClassifier with no overrides.
@@ -38,6 +40,14 @@ func NewFileClassifier() *FileClassifier {
 		configOverrides: make(map[string]bool),
 		knownRootDirs:   make(map[string]bool),
 	}
+}
+
+// SetIncludeExclude configures include/exclude patterns from the workspace config.
+// Files matching an exclude pattern are never classified as OpenAPI.
+// Files matching an include pattern receive a confidence boost.
+func (c *FileClassifier) SetIncludeExclude(include, exclude []string) {
+	c.includePatterns = include
+	c.excludePatterns = exclude
 }
 
 // Per-key weights from the roadmap
@@ -102,7 +112,16 @@ func (c *FileClassifier) Classify(uri string, content []byte, isGraphMember bool
 		}
 	}
 
-	// 2. Graph membership — if referenced by known OpenAPI, it's a fragment
+	// 2. Exclude patterns — if the file matches an exclude, never classify as OpenAPI
+	for _, pat := range c.excludePatterns {
+		if matchGlob(pat, uri) {
+			signals = append(signals, Signal{Name: "config-exclude", Score: 0.0, Weight: 1.0})
+			forceFalse := false
+			return c.finalize(signals, "", false, &forceFalse, navigator.DocumentKindUnknown)
+		}
+	}
+
+	// 3. Graph membership — if referenced by known OpenAPI, it's a fragment
 	if isGraphMember {
 		signals = append(signals, Signal{Name: "graph-membership", Score: 1.0, Weight: 1.0})
 		forceTrue := true
@@ -148,7 +167,15 @@ func (c *FileClassifier) Classify(uri string, content []byte, isGraphMember bool
 		}
 	}
 
-	// 7. Workspace proximity: +0.10 if directory contains a known root spec
+	// 7. Include patterns: +0.10 if file matches configured include globs
+	for _, pat := range c.includePatterns {
+		if matchGlob(pat, uri) {
+			signals = append(signals, Signal{Name: "config-include", Score: 1.0, Weight: 0.10})
+			break
+		}
+	}
+
+	// 8. Workspace proximity: +0.10 if directory contains a known root spec
 	if c.isNearKnownRoot(uri) {
 		signals = append(signals, Signal{Name: "workspace-proximity", Score: 1.0, Weight: 0.10})
 	}

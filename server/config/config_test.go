@@ -114,6 +114,29 @@ func TestConfig_NeedsBunSidecar(t *testing.T) {
 	if !cfg.NeedsBunSidecar() {
 		t.Fatal("spectral ruleset should require bun sidecar")
 	}
+
+	cfg2 := config.DefaultConfig()
+	cfg2.AdditionalValidation = map[string]config.ValidationGroup{
+		"test": {
+			Patterns: []string{"*.yaml"},
+			Schemas: []config.SchemaPatternMapping{
+				{Schema: "my-schema.json"},
+			},
+		},
+	}
+	if !cfg2.NeedsBunSidecar() {
+		t.Fatal("additional validation schemas should require bun sidecar")
+	}
+
+	cfg3 := config.DefaultConfig()
+	cfg3.AdditionalValidation = map[string]config.ValidationGroup{
+		"test": {
+			Patterns: []string{"*.yaml"},
+		},
+	}
+	if cfg3.NeedsBunSidecar() {
+		t.Fatal("additional validation without schemas should not require bun sidecar")
+	}
 }
 
 func TestLoadFile_NormalizesLegacyRulesAndBaseURL(t *testing.T) {

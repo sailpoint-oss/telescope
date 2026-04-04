@@ -45,6 +45,29 @@ export function defineGenericRule(definition) {
   return definition;
 }
 
-export function defineSchema(factory) {
-  return factory;
+/**
+ * Define a Zod schema for additional validation.
+ * The schema must be a Zod type with a `.parse()` method.
+ *
+ * Usage:
+ *   import { z } from "zod";
+ *   import { defineSchema } from "@sailpoint-oss/telescope";
+ *
+ *   export default defineSchema(
+ *     z.object({
+ *       name: z.string(),
+ *       version: z.string(),
+ *     })
+ *   );
+ *
+ * The sidecar will validate documents against this schema and convert
+ * Zod errors into LSP diagnostics.
+ */
+export function defineSchema(schema) {
+  if (schema && typeof schema.parse === "function") {
+    return schema;
+  }
+  throw new Error(
+    "defineSchema() expects a Zod schema with a .parse() method",
+  );
 }

@@ -239,6 +239,17 @@ func (b *GraphBridge) RunPipeline(ctx context.Context, cache *openapi.IndexCache
 		}
 	}
 
+	// Re-classify targets that gained incoming $ref edges during this pipeline run.
+	// BindStage may have discovered new edges, upgrading unknown files to fragments.
+	for _, uri := range processed {
+		for _, dep := range b.graph.Dependencies(uri) {
+			normDep := normalizeURIStr(dep)
+			if node := b.graph.Node(normDep); node != nil && len(node.Raw) > 0 {
+				b.updateClassification(normDep, node.Raw)
+			}
+		}
+	}
+
 	snap := b.snapMgr.Build(b.graph)
 	if cache != nil {
 		for _, uri := range processed {
@@ -466,12 +477,18 @@ func (b *GraphBridge) syncVirtualDocuments(uri string) {
 }
 
 func (b *GraphBridge) updateClassification(uri string, content []byte) {
-	classification := b.classifier.Classify(uri, content, false)
+	isGraphMember := b.graph.HasIncomingRefs(uri)
+	classification := b.classifier.Classify(uri, content, isGraphMember)
 	if classification.IsOpenAPI || classification.DocumentKind == openapi.DocumentKindArazzo {
 		b.graph.SetRoot(uri, !classification.IsFragment)
 		return
 	}
 	b.graph.SetRoot(uri, false)
+}
+
+// HasIncomingRefs returns true if the given URI is a $ref target.
+func (b *GraphBridge) HasIncomingRefs(uri string) bool {
+	return b.graph.HasIncomingRefs(normalizeURIStr(uri))
 }
 
 func (b *GraphBridge) ensureFilesystemURI(uri string) string {

@@ -304,6 +304,14 @@ func (g *WorkspaceGraph) EdgesTo(uri string) []Edge {
 	return out
 }
 
+// HasIncomingRefs returns true if any edge points to the given URI,
+// indicating it is a $ref target in the workspace graph.
+func (g *WorkspaceGraph) HasIncomingRefs(uri string) bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return len(g.revEdges[uri]) > 0
+}
+
 // Dependents returns URIs that reference the given URI via any edge kind.
 func (g *WorkspaceGraph) Dependents(uri string) []string {
 	g.mu.RLock()
@@ -456,6 +464,7 @@ type ReadOnlyGraph interface {
 	Roots() []string
 	EdgesFrom(uri string) []Edge
 	EdgesTo(uri string) []Edge
+	HasIncomingRefs(uri string) bool
 	Dependents(uri string) []string
 	Dependencies(uri string) []string
 	TransitiveDependencies(uri string) []string

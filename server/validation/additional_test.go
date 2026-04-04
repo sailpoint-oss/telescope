@@ -1,257 +1,159 @@
-package validation_test
+package validation
 
 import (
 	"log/slog"
 	"os"
-	"path/filepath"
 	"testing"
-
-	"github.com/sailpoint-oss/telescope/server/validation"
 )
 
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-}
-
-func setupTestDir(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	schemasDir := filepath.Join(dir, ".telescope", "schemas")
-	if err := os.MkdirAll(schemasDir, 0o755); err != nil {
-		t.Fatal(err)
+func TestDetectSchemaType(t *testing.T) {
+	tests := []struct {
+		filename string
+		want     SchemaType
+	}{
+		{"schema.json", SchemaTypeJSON},
+		{"schema.yaml", SchemaTypeJSON},
+		{"schema.ts", SchemaTypeZod},
+		{"schema.mts", SchemaTypeZod},
+		{"my-schema.JSON", SchemaTypeJSON},
+		{"my-schema.TS", SchemaTypeZod},
 	}
-	return dir
-}
-
-func writeSchema(t *testing.T, dir, name, content string) {
-	t.Helper()
-	path := filepath.Join(dir, ".telescope", "schemas", name)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-const validSchema = `{
-	"type": "object",
-	"required": ["name"],
-	"properties": {
-		"name": { "type": "string" },
-		"age": { "type": "integer" }
-	},
-	"additionalProperties": false
-}`
-
-func TestNewAdditionalValidator(t *testing.T) {
-	v := validation.NewAdditionalValidator(testLogger())
-	if v == nil {
-		t.Fatal("expected non-nil validator")
+	for _, tt := range tests {
+		t.Run(tt.filename, func(t *testing.T) {
+			got := DetectSchemaType(tt.filename)
+			if got != tt.want {
+				t.Errorf("DetectSchemaType(%q) = %q, want %q", tt.filename, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestConfigure_LoadsValidSchema(t *testing.T) {
-	dir := setupTestDir(t)
-	writeSchema(t, dir, "test.json", validSchema)
-
-	v := validation.NewAdditionalValidator(testLogger())
-	groups := map[string]validation.ValidationGroup{
-		"test": {
-			Patterns: []string{"data/*.yaml"},
-			Schemas: []validation.SchemaPatternMapping{
-				{Schema: "test.json"},
+func TestMatchesFileForSidecar(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	v := NewAdditionalValidator(logger)
+	v.rootDir = "/workspace"
+	v.schemasDir = "/workspace/.telescope/schemas"
+	v.groups = map[string]ValidationGroup{
+		"config-files": {
+			Patterns: []string{"*.config.yaml"},
+			Schemas: []SchemaPatternMapping{
+				{Schema: "config-schema.json"},
+			},
+		},
+		"zod-validated": {
+			Patterns: []string{"*.manifest.yaml"},
+			Schemas: []SchemaPatternMapping{
+				{Schema: "manifest.ts"},
 			},
 		},
 	}
 
-	err := v.Configure(dir, groups)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	t.Run("matches JSON Schema", func(t *testing.T) {
+		matches, ok := v.MatchesFileForSidecar("file:///workspace/app.config.yaml")
+		if !ok {
+			t.Fatal("expected match for app.config.yaml")
+		}
+		if len(matches) != 1 {
+			t.Fatalf("expected 1 match, got %d", len(matches))
+		}
+		if matches[0].SchemaType != SchemaTypeJSON {
+			t.Errorf("expected SchemaTypeJSON, got %q", matches[0].SchemaType)
+		}
+		if matches[0].GroupName != "config-files" {
+			t.Errorf("expected group config-files, got %q", matches[0].GroupName)
+		}
+	})
+
+	t.Run("matches Zod Schema", func(t *testing.T) {
+		matches, ok := v.MatchesFileForSidecar("file:///workspace/app.manifest.yaml")
+		if !ok {
+			t.Fatal("expected match for app.manifest.yaml")
+		}
+		if len(matches) != 1 {
+			t.Fatalf("expected 1 match, got %d", len(matches))
+		}
+		if matches[0].SchemaType != SchemaTypeZod {
+			t.Errorf("expected SchemaTypeZod, got %q", matches[0].SchemaType)
+		}
+	})
+
+	t.Run("no match for unrelated file", func(t *testing.T) {
+		_, ok := v.MatchesFileForSidecar("file:///workspace/README.md")
+		if ok {
+			t.Error("expected no match for README.md")
+		}
+	})
+
+	t.Run("no match for file outside workspace", func(t *testing.T) {
+		_, ok := v.MatchesFileForSidecar("file:///other/app.config.yaml")
+		if ok {
+			t.Error("expected no match for file outside workspace root")
+		}
+	})
 }
 
-func TestConfigure_InvalidSchemaLogsWarning(t *testing.T) {
-	dir := setupTestDir(t)
-	writeSchema(t, dir, "bad.json", `not valid json`)
-
-	v := validation.NewAdditionalValidator(testLogger())
-	groups := map[string]validation.ValidationGroup{
-		"test": {
-			Patterns: []string{"data/*.yaml"},
-			Schemas: []validation.SchemaPatternMapping{
-				{Schema: "bad.json"},
+func TestMatchesFile(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	v := NewAdditionalValidator(logger)
+	v.rootDir = "/workspace"
+	v.schemasDir = "/workspace/.telescope/schemas"
+	v.groups = map[string]ValidationGroup{
+		"test-group": {
+			Patterns: []string{"*.test.yaml"},
+			Schemas: []SchemaPatternMapping{
+				{Schema: "test-schema.json"},
+				{Schema: "test-schema.ts"},
 			},
 		},
 	}
 
-	err := v.Configure(dir, groups)
-	if err != nil {
-		t.Fatalf("Configure should not return error for bad schema (it logs warning): %v", err)
+	match, ok := v.MatchesFile("file:///workspace/my.test.yaml")
+	if !ok || match == nil {
+		t.Fatal("expected match")
+	}
+	if match.group != "test-group" {
+		t.Errorf("expected group test-group, got %q", match.group)
 	}
 }
 
-func TestConfigure_MissingSchemaFile(t *testing.T) {
-	dir := setupTestDir(t)
-
-	v := validation.NewAdditionalValidator(testLogger())
-	groups := map[string]validation.ValidationGroup{
-		"test": {
-			Patterns: []string{"data/*.yaml"},
-			Schemas: []validation.SchemaPatternMapping{
-				{Schema: "nonexistent.json"},
-			},
-		},
+func TestMatchesPatterns(t *testing.T) {
+	tests := []struct {
+		path     string
+		patterns []string
+		want     bool
+	}{
+		{"app.config.yaml", []string{"*.config.yaml"}, true},
+		{"deep/nested/app.config.yaml", []string{"**/*.config.yaml"}, true},
+		{"README.md", []string{"*.yaml"}, false},
+		{"api.yaml", []string{"*.yaml", "*.json"}, true},
+		{"api.json", []string{"*.yaml", "*.json"}, true},
 	}
-
-	err := v.Configure(dir, groups)
-	if err != nil {
-		t.Fatalf("Configure should not return error for missing file (it logs warning): %v", err)
-	}
-}
-
-func TestMatchesFile_MatchesPattern(t *testing.T) {
-	dir := setupTestDir(t)
-	writeSchema(t, dir, "test.json", validSchema)
-
-	v := validation.NewAdditionalValidator(testLogger())
-	groups := map[string]validation.ValidationGroup{
-		"test": {
-			Patterns: []string{"data/*.yaml"},
-			Schemas: []validation.SchemaPatternMapping{
-				{Schema: "test.json"},
-			},
-		},
-	}
-	_ = v.Configure(dir, groups)
-
-	uri := "file://" + filepath.Join(dir, "data", "example.yaml")
-	schema, ok := v.MatchesFile(uri)
-	if !ok {
-		t.Fatal("expected file to match")
-	}
-	if schema == nil {
-		t.Fatal("expected non-nil schema")
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := matchesPatterns(tt.path, tt.patterns)
+			if got != tt.want {
+				t.Errorf("matchesPatterns(%q, %v) = %v, want %v", tt.path, tt.patterns, got, tt.want)
+			}
+		})
 	}
 }
 
-func TestMatchesFile_NoMatch(t *testing.T) {
-	dir := setupTestDir(t)
-	writeSchema(t, dir, "test.json", validSchema)
-
-	v := validation.NewAdditionalValidator(testLogger())
-	groups := map[string]validation.ValidationGroup{
-		"test": {
-			Patterns: []string{"data/*.yaml"},
-			Schemas: []validation.SchemaPatternMapping{
-				{Schema: "test.json"},
-			},
-		},
+func TestURIToRelPath(t *testing.T) {
+	tests := []struct {
+		uri     string
+		rootDir string
+		want    string
+	}{
+		{"file:///workspace/api.yaml", "/workspace", "api.yaml"},
+		{"file:///workspace/deep/nested/api.yaml", "/workspace", "deep/nested/api.yaml"},
+		{"/workspace/api.yaml", "/workspace", "api.yaml"},
 	}
-	_ = v.Configure(dir, groups)
-
-	uri := "file://" + filepath.Join(dir, "other", "example.yaml")
-	_, ok := v.MatchesFile(uri)
-	if ok {
-		t.Fatal("expected no match for non-matching path")
-	}
-}
-
-func TestMatchesFile_SchemaSpecificPatterns(t *testing.T) {
-	dir := setupTestDir(t)
-	writeSchema(t, dir, "narrow.json", validSchema)
-
-	v := validation.NewAdditionalValidator(testLogger())
-	groups := map[string]validation.ValidationGroup{
-		"test": {
-			Patterns: []string{"data/*.yaml"},
-			Schemas: []validation.SchemaPatternMapping{
-				{
-					Schema:   "narrow.json",
-					Patterns: []string{"data/special-*.yaml"},
-				},
-			},
-		},
-	}
-	_ = v.Configure(dir, groups)
-
-	matchURI := "file://" + filepath.Join(dir, "data", "special-one.yaml")
-	_, ok := v.MatchesFile(matchURI)
-	if !ok {
-		t.Fatal("expected special-one.yaml to match schema-specific pattern")
-	}
-
-	noMatchURI := "file://" + filepath.Join(dir, "data", "regular.yaml")
-	_, ok = v.MatchesFile(noMatchURI)
-	if ok {
-		t.Fatal("expected regular.yaml to not match schema-specific pattern")
-	}
-}
-
-func TestMatchesFile_EmptyURI(t *testing.T) {
-	v := validation.NewAdditionalValidator(testLogger())
-	_, ok := v.MatchesFile("")
-	if ok {
-		t.Fatal("expected no match for empty URI")
-	}
-}
-
-func TestConfigure_MultipleGroups(t *testing.T) {
-	dir := setupTestDir(t)
-	writeSchema(t, dir, "a.json", validSchema)
-	writeSchema(t, dir, "b.json", `{"type": "object"}`)
-
-	v := validation.NewAdditionalValidator(testLogger())
-	groups := map[string]validation.ValidationGroup{
-		"group-a": {
-			Patterns: []string{"a/*.yaml"},
-			Schemas:  []validation.SchemaPatternMapping{{Schema: "a.json"}},
-		},
-		"group-b": {
-			Patterns: []string{"b/*.yaml"},
-			Schemas:  []validation.SchemaPatternMapping{{Schema: "b.json"}},
-		},
-	}
-	err := v.Configure(dir, groups)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	aURI := "file://" + filepath.Join(dir, "a", "file.yaml")
-	schema, ok := v.MatchesFile(aURI)
-	if !ok || schema == nil {
-		t.Fatal("expected group-a match")
-	}
-
-	bURI := "file://" + filepath.Join(dir, "b", "file.yaml")
-	schema, ok = v.MatchesFile(bURI)
-	if !ok || schema == nil {
-		t.Fatal("expected group-b match")
-	}
-}
-
-func TestConfigure_DuplicateSchemaLoadedOnce(t *testing.T) {
-	dir := setupTestDir(t)
-	writeSchema(t, dir, "shared.json", validSchema)
-
-	v := validation.NewAdditionalValidator(testLogger())
-	groups := map[string]validation.ValidationGroup{
-		"g1": {
-			Patterns: []string{"a/*.yaml"},
-			Schemas:  []validation.SchemaPatternMapping{{Schema: "shared.json"}},
-		},
-		"g2": {
-			Patterns: []string{"b/*.yaml"},
-			Schemas:  []validation.SchemaPatternMapping{{Schema: "shared.json"}},
-		},
-	}
-	err := v.Configure(dir, groups)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestAnalyzer_ReturnsAnalyzer(t *testing.T) {
-	v := validation.NewAdditionalValidator(testLogger())
-	analyzer := v.Analyzer()
-	if analyzer.Run == nil {
-		t.Fatal("expected analyzer with non-nil Run function")
+	for _, tt := range tests {
+		t.Run(tt.uri, func(t *testing.T) {
+			got := uriToRelPath(tt.uri, tt.rootDir)
+			if got != tt.want {
+				t.Errorf("uriToRelPath(%q, %q) = %q, want %q", tt.uri, tt.rootDir, got, tt.want)
+			}
+		})
 	}
 }

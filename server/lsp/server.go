@@ -156,7 +156,11 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		s.DiagnosticEngine().RegisterAnalyzer("extension-validation", extensions.Analyzer(extRegistry))
 
 		// Register additional validation analyzer (non-OpenAPI files).
-		s.DiagnosticEngine().RegisterAnalyzer("additional-validation", addlValidator.Analyzer())
+		// When Bun is available, schema validation is routed through the sidecar
+		// for AJV (JSON Schema) and Zod support. The Go-only fallback handles
+		// JSON Schema validation when Bun is unavailable.
+		s.DiagnosticEngine().RegisterAnalyzer("additional-validation",
+			additionalValidationAnalyzer(addlValidator, bunMgr, serverLogger))
 
 		// Register Bun sidecar analyzer for custom TS rules and Spectral rulesets
 		if bunMgr != nil {
@@ -251,6 +255,9 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	graphBridge, err := NewGraphBridge(logger)
 	if err != nil {
 		logger.Error("graph pipeline init failed, running without graph features", "error", err)
+	}
+	if graphBridge != nil {
+		graphBridge.Classifier().SetIncludeExclude(cfg.Include, cfg.Exclude)
 	}
 	rulePerfTracker := observe.NewRulePerfTracker()
 
@@ -545,6 +552,85 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	}
 
 	return s, cleanup
+}
+
+// additionalValidationAnalyzer creates an analyzer that routes additional schema
+// validation through the Bun sidecar when available (supporting both AJV and Zod),
+// falling back to Go-only JSON Schema validation when Bun is unavailable.
+func additionalValidationAnalyzer(addlValidator *validation.AdditionalValidator, bunMgr *bun.Manager, logger *slog.Logger) treesitter.Analyzer {
+	return treesitter.Analyzer{
+		Scope: treesitter.ScopeFile,
+		Run: func(ctx *treesitter.AnalysisContext) []protocol.Diagnostic {
+			if ctx.Document == nil {
+				return nil
+			}
+			uri := string(ctx.Document.URI())
+
+			if bunMgr != nil && bunMgr.Available() {
+				matches, ok := addlValidator.MatchesFileForSidecar(uri)
+				if !ok {
+					return nil
+				}
+
+				doc := serializeDocForSidecar(ctx)
+				if doc == nil {
+					return nil
+				}
+
+				var allDiags []protocol.Diagnostic
+				for _, match := range matches {
+					resp, err := bunMgr.ValidateSchema(ctx, &bun.ValidateSchemaRequest{
+						DocumentURI: uri,
+						Document:    *doc,
+						SchemaPath:  match.SchemaPath,
+						SchemaType:  string(match.SchemaType),
+						GroupName:   match.GroupName,
+					})
+					if err != nil {
+						logger.Warn("sidecar schema validation failed, falling back to Go",
+							"uri", uri, "group", match.GroupName, "error", err)
+						continue
+					}
+					if resp != nil {
+						for _, sd := range resp.Diagnostics {
+							sev := protocol.DiagnosticSeverity(sd.Severity)
+							if sev < protocol.SeverityError || sev > protocol.SeverityHint {
+								sev = protocol.SeverityError
+							}
+							allDiags = append(allDiags, protocol.Diagnostic{
+								Range: protocol.Range{
+									Start: protocol.Position{Line: sd.StartLine, Character: sd.StartChar},
+									End:   protocol.Position{Line: sd.EndLine, Character: sd.EndChar},
+								},
+								Severity: sev,
+								Code:     sd.Code,
+								Source:   sd.Source,
+								Message:  sd.Message,
+							})
+						}
+					}
+				}
+				return allDiags
+			}
+
+			// Fallback: Go-only JSON Schema validation
+			return addlValidator.Analyzer().Run(ctx)
+		},
+	}
+}
+
+// serializeDocForSidecar creates a SerializedDoc from analysis context.
+func serializeDocForSidecar(ctx *treesitter.AnalysisContext) *bun.SerializedDoc {
+	if ctx.Document == nil {
+		return nil
+	}
+	text := ctx.Document.Text()
+	return &bun.SerializedDoc{
+		URI:      string(ctx.Document.URI()),
+		RawText:  text,
+		Format:   "yaml",
+		Pointers: make(map[string][4]uint32),
+	}
 }
 
 // bunSidecarAnalyzer creates a gossip Analyzer that delegates to the Bun sidecar
@@ -867,7 +953,8 @@ type classifyNotification struct {
 }
 
 func sendClassifyNotification(ctx *gossip.Context, bridge *GraphBridge, uri string, content []byte) {
-	classification := bridge.Classifier().Classify(uri, content, false)
+	isGraphMember := bridge.HasIncomingRefs(uri)
+	classification := bridge.Classifier().Classify(uri, content, isGraphMember)
 	conn := ctx.Server().Conn()
 	if conn == nil {
 		return

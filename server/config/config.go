@@ -145,9 +145,20 @@ func (c *Config) HasSpectralRulesets() bool {
 }
 
 // NeedsBunSidecar reports whether the config requires the Bun sidecar to be started
-// (custom rules or Spectral rulesets).
+// (custom rules, Spectral rulesets, or additional validation schemas).
 func (c *Config) NeedsBunSidecar() bool {
-	return c.HasCustomRules() || c.HasSpectralRulesets()
+	return c.HasCustomRules() || c.HasSpectralRulesets() || c.HasValidationSchemas()
+}
+
+// HasValidationSchemas reports whether any additionalValidation group references
+// schema files that need the sidecar (AJV or Zod validation).
+func (c *Config) HasValidationSchemas() bool {
+	for _, g := range c.AdditionalValidation {
+		if len(g.Schemas) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // ResolveRunner determines the runner for a rule reference.

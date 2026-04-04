@@ -465,6 +465,41 @@ func (m *Manager) RunSpectral(ctx context.Context, req *RunSpectralRequest) (*Ru
 	return &result, nil
 }
 
+// ValidateSchema sends a schema validation request to the sidecar.
+func (m *Manager) ValidateSchema(ctx context.Context, req *ValidateSchemaRequest) (*ValidateSchemaResponse, error) {
+	if !m.available.Load() || req == nil {
+		return nil, nil
+	}
+
+	env := &Envelope{
+		ID:      m.newRequestID(),
+		Type:    MsgValidateSchema,
+		Payload: req,
+	}
+
+	resp, err := m.sendRequest(ctx, env, 30*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("validateSchema: %w", err)
+	}
+	if resp == nil {
+		return nil, fmt.Errorf("validateSchema: empty response")
+	}
+	if resp.Type != MsgValidateResult {
+		return nil, fmt.Errorf("validateSchema: unexpected response type %q", resp.Type)
+	}
+
+	payloadBytes, err := json.Marshal(resp.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal payload: %w", err)
+	}
+
+	var result ValidateSchemaResponse
+	if err := json.Unmarshal(payloadBytes, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal validateSchema response: %w", err)
+	}
+	return &result, nil
+}
+
 // LoadRules tells the sidecar to load rules from the specified configurations.
 func (m *Manager) LoadRules(ctx context.Context, req *LoadRulesRequest) error {
 	if req == nil {

@@ -39,10 +39,29 @@ type AdditionalValidator struct {
 	logger     *slog.Logger
 }
 
+// SchemaType identifies the validation engine for a schema file.
+type SchemaType string
+
+const (
+	SchemaTypeJSON SchemaType = "json-schema"
+	SchemaTypeZod  SchemaType = "zod"
+)
+
+// DetectSchemaType determines the validation engine from a schema filename.
+func DetectSchemaType(filename string) SchemaType {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if ext == ".ts" || ext == ".mts" {
+		return SchemaTypeZod
+	}
+	return SchemaTypeJSON
+}
+
 type matchedSchema struct {
-	compiled *jsonschema.CompiledSchema
-	group    string
-	file     string
+	compiled   *jsonschema.CompiledSchema
+	group      string
+	file       string
+	schemaType SchemaType
+	schemaPath string // absolute path to schema file
 }
 
 // NewAdditionalValidator creates a new validator.
@@ -63,10 +82,13 @@ func (v *AdditionalValidator) Configure(rootDir string, groups map[string]Valida
 	v.schemasDir = filepath.Join(rootDir, ".telescope", "schemas")
 	v.groups = groups
 
-	// Pre-load all referenced schemas
+	// Pre-load JSON Schema files (Zod schemas are loaded by the sidecar)
 	for name, group := range groups {
 		for _, sm := range group.Schemas {
 			if _, ok := v.schemas[sm.Schema]; ok {
+				continue
+			}
+			if DetectSchemaType(sm.Schema) != SchemaTypeJSON {
 				continue
 			}
 			schema, err := v.loadSchema(sm.Schema)
@@ -115,20 +137,64 @@ func (v *AdditionalValidator) MatchesFile(uri string) (*matchedSchema, bool) {
 				patterns = group.Patterns
 			}
 			if matchesPatterns(relPath, patterns) {
-				if schema, ok := v.schemas[sm.Schema]; ok {
-					return &matchedSchema{
-						compiled: schema,
-						group:    groupName,
-						file:     sm.Schema,
-					}, true
-				}
+				st := DetectSchemaType(sm.Schema)
+				schemaPath := filepath.Join(v.schemasDir, sm.Schema)
+				compiled := v.schemas[sm.Schema] // may be nil for Zod schemas
+				return &matchedSchema{
+					compiled:   compiled,
+					group:      groupName,
+					file:       sm.Schema,
+					schemaType: st,
+					schemaPath: schemaPath,
+				}, true
 			}
 		}
 	}
 	return nil, false
 }
 
-// Analyzer returns a treesitter.Analyzer that validates matching files.
+// SchemaMatch holds the information needed to route validation to the sidecar.
+type SchemaMatch struct {
+	GroupName  string
+	SchemaPath string
+	SchemaType SchemaType
+}
+
+// MatchesFileForSidecar returns schema match info for routing to the Bun sidecar.
+func (v *AdditionalValidator) MatchesFileForSidecar(uri string) ([]SchemaMatch, bool) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	relPath := uriToRelPath(uri, v.rootDir)
+	if relPath == "" {
+		return nil, false
+	}
+
+	var matches []SchemaMatch
+	for groupName, group := range v.groups {
+		if !matchesPatterns(relPath, group.Patterns) {
+			continue
+		}
+		for _, sm := range group.Schemas {
+			patterns := sm.Patterns
+			if len(patterns) == 0 {
+				patterns = group.Patterns
+			}
+			if matchesPatterns(relPath, patterns) {
+				matches = append(matches, SchemaMatch{
+					GroupName:  groupName,
+					SchemaPath: filepath.Join(v.schemasDir, sm.Schema),
+					SchemaType: DetectSchemaType(sm.Schema),
+				})
+			}
+		}
+	}
+	return matches, len(matches) > 0
+}
+
+// Analyzer returns a treesitter.Analyzer that validates matching files using
+// Go-side JSON Schema validation. This is the fallback when the Bun sidecar
+// is unavailable. Zod schemas are skipped since they require the sidecar.
 func (v *AdditionalValidator) Analyzer() treesitter.Analyzer {
 	return treesitter.Analyzer{
 		Scope: treesitter.ScopeFile,
@@ -138,7 +204,14 @@ func (v *AdditionalValidator) Analyzer() treesitter.Analyzer {
 			}
 			uri := string(ctx.Document.URI())
 			match, ok := v.MatchesFile(uri)
-			if !ok || match == nil || match.compiled == nil {
+			if !ok || match == nil {
+				return nil
+			}
+			// Zod schemas require the sidecar; skip in Go-only mode
+			if match.schemaType == SchemaTypeZod {
+				return nil
+			}
+			if match.compiled == nil {
 				return nil
 			}
 
