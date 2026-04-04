@@ -3,8 +3,6 @@
  */
 
 import * as assert from "assert";
-import * as fs from "fs";
-import * as path from "path";
 import * as vscode from "vscode";
 import {
 	activateExtension,
@@ -18,18 +16,6 @@ import {
 	waitForPrepareRenameAvailable,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
-
-function readServerDiag(): string {
-	const diagPath = path.join(
-		require("os").tmpdir(),
-		"telescope-prepare-rename-diag.txt",
-	);
-	try {
-		return fs.readFileSync(diagPath, "utf8").trim();
-	} catch {
-		return "(no diag file)";
-	}
-}
 
 suite("Rename", () => {
 	let folder: vscode.WorkspaceFolder;
@@ -63,15 +49,6 @@ suite("Rename", () => {
 		const tagIdx = text.indexOf("  - name: Users");
 		assert.ok(tagIdx !== -1, "Should find tag definition");
 		const pos = doc.positionAt(tagIdx + "  - name: Use".length);
-
-		// After the first prepareRename attempt, log server-side diagnostics
-		const api = getTestApi();
-		const firstResult = await api.requestPrepareRename!(uri, pos);
-		console.log(`[rename-diag] firstResult=${JSON.stringify(firstResult)}`);
-		console.log(`[rename-diag] serverDiag=${readServerDiag()}`);
-		console.log(`[rename-diag] uri=${uri.toString()}`);
-		console.log(`[rename-diag] languageId=${doc.languageId}`);
-		console.log(`[rename-diag] pos=${pos.line}:${pos.character}`);
 
 		await waitForPrepareRenameAvailable(uri, pos, {
 			timeoutMs: 90000,

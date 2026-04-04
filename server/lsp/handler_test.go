@@ -2628,6 +2628,83 @@ func TestPrepareRenameHandler_NavigatorIndexPath(t *testing.T) {
 	}
 }
 
+// TestPrepareRenameHandler_DocNotInStore verifies that prepareRename works when
+// the document store returns nil for the URI (the macOS reclassification scenario).
+// The handler reads the file from disk to determine the word at the cursor.
+func TestPrepareRenameHandler_DocNotInStore(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixturePath := filepath.Join(filepath.Dir(thisFile), "..", "..", "client", "test-fixtures", "workspace-basic", "rich-api.yaml")
+	b, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", fixturePath, err)
+	}
+	content := string(b)
+
+	// Use a file:// URI that points to the real fixture on disk so the
+	// handler can read the file when the document store is empty.
+	uri := protocol.DocumentURI("file://" + fixturePath)
+
+	navIdx := navigator.ParseContent(b, string(uri))
+	if navIdx == nil {
+		t.Fatal("navigator.ParseContent returned nil")
+	}
+	idx := openapi.IndexFromNavigator(navIdx, uri)
+	if idx == nil {
+		t.Fatal("IndexFromNavigator returned nil")
+	}
+
+	cache := openapi.NewIndexCache()
+	cache.Set(uri, idx)
+
+	// Build an EMPTY document store — the document is NOT in the store,
+	// simulating the macOS reclassification window.
+	emptyStore := document.NewStore()
+	ctx := &gossip.Context{
+		Context:   context.Background(),
+		Documents: emptyStore,
+	}
+
+	// Compute the cursor position at "Users" within "  - name: Users".
+	tagNeedle := "  - name: Users"
+	off := strings.Index(content, tagNeedle)
+	if off < 0 {
+		t.Fatal("fixture missing Users tag definition")
+	}
+	cursorOffset := off + len("  - name: Use")
+	line := uint32(0)
+	char := uint32(0)
+	for i := 0; i < cursorOffset && i < len(content); i++ {
+		if content[i] == '\n' {
+			line++
+			char = 0
+		} else {
+			char++
+		}
+	}
+	pos := protocol.Position{Line: line, Character: char}
+
+	prepare := lsp.NewPrepareRenameHandler(cache, nil)
+	result, err := prepare(ctx, &protocol.PrepareRenameParams{
+		TextDocumentPositionParams: protocol.TextDocumentPositionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: uri},
+			Position:     pos,
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare rename error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected prepare rename result when document not in store (file-read fallback)")
+	}
+	if result.Placeholder != "Users" {
+		t.Fatalf("expected placeholder Users, got %q", result.Placeholder)
+	}
+	t.Logf("file-read fallback returned: placeholder=%q range=%v", result.Placeholder, result.Range)
+}
+
 func TestRenameHandler_NilDocumentInCacheDoesNotPanic(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {

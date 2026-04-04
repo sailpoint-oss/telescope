@@ -1,7 +1,6 @@
 package lsp
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"unicode/utf16"
@@ -14,12 +13,22 @@ import (
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
 
-// prepareRenameDiag writes a one-line diagnostic to a well-known temp file so
-// the E2E test runner can inspect server-side state. The file is overwritten on
-// each call.  Remove this helper once the rename CI regression is resolved.
-func prepareRenameDiag(msg string) {
-	p := fmt.Sprintf("%s%ctelescope-prepare-rename-diag.txt", os.TempDir(), os.PathSeparator)
-	_ = os.WriteFile(p, []byte(msg+"\n"), 0644)
+// wordAtPosition returns the word under the cursor. It first tries the gossip
+// document store; if the document isn't there (can happen during language-ID
+// reclassification on macOS), it falls back to reading the file from disk.
+func wordAtPosition(doc *document.Document, uri protocol.DocumentURI, pos protocol.Position) string {
+	if doc != nil {
+		return doc.WordAt(pos)
+	}
+	fsPath := protocol.URIToPath(uri)
+	if fsPath == "" {
+		return ""
+	}
+	b, err := os.ReadFile(fsPath)
+	if err != nil {
+		return ""
+	}
+	return document.WordAt(string(b), pos)
 }
 
 // NewPrepareRenameHandler validates whether a rename is possible at the cursor.
@@ -28,23 +37,15 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 		uri := params.TextDocument.URI
 		idx := cache.Get(uri)
 		if idx == nil {
-			prepareRenameDiag(fmt.Sprintf("FAIL: cache.Get returned nil uri=%s", uri))
 			return nil, nil
 		}
 
 		doc := ctx.Documents.Get(uri)
-		if doc == nil {
-			prepareRenameDiag(fmt.Sprintf("FAIL: doc nil uri=%s", uri))
-			return nil, nil
-		}
-
-		word := doc.WordAt(params.Position)
+		word := wordAtPosition(doc, uri, params.Position)
 		if word == "" {
-			prepareRenameDiag(fmt.Sprintf("FAIL: word empty uri=%s pos=%d:%d", uri, params.Position.Line, params.Position.Character))
 			return nil, nil
 		}
 
-		// Check all component types — use the exact source range from the index
 		for _, kind := range componentKinds {
 			for _, name := range idx.ComponentNames(kind) {
 				if name == word {
@@ -52,47 +53,27 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 					if isZeroRange(r) {
 						r = exactWordRange(doc, params.Position, word)
 					}
-					prepareRenameDiag(fmt.Sprintf("OK: component %s/%s", kind, name))
-					return &protocol.PrepareRenameResult{
-						Range:       r,
-						Placeholder: word,
-					}, nil
+					return &protocol.PrepareRenameResult{Range: r, Placeholder: word}, nil
 				}
 			}
 		}
 
-		// operationId — use OperationIDLoc from the index
 		if opRef, ok := idx.Operations[word]; ok {
 			r := adapt.RangeToProtocol(opRef.Operation.OperationIDLoc.Range)
 			if isZeroRange(r) {
 				r = exactWordRange(doc, params.Position, word)
 			}
-			prepareRenameDiag(fmt.Sprintf("OK: operationId %s", word))
-			return &protocol.PrepareRenameResult{
-				Range:       r,
-				Placeholder: word,
-			}, nil
+			return &protocol.PrepareRenameResult{Range: r, Placeholder: word}, nil
 		}
 
-		// Tag — use NameLoc from the index
 		if tag, ok := idx.Tags[word]; ok {
 			r := adapt.RangeToProtocol(tag.NameLoc.Range)
 			if isZeroRange(r) {
 				r = exactWordRange(doc, params.Position, word)
 			}
-			prepareRenameDiag(fmt.Sprintf("OK: tag %s", word))
-			return &protocol.PrepareRenameResult{
-				Range:       r,
-				Placeholder: word,
-			}, nil
+			return &protocol.PrepareRenameResult{Range: r, Placeholder: word}, nil
 		}
 
-		tagNames := make([]string, 0, len(idx.Tags))
-		for k := range idx.Tags {
-			tagNames = append(tagNames, k)
-		}
-		prepareRenameDiag(fmt.Sprintf("FAIL: no match word=%q tags=%v ops=%d docNil=%v uri=%s",
-			word, tagNames, len(idx.Operations), idx.Document == nil, uri))
 		return nil, nil
 	}
 }
@@ -108,11 +89,7 @@ func NewRenameHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossi
 		}
 
 		doc := ctx.Documents.Get(uri)
-		if doc == nil {
-			return nil, nil
-		}
-
-		word := doc.WordAt(params.Position)
+		word := wordAtPosition(doc, uri, params.Position)
 		if word == "" {
 			return nil, nil
 		}
