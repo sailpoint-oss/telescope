@@ -8,10 +8,8 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-	delay,
 	ensureWorkspaceTextDocumentMatches,
 	ensureSidecarWorkspaceReady,
-	getTestApi,
 	isSidecarWorkspace,
 	openAndShow,
 	waitForDiagnostics,
@@ -112,20 +110,8 @@ suite("Sidecar: Lifecycle", () => {
 			"openapi/test-missing-summary.yaml",
 		);
 
-		// Close any stale editor so re-opening triggers a fresh didOpen cycle.
-		try {
-			await vscode.commands.executeCommand("workbench.action.closeAllEditors");
-		} catch {
-			// best effort
-		}
-		await delay(1000);
-
-		// Confirm the sidecar is ready before reopening the document.
 		await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
-
 		await openAndShow(fileUri);
-
-		// Wait for language-ID reclassification to settle.
 		await waitForLanguageId(fileUri, "openapi-yaml", { timeoutMs: 30000 });
 
 		const customPredicate = (d: vscode.Diagnostic[]) =>
@@ -135,63 +121,17 @@ suite("Sidecar: Lifecycle", () => {
 					diag.message.toLowerCase().includes("summary"),
 			);
 
-		// Use the same strategy as the passing Custom Rules test:
-		// wait for ANY diagnostics first, then wait for custom diagnostics
-		// with a generous timeout. Avoid aggressive edit/undo retry loops
-		// because rapid tree updates can cause the sidecar IPC response to
-		// arrive after the next tree update overwrites the diagnostic cache.
-		try {
-			await waitForDiagnostics(fileUri, (d) => d.length > 0, {
-				timeoutMs: 120000,
-			});
-		} catch {
-			// File may have 0 built-in diagnostics; continue.
-		}
+		// Mirror the strategy from the Custom Rules test suite: wait for
+		// ANY diagnostics first (confirming the pipeline is warm), then
+		// wait specifically for the sidecar-produced custom diagnostics.
+		await waitForDiagnostics(fileUri, (d) => d.length > 0, {
+			timeoutMs: 120000,
+		});
 
-		let diagnostics: vscode.Diagnostic[] | undefined;
-		const current = vscode.languages.getDiagnostics(fileUri);
-		if (customPredicate(current)) {
-			diagnostics = current;
-		}
-
-		if (!diagnostics) {
-			// Kick one fresh analysis cycle, then wait patiently.
-			const edit = new vscode.WorkspaceEdit();
-			edit.insert(fileUri, new vscode.Position(0, 0), " ");
-			await vscode.workspace.applyEdit(edit);
-			await vscode.commands.executeCommand("undo");
-
-			try {
-				diagnostics = await waitForDiagnostics(
-					fileUri,
-					customPredicate,
-					{ timeoutMs: 180000 },
-				);
-			} catch {
-				// One more attempt with diagnosticRefresh.
-				const api = getTestApi();
-				await api.requestDiagnosticRefresh?.(fileUri);
-				try {
-					diagnostics = await waitForDiagnostics(
-						fileUri,
-						customPredicate,
-						{ timeoutMs: 60000 },
-					);
-				} catch {
-					// Fall through to assertion.
-				}
-			}
-		}
-
-		const allDiags = vscode.languages.getDiagnostics(fileUri);
-		const diagSummary = allDiags
-			.map((d) => `${d.source ?? "unknown"}:${d.message.slice(0, 60)}`)
-			.join(" | ");
-
-		assert.ok(
-			diagnostics,
-			`Expected custom diagnostics after close/reopen lifecycle, but none appeared. ` +
-				`All diagnostics (${allDiags.length}): [${diagSummary}]`,
+		const diagnostics = await waitForDiagnostics(
+			fileUri,
+			customPredicate,
+			{ timeoutMs: 180000 },
 		);
 
 		const info = await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });

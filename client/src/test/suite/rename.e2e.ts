@@ -14,7 +14,6 @@ import {
 	waitForDiagnostics,
 	waitForDocumentAnalyzed,
 	waitForLanguageId,
-	waitForPrepareRenameAvailable,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
 
@@ -70,14 +69,13 @@ suite("Rename", () => {
 		assert.ok(tagIdx !== -1, "Should find tag definition");
 		const pos = doc.positionAt(tagIdx + "  - name: Use".length);
 
-		await waitForPrepareRenameAvailable(uri, pos, {
-			timeoutMs: process.platform === "win32" ? 120000 : 90000,
-			pollMs: 1000,
-		});
-
+		// Use the rename provider directly (via VS Code's command API) rather
+		// than the raw LSP prepareRename request which can have URI encoding
+		// differences on Windows. The rename command itself validates
+		// renameability as part of its execution.
 		const edit = await executeRenameWithRetry(uri, pos, "People", {
-			maxAttempts: 25,
-			delayMs: 1000,
+			maxAttempts: process.platform === "win32" ? 60 : 30,
+			delayMs: 2000,
 		});
 		assert.ok(edit, "Expected rename provider to return a workspace edit");
 
