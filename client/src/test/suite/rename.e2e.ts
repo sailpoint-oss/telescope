@@ -13,6 +13,7 @@ import {
 	previewTextEditsOnDocument,
 	waitForDiagnostics,
 	waitForDocumentAnalyzed,
+	waitForLanguageId,
 	waitForPrepareRenameAvailable,
 	waitForProjectInfo,
 } from "./utils/e2e-helpers";
@@ -43,6 +44,7 @@ suite("Rename", () => {
 		if (isMultiRootWorkspace()) return;
 		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
 		const doc = await openAndShow(uri);
+		await waitForLanguageId(uri, "openapi-yaml", { timeoutMs: 30000 });
 		await waitForDocumentAnalyzed(uri, { skipDiagnostics: true });
 
 		const text = doc.getText();
