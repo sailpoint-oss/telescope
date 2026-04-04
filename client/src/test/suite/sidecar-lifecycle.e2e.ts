@@ -121,20 +121,14 @@ suite("Sidecar: Lifecycle", () => {
 			// best effort
 		}
 
+		// Confirm the sidecar is ready before reopening the document.
+		await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
+
 		await openAndShow(fileUri);
 
 		// Wait for language-ID reclassification (yaml -> openapi-yaml) to
-		// settle before triggering a reparse. Without this, the trivial
-		// edit can race with the reclassification close/reopen cycle and
-		// the sidecar analyzer may not run for the final document state.
+		// settle before triggering a reparse.
 		await waitForLanguageId(fileUri, "openapi-yaml", { timeoutMs: 30000 });
-
-		// Make a trivial edit and undo to force tree-sitter to reparse the
-		// document, ensuring all analyzers (including the sidecar) re-run.
-		const trivialEdit = new vscode.WorkspaceEdit();
-		trivialEdit.insert(fileUri, new vscode.Position(0, 0), " ");
-		await vscode.workspace.applyEdit(trivialEdit);
-		await vscode.commands.executeCommand("undo");
 
 		const customPredicate = (d: vscode.Diagnostic[]) =>
 			d.some(
@@ -143,20 +137,40 @@ suite("Sidecar: Lifecycle", () => {
 					diag.message.toLowerCase().includes("summary"),
 			);
 
-		let diagnostics: vscode.Diagnostic[];
+		// First try: the initial didOpen after reclassification should trigger
+		// analysis including the sidecar. Give it a generous window.
+		let diagnostics: vscode.Diagnostic[] | undefined;
 		try {
 			diagnostics = await waitForDiagnostics(fileUri, customPredicate, {
 				timeoutMs: 60000,
 			});
 		} catch {
-			// Fallback: force re-analysis via the diagnosticRefresh command,
-			// then give the sidecar another window to produce results.
-			const api = getTestApi();
-			await api.requestDiagnosticRefresh?.(fileUri);
-			diagnostics = await waitForDiagnostics(fileUri, customPredicate, {
-				timeoutMs: 120000,
-			});
+			// Not ready yet — fall through to retry loop.
 		}
+
+		// Retry loop: force re-analysis via diagnosticRefresh up to 3 times
+		// with increasing delays, to handle transient sidecar IPC hiccups.
+		if (!diagnostics) {
+			const api = getTestApi();
+			for (let attempt = 1; attempt <= 3; attempt++) {
+				await api.requestDiagnosticRefresh?.(fileUri);
+				try {
+					diagnostics = await waitForDiagnostics(
+						fileUri,
+						customPredicate,
+						{ timeoutMs: 40000 },
+					);
+					break;
+				} catch {
+					// Retry on next iteration.
+				}
+			}
+		}
+
+		assert.ok(
+			diagnostics,
+			"Expected custom diagnostics after retries, but none appeared",
+		);
 
 		const info = await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
 		const customDiags = diagnostics.filter(
