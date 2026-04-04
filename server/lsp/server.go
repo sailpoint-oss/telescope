@@ -157,7 +157,7 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 
 		// Register Bun sidecar analyzer for custom TS rules and Spectral rulesets
 		if bunMgr != nil {
-			s.DiagnosticEngine().RegisterAnalyzer("bun-sidecar", bunSidecarAnalyzer(bunMgr, cfg, graphBridge, workspaceRootPtr))
+			s.DiagnosticEngine().RegisterAnalyzer("bun-sidecar", bunSidecarAnalyzer(bunMgr, cfg, graphBridge, workspaceRootPtr, serverLogger))
 		}
 
 		// Set the Telescope config on the manager for merge priority
@@ -523,6 +523,17 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 			"available":  bunMgr != nil && bunMgr.Available(),
 		}, nil
 	})
+	s.HandleRequest("$/telescope/diagnosticRefresh", func(ctx *gossip.Context, _ json.RawMessage) (any, error) {
+		engine := ctx.Server().DiagnosticEngine()
+		if engine == nil {
+			return map[string]any{"refreshed": false}, nil
+		}
+		uris := ctx.Documents.URIs()
+		for _, uri := range uris {
+			engine.Invalidate(uri)
+		}
+		return map[string]any{"refreshed": true, "count": len(uris)}, nil
+	})
 
 	cleanup := func() {
 		bgCancel()
@@ -535,7 +546,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 
 // bunSidecarAnalyzer creates a gossip Analyzer that delegates to the Bun sidecar
 // for custom TypeScript rules and Spectral rulesets.
-func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *GraphBridge, workspaceRoot *string) treesitter.Analyzer {
+func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *GraphBridge, workspaceRoot *string, logger *slog.Logger) treesitter.Analyzer {
 	type ruleWithPatterns struct {
 		id       string
 		patterns []string
@@ -631,7 +642,9 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 					Project:     projectIdx,
 				}
 				resp, err := bunMgr.RunRules(context.Background(), req)
-				if err == nil && resp != nil {
+				if err != nil {
+					logger.Warn("sidecar RunRules failed", "uri", uri, "error", err)
+				} else if resp != nil {
 					allDiags = append(allDiags, sidecarDiagsToProtocol(resp.Diagnostics)...)
 				}
 			}
@@ -643,7 +656,9 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 					RulesetPaths: spectralRulesets,
 				}
 				resp, err := bunMgr.RunSpectral(context.Background(), req)
-				if err == nil && resp != nil {
+				if err != nil {
+					logger.Warn("sidecar RunSpectral failed", "uri", uri, "error", err)
+				} else if resp != nil {
 					allDiags = append(allDiags, sidecarDiagsToProtocol(resp.Diagnostics)...)
 				}
 			}

@@ -10,9 +10,11 @@ import * as vscode from "vscode";
 import {
 	ensureWorkspaceTextDocumentMatches,
 	ensureSidecarWorkspaceReady,
+	getTestApi,
 	isSidecarWorkspace,
 	openAndShow,
 	waitForDiagnostics,
+	waitForLanguageId,
 	waitForSidecarAvailable,
 } from "./utils/e2e-helpers";
 
@@ -119,7 +121,13 @@ suite("Sidecar: Lifecycle", () => {
 			// best effort
 		}
 
-		const doc = await openAndShow(fileUri);
+		await openAndShow(fileUri);
+
+		// Wait for language-ID reclassification (yaml -> openapi-yaml) to
+		// settle before triggering a reparse. Without this, the trivial
+		// edit can race with the reclassification close/reopen cycle and
+		// the sidecar analyzer may not run for the final document state.
+		await waitForLanguageId(fileUri, "openapi-yaml", { timeoutMs: 30000 });
 
 		// Make a trivial edit and undo to force tree-sitter to reparse the
 		// document, ensuring all analyzers (including the sidecar) re-run.
@@ -128,16 +136,28 @@ suite("Sidecar: Lifecycle", () => {
 		await vscode.workspace.applyEdit(trivialEdit);
 		await vscode.commands.executeCommand("undo");
 
-		const diagnostics = await waitForDiagnostics(
-			fileUri,
-			(d) =>
-				d.some(
-					(diag) =>
-						diag.source === "telescope-custom" &&
-						diag.message.toLowerCase().includes("summary"),
-				),
-			{ timeoutMs: 180000 },
-		);
+		const customPredicate = (d: vscode.Diagnostic[]) =>
+			d.some(
+				(diag) =>
+					diag.source === "telescope-custom" &&
+					diag.message.toLowerCase().includes("summary"),
+			);
+
+		let diagnostics: vscode.Diagnostic[];
+		try {
+			diagnostics = await waitForDiagnostics(fileUri, customPredicate, {
+				timeoutMs: 60000,
+			});
+		} catch {
+			// Fallback: force re-analysis via the diagnosticRefresh command,
+			// then give the sidecar another window to produce results.
+			const api = getTestApi();
+			await api.requestDiagnosticRefresh?.(fileUri);
+			diagnostics = await waitForDiagnostics(fileUri, customPredicate, {
+				timeoutMs: 120000,
+			});
+		}
+
 		const info = await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
 		const customDiags = diagnostics.filter(
 			(d) =>

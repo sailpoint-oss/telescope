@@ -29,6 +29,9 @@ export interface TelescopeTestApi {
 	requestSidecarInfo?: (
 		uri?: vscode.Uri,
 	) => Promise<{ configured: boolean; available: boolean } | null>;
+	requestDiagnosticRefresh?: (
+		uri?: vscode.Uri,
+	) => Promise<{ refreshed: boolean; count?: number } | null>;
 }
 
 let singleRootReadyPromise:

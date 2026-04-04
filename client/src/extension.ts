@@ -231,6 +231,12 @@ export async function activate(context: ExtensionContext) {
 				await fail();
 				return null; // unreachable; fail() always throws
 			},
+			async requestDiagnosticRefresh(
+				_uri?: vscode.Uri,
+			): Promise<{ refreshed: boolean; count?: number } | null> {
+				await fail();
+				return null; // unreachable; fail() always throws
+			},
 		};
 	};
 
@@ -1405,6 +1411,35 @@ export async function activate(context: ExtensionContext) {
 					configured: boolean;
 					available: boolean;
 				} | null;
+			},
+
+			/**
+			 * E2E-only: force the server to re-run all checks and analyzers
+			 * (including the sidecar) on every open document.
+			 */
+			async requestDiagnosticRefresh(
+				uri?: vscode.Uri,
+			): Promise<{ refreshed: boolean; count?: number } | null> {
+				if (!sessionManager) {
+					return null;
+				}
+				const targetUri = uri || workspace.workspaceFolders?.[0]?.uri;
+				if (!targetUri) {
+					return null;
+				}
+				const textDoc = await workspace.openTextDocument(targetUri);
+				const session = sessionManager.getSessionForUri(textDoc.uri);
+				if (!session) {
+					return null;
+				}
+				const client = session.getClient();
+				if (!client) {
+					return null;
+				}
+				return (await client.sendRequest(
+					"$/telescope/diagnosticRefresh",
+					{},
+				)) as { refreshed: boolean; count?: number } | null;
 			},
 
 			/**
