@@ -130,6 +130,14 @@ suite("Sidecar: Lifecycle", () => {
 		// settle before triggering a reparse.
 		await waitForLanguageId(fileUri, "openapi-yaml", { timeoutMs: 30000 });
 
+		// Force tree-sitter to reparse after reclassification has settled,
+		// ensuring all analyzers (including the sidecar) run on the final
+		// document state rather than a transient one from the close/reopen.
+		const trivialEdit = new vscode.WorkspaceEdit();
+		trivialEdit.insert(fileUri, new vscode.Position(0, 0), " ");
+		await vscode.workspace.applyEdit(trivialEdit);
+		await vscode.commands.executeCommand("undo");
+
 		const customPredicate = (d: vscode.Diagnostic[]) =>
 			d.some(
 				(diag) =>
@@ -137,8 +145,7 @@ suite("Sidecar: Lifecycle", () => {
 					diag.message.toLowerCase().includes("summary"),
 			);
 
-		// First try: the initial didOpen after reclassification should trigger
-		// analysis including the sidecar. Give it a generous window.
+		// First try: the edit/undo should have triggered a full reparse.
 		let diagnostics: vscode.Diagnostic[] | undefined;
 		try {
 			diagnostics = await waitForDiagnostics(fileUri, customPredicate, {
@@ -149,7 +156,7 @@ suite("Sidecar: Lifecycle", () => {
 		}
 
 		// Retry loop: force re-analysis via diagnosticRefresh up to 3 times
-		// with increasing delays, to handle transient sidecar IPC hiccups.
+		// to handle transient sidecar IPC hiccups.
 		if (!diagnostics) {
 			const api = getTestApi();
 			for (let attempt = 1; attempt <= 3; attempt++) {
