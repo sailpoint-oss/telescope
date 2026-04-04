@@ -112,24 +112,20 @@ suite("Sidecar: Lifecycle", () => {
 			"openapi/test-missing-summary.yaml",
 		);
 
-		// Close any stale editor for this file so that re-opening triggers a
-		// fresh didOpen -> full reparse cycle. This guarantees the sidecar
-		// analyzer runs with the sidecar already available, even if earlier
-		// tests opened the file before the sidecar had finished starting.
+		// Close any stale editor so re-opening triggers a fresh didOpen cycle.
 		try {
 			await vscode.commands.executeCommand("workbench.action.closeAllEditors");
 		} catch {
 			// best effort
 		}
-		await delay(500);
+		await delay(1000);
 
 		// Confirm the sidecar is ready before reopening the document.
 		await waitForSidecarAvailable(fileUri, { timeoutMs: 120000 });
 
 		await openAndShow(fileUri);
 
-		// Wait for language-ID reclassification (yaml -> openapi-yaml) to
-		// settle before triggering a reparse.
+		// Wait for language-ID reclassification to settle.
 		await waitForLanguageId(fileUri, "openapi-yaml", { timeoutMs: 30000 });
 
 		const customPredicate = (d: vscode.Diagnostic[]) =>
@@ -139,49 +135,50 @@ suite("Sidecar: Lifecycle", () => {
 					diag.message.toLowerCase().includes("summary"),
 			);
 
-		// Wait for the analysis pipeline to produce ANY diagnostics first.
-		// This mirrors the pattern used by the Custom Rules test suite and
-		// ensures the server's analysis pipeline is warm before we check for
-		// the specific sidecar-produced diagnostics.
+		// Use the same strategy as the passing Custom Rules test:
+		// wait for ANY diagnostics first, then wait for custom diagnostics
+		// with a generous timeout. Avoid aggressive edit/undo retry loops
+		// because rapid tree updates can cause the sidecar IPC response to
+		// arrive after the next tree update overwrites the diagnostic cache.
 		try {
 			await waitForDiagnostics(fileUri, (d) => d.length > 0, {
 				timeoutMs: 120000,
 			});
 		} catch {
-			// Valid file might have 0 built-in diagnostics; continue.
+			// File may have 0 built-in diagnostics; continue.
 		}
 
-		// Check if custom diagnostics have already arrived.
 		let diagnostics: vscode.Diagnostic[] | undefined;
 		const current = vscode.languages.getDiagnostics(fileUri);
 		if (customPredicate(current)) {
 			diagnostics = current;
 		}
 
-		// Retry loop: force a fresh didChange → onTreeUpdate cycle by doing
-		// a trivial edit/undo. This is more reliable than diagnosticRefresh
-		// alone because it guarantees the tree-sitter engine fires onTreeUpdate
-		// with the live document and tree, re-running all analyzers including
-		// the sidecar.
 		if (!diagnostics) {
-			const api = getTestApi();
-			for (let attempt = 1; attempt <= 5; attempt++) {
-				const edit = new vscode.WorkspaceEdit();
-				edit.insert(fileUri, new vscode.Position(0, 0), " ");
-				await vscode.workspace.applyEdit(edit);
-				await vscode.commands.executeCommand("undo");
+			// Kick one fresh analysis cycle, then wait patiently.
+			const edit = new vscode.WorkspaceEdit();
+			edit.insert(fileUri, new vscode.Position(0, 0), " ");
+			await vscode.workspace.applyEdit(edit);
+			await vscode.commands.executeCommand("undo");
 
+			try {
+				diagnostics = await waitForDiagnostics(
+					fileUri,
+					customPredicate,
+					{ timeoutMs: 180000 },
+				);
+			} catch {
+				// One more attempt with diagnosticRefresh.
+				const api = getTestApi();
 				await api.requestDiagnosticRefresh?.(fileUri);
-
 				try {
 					diagnostics = await waitForDiagnostics(
 						fileUri,
 						customPredicate,
-						{ timeoutMs: 30000 },
+						{ timeoutMs: 60000 },
 					);
-					break;
 				} catch {
-					// Retry on next iteration.
+					// Fall through to assertion.
 				}
 			}
 		}
@@ -193,7 +190,7 @@ suite("Sidecar: Lifecycle", () => {
 
 		assert.ok(
 			diagnostics,
-			`Expected custom diagnostics after retries, but none appeared. ` +
+			`Expected custom diagnostics after close/reopen lifecycle, but none appeared. ` +
 				`All diagnostics (${allDiags.length}): [${diagSummary}]`,
 		);
 

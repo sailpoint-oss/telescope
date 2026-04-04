@@ -582,9 +582,17 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 		Scope: treesitter.ScopeFile,
 		Run: func(ctx *treesitter.AnalysisContext) []protocol.Diagnostic {
 			if !bunMgr.Available() || ctx.Document == nil {
+				if logger != nil {
+					logger.Debug("sidecar analyzer skipped",
+						"available", bunMgr.Available(),
+						"hasDocument", ctx.Document != nil)
+				}
 				return nil
 			}
 			if workspaceRoot == nil || *workspaceRoot == "" {
+				if logger != nil {
+					logger.Debug("sidecar analyzer skipped: no workspace root")
+				}
 				return nil
 			}
 			uri := string(ctx.Document.URI())
@@ -597,6 +605,11 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 			}
 
 			if len(ruleIDs) == 0 && len(spectralRulesets) == 0 {
+				if logger != nil {
+					logger.Debug("sidecar analyzer skipped: no matching rules",
+						"uri", uri, "root", *workspaceRoot,
+						"totalRules", len(allRules), "spectralRulesets", len(spectralRulesets))
+				}
 				return nil
 			}
 
@@ -609,6 +622,9 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 			snap := graphBridge.CurrentSnapshot()
 			ast, err := bun.SerializeRawContent([]byte(content), format)
 			if err != nil {
+				if logger != nil {
+					logger.Debug("sidecar analyzer skipped: serialize error", "uri", uri, "error", err)
+				}
 				return nil
 			}
 			version := ""
@@ -649,6 +665,9 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 					logger.Warn("sidecar RunRules failed", "uri", uri, "error", err)
 				} else if resp != nil {
 					allDiags = append(allDiags, sidecarDiagsToProtocol(resp.Diagnostics)...)
+				} else if logger != nil {
+					logger.Debug("sidecar RunRules returned nil response",
+						"uri", uri, "ruleIDs", ruleIDs, "available", bunMgr.Available())
 				}
 			}
 

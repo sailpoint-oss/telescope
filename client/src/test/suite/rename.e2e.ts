@@ -57,7 +57,13 @@ suite("Rename", () => {
 		await vscode.workspace.applyEdit(trivialEdit);
 		await vscode.commands.executeCommand("undo");
 
-		await waitForDocumentAnalyzed(uri, { skipDiagnostics: true });
+		// Wait for the full analysis pipeline to complete, including
+		// diagnostics. On Windows CI runners the pipeline can be slow;
+		// waiting for diagnostics before checking providers ensures the
+		// index cache is fully populated.
+		await waitForDocumentAnalyzed(uri, {
+			timeoutMs: process.platform === "win32" ? 180000 : 120000,
+		});
 
 		const text = doc.getText();
 		const tagIdx = text.indexOf("  - name: Users");
@@ -65,7 +71,7 @@ suite("Rename", () => {
 		const pos = doc.positionAt(tagIdx + "  - name: Use".length);
 
 		await waitForPrepareRenameAvailable(uri, pos, {
-			timeoutMs: 90000,
+			timeoutMs: process.platform === "win32" ? 120000 : 90000,
 			pollMs: 1000,
 		});
 
