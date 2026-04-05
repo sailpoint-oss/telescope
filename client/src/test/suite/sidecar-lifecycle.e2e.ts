@@ -114,6 +114,15 @@ suite("Sidecar: Lifecycle", () => {
 		await openAndShow(fileUri);
 		await waitForLanguageId(fileUri, "openapi-yaml", { timeoutMs: 30000 });
 
+		// Force a didChange cycle so the sidecar re-analyzes the file fresh.
+		// Earlier lifecycle tests in this suite already opened and partially
+		// analyzed this file; without a content change the diagnostic mux may
+		// not re-invoke the sidecar custom-rule analyzer.
+		const trivialEdit = new vscode.WorkspaceEdit();
+		trivialEdit.insert(fileUri, new vscode.Position(0, 0), " ");
+		await vscode.workspace.applyEdit(trivialEdit);
+		await vscode.commands.executeCommand("undo");
+
 		const customPredicate = (d: vscode.Diagnostic[]) =>
 			d.some(
 				(diag) =>
