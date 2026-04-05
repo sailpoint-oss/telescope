@@ -298,5 +298,9 @@ func uriToRelPath(uri, rootDir string) string {
 	if err != nil {
 		return ""
 	}
-	return filepath.ToSlash(rel)
+	rel = filepath.ToSlash(rel)
+	if strings.HasPrefix(rel, "../") || rel == ".." {
+		return ""
+	}
+	return rel
 }

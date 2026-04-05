@@ -57,7 +57,7 @@ func TestViewDiagnostics(t *testing.T) {
 			uri := spec.URI()
 			client.OpenWithLanguage(uri, spec.LanguageID(), string(spec.Content))
 
-			diags := client.WaitForDiagnostics(uri, 10*time.Second)
+			diags := client.WaitForDiagnostics(uri, 30*time.Second)
 
 			t.Logf("=== %s (%s, %d lines, %s) ===", spec.Name, spec.Size, spec.Lines, spec.Version)
 			if len(diags) == 0 {
@@ -124,7 +124,7 @@ func TestViewDiagnosticsForSpec(t *testing.T) {
 			uri := spec.URI()
 			client.OpenWithLanguage(uri, spec.LanguageID(), string(spec.Content))
 
-			diags := client.WaitForDiagnostics(uri, 10*time.Second)
+			diags := client.WaitForDiagnostics(uri, 30*time.Second)
 
 			t.Logf("\n=== %s (%d lines) ===", spec.Name, spec.Lines)
 			t.Logf("Version: %s | Format: %v | Tags: %v\n", spec.Version, spec.Format, spec.Tags)

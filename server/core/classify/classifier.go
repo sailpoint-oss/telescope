@@ -89,7 +89,7 @@ func (c *FileClassifier) RegisterRootDir(dir string) {
 	if c.knownRootDirs == nil {
 		c.knownRootDirs = make(map[string]bool)
 	}
-	c.knownRootDirs[dir] = true
+	c.knownRootDirs[filepath.ToSlash(dir)] = true
 }
 
 // Classify analyzes content and metadata to produce a classification.
@@ -315,7 +315,7 @@ func (c *FileClassifier) isNearKnownRoot(uri string) bool {
 	if strings.HasPrefix(uri, "file://") {
 		path = strings.TrimPrefix(uri, "file://")
 	}
-	dir := filepath.Dir(path)
+	dir := filepath.ToSlash(filepath.Dir(path))
 	return c.knownRootDirs[dir]
 }
 
