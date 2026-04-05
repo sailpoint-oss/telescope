@@ -1,0 +1,12 @@
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      summary: List users
+      responses:
+        "200":
+          description: Success
+openapi: "3.1.0"
+info:
+  title: Key Order Test
+  version: "1.0.0"

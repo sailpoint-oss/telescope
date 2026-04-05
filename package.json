@@ -3,27 +3,20 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "pnpm --filter ./packages/** run build",
-		"test": "pnpm --filter ./packages/** run test",
-		"test:no-coverage": "pnpm test --no-coverage packages/telescope-lsp packages/lens",
-		"typecheck:examples": "pnpm -C packages/telescope-server run build && pnpm -C packages/test-files exec tsc -p tsconfig.json",
-		"package": "pnpm --filter telescope-server run build && pnpm --filter telescope run build && pnpm --filter telescope run package",
+		"build": "pnpm --filter ./client run build",
+		"build:sidecar": "pnpm --filter ./client run build:sidecar",
+		"build:server": "cd server && go build -o ../client/bin/telescope .",
+		"test:e2e": "pnpm --filter ./client run test:e2e --if-present",
+		"trace:merge": "node ./scripts/merge-trace-logs.mjs",
+		"package": "pnpm --filter ./client run build && pnpm --filter ./client run package",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
 		"format": "biome format --write ."
 	},
-	"dependencies": {
-		"jiti": "^2.6.1",
-		"markdown-it": "^14.1.0",
-		"volar-service-json": "^0.0.67",
-		"volar-service-markdown": "^0.0.67"
-	},
-	"devDependencies": {
-		"vscode-languageserver-types": "^3.17.5",
-		"@types/bun": "^1.3.2",
-		"@types/markdown-it": "^14.1.2"
-	},
+	"dependencies": {},
+	"devDependencies": {},
 	"workspaces": [
-		"packages/*"
+		"client",
+		"test-files"
 	]
 }

@@ -1,0 +1,21 @@
+{
+  "name": "@sailpoint-oss/telescope",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "package.json"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sailpoint-oss/telescope.git",
+    "directory": "server/lsp/bun/telescope-server"
+  },
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js"
+  }
+}

@@ -1,0 +1,9 @@
+[
+  {
+    "file": "api.yaml",
+    "line": 0,
+    "code": "structural.missing-info",
+    "severity": "error",
+    "message": "requires an Info Object with 'title' and 'version'"
+  }
+]

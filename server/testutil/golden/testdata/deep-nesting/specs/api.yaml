@@ -1,0 +1,35 @@
+openapi: "3.1.0"
+info:
+  title: Deep Nesting Test
+  version: "1.0"
+paths:
+  /data:
+    get:
+      summary: Deeply nested response
+      operationId: getData
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Level1"
+components:
+  schemas:
+    Level1:
+      type: object
+      properties:
+        level2:
+          type: object
+          properties:
+            level3:
+              type: object
+              properties:
+                level4:
+                  type: object
+                  properties:
+                    level5:
+                      type: object
+                      properties:
+                        value:
+                          type: string

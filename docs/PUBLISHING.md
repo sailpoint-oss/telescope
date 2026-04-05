@@ -2,6 +2,42 @@
 
 This guide covers building and publishing the Telescope VS Code extension to various marketplaces.
 
+## Automated Release Workflows
+
+Telescope publishes through GitHub Actions on `main`:
+
+- `.github/workflows/release.yml`:
+  - Builds bundled Go binaries, bundles the Bun sidecar once, and publishes VSIX artifacts to VS Code Marketplace + OpenVSX.
+  - Triggered only when release-relevant client/server/workspace files change.
+- `.github/workflows/release-go.yml`:
+  - Runs server build/vet/test plus the Bun sidecar bundle step, then tags/releases `server/vX.Y.Z`.
+- `.github/workflows/release-sdk.yml`:
+  - Publishes `@sailpoint-oss/telescope` to npm and creates `sdk/vX.Y.Z` GitHub release tags.
+  - Runs when `server/lsp/bun/telescope-server/**` changes on `main`.
+  - Publishes only when the package version is not already present on npm.
+
+## Toolchain Compatibility
+
+Telescope is versioned independently, but it sits between the core libraries and downstream tooling:
+
+- `navigator` changes land before Telescope updates when parse/index/range/resolver contracts move.
+- `barrelman` changes land before Telescope updates when diagnostic, ruleset, or config contracts move.
+- Editor and report consumers follow after Telescope when those compatibility surfaces change.
+
+Before publishing a compatibility-sensitive Telescope change:
+
+1. Update `server/go.mod` to the intended `navigator` / `barrelman` versions.
+2. Run `go test -race ./... -timeout 10m` in `server/`.
+3. Run the relevant E2E command from `README.md`.
+4. Check `../navigator/TOOLCHAIN_FIXTURE_MATRIX.md` for cross-repo parity anchors.
+5. If the change is part of a broader release train, run Navigator's `Downstream Smoke` workflow.
+
+### Required Repository Secrets
+
+- `VSCE_PAT` (VS Code Marketplace)
+- `OPEN_VSX_TOKEN` (OpenVSX)
+- `NPM_TOKEN` (npm publish for `@sailpoint-oss/telescope`)
+
 ## Prerequisites
 
 ### Install Dependencies
@@ -9,6 +45,7 @@ This guide covers building and publishing the Telescope VS Code extension to var
 ```bash
 # From repository root
 pnpm install
+pnpm --filter ./client run build:sidecar
 ```
 
 ### Install VS Code Extension Manager
@@ -27,28 +64,23 @@ npm install -g @vscode/vsce
 
 ### Build Both Packages
 
-The telescope extension uses direct TypeScript execution via Bun:
-
 ```bash
-# Build the VS Code client
-pnpm --filter telescope-client build
-
-# Build the language server
-pnpm --filter telescope-server build
+# Build the VS Code client extension
+pnpm --filter ./client run build
 ```
 
 ### Verify Build
 
 ```bash
-test -f packages/telescope-client/out/extension.js && echo "Client build complete"
-test -f packages/telescope-server/out/server.js && echo "Server build complete"
+test -f client/dist/client.js && echo "Client build complete"
+test -f client/sidecar/runner.js && echo "Bundled Bun sidecar ready"
 ```
 
 ## Packaging
 
 ### Prepare package.json
 
-Before packaging, ensure `packages/telescope-client/package.json` has:
+Before packaging, ensure `client/package.json` has:
 
 - Correct `version` field
 - `private: false` (or remove the `private` field)
@@ -62,13 +94,13 @@ Before packaging, ensure `packages/telescope-client/package.json` has:
 ### Create VSIX Package
 
 ```bash
-cd packages/telescope-client
+cd client
 
-# Package the extension
-vsce package
+# Package the extension (expects sidecar/runner.js to exist)
+pnpm run package
 ```
 
-This creates a `.vsix` file (e.g., `telescope-0.1.0.vsix`) in the `packages/telescope-client` directory.
+This creates a `.vsix` file (e.g., `telescope-0.1.0.vsix`) in the `client` directory.
 
 ### Test Locally
 
@@ -109,7 +141,7 @@ code --install-extension telescope-0.1.0.vsix
 ### Publish
 
 ```bash
-cd packages/telescope-client
+cd client
 
 # Publish with token
 vsce publish -p <your-personal-access-token>
@@ -176,7 +208,7 @@ For open-source VS Code extension registries.
 pnpm add -g ovsx
 
 # Publish
-cd packages/telescope-client
+cd client
 ovsx publish -p <your-open-vsx-token>
 ```
 
@@ -193,7 +225,7 @@ Follow [semver](https://semver.org/):
 ### Update Version
 
 ```bash
-cd packages/telescope-client
+cd client
 
 # Update version in package.json
 npm version patch  # or minor, or major
@@ -243,12 +275,12 @@ jobs:
 
       - name: Publish to VS Code Marketplace
         run: |
-          cd packages/telescope-client
+          cd client
           npx vsce publish -p ${{ secrets.VSCE_PAT }}
 
       - name: Publish to Open VSX
         run: |
-          cd packages/telescope-client
+          cd client
           npx ovsx publish -p ${{ secrets.OVSX_PAT }}
 ```
 
@@ -275,7 +307,7 @@ pnpm --filter telescope-client build
 
 ```bash
 # Reinstall from root
-rm -rf node_modules packages/*/node_modules
+rm -rf node_modules client/node_modules test-files/node_modules
 pnpm install
 ```
 
@@ -301,10 +333,10 @@ Ensure these fields exist in `package.json`:
 
 **Issue**: Server path not found
 
-The extension expects the bundled server at `dist/server.js`. Ensure:
+The extension expects a server binary at `client/bin/telescope` (or `telescope.exe` on Windows). Ensure:
 
-1. Both packages are built (`pnpm build`)
-2. The `dist/` directory contains both `client.js` and `server.js`
+1. The server build step ran (`pnpm --filter ./client run test:e2e:build-server` or equivalent packaging pipeline)
+2. `client/bin/` contains the platform binary
 
 ### Publishing Errors
 

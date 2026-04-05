@@ -1,0 +1,71 @@
+version: 1
+
+strategy:
+  canonicalSource:
+    openapi_shared: server/testutil/specs
+    sidecar_only: test-files
+  mirroredFromCanonical:
+    - test-valid.yaml
+    - test-errors.yaml
+    - test-warnings.yaml
+    - test-duplicate-operation-ids.yaml
+    - test-unique-operation-ids.yaml
+    - test-root-valid.yaml
+    - test-root-errors.yaml
+    - test-ascii-errors.yaml
+    - test-multi-file.yaml
+    - missing-path-parameters.yaml
+    - api-minimal.yaml
+    - api-standalone.yaml
+    - api-v1.yaml
+    - api-v2.yaml
+    - api-v3.json
+    - api-v4.yaml
+    - api-v5.yaml
+    - openapi-3.0.yaml
+    - openapi-3.1.yaml
+    - openapi-3.2.yaml
+    - OpenAPI-example.yaml
+    - Plex-API.yaml
+
+classification:
+  keep:
+    - test-files/.telescope/**
+    - test-files/custom/custom-generic-invalid.yaml
+    - test-files/custom/custom-generic-valid.yaml
+    - test-files/custom/custom-zod-schema-invalid.yaml
+    - test-files/custom/custom-zod-schema-valid.yaml
+    - test-files/custom/custom-json-schema-valid.yaml
+    - test-files/openapi/custom-openapi-invalid.yaml
+    - test-files/openapi/custom-openapi-valid.yaml
+    - test-files/openapi/test-key-order.yaml
+    - test-files/openapi/test-missing-operationid.yaml
+    - test-files/openapi/test-multi-file-refs/**
+    - test-files/openapi/v1/**
+    - test-files/openapi/v2/**
+    - test-files/openapi/v3/**
+    - test-files/openapi/test-ref-cycle-main.yaml
+    - test-files/openapi/test-ref-cycle-b.yaml
+    - test-files/openapi/parameters/**
+    - test-files/openapi/api-*.yaml
+    - test-files/openapi/openapi-*.yaml
+    - test-files/openapi/test-*.yaml
+    - test-files/openapi/*.json
+    - test-files/package.json
+    - test-files/tsconfig.json
+    - test-files/README.md
+    - test-files/.gitignore
+  gap:
+    - test-files/custom/custom-json-schema-invalid.yaml
+    - test-files/openapi/test-ref-cycle-main.yaml
+    - test-files/openapi/test-multi-file-refs/version-ref-isolation-main.yaml
+    - test-files/openapi/test-multi-file-refs/path-params-with-ref.yaml
+  removed:
+    - test-files/openapi/plugin-rules-should-pass.yaml
+    - test-files/openapi/plugin-rules-should-fail.yaml
+    - test-files/openapi/test-sailpoint-api-should-error-when-audience-is-missing.yaml
+    - test-files/openapi/test-sailpoint-api-should-error-when-missing.yaml
+    - test-files/openapi/test-sailpoint-api-should-error-when-version-is-missing.yaml
+    - test-files/openapi/test-sailpoint-api-should-pass-when-valid.yaml
+    - test-files/openapi/test-info-should-error-when-info-section-is-missing.yaml
+    - test-files/openapi/test-tags-should-error-when-tags-are-not-alphabetically-sort.yaml

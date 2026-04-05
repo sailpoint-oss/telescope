@@ -1,10 +1,11 @@
 # LSP Features Reference
 
-Telescope provides comprehensive Language Server Protocol (LSP) features for OpenAPI documents, YAML/JSON files, and embedded Markdown content. This document details all available features and how to use them.
+Telescope provides a full OpenAPI-focused LSP on top of a few supporting subsystems. This document describes the features that are actually wired today, where they come from, and what is optional versus always-on.
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Distribution](#distribution)
 - [Core Navigation](#core-navigation)
 - [Code Intelligence](#code-intelligence)
 - [Refactoring](#refactoring)
@@ -16,15 +17,39 @@ Telescope provides comprehensive Language Server Protocol (LSP) features for Ope
 
 ## Overview
 
-Telescope implements LSP features through multiple specialized services:
+Telescope's LSP surface is split across a few distinct layers:
 
-| Service                | Scope                  | Features                                              |
-| ---------------------- | ---------------------- | ----------------------------------------------------- |
-| **OpenAPI Service**    | OpenAPI documents      | 15 features including semantic tokens, call hierarchy |
-| **YAML Service**       | Generic YAML files     | 11 features via yaml-language-server                  |
-| **JSON Service**       | Generic JSON files     | 10 features via vscode-json-languageservice           |
-| **Markdown Service**   | Embedded descriptions  | 15 features via vscode-markdown-languageservice       |
-| **Validation Service** | Custom file validation | Diagnostics for custom rules/schemas                  |
+| Layer | Scope | What it actually provides |
+| ----- | ----- | ------------------------- |
+| **Telescope OpenAPI server** | OpenAPI YAML/JSON documents | Navigation, hover, completion, rename, formatting, semantic tokens, code actions, workspace symbols, call hierarchy, inlay hints, code lens, and Telescope-owned diagnostics |
+| **Editor YAML/JSON services** | Any YAML/JSON document in the editor | Generic syntax/schema diagnostics and other non-Telescope language features provided by the editor or installed extensions |
+| **Embedded Markdown support** | Markdown inside descriptions, summaries, and docs fields | Markdown parsing, document links, and extension-side syntax highlighting for fenced code blocks |
+| **Optional Bun sidecar** | Workspaces that enable JS/TS custom rules | Additional diagnostics for Bun-backed custom rules when the sidecar is bundled and available |
+
+The important distinction is that Telescope does **not** try to replace the editor's generic YAML/JSON language features. Telescope stays focused on OpenAPI-aware behavior, while the editor or other installed language extensions handle generic YAML/JSON syntax feedback.
+
+### Capability Truth Table
+
+| Capability | Telescope core | Editor YAML/JSON services | Bun sidecar |
+| ---------- | -------------- | --------------- | ----------- |
+| OpenAPI navigation and refactoring | Yes | No | No |
+| OpenAPI completion, hover, and semantic tokens | Yes | No | No |
+| YAML/JSON syntax and schema diagnostics | No | Yes | No |
+| Generic YAML/JSON completion, hover, or formatting | No | Yes | No |
+| Embedded Markdown link handling and code-block highlighting | Yes | No | No |
+| Spectral YAML ruleset diagnostics | Yes | No | No |
+| TypeScript/JavaScript custom-rule diagnostics | No | No | Optional |
+
+## Distribution
+
+| Channel | Extension ID | Notes |
+| ------- | ------------ | ----- |
+| VS Code Marketplace | `SailPointTechnologies.telescope-openapi` | Official Microsoft VS Code listing |
+| Open VSX | `sailpoint.telescope` | Used by Open VSX-compatible editors such as Cursor and VSCodium |
+
+Platform-specific VSIXs currently bundle the Telescope server for `darwin-arm64`, `darwin-x64`, `linux-x64`, and `win32-x64`.
+
+Universal VSIXs do not bundle the native server binary. On unsupported platforms such as Linux ARM64, Windows ARM64, or Alpine/musl environments, install the `telescope` binary separately and point the extension at it with `telescope.serverPath`, `TELESCOPE_SERVER_PATH`, or `PATH`.
 
 ## Core Navigation
 
@@ -73,12 +98,30 @@ Useful for understanding schema relationships and refactoring impact.
 
 **Trigger**: Hover over any element
 
-- **`$ref` values**: Preview the referenced content inline
-- **External URLs**: Display as external reference with link
-- **Local references**: Show formatted YAML/JSON preview (truncated for large objects)
+Rich, context-aware hover for all OpenAPI elements:
+
+**`$ref` hover** resolves all 8 component types (Schema, Parameter, Response, RequestBody, Header, Link, Example, PathItem) with full details:
+
+- **Schema references**: Type, constraints (minLength, maxLength, minimum, maximum, pattern, minItems, maxItems, maxProperties), flags (deprecated, nullable, readOnly, writeOnly, const), default/example values, enum values, required fields, and property tables
+- **Composition display**: allOf shows merged properties as a table; oneOf/anyOf show variant summaries with discriminator field if present
+- **Parameter references**: Location (in: query/path/header/cookie), required/deprecated flags, type with format, enum values, example, description
+- **Response references**: Description, content types with schema type hints (e.g., `application/json -> object`), headers list
+- **Header/Link/Example references**: Full formatted details
+
+**operationId hover** shows:
+
+- HTTP method + path (e.g., `GET /users`)
+- Deprecated flag, summary, and description (with heading outline for long descriptions)
+- Tags used, parameter counts by location (path, query, header, cookie), response codes
+
+**Security scheme hover**: Type, scheme, bearer format, location, name, description, OAuth flow details
+
+**Tag hover**: Tag name, description, external docs
+
+**Path item hover**: Path string, summary, list of operations with method + summary
 
 ```yaml
-# Hover over the $ref value to see User schema preview
+# Hover over the $ref value to see full schema details with constraints
 $ref: "#/components/schemas/User"
 ```
 
@@ -95,6 +138,15 @@ OpenAPI-specific completions for:
 | Operation tags        | Global tag names with descriptions                                 |
 | Response status codes | Common HTTP codes (200, 201, 400, 401, 404, 500, etc.)             |
 | Media types           | `application/json`, `application/xml`, `multipart/form-data`, etc. |
+| Schema properties     | Common patterns (id, uuid, email, created_at, etc.) with snippets  |
+| Operation templates   | GET/POST/PUT/PATCH/DELETE skeletons                                 |
+| HTTP headers          | X-Request-ID, ETag, Retry-After, etc.                               |
+
+**Completion resolve** provides rich details when you select an item:
+
+- **`$ref` completions**: Full target details (schema type, constraints, properties) shown in the detail panel
+- **Security scheme completions**: Full scheme details (type, scheme, flows)
+- **Tag completions**: Description + operation count using the tag
 
 ```yaml
 responses:
@@ -111,12 +163,19 @@ responses:
 
 Visual hints displayed inline:
 
-- **`$ref` type hints**: Shows `→ object`, `→ array`, `→ allOf composition` after refs
-- **Required property indicators**: Shows `*` before required schema properties
+- **`$ref` type hints**: Shows `: <type>` after refs (e.g., `: object`, `: string`, `: array`)
+- **Required property indicators**: Shows `*` before required schema properties with tooltip
+- **Parameter location hints**: Shows `in: <location>` after parameter names
+- **Deprecated schema markers**: `deprecated` label at schema name with tooltip
+- **Deprecated operation markers**: `deprecated` label at operation location
+- **Composition summary hints**:
+  - allOf: `merged: {property1, property2, ...}` with property count tooltip
+  - oneOf: `oneOf: Variant1 | Variant2 | ...` (or `discriminator: fieldName -> Variant1, Variant2, ...`)
+  - anyOf: `anyOf: Variant1 | Variant2 | ...`
 
 ```yaml
 schema:
-  $ref: "#/components/schemas/User" # → object (inlay hint)
+  $ref: "#/components/schemas/User" # : object (inlay hint)
 ```
 
 ### Semantic Tokens
@@ -125,19 +184,21 @@ schema:
 
 Semantic highlighting for OpenAPI elements:
 
-| Element          | Token Type      | Example                        |
-| ---------------- | --------------- | ------------------------------ |
-| HTTP methods     | `method`        | `get`, `post`, `put`, `delete` |
-| Paths            | `namespace`     | `/users/{id}`                  |
-| Status codes     | `enum`          | `200`, `404`, `default`        |
-| `$ref` values    | `variable`      | `#/components/schemas/User`    |
-| Schema types     | `keyword`       | `string`, `integer`, `array`   |
-| operationId      | `function`      | `getUserById`                  |
-| Security schemes | `macro`         | `bearerAuth`                   |
-| Media types      | `string`        | `application/json`             |
-| Deprecated flags | `modifier`      | `deprecated: true`             |
-| Schema names     | `type`          | Component schema definitions   |
-| Path parameters  | `typeParameter` | `{userId}`                     |
+| Element          | Token Type      | Modifiers              | Example                        |
+| ---------------- | --------------- | ---------------------- | ------------------------------ |
+| HTTP methods     | `method`        | `deprecated` if marked | `get`, `post`, `put`, `delete` |
+| Paths            | `namespace`     |                        | `/users/{id}`                  |
+| Status codes     | `enum`          |                        | `200`, `404`, `default`        |
+| `$ref` values    | `variable`      |                        | `#/components/schemas/User`    |
+| Schema types     | `keyword`       |                        | `string`, `integer`, `array`   |
+| operationId      | `function`      |                        | `getUserById`                  |
+| Security schemes | `macro`         |                        | `bearerAuth`                   |
+| Media types      | `string`        |                        | `application/json`             |
+| Schema names     | `type`          | `deprecated`, `definition` | Component schema definitions |
+| Tag names        | `type`          | `definition`           | Global tag definitions         |
+| Path parameters  | `typeParameter` |                        | `{userId}`                     |
+
+The `deprecated` modifier renders as strikethrough in VS Code, giving visual feedback for deprecated schemas and operations directly in the editor.
 
 ## Refactoring
 
@@ -272,9 +333,9 @@ Color picker for color values in JSON documents.
 
 Validation sources:
 
-1. **OpenAPI Rules**: 38 built-in rules covering best practices
-2. **Schema Validation**: Zod/JSON Schema structural validation
-3. **Custom Rules**: Your `.telescope/rules/` TypeScript rules
+1. **OpenAPI Rules**: 88 built-in rules covering best practices, security, and OWASP
+2. **Schema Validation**: JSON Schema structural validation for OpenAPI 3.0/3.1/3.2
+3. **Custom Rules**: Spectral-compatible YAML rulesets and Bun sidecar TS/JS rules
 4. **Reference Validation**: `$ref` resolution and cycle detection
 
 Diagnostic severities:
@@ -293,6 +354,47 @@ Validates all OpenAPI files in your workspace:
 - Incremental updates for changed files
 - Cross-file reference validation
 - operationId uniqueness checking
+- Progress reporting for large workspaces (3+ root documents)
+
+### Parse Error Diagnostics
+
+Generic YAML and JSON parse errors are expected to come from the editor's own language services or installed extensions:
+
+- Syntax errors (missing colons, invalid indentation)
+- Invalid YAML/JSON structure
+- Encoding issues
+
+Telescope suppresses its own malformed-document diagnostics so those editor-owned parse errors stay primary.
+
+### Progress Reporting
+
+For workspaces with multiple OpenAPI root documents, Telescope shows progress in the VS Code status bar:
+
+- "Analyzing OpenAPI workspace" with percentage
+- Individual root progress (e.g., "Analyzing root 2/5")
+- Automatic completion when all roots are processed
+
+### Partial Results
+
+Workspace symbol search (`Ctrl+T`) returns results incrementally:
+
+- Results appear as they're found across files
+- No need to wait for complete workspace scan
+- Responsive even in large API projects
+
+## Editing Support (Extended)
+
+### Linked Editing Ranges
+
+**Trigger**: Automatic when editing matching text (if supported by client)
+
+Synchronized editing for related text spans within a single document:
+
+- **`$ref` linked editing**: Edits all identical `$ref` values simultaneously
+- **Tag linked editing**: Editing a root tag definition updates all operation tag usages (and vice versa)
+- **operationId linked editing**: Editing an operationId definition updates link operationId references
+
+Requires 2+ matching ranges to activate. Client must support `textDocument/linkedEditingRange`.
 
 ## Embedded Language Support
 
@@ -362,6 +464,4 @@ Context menu commands are also available when right-clicking on files in Explore
 - [Configuration Reference](CONFIGURATION.md) - Configure patterns and rules
 - [Custom Rules Guide](CUSTOM-RULES.md) - Create custom validation rules
 - [Architecture](../ARCHITECTURE.md) - Technical implementation details
-- [Built-in Rules](../packages/telescope-server/src/engine/rules/RULES.md) - Rule reference
-
-```
+- [Built-in Rules](../server/README.md) - Rule reference

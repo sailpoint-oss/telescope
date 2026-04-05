@@ -1,0 +1,91 @@
+/**
+ * E2E Tests: Folding range provider
+ */
+
+import * as assert from "assert";
+import * as vscode from "vscode";
+import {
+	activateExtension,
+	executeWithRetry,
+	getTestApi,
+	isMultiRootWorkspace,
+	openAndShow,
+	waitForDiagnostics,
+	waitForProviders,
+	waitForProjectInfo,
+} from "./utils/e2e-helpers";
+
+suite("Folding Ranges", () => {
+	let folder: vscode.WorkspaceFolder;
+
+	suiteSetup(async () => {
+		if (isMultiRootWorkspace()) return;
+		await activateExtension();
+		const api = getTestApi();
+		await api.waitForSessionsRunning(120000);
+		const f = vscode.workspace.workspaceFolders?.[0];
+		assert.ok(f, "Should have a workspace folder");
+		folder = f;
+		await waitForProjectInfo(api, (i) => i.knownOpenAPIFiles > 0, {
+			timeoutMs: 60000,
+			uri: folder.uri,
+		});
+		const warmupUri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
+		await openAndShow(warmupUri);
+		await waitForDiagnostics(warmupUri, (d) => d.length > 0, {
+			timeoutMs: 90000,
+		});
+		await waitForProviders(warmupUri);
+	});
+
+	test("Folding ranges cover paths and operations", async () => {
+		if (isMultiRootWorkspace()) return;
+		const uri = vscode.Uri.joinPath(folder.uri, "rich-api.yaml");
+		await openAndShow(uri);
+
+		await waitForDiagnostics(uri, (d) => d.length > 0, {
+			timeoutMs: 60000,
+		});
+
+		const ranges = await executeWithRetry<vscode.FoldingRange[]>(
+			"vscode.executeFoldingRangeProvider",
+			[uri],
+			(r) => Array.isArray(r) && r.length > 0,
+		);
+
+		assert.ok(ranges && ranges.length > 0, "Expected folding ranges");
+
+		// rich-api.yaml has: info, tags, servers, 4 path items (each with operations),
+		// components (with schemas, responses, parameters, securitySchemes).
+		assert.ok(
+			ranges.length >= 10,
+			`Expected at least 10 folding ranges for rich spec. Got: ${ranges.length}`,
+		);
+
+		// Validate folding ranges span meaningful document regions.
+		// The folding provider generates ranges for path items, operations,
+		// component sub-sections, etc. — not necessarily for top-level keys.
+		const maxEnd = Math.max(...ranges.map((r) => r.end));
+		const doc = await vscode.workspace.openTextDocument(uri);
+		assert.ok(
+			maxEnd > doc.lineCount / 2,
+			`Folding ranges should cover most of the document. Max end: ${maxEnd}, lines: ${doc.lineCount}`,
+		);
+	});
+
+	test("Folding ranges exist for simple spec too", async () => {
+		if (isMultiRootWorkspace()) return;
+		const uri = vscode.Uri.joinPath(folder.uri, "valid.yaml");
+		await openAndShow(uri);
+
+		await waitForDiagnostics(uri, () => true, { timeoutMs: 60000 });
+
+		const ranges = await executeWithRetry<vscode.FoldingRange[]>(
+			"vscode.executeFoldingRangeProvider",
+			[uri],
+			(r) => Array.isArray(r) && r.length > 0,
+		);
+
+		assert.ok(ranges && ranges.length > 0, "Expected folding ranges even for a small spec");
+	});
+});

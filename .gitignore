@@ -6,6 +6,27 @@ out
 dist
 *.tgz
 
+# Built Go binaries
+client/bin/
+client/sidecar/
+server/telescope
+server/telescope.exe
+server/server
+server/server.exe
+
+# Compiled Bun runner binaries (build artifacts, not committed)
+server/lsp/bun/runner/dist/
+
+# Go workspace (local development with gossip)
+go.work
+go.work.sum
+
+# VSIX build artifacts
+*.vsix
+
+# CI / local lint report output
+telescope-report.md
+
 # code coverage
 coverage
 *.lcov
@@ -26,6 +47,12 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .eslintcache
 .cache
 *.tsbuildinfo
+
+# VS Code extension E2E artifacts (downloaded VS Code + user-data)
+**/.vscode-test/**
+
+# E2E-generated temporary workspace files (fixtures remain tracked)
+client/test-fixtures/**/tmp-e2e/**
 
 # IntelliJ based IDEs
 .idea

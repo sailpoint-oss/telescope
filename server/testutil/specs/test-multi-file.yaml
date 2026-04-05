@@ -1,0 +1,33 @@
+openapi: 3.1.0
+x-sailpoint-api:
+  version: v2025
+  audience: external-public
+info:
+  title: Multi-File Test Cases
+  version: 1.0.0
+  description: Root file for multi-file test scenarios (ref cycles, cross-file uniqueness, version isolation)
+tags:
+  - name: Users
+paths:
+  /test/ref-cycle:
+    get:
+      operationId: testRefCycle
+      summary: Test ref cycle
+      description: Operation that references schemas with cycles
+      tags:
+        - Users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "./test-multi-file-refs/cycle-a.yaml"
+
+components:
+  schemas:
+    A:
+      $ref: "./test-multi-file-refs/cycle-a.yaml"
+    B:
+      $ref: "./test-multi-file-refs/cycle-b.yaml"
+

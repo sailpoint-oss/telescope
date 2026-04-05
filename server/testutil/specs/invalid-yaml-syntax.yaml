@@ -1,0 +1,29 @@
+openapi: "3.1.0"
+info:
+  title: Invalid YAML Syntax Test
+  version: "1.0.0"
+paths:
+  /duplicate:
+    get:
+      summary: First definition
+      responses:
+        "200":
+          description: OK
+    get:
+      summary: Second definition
+      responses:
+        "200":
+          description: OK
+  /bad-indent:
+    get:
+      summary: Outer value
+        nested: indented too far under a scalar
+      responses:
+        "200":
+          description: OK
+  /missing-colon
+    get:
+      summary: Should have a colon
+      responses:
+        "200":
+          description: OK

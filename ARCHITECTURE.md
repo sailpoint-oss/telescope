@@ -4,52 +4,43 @@ This document provides a detailed overview of Telescope's internal architecture 
 
 ## Overview
 
-Telescope is an OpenAPI linting tool built on the Language Server Protocol (LSP) using `vscode-languageserver`. It provides real-time diagnostics in VS Code through a unified pipeline that processes OpenAPI documents.
+Telescope is an OpenAPI linting tool built as a **Go language server** on the [gossip](https://github.com/LukasParke/gossip) LSP framework with native tree-sitter integration. A **VS Code extension** (TypeScript) acts as the client, discovering OpenAPI files and managing LSP sessions. Navigator now owns canonical OpenAPI parsing and validation, Barrelman owns shared built-in lint logic, and Telescope owns the editor-facing LSP/client/plugin experience.
 
-## Package Structure
+## Repository Structure
 
 ```
 telescope/
-├── packages/
-│   ├── telescope-client/        # VS Code extension client
-│   │   └── src/
-│   │       └── extension.ts    # Extension entry point
-│   │
-│   ├── telescope-server/        # Language server + linting engine
-│   │   └── src/
-│   │       ├── server.ts       # Main entry point
-│   │       ├── lsp/            # LSP integration layer
-│   │       │   ├── context.ts      # Shared context
-│   │       │   ├── document-cache.ts  # Document caching
-│   │       │   └── handlers/       # LSP feature handlers
-│   │       │       ├── diagnostics.ts
-│   │       │       ├── navigation.ts
-│   │       │       ├── hover.ts
-│   │       │       ├── completions.ts
-│   │       │       ├── code-actions.ts
-│   │       │       ├── code-lens.ts
-│   │       │       ├── inlay-hints.ts
-│   │       │       ├── rename.ts
-│   │       │       ├── symbols.ts
-│   │       │       ├── semantic-tokens.ts
-│   │       │       └── document-links.ts
-│   │       └── engine/         # Core linting engine
-│   │           ├── config/     # Configuration resolution
-│   │           ├── context/    # Linting context management
-│   │           ├── execution/  # Rule runners
-│   │           ├── indexes/    # Graph building, project indexing
-│   │           ├── ir/         # Intermediate representation
-│   │           ├── rules/      # Rule API and built-in rules
-│   │           ├── schemas/    # OpenAPI TypeBox schemas
-│   │           └── utils/      # Utility functions
-│   │
-│   └── test-files/             # Test fixtures and examples
-│       ├── openapi/            # OpenAPI test documents
-│       ├── custom/             # Custom validation test files
-│       └── .telescope/         # Example custom rules
+├── server/                    # Go language server + CLI (primary)
+│   ├── cli/                   # Cobra CLI (lint, ci, serve)
+│   ├── config/                # .telescope.yaml loading
+│   ├── extensions/            # x-* extension validation
+│   ├── lsp/                   # LSP server + 20+ feature handlers
+│   ├── markdown/              # Markdown parsing (goldmark)
+│   ├── openapi/               # Compatibility model + adapters over Navigator data
+│   ├── plugin/                # In-process plugin helpers; YAML rule adapters
+│   ├── project/               # Multi-file workspace + $ref resolution
+│   ├── rules/                 # Rule registry, builder, walker
+│   │   ├── analyzers/         # Built-in analyzers (structural, naming, etc.)
+│   │   ├── checks/            # Syntactic checks (duplicate keys, ASCII)
+│   │   └── testing/           # Test harness for rules
+│   ├── rulesets/              # Ruleset loading/merging (Spectral compat)
+│   ├── sdk/                   # Public Go API (Workspace, programmatic lint)
+│   ├── spectral/              # Spectral rule engine (JSONPath + functions)
+│   ├── testutil/              # Test utilities and fixture specs
+│   └── validation/            # Non-OpenAPI file validation (`additionalValidation`)
+│
+├── client/                    # VS Code extension client
+│   └── src/
+│       ├── extension.ts       # Extension entry point
+│       ├── session-manager.ts # Multi-root workspace orchestration
+│       ├── session.ts         # Single LSP session lifecycle
+│       ├── classifier.ts      # OpenAPI document classification
+│       └── workspace-scanner.ts  # File discovery
+│
+├── test-files/                # Test fixtures and examples
 ```
 
-## Data Flow
+## Data Flow (Go Server)
 
 ```mermaid
 flowchart TB
@@ -57,22 +48,22 @@ flowchart TB
         Extension[Extension Client]
     end
 
-    subgraph Server["Language Server (telescope-server)"]
-        subgraph LSP["LSP Layer (src/lsp/)"]
-            Connection["LSP Connection"]
-            TextDocs["TextDocuments"]
-            Cache["DocumentCache"]
+    subgraph Server["Go Language Server"]
+        subgraph LSP["LSP Layer (server/lsp/)"]
+            Gossip["gossip Framework"]
+            TreeSitter["Tree-sitter Parser"]
             Handlers["Feature Handlers"]
+            RulesetMgr["RulesetManager"]
         end
 
-        subgraph Engine["Engine Layer (src/engine/)"]
-            Config["Config Resolution"]
-            Context["Context Resolver"]
-            IR["IR Builder"]
-            Indexes["Graph + Indexes"]
-            Execution["Rule Execution"]
-            Rules["Built-in Rules"]
-            Schemas["TypeBox Schemas"]
+        subgraph Engine["Rule Engine"]
+            Index["Navigator/OpenAPI Index"]
+            Navigator["Navigator Validation"]
+            Analyzers["Built-in Analyzers"]
+            Checks["Syntactic Checks"]
+            Spectral["Spectral Engine"]
+            BunSidecar["Bun sidecar (TS/JS)"]
+            ExtVal["Extension Validation"]
         end
     end
 
@@ -81,23 +72,26 @@ flowchart TB
         Fixes["Quick Fixes"]
     end
 
-    Extension <--> Connection
-    Connection --> TextDocs
-    TextDocs --> Cache
-    Cache --> Handlers
+    Extension <--> Gossip
+    Gossip --> TreeSitter
+    TreeSitter --> Index
+    Index --> Navigator
+    Index --> Analyzers
+    Index --> Checks
+    Index --> Spectral
+    Index --> BunSidecar
+    Index --> ExtVal
 
-    Handlers --> Config
-    Handlers --> Context
-    Context --> IR
-    IR --> Indexes
-    Indexes --> Execution
-    Rules --> Execution
-    Schemas --> Rules
+    Navigator --> Diagnostics
+    Analyzers --> Diagnostics
+    Checks --> Diagnostics
+    Spectral --> Diagnostics
+    BunSidecar --> Diagnostics
+    ExtVal --> Diagnostics
 
-    Execution --> Diagnostics
-    Execution --> Fixes
-    Diagnostics --> Connection
-    Fixes --> Connection
+    Diagnostics --> RulesetMgr
+    RulesetMgr --> Extension
+    Handlers --> Extension
 
     classDef client fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     classDef lsp fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
@@ -105,8 +99,8 @@ flowchart TB
     classDef output fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
 
     class Extension client
-    class Connection,TextDocs,Cache,Handlers lsp
-    class Config,Context,IR,Indexes,Execution,Rules,Schemas engine
+    class Gossip,TreeSitter,Handlers,RulesetMgr lsp
+    class Index,Navigator,Analyzers,Checks,Spectral,BunSidecar,ExtVal engine
     class Diagnostics,Fixes output
 ```
 
@@ -114,85 +108,86 @@ flowchart TB
 
 ### Phase 1: Server Initialization
 
-1. **LSP Connection** starts with `vscode-languageserver`
-2. **Feature Handlers** are registered for all LSP capabilities
-3. **Configuration** is loaded from `.telescope/config.yaml`
+1. **gossip server** starts with tree-sitter language support for YAML and JSON
+2. **Feature handlers** are registered for all LSP capabilities (20+ handlers)
+3. **Configuration** is loaded from `.telescope.yaml`
+4. **RulesetManager** merges config, built-in rulesets, and Spectral rulesets
+5. **Bun sidecar** may start when custom TS/JS rules or Spectral paths require it, using the bundled `runner.js` plus Bun from `PATH`
 
 ### Phase 2: Document Processing
 
-4. **DocumentCache** manages parsed documents:
+6. **Tree-sitter** incrementally parses YAML/JSON documents
+7. **Navigator + OpenAPI index** construct the canonical document model and Telescope compatibility surface:
+   - `Document`, `Operation`, `Schema`, `Parameter`, `Response`, etc.
+   - All constructs track source locations via `openapi.Loc`
+   - Index is cached per-document via `openapi.IndexCache`
 
-   - Parses YAML/JSON content
-   - Builds IR (Intermediate Representation) with location tracking
-   - Detects document type (root OpenAPI spec vs fragment)
-   - Caches parsed data for performance
+### Phase 3: Rule Execution
 
-5. **IR Builder** creates structured representation:
-   - Preserves source locations for precise diagnostics
-   - Handles both YAML and JSON formats
-   - Supports incremental updates via cache invalidation
+8. The **DiagnosticEngine** runs multiple analyzer types:
+   - **Navigator validation** -- Canonical syntax, structural, schema-shape, and meta-schema diagnostics
+   - **Barrelman/Telescope analyzers** -- Built-in rules using visitor pattern against the OpenAPI index
+   - **Telescope checks** -- Tree-sitter pattern-based syntactic checks
+   - **Spectral engine** -- JSONPath + built-in functions for declarative YAML rules
+   - **Bun sidecar** -- TypeScript/JavaScript custom rules (optional)
+   - **Extension validation** -- `x-*` property schema validation
+   - **Additional validation** -- Non-OpenAPI files matched by `additionalValidation`
 
-### Phase 3: Indexing
+### Phase 4: Results
 
-6. **Indexes** process documents to build:
-   - **GraphIndex**: Tracks `$ref` relationships between documents
-   - **OperationIdIndex**: Monitors operation ID uniqueness
-   - **AtomIndex**: Extracts operations, components, schemas
-   - **ProjectIndex**: Provides reverse lookups
-
-### Phase 4: Rule Execution
-
-7. **Execution Layer** runs rules against indexed content:
-   - **IR Runner**: Processes rules against IR documents
-   - **Visitor Pattern**: Rules receive typed callbacks (Operation, Schema, etc.)
-   - **TypeBox Schemas**: Provide type safety for rule authors
-
-### Phase 5: Results
-
-8. **Output Generation**:
-   - **Diagnostics**: Violations with precise source locations
-   - **Quick Fixes**: Optional code patches for auto-fixable issues
-   - Results sent to VS Code via LSP protocol
+9. **RulesetManager** filters diagnostics by configured severity overrides
+10. **Diagnostics** with precise source locations are sent to the client
 
 ## Key Components
 
-### LSP Layer (`src/lsp/`)
+### Go Server (`server/`)
 
-| Component      | File                           | Purpose                         |
-| -------------- | ------------------------------ | ------------------------------- |
-| Server Entry   | `server.ts`                    | Main entry point, initialization |
-| Context        | `context.ts`                   | Shared workspace state, rules   |
-| Document Cache | `document-cache.ts`            | IR/atoms caching, position utils |
-| Diagnostics    | `handlers/diagnostics.ts`      | Pull-based and workspace diags  |
-| Navigation     | `handlers/navigation.ts`       | Definition, references, call hierarchy |
-| Hover          | `handlers/hover.ts`            | $ref previews                   |
-| Completions    | `handlers/completions.ts`      | OpenAPI-specific completions    |
-| Code Actions   | `handlers/code-actions.ts`     | Quick fixes                     |
-| Symbols        | `handlers/symbols.ts`          | Document/workspace symbols      |
-| Semantic Tokens| `handlers/semantic-tokens.ts`  | Enhanced syntax highlighting    |
+| Component | Directory | Purpose |
+| --------- | --------- | ------- |
+| CLI | `cli/` | `lint`, `ci`, `serve` subcommands via Cobra |
+| Config | `config/` | `.telescope.yaml` resolution, Spectral config compat |
+| Extensions | `extensions/` | `x-*` extension schema registry and validation |
+| LSP Server | `lsp/server.go` | gossip wiring, analyzer registration, file watchers |
+| Feature Handlers | `lsp/*.go` | Hover, completion, definition, references, rename, code actions, code lens, semantic tokens, etc. |
+| RulesetManager | `lsp/ruleset_manager.go` | Config merging, severity filtering, hot-reload |
+| DiagnosticMux | `lsp/diagnostic_mux.go` | Merges Telescope-owned diagnostic sources before publish |
+| OpenAPI Parser | `openapi/parser.go` | Compatibility parsing helpers over Navigator-backed content |
+| OpenAPI Index | `openapi/index.go` | Fast lookups by operation ID, path, component |
+| Index Cache | `openapi/index.go` | Thread-safe per-document caching (`sync.RWMutex`) |
+| Rule Builder | `rules/builder.go` | Fluent API: `Define().Operations().Schemas()...` |
+| Reporter | `rules/reporter.go` | Diagnostic reporting with chainable enrichment |
+| Walker | `rules/walker.go` | OpenAPI model traversal for rule execution |
+| Validators | `rules/validators.go` | Composable field validators (`Required`, `KebabCase`, etc.) |
+| Analyzers | `rules/analyzers/` | Naming, docs, security, and other built-in rule coverage |
+| Checks | `rules/checks/` | Duplicate keys, ASCII validation |
+| Test Harness | `rules/testing/` | `rulestest.Run()` with exact diagnostic assertions |
+| Rulesets | `rulesets/` | Loading, merging, resolution, Spectral OAS built-in |
+| Spectral Engine | `spectral/` | JSONPath evaluation + built-in functions |
+| Plugin helpers | `plugin/` | In-process `Plugin` interface; YAML adapters |
+| Go SDK | `sdk/` | Workspace API, programmatic lint, type re-exports |
+| Project Manager | `project/` | Workspace scanning, dependency graph, $ref resolution |
+| Markdown | `markdown/` | Markdown parsing in description fields |
+| Validation | `validation/` | Non-OpenAPI file validation matched by `additionalValidation` |
 
-### Engine Layer (`src/engine/`)
+### VS Code Client (`client/`)
 
-| Component     | Directory    | Purpose                                            |
-| ------------- | ------------ | -------------------------------------------------- |
-| Configuration | `config/`    | `.telescope/config.yaml` resolution                |
-| Context       | `context/`   | Multi-root workspace handling, document caching    |
-| Execution     | `execution/` | Rule runners (AST-based and IR-based)              |
-| Indexes       | `indexes/`   | Graph building, atom extraction, project indexing  |
-| IR            | `ir/`        | Intermediate representation with location tracking |
-| Rules         | `rules/`     | Rule API, built-in rules (generic + SailPoint)     |
-| Schemas       | `schemas/`   | TypeBox schemas for OpenAPI 3.0/3.1/3.2            |
-| Utils         | `utils/`     | Pointer math, logging, file system utilities       |
+| Component | File | Purpose |
+| --------- | ---- | ------- |
+| Extension Entry | `extension.ts` | Activation, command registration, Go binary resolution |
+| Session Manager | `session-manager.ts` | One `Session` per workspace folder |
+| Session | `session.ts` | Single LSP session lifecycle |
+| Classifier | `classifier.ts` | OpenAPI document type detection |
+| Scanner | `workspace-scanner.ts` | Workspace file discovery |
 
 ## Document Types
 
 Telescope classifies documents into three types:
 
-| Type         | Description                                         | Example         |
-| ------------ | --------------------------------------------------- | --------------- |
-| **Root**     | Complete OpenAPI specification with `openapi` field | Main API spec   |
-| **Fragment** | Partial document referenced via `$ref`              | Component files |
-| **Unknown**  | Non-OpenAPI YAML/JSON files                         | Config files    |
+| Type | Description | Example |
+| ---- | ----------- | ------- |
+| **Root** | Complete OpenAPI specification with `openapi` field | Main API spec |
+| **Fragment** | Partial document referenced via `$ref` | Component files |
+| **Unknown** | Non-OpenAPI YAML/JSON files | Config files |
 
 ## Multi-File Support
 
@@ -210,206 +205,67 @@ components:
       $ref: "./schemas/User.yaml"
 ```
 
-The **GraphIndex** tracks all `$ref` relationships and enables:
+The **ProjectManager** builds a dependency graph and provides:
 
-- Cross-file validation
+- Cross-file `$ref` resolution
 - Cycle detection
-- Reference resolution
+- Project-level diagnostics
+- Workspace-wide validation and lint coordination
 
 ## Configuration Resolution
 
-Configuration is loaded from `.telescope/config.yaml` with these precedence rules:
+Configuration is loaded from `.telescope.yaml` with these precedence rules:
 
-1. Explicit file patterns override defaults
-2. Rule overrides merge with built-in defaults
-3. Custom rules are loaded via Bun's TypeScript loader
+1. `extends` specifies a base ruleset (`telescope:recommended`, etc.)
+2. Spectral YAML rulesets from `spectralRulesets` are merged
+3. `rules` section overrides individual rule severities
+4. Final enabled rules + severities are computed by `RulesetManager`
 
-## LSP Feature Implementation
+## Custom Rules
 
-### Handler Architecture
+End-user custom rules use **YAML** (`.telescope.yaml`, `openapi.rules`, `spectralRulesets`) and optional **Bun**-hosted TypeScript/JavaScript. Spectral-compatible YAML rulesets provide declarative JSONPath rules without executing user JavaScript in-process.
 
-Telescope implements a modular handler architecture where each handler provides specific LSP capabilities:
+Contributors can add built-in Go rules in `rules/analyzers` using `rules.Define()` (see [CUSTOM-RULES.md](docs/CUSTOM-RULES.md)).
 
-```mermaid
-flowchart TB
-    subgraph Handlers["LSP Feature Handlers"]
-        Diag["Diagnostics Handler"]
-        Nav["Navigation Handler"]
-        Hover["Hover Handler"]
-        Comp["Completions Handler"]
-        Actions["Code Actions Handler"]
-        Lens["Code Lens Handler"]
-        Hints["Inlay Hints Handler"]
-        Rename["Rename Handler"]
-        Symbols["Symbols Handler"]
-        Semantic["Semantic Tokens Handler"]
-        Links["Document Links Handler"]
-    end
+## LSP Feature Handlers
 
-    subgraph Features["LSP Capabilities"]
-        PullDiag["Pull Diagnostics"]
-        WorkspaceDiag["Workspace Diagnostics"]
-        Definition["Go to Definition"]
-        References["Find References"]
-        CallHier["Call Hierarchy"]
-        HoverInfo["Hover Preview"]
-        RefComp["$ref Completions"]
-        QuickFix["Quick Fixes"]
-        RefCount["Reference Counts"]
-        TypeHints["Type Hints"]
-        SymbolRename["Symbol Rename"]
-        DocSymbols["Document Symbols"]
-        Highlighting["Syntax Highlighting"]
-        ClickableRefs["Clickable $refs"]
-    end
-
-    Diag --> PullDiag
-    Diag --> WorkspaceDiag
-    Nav --> Definition
-    Nav --> References
-    Nav --> CallHier
-    Hover --> HoverInfo
-    Comp --> RefComp
-    Actions --> QuickFix
-    Lens --> RefCount
-    Hints --> TypeHints
-    Rename --> SymbolRename
-    Symbols --> DocSymbols
-    Semantic --> Highlighting
-    Links --> ClickableRefs
-```
-
-### Feature Summary
-
-| Feature                   | Handler                    | Implementation                           |
-| ------------------------- | -------------------------- | ---------------------------------------- |
-| **Diagnostics**           | `diagnostics.ts`           | Runs rule engine against documents       |
-| **Workspace Diagnostics** | `diagnostics.ts`           | Validates all OpenAPI files with caching |
-| **Document Links**        | `document-links.ts`        | Clickable `$ref` with position resolution|
-| **Hover**                 | `hover.ts`                 | Preview referenced content inline        |
-| **Code Actions**          | `code-actions.ts`          | Quick fixes for common issues            |
-| **References**            | `navigation.ts`            | Find all usages of components            |
-| **Workspace Symbols**     | `symbols.ts`               | Search across all OpenAPI files          |
-| **Completions**           | `completions.ts`           | `$ref`, status codes, media types, tags  |
-| **Rename**                | `rename.ts`                | Rename operationIds and components       |
-| **Code Lens**             | `code-lens.ts`             | Reference counts, response summaries     |
-| **Inlay Hints**           | `inlay-hints.ts`           | Type hints, required markers             |
-| **Definition**            | `navigation.ts`            | Enhanced navigation for OpenAPI refs     |
-| **Call Hierarchy**        | `navigation.ts`            | Component reference relationships        |
-| **Semantic Tokens**       | `semantic-tokens.ts`       | Enhanced syntax highlighting             |
-
-### DocumentCache
-
-The `DocumentCache` manages parsed document data:
-
-```typescript
-interface CachedDocument {
-  uri: string;
-  version: number;
-  format: "yaml" | "json";
-  content: string;
-  hash: string;
-  ast: yaml.Document | jsonc.Node;
-  parsedObject: unknown;
-  ir: IRDocument;
-  atoms: AtomIndex;
-  documentType: DocumentType;
-  openapiVersion: string;
-  lineOffsets: number[];
-}
-```
-
-Key features:
-- **Version tracking**: Cache invalidated on document changes
-- **IR building**: Automatic IR and atoms extraction
-- **Position utilities**: `locToRange`, `positionToOffset`, `getRange`
-
-### Semantic Tokens
-
-The semantic tokens handler provides highlighting for:
-
-| Token Type      | Elements                     |
-| --------------- | ---------------------------- |
-| `namespace`     | Path strings (`/users/{id}`) |
-| `type`          | Schema definitions           |
-| `enum`          | HTTP status codes            |
-| `variable`      | `$ref` values                |
-| `function`      | operationId values           |
-| `method`        | HTTP methods                 |
-| `macro`         | Security scheme names        |
-| `keyword`       | Schema types                 |
-| `modifier`      | Deprecated flags             |
-| `typeParameter` | Path parameters              |
-| `string`        | Media types                  |
-
-### Code Actions
-
-Quick fixes are generated based on diagnostic codes:
-
-```typescript
-// Diagnostic code contains "description"
-→ Add description: "TODO: Add description"
-
-// Diagnostic code contains "operationId"
-→ Add operationId: "getUsers" (auto-generated)
-
-// Diagnostic code contains "kebab"
-→ Convert to kebab-case
-```
-
-### Call Hierarchy
-
-Uses the IR graph to traverse component relationships:
-
-- **Incoming calls**: What references this component
-- **Outgoing calls**: What this component references
-
-## Extension Points
-
-### Custom Rules
-
-Rules are defined using `defineRule()` or `defineGenericRule()`:
-
-```typescript
-import { defineRule } from "telescope-server";
-
-export default defineRule({
-  meta: { id: "my-rule", ... },
-  check(ctx) {
-    return {
-      Operation(op) { /* validate operation */ },
-      Schema(schema) { /* validate schema */ },
-    };
-  },
-});
-```
-
-### Custom Schemas
-
-TypeBox schemas for file validation:
-
-```typescript
-import { defineSchema } from "telescope-server";
-
-export default defineSchema((Type) =>
-  Type.Object({
-    name: Type.String(),
-    version: Type.String(),
-  })
-);
-```
+| Feature | Handler | Implementation |
+| ------- | ------- | -------------- |
+| **Diagnostics** | `diagnostics.go` | Runs rule engine against documents |
+| **Document Links** | `document_links.go` | Clickable `$ref` with position resolution |
+| **Hover** | `hover.go` | Preview referenced content inline |
+| **Code Actions** | `code_actions.go` | Quick fixes for common issues |
+| **References** | `references.go` | Find all usages of components |
+| **Workspace Symbols** | `symbols.go` | Search across all OpenAPI files |
+| **Completions** | `completion.go` | `$ref`, status codes, media types, tags |
+| **Rename** | `rename.go` | Rename operationIds and components |
+| **Code Lens** | `code_lens.go` | Reference counts, response summaries |
+| **Inlay Hints** | `inlay_hints.go` | Type hints, required markers |
+| **Definition** | `definition.go` | Navigate to `$ref` targets |
+| **Call Hierarchy** | `call_hierarchy.go` | Component reference relationships |
+| **Semantic Tokens** | `semantic_tokens.go` | Enhanced syntax highlighting |
 
 ## Performance Considerations
 
-- **Incremental Updates**: Only changed documents are reprocessed
-- **Document Caching**: Parsed documents are cached between edits
-- **Index Reuse**: Indexes are updated incrementally when possible
-- **Lazy Loading**: Custom rules are loaded on-demand
+- **Tree-sitter incremental parsing**: Only changed portions of documents are re-parsed
+- **Index caching**: OpenAPI indexes are cached per-document, invalidated on changes
+- **Debounced diagnostics**: LSP diagnostics are debounced (configurable, default 300ms)
+
+## Key Dependencies
+
+| Package | Purpose |
+| ------- | ------- |
+| [gossip](https://github.com/LukasParke/gossip) | LSP framework with tree-sitter integration |
+| [go-tree-sitter](https://github.com/tree-sitter/go-tree-sitter) | Incremental YAML/JSON parsing |
+| [yuin/goldmark](https://github.com/yuin/goldmark) | Markdown parsing and validation |
+| [vmware-labs/yaml-jsonpath](https://github.com/vmware-labs/yaml-jsonpath) | JSONPath for Spectral rules |
+| [spf13/cobra](https://github.com/spf13/cobra) | CLI framework |
 
 ## Related Documentation
 
 - [README](README.md) - Project overview and quick start
+- [Server README](server/README.md) - Go server details and SDK reference
 - [LSP Features](docs/LSP-FEATURES.md) - Complete LSP feature reference
 - [Configuration](docs/CONFIGURATION.md) - Full configuration reference
 - [Custom Rules](docs/CUSTOM-RULES.md) - Rule authoring guide
-- [Built-in Rules](packages/telescope-server/src/engine/rules/RULES.md) - Rule reference
+- [Contributing](CONTRIBUTING.md) - Development guidelines

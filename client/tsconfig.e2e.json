@@ -1,0 +1,13 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"module": "CommonJS",
+		"moduleResolution": "node",
+		"outDir": "./out/test",
+		"rootDir": "./src/test",
+		"types": ["node", "vscode", "mocha"]
+	},
+	"include": ["src/test/**/*"],
+	"exclude": ["node_modules"]
+}
+

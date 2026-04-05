@@ -1,0 +1,384 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "OpenAPI JSON",
+	"scopeName": "source.openapi.json",
+	"patterns": [
+		{ "include": "#openapi-version-key" },
+		{ "include": "#openapi-top-level-keys" },
+		{ "include": "#openapi-path-keys" },
+		{ "include": "#openapi-operationid-values" },
+		{ "include": "#openapi-operation-keys" },
+		{ "include": "#openapi-component-section-keys" },
+		{ "include": "#openapi-type-values" },
+		{ "include": "#openapi-format-values" },
+		{ "include": "#openapi-boolean-values" },
+		{ "include": "#openapi-security-type-values" },
+		{ "include": "#openapi-status-code-keys" },
+		{ "include": "#openapi-schema-keys" },
+		{ "include": "#openapi-parameter-location-values" },
+		{ "include": "#openapi-parameter-keys" },
+		{ "include": "#openapi-media-type-keys" },
+		{ "include": "#openapi-info-keys" },
+		{ "include": "#openapi-reference-key" },
+		{ "include": "#openapi-extension-keys" },
+		{ "include": "source.json" }
+	],
+	"repository": {
+		"openapi-version-key": {
+			"patterns": [
+				{
+					"match": "(\")(openapi|swagger)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.version-key.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-top-level-keys": {
+			"patterns": [
+				{
+					"match": "(\")(info|paths|components|servers|tags|security|webhooks|externalDocs)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.top-level.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-path-keys": {
+			"comment": "API path keys like /pets, /users/{userId}",
+			"patterns": [
+				{
+					"match": "(\")(/[^\"]*)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "entity.name.tag.openapi.path.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-operation-keys": {
+			"patterns": [
+				{
+					"match": "(\")(get|put|post|delete|options|head|patch|trace)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.http-method.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				},
+			{
+				"match": "(\")(operationId|requestBody|responses|parameters|callbacks|security|servers|tags)(\")(\\s*:\\s*)",
+				"captures": {
+					"1": { "name": "punctuation.definition.string.begin.json" },
+					"2": {
+						"name": "support.type.property-name.openapi.operation.json"
+					},
+					"3": { "name": "punctuation.definition.string.end.json" },
+					"4": { "name": "punctuation.separator.key-value.json" }
+				}
+			}
+			]
+		},
+		"openapi-operationid-values": {
+			"comment": "operationId key and its value as a function-like identifier",
+			"patterns": [
+				{
+					"match": "(\")(operationId)(\")(\\s*:\\s*)(\")(.*?)(\")",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.operation.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" },
+						"5": { "name": "punctuation.definition.string.begin.json" },
+						"6": { "name": "entity.name.function.openapi.operation-id.json" },
+						"7": { "name": "punctuation.definition.string.end.json" }
+					}
+				}
+			]
+		},
+		"openapi-component-section-keys": {
+			"patterns": [
+				{
+					"match": "(\")(schemas|parameters|responses|requestBodies|headers|examples|links|callbacks|securitySchemes|pathItems)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.component-section.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-schema-keys": {
+			"patterns": [
+				{
+					"match": "(\")(type|format|items|properties|additionalProperties|required|enum|default|nullable|readOnly|writeOnly|xml|externalDocs|example|examples|deprecated|schema)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.schema.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				},
+				{
+					"match": "(\")(allOf|oneOf|anyOf|not|discriminator)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.schema-composition.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				},
+				{
+					"match": "(\")(minimum|maximum|exclusiveMinimum|exclusiveMaximum|minLength|maxLength|pattern|minItems|maxItems|uniqueItems|minProperties|maxProperties|multipleOf)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.schema-validation.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-parameter-keys": {
+			"comment": "Parameter-specific keys (deduplicated: schema/required/deprecated/example live in schema-keys)",
+			"patterns": [
+				{
+					"match": "(\")(name|in|style|explode|allowReserved|allowEmptyValue)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.parameter.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-media-type-keys": {
+			"comment": "Media type keys (deduplicated: schema/example/examples live in schema-keys)",
+			"patterns": [
+				{
+					"match": "(\")(content|encoding)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.media-type.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				},
+				{
+					"match": "(\")(application/json|application/xml|application/x-www-form-urlencoded|multipart/form-data|text/plain|text/html|\\*/\\*)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "string.other.openapi.content-type.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-info-keys": {
+			"comment": "Info, contact, license, and other structural keys",
+			"patterns": [
+				{
+					"match": "(\")(title|version|description|summary|termsOfService|contact|license|identifier)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.info.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				},
+				{
+					"match": "(\")(url|email|name)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.general.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-reference-key": {
+			"patterns": [
+				{
+					"comment": "$ref key with value",
+					"match": "(\")(\\$ref)(\")(\\s*:\\s*)(\")(.*?)(\")",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "keyword.other.openapi.reference.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" },
+						"5": { "name": "punctuation.definition.string.begin.json" },
+						"6": { "name": "string.other.openapi.reference-value.json" },
+						"7": { "name": "punctuation.definition.string.end.json" }
+					}
+				}
+			]
+		},
+		"openapi-type-values": {
+			"comment": "Schema type values: \"type\": \"string\", \"integer\", etc.",
+			"patterns": [
+				{
+					"match": "(\")(type)(\")(\\s*:\\s*)(\")(string|integer|number|boolean|array|object|null)(\")",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.schema.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" },
+						"5": { "name": "punctuation.definition.string.begin.json" },
+						"6": { "name": "constant.language.openapi.type.json" },
+						"7": { "name": "punctuation.definition.string.end.json" }
+					}
+				}
+			]
+		},
+		"openapi-format-values": {
+			"comment": "Schema format values: \"format\": \"int32\", \"date-time\", etc.",
+			"patterns": [
+				{
+					"match": "(\")(format)(\")(\\s*:\\s*)(\")(int32|int64|float|double|byte|binary|date|date-time|password|email|uri|uri-reference|uuid|hostname|ipv4|ipv6)(\")",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.schema.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" },
+						"5": { "name": "punctuation.definition.string.begin.json" },
+						"6": { "name": "constant.language.openapi.format.json" },
+						"7": { "name": "punctuation.definition.string.end.json" }
+					}
+				}
+			]
+		},
+		"openapi-boolean-values": {
+			"comment": "Boolean values for known OpenAPI boolean keys",
+			"patterns": [
+				{
+					"match": "(\")(required|deprecated|nullable|readOnly|writeOnly|explode|allowReserved|allowEmptyValue|uniqueItems|exclusiveMinimum|exclusiveMaximum)(\")(\\s*:\\s*)(true|false)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.schema.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" },
+						"5": { "name": "constant.language.openapi.boolean.json" }
+					}
+				}
+			]
+		},
+		"openapi-security-type-values": {
+			"comment": "Security scheme type and auth flow type values",
+			"patterns": [
+				{
+					"match": "(\")(type)(\")(\\s*:\\s*)(\")(apiKey|http|oauth2|openIdConnect)(\")",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.schema.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" },
+						"5": { "name": "punctuation.definition.string.begin.json" },
+						"6": { "name": "constant.language.openapi.security-type.json" },
+						"7": { "name": "punctuation.definition.string.end.json" }
+					}
+				},
+				{
+					"match": "(\")(scheme)(\")(\\s*:\\s*)(\")(bearer|basic|digest|hoba|mutual|negotiate|oauth|scram-sha-1|scram-sha-256|vapid)(\")",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "support.type.property-name.openapi.general.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" },
+						"5": { "name": "punctuation.definition.string.begin.json" },
+						"6": { "name": "constant.language.openapi.security-scheme.json" },
+						"7": { "name": "punctuation.definition.string.end.json" }
+					}
+				},
+				{
+					"match": "(\")(implicit|password|clientCredentials|authorizationCode)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "constant.language.openapi.auth-flow.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-parameter-location-values": {
+			"comment": "Parameter location values: \"in\": \"query\", \"header\", \"path\", \"cookie\"",
+			"patterns": [
+				{
+					"match": "(\")(in)(\")(\\s*:\\s*)(\")(query|header|path|cookie)(\")",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.parameter.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" },
+						"5": { "name": "punctuation.definition.string.begin.json" },
+						"6": {
+							"name": "constant.language.openapi.parameter-location.json"
+						},
+						"7": { "name": "punctuation.definition.string.end.json" }
+					}
+				}
+			]
+		},
+		"openapi-status-code-keys": {
+			"comment": "HTTP status codes as keys: \"200\", \"404\", \"5XX\", \"default\", etc.",
+			"patterns": [
+				{
+					"match": "(\")([1-5][0-9]{2}|[1-5]XX|default)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": { "name": "constant.numeric.openapi.status-code.json" },
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		},
+		"openapi-extension-keys": {
+			"comment": "OpenAPI extension keys: x-* custom properties",
+			"patterns": [
+				{
+					"match": "(\")(x-[a-zA-Z0-9_-]+)(\")(\\s*:\\s*)",
+					"captures": {
+						"1": { "name": "punctuation.definition.string.begin.json" },
+						"2": {
+							"name": "support.type.property-name.openapi.extension.json"
+						},
+						"3": { "name": "punctuation.definition.string.end.json" },
+						"4": { "name": "punctuation.separator.key-value.json" }
+					}
+				}
+			]
+		}
+	}
+}

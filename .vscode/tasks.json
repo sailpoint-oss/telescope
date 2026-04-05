@@ -4,8 +4,27 @@
 		{
 			"label": "build:server",
 			"type": "shell",
+			"command": "rm -f ${workspaceFolder}/client/bin/telescope && go build -v -ldflags \"-X 'github.com/sailpoint-oss/telescope/server/lsp.Version=dev-$(date +%H:%M:%S)'\" -o ${workspaceFolder}/client/bin/telescope .",
+			"options": {
+				"cwd": "${workspaceFolder}/server"
+			},
+			"group": {
+				"kind": "build",
+				"isDefault": false
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"focus": false,
+				"clear": true
+			}
+		},
+		{
+			"label": "build:sidecar",
+			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/telescope-server", "build"],
+			"args": ["run", "--cwd", "client", "build:sidecar"],
 			"group": {
 				"kind": "build",
 				"isDefault": false
@@ -22,7 +41,7 @@
 			"label": "build:extension",
 			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/telescope-client", "build"],
+			"args": ["run", "--cwd", "client", "build"],
 			"group": {
 				"kind": "build",
 				"isDefault": false
@@ -37,7 +56,7 @@
 		},
 		{
 			"label": "build:all",
-			"dependsOn": ["build:server", "build:extension"],
+			"dependsOn": ["build:sidecar", "build:server", "build:extension"],
 			"dependsOrder": "sequence",
 			"group": {
 				"kind": "build",
@@ -53,7 +72,7 @@
 			"label": "watch:extension",
 			"type": "shell",
 			"command": "bun",
-			"args": ["run", "--cwd", "packages/telescope-client", "watch"],
+			"args": ["run", "--cwd", "client", "watch"],
 			"isBackground": true,
 			"problemMatcher": "$tsc-watch",
 			"presentation": {

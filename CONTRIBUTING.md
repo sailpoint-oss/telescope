@@ -15,8 +15,9 @@ Thank you for your interest in contributing to Telescope! This document provides
 
 ### Prerequisites
 
-- **Bun** (v1.0+): Runtime and test runner - [Install Bun](https://bun.sh/docs/installation)
-- **pnpm** (v8+): Package manager - [Install pnpm](https://pnpm.io/installation)
+- **Go** (1.25+): Server development - [Install Go](https://go.dev/doc/install)
+- **Bun** (v1.0+): TypeScript runtime and test runner - [Install Bun](https://bun.sh/docs/installation)
+- **pnpm** (v8+): TypeScript package manager - [Install pnpm](https://pnpm.io/installation)
 - **VS Code**: Recommended for extension development
 
 ### Getting Started
@@ -26,25 +27,34 @@ Thank you for your interest in contributing to Telescope! This document provides
 git clone https://github.com/sailpoint-oss/telescope.git
 cd telescope
 
-# Install dependencies
+# Go server
+cd server
+go build ./...
+go test -race ./... -timeout 10m
+
+# VS Code extension
+cd ..
 pnpm install
-
-# Run tests to verify setup
-bun test
-
-# Build all packages
 pnpm build
 ```
+
+**Note:** The Go server depends on the [gossip](https://github.com/LukasParke/gossip) LSP framework via a local `replace` directive in `go.mod`. You need the gossip repo cloned as a sibling directory (`../../gossip`).
 
 ### Workspace Structure
 
 ```
 telescope/
-├── packages/
-│   ├── telescope-client/    # VS Code extension client
-│   ├── telescope-server/    # Language server + linting engine
-│   └── test-files/         # Test fixtures and custom rule examples
-└── docs/                   # Documentation
+├── server/                # Go language server + CLI (primary)
+│   ├── cli/               # CLI subcommands (lint, ci, serve)
+│   ├── config/            # Configuration loading
+│   ├── lsp/               # LSP server + feature handlers
+│   ├── openapi/           # Tree-sitter → typed OpenAPI model
+│   ├── rules/             # Rule builder, analyzers, checks
+│   ├── sdk/               # Plugin SDK for third-party authors
+│   └── ...
+├── client/                # VS Code extension client
+├── test-files/            # Test fixtures and examples
+└── docs/                  # Documentation
 ```
 
 ### Development Workflow
@@ -55,29 +65,27 @@ telescope/
    - Press F5 to launch the Extension Development Host
    - Open an OpenAPI file to see Telescope in action
 
-2. **Watch for changes:**
+2. **Run Go server tests:**
 
    ```bash
-   pnpm --filter telescope-client build --watch
-   ```
-
-3. **Run specific package tests:**
-   ```bash
-   bun test packages/telescope-server
+   cd server && go test ./...
    ```
 
 ## Code Style
 
-We use [Biome](https://biomejs.dev/) for linting and formatting.
+### Go
 
-### Style Rules
+- Standard `go fmt` and `go vet`
+- Run `go vet ./...` before submitting
+
+### TypeScript
+
+We use [Biome](https://biomejs.dev/) for linting and formatting.
 
 - **Indentation**: Tabs
 - **Quotes**: Double quotes for strings
 - **Semicolons**: Required
 - **Imports**: Automatically organized
-
-### Commands
 
 ```bash
 # Check for issues
@@ -89,8 +97,6 @@ pnpm lint:fix
 # Format code
 pnpm format
 ```
-
-### Editor Setup
 
 Install the [Biome VS Code extension](https://marketplace.visualstudio.com/items?itemName=biomejs.biome) for real-time feedback.
 
@@ -131,105 +137,111 @@ docs: update configuration guide
 
 ## Adding New Rules
 
-### Built-in OpenAPI Rules
+### Go Rules (primary)
 
-1. Create a new file in `packages/telescope-server/src/engine/rules/generic/<category>/`:
+1. Define the rule using the fluent builder API:
 
-```typescript
-// packages/telescope-server/src/engine/rules/generic/operations/my-rule.ts
-import { defineRule } from "../../api";
+```go
+// server/rules/analyzers/my_rule.go
+package analyzers
 
-export const myRule = defineRule({
-  meta: {
-    id: "my-rule-id",
-    number: 999, // Unique rule number
-    description: "Description of what the rule checks",
-    type: "problem", // or "suggestion"
-    fileFormats: ["yaml", "yml", "json"],
-  },
-  check(ctx) {
-    return {
-      Operation(op) {
-        // Rule logic here
-        if (/* violation detected */) {
-          const range = ctx.locate(op.uri, op.pointer);
-          if (range) {
-            ctx.report({
-              message: "Violation message",
-              severity: "error", // or "warning", "info"
-              uri: op.uri,
-              range,
-            });
-          }
-        }
-      },
-    };
-  },
-});
+import (
+    "github.com/sailpoint-oss/telescope/server/openapi"
+    "github.com/sailpoint-oss/telescope/server/rules"
+)
+
+var myRule = rules.Define("my-rule-id", rules.RuleMeta{
+    Description: "Description of what the rule checks",
+    Severity:    protocol.DiagnosticSeverityWarning,
+    Category:    rules.CategoryNaming,
+    Recommended: true,
+}).Operations(func(path, method string, op *openapi.Operation, r *rules.Reporter) {
+    // Rule logic here
+    if op.Summary == "" {
+        r.At(op.Loc, "%s %s is missing summary", method, path)
+    }
+})
 ```
 
-2. Export from the category index:
+2. Register the rule in `RegisterAll`:
 
-```typescript
-// packages/telescope-server/src/engine/rules/generic/operations/index.ts
-export { myRule } from "./my-rule";
+```go
+// server/rules/analyzers/register.go
+func RegisterAll(s *gossip.Server) {
+    // ...existing rules...
+    registerRule(s, myRule)
+}
 ```
 
-3. Add a test file:
+3. Add tests using the test harness:
 
-```typescript
-// packages/telescope-server/src/engine/rules/generic/operations/my-rule.test.ts
-import { describe, expect, it } from "bun:test";
-import { myRule } from "./my-rule";
-import { createRuleTestContext } from "../../test-utils";
+```go
+// server/rules/analyzers/my_rule_test.go
+func TestMyRule(t *testing.T) {
+    _, analyzer := myRule.Build()
 
-describe("my-rule", () => {
-  it("should report violation when...", async () => {
-    const ctx = await createRuleTestContext(`
-openapi: 3.0.0
-# ... test fixture
-    `);
-
-    const results = myRule.check(ctx);
-    expect(results).toHaveLength(1);
-  });
-});
+    rulestest.Run(t, analyzer,
+        rulestest.Case{
+            Name: "catches missing summary",
+            Spec: `openapi: "3.1.0"
+info:
+  title: Test
+  version: "1.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers`,
+            Expect: []rulestest.Diag{
+                {Line: 7, Code: "my-rule-id", Severity: rulestest.Warn},
+            },
+        },
+    )
+}
 ```
-
-4. Update `RULES.md` with the new rule documentation.
-
-### SailPoint-Specific Rules
-
-Follow the same pattern but place files in `packages/telescope-server/src/engine/rules/sailpoint/`.
 
 ## Testing
 
 ### Running Tests
 
 ```bash
-# Run all tests
-bun test
+# Go tests (from server/)
+cd server
+go test -race ./... -timeout 10m       # All tests with race detection
+go test ./lsp                           # Specific package
+go test ./rules/analyzers -run TestName # Single test
+go test -bench=. ./openapi              # Benchmarks
 
-# Run tests for a specific package
-bun test packages/telescope-server
-
-# Run a specific test file
-bun test packages/telescope-server/src/engine/rules/generic/operations/my-rule.test.ts
-
-# Run tests with coverage
-bun test --coverage
+# E2E tests (from repo root)
+pnpm --filter ./client test:e2e:compile
+pnpm --filter ./client test:e2e:run:single
+pnpm --filter ./client test:e2e:run:multi
+pnpm --filter ./client test:e2e:run:sidecar
 ```
 
 ### Test Fixtures
 
-Add test fixtures to `packages/test-files/openapi/` for integration testing:
+- Canonical shared OpenAPI fixtures: `server/testutil/specs/`
+- Sidecar E2E workspace fixtures: `test-files/`
+- Fixture ownership + lifecycle map: `test-files/fixture-manifest.yaml`
 
-- `test-*.yaml` - Focused test cases for specific rules
-- `api-*.yaml` - Comprehensive API examples
+If a fixture is mirrored between `server/testutil/specs/` and
+`test-files/openapi/`, keep it byte-identical and run:
+
+```bash
+cd server
+go test ./testutil/specs -run TestMirroredFixturesStayInSync
+```
+
+When adding or changing fixtures:
+
+- assign an owner (`sidecar-e2e`, `server-go-tests`, `ci-smoke-only`)
+- document expected diagnostics in tests (code/severity intent)
+- update `test-files/fixture-manifest.yaml`
+- avoid introducing fixture files with no explicit test ownership
 
 ### Writing Tests
 
-- Each rule should have a corresponding `.test.ts` file
+- Go rules: Use the `rulestest` package with exact diagnostic assertions (`Line`, `Col`, `Code`, `Severity`, `Message`)
 - Test both positive cases (no violations) and negative cases (violations expected)
 - Use descriptive test names that explain the scenario
 
@@ -242,12 +254,13 @@ Add test fixtures to `packages/test-files/openapi/` for integration testing:
 3. **Ensure all tests pass:**
 
    ```bash
-   bun test
+   cd server && go test -race ./... -timeout 10m
    ```
 
 4. **Run linting:**
 
    ```bash
+   cd server && go vet ./...
    pnpm lint
    ```
 
@@ -260,6 +273,28 @@ Add test fixtures to `packages/test-files/openapi/` for integration testing:
    - Screenshots for UI changes
 
 7. **Address review feedback** promptly
+
+## Release Workflows
+
+- **Extension release**: `.github/workflows/release.yml`
+  - Publishes VSIX artifacts to VS Code Marketplace and OpenVSX.
+  - Triggers on `main` changes affecting release surfaces (`client/**`, `server/**`, workspace lock/config files).
+  - Supports skip marker in commit message: `[skip publish]`.
+- **Go module release**: `.github/workflows/release-go.yml`
+  - Runs CI-equivalent server checks (including Bun runner build) before tagging `server/v*`.
+  - Publishes a GitHub release for the `github.com/sailpoint-oss/telescope/server` module tag.
+- **TS SDK release**: `.github/workflows/release-sdk.yml`
+  - Publishes `@sailpoint-oss/telescope` to npm and creates `sdk/v*` GitHub releases.
+  - Triggers on `main` when `server/lsp/bun/telescope-server/**` changes.
+  - Skips publish if the same version already exists on npm.
+
+### Required GitHub Secrets
+
+- `VSCE_PAT`: VS Code Marketplace publishing token.
+- `OPEN_VSX_TOKEN`: OpenVSX publishing token.
+- `NPM_TOKEN`: npm token for publishing `@sailpoint-oss/telescope`.
+
+Keep secrets scoped to repository-level release maintainers and rotate them periodically.
 
 ### Review Criteria
 

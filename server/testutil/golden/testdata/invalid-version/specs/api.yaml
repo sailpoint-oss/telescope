@@ -1,0 +1,5 @@
+openapi: "99.99.99"
+info:
+  title: Bad Version
+  version: "1.0"
+paths: {}

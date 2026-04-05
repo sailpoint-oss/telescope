@@ -1,0 +1,14 @@
+openapi: 3.1.0
+info:
+  title: API B Invalid
+  version: 1.0.0
+paths:
+  /products:
+    get:
+      # Missing operationId - should produce a diagnostic
+      summary: Get products
+      description: Retrieve products from API B
+      responses:
+        "200":
+          description: OK
+

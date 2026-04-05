@@ -14,5 +14,10 @@ coverageDir = "./coverage"
 coverageReporter = ["text", "lcov"]
 
 # Coverage thresholds - test run fails if coverage falls below these
-# Current targets: 75% lines, 75% functions (can be adjusted per package)
-coverageThreshold = { lines = 0.75, functions = 0.75 }
+# Current targets: 75% line coverage, 75% function coverage (can be adjusted per package)
+coverageThreshold = { line = 0.75, function = 0.75 }
+
+# Exclude schema definitions from coverage calculations. These files are largely
+# declarative (Zod schema shapes + metadata) and otherwise drown out coverage
+# signals for the executable engine/LSP logic.
+coveragePathIgnorePatterns = []

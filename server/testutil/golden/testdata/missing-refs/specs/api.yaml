@@ -1,0 +1,28 @@
+openapi: "3.1.0"
+info:
+  title: Missing Refs API
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      summary: List users
+      tags:
+        - users
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NonExistent"
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+tags:
+  - name: users
+    description: User operations

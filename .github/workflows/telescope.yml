@@ -1,0 +1,53 @@
+name: Telescope (CI preview)
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  telescope:
+    name: Telescope (test-files)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Telescope (CI)
+        id: telescope_ci
+        continue-on-error: true
+        uses: ./
+        with:
+          mode: ci
+          paths: test-files/openapi/
+          comment-pr: true
+          report-md: telescope-report.md
+          report-json: telescope-report.json
+
+      - name: Upload Telescope report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telescope-report
+          path: |
+            telescope-report.md
+            telescope-report.json
+
+      - name: Summarize Telescope preview
+        if: always()
+        run: |
+          {
+            echo "## Telescope preview"
+            echo ""
+            echo "- CI preview step: ${{ steps.telescope_ci.conclusion }}"
+            echo "- Report artifact: telescope-report"
+          } >> "$GITHUB_STEP_SUMMARY"

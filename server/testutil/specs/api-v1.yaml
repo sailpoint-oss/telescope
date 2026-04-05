@@ -1,0 +1,32 @@
+openapi: 3.1.0
+info:
+  title: API v1
+  version: 1.0.0
+  description: API version 1 with external references
+tags:
+  - name: Pets
+    description: Pet operations
+  - name: Users
+    description: User operations
+paths:
+  /pets:
+    $ref: "./v1/paths/pets.yaml"
+  /users:
+    $ref: "./v1/paths/users.yaml"
+components:
+  schemas:
+    Pet:
+      $ref: "./v1/schemas/Pet.yaml"
+    User:
+      $ref: "./v1/schemas/User.yaml"
+  parameters:
+    LimitParam:
+      $ref: "./v1/components/parameters.yaml#/components/parameters/LimitParam"
+    OffsetParam:
+      $ref: "./v1/components/parameters.yaml#/components/parameters/OffsetParam"
+  responses:
+    ErrorResponse:
+      $ref: "./v1/components/responses.yaml#/components/responses/ErrorResponse"
+  securitySchemes:
+    userAuth:
+      $ref: "./v1/security/schemes.yaml#/components/securitySchemes/userAuth"

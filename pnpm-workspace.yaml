@@ -1,5 +1,8 @@
 packages:
-  - packages/*
+  - client
+  - test-files
+  - server/lsp/bun/telescope-server
+  - server/lsp/bun/runner
 
 onlyBuiltDependencies:
   - esbuild

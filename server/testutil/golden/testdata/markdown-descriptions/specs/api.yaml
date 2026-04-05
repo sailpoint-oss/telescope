@@ -1,0 +1,28 @@
+openapi: "3.1.0"
+info:
+  title: Markdown Description Test
+  version: "1.0"
+  description: |
+    # API Overview
+
+    This API provides **user management** features.
+
+    ## Authentication
+
+    Use Bearer tokens for auth.
+
+    ```json
+    { "token": "abc123" }
+    ```
+paths:
+  /users:
+    get:
+      summary: List users
+      operationId: listUsers
+      description: |
+        Returns a list of users.
+
+        See [API docs](https://example.com) for more info.
+      responses:
+        "200":
+          description: OK

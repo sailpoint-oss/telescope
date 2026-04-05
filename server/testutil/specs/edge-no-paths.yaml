@@ -1,0 +1,21 @@
+openapi: "3.1.0"
+info:
+  title: No Paths Spec
+  version: "1.0"
+  description: Valid OpenAPI 3.1 spec with no paths (webhooks only)
+webhooks:
+  newUser:
+    post:
+      summary: New user webhook
+      operationId: newUserWebhook
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+      responses:
+        "200":
+          description: Acknowledged

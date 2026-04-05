@@ -1,0 +1,19 @@
+{
+  "name": "telescope-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run build.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@stoplight/spectral-core": "^1.21.0",
+    "@stoplight/spectral-parsers": "^1.0.5",
+    "@stoplight/spectral-rulesets": "^1.22.0",
+    "@sailpoint-oss/telescope": "file:../telescope-server",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "zod": "^3.24.2"
+  }
+}

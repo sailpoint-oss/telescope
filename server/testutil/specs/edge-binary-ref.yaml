@@ -1,0 +1,18 @@
+openapi: "3.1.0"
+info:
+  title: Binary Ref Edge Case
+  version: "1.0"
+paths:
+  /upload:
+    post:
+      summary: Upload file
+      operationId: uploadFile
+      requestBody:
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Created

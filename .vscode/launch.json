@@ -6,10 +6,14 @@
 			"type": "extensionHost",
 			"request": "launch",
 			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}/packages/telescope-client",
-				"${workspaceFolder}/packages/test-files"
+				"--extensionDevelopmentPath=${workspaceFolder}/client",
+				"${workspaceFolder}/test-files"
 			],
-			"outFiles": ["${workspaceFolder}/packages/telescope-client/out/**/*.js"],
+			"outFiles": ["${workspaceFolder}/client/dist/**/*.js"],
+			"env": {
+				"TELESCOPE_SERVER_PATH": "${workspaceFolder}/client/bin/telescope",
+				"TELESCOPE_LOG_LEVEL": "debug"
+			},
 			"preLaunchTask": "build:all",
 			"presentation": {
 				"hidden": false,

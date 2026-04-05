@@ -1,0 +1,196 @@
+name: "Telescope - Spec Analysis"
+description: "Validate, lint, and report on OpenAPI or Arazzo files from a workspace."
+branding:
+  icon: "search"
+  color: "blue"
+
+inputs:
+  mode:
+    description: "Analysis mode: lint, validate, or ci"
+    default: "ci"
+  go-version:
+    description: "Go version used to build Telescope"
+    default: "1.25.x"
+  working-directory:
+    description: "Workspace directory to analyze"
+    default: "."
+  paths:
+    description: "Space-separated file or directory paths to analyze"
+    default: "."
+  config:
+    description: "Optional Telescope config path"
+    default: ""
+  ruleset:
+    description: "Optional ruleset path"
+    default: ""
+  diff-base:
+    description: "Base ref for ci mode"
+    default: "main"
+  diff-head:
+    description: "Head ref for ci mode"
+    default: "HEAD"
+  report-scope:
+    description: "CI report scope: changed (graph-expanded impact) or all configured files"
+    default: "changed"
+  severity:
+    description: "Optional minimum severity filter"
+    default: ""
+  fail-on:
+    description: "Failure threshold: error or warn"
+    default: "error"
+  no-external-lsp:
+    description: "Deprecated no-op; retained for compatibility"
+    default: "false"
+  comment-pr:
+    description: "Post PR comment in ci mode"
+    default: "false"
+  report-md:
+    description: "Markdown report output path"
+    default: "telescope-report.md"
+  report-json:
+    description: "JSON report output path"
+    default: "telescope-report.json"
+
+outputs:
+  report-md:
+    description: "Markdown report path"
+    value: ${{ steps.run.outputs.report-md }}
+  report-json:
+    description: "JSON report path"
+    value: ${{ steps.run.outputs.report-json }}
+  error:
+    description: "Error message if the action run failed"
+    value: ${{ steps.run.outputs.error }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: true
+        cache-dependency-path: server/go.sum
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+
+    - name: Bundle Bun sidecar
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "${{ github.action_path }}/server"
+        bash lsp/bun/runner/build.sh
+
+    - name: Build Telescope
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "${{ github.action_path }}/server"
+        go build -ldflags "-X github.com/sailpoint-oss/telescope/server/lsp.Version=action" -o ../telescope .
+
+    - name: Run Telescope
+      id: run
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        MODE: ${{ inputs.mode }}
+        WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        PATHS: ${{ inputs.paths }}
+        CONFIG_PATH: ${{ inputs.config }}
+        RULESET_PATH: ${{ inputs.ruleset }}
+        DIFF_BASE: ${{ inputs.diff-base }}
+        DIFF_HEAD: ${{ inputs.diff-head }}
+        REPORT_SCOPE: ${{ inputs.report-scope }}
+        SEVERITY: ${{ inputs.severity }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        NO_EXTERNAL_LSP: ${{ inputs.no-external-lsp }}
+        COMMENT_PR: ${{ inputs.comment-pr }}
+        REPORT_MD: ${{ inputs.report-md }}
+        REPORT_JSON: ${{ inputs.report-json }}
+        TELESCOPE_BIN: ${{ github.action_path }}/telescope
+      run: |
+        set -euo pipefail
+
+        write_output() {
+          local key="$1"
+          local value="$2"
+          {
+            echo "$key<<EOF"
+            echo "$value"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        }
+
+        resolve_path() {
+          local root="$1"
+          local value="$2"
+          if [ -z "$value" ]; then
+            return 0
+          fi
+          if [[ "$value" = /* ]]; then
+            printf '%s\n' "$value"
+          else
+            printf '%s\n' "$root/$value"
+          fi
+        }
+
+        workspace_dir="$(resolve_path "$GITHUB_WORKSPACE" "$WORKING_DIRECTORY")"
+        report_md_path="$(resolve_path "$workspace_dir" "$REPORT_MD")"
+        report_json_path="$(resolve_path "$workspace_dir" "$REPORT_JSON")"
+
+        mkdir -p "$(dirname "$report_md_path")" "$(dirname "$report_json_path")"
+        cd "$workspace_dir"
+
+        # shellcheck disable=SC2206
+        path_args=($PATHS)
+        if [ "${#path_args[@]}" -eq 0 ]; then
+          path_args=(.)
+        fi
+
+        cmd=("$TELESCOPE_BIN" "$MODE")
+        cmd+=("${path_args[@]}")
+
+        if [ -n "$CONFIG_PATH" ]; then
+          cmd+=(--config "$(resolve_path "$workspace_dir" "$CONFIG_PATH")")
+        fi
+        if [ -n "$RULESET_PATH" ]; then
+          cmd+=(--ruleset "$(resolve_path "$workspace_dir" "$RULESET_PATH")")
+        fi
+        if [ -n "$SEVERITY" ]; then
+          cmd+=(--severity "$SEVERITY")
+        fi
+        if [ "$NO_EXTERNAL_LSP" = "true" ]; then
+          cmd+=(--no-external-lsp)
+        fi
+
+        case "$MODE" in
+          lint|validate)
+            cmd+=(--fail-on "$FAIL_ON" --report-md "$report_md_path" --report-json "$report_json_path")
+            ;;
+          ci)
+            cmd+=(--diff-base "$DIFF_BASE" --diff-head "$DIFF_HEAD" --report-scope "$REPORT_SCOPE" --fail-on "$FAIL_ON" --report-md "$report_md_path" --report-json "$report_json_path")
+            if [ "$COMMENT_PR" = "true" ]; then
+              cmd+=(--comment-pr)
+            fi
+            ;;
+          *)
+            echo "unsupported Telescope action mode: $MODE" >&2
+            exit 1
+            ;;
+        esac
+
+        error=""
+        err_file="$(mktemp)"
+        trap 'rm -f "$err_file"' EXIT
+        if ! "${cmd[@]}" 2> >(tee "$err_file" >&2); then
+          error="$(tr -d '\000' < "$err_file")"
+        fi
+
+        write_output "report-md" "$report_md_path"
+        write_output "report-json" "$report_json_path"
+        write_output "error" "$error"
+
+        if [ -n "$error" ]; then
+          exit 1
+        fi
