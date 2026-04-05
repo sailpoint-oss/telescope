@@ -32,9 +32,10 @@ const (
 
 // DocType constants.
 const (
-	DocTypeUnknown  = navigator.DocTypeUnknown
-	DocTypeRoot     = navigator.DocTypeRoot
-	DocTypeFragment = navigator.DocTypeFragment
+	DocTypeUnknown    = navigator.DocTypeUnknown
+	DocTypeRoot       = navigator.DocTypeRoot
+	DocTypeFragment   = navigator.DocTypeFragment
+	DocTypeNonOpenAPI = navigator.DocTypeNonOpenAPI
 )
 
 // DocumentKind constants.

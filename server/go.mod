@@ -7,7 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/sailpoint-oss/barometer v0.2.0
 	github.com/sailpoint-oss/barrelman v0.6.1
-	github.com/sailpoint-oss/navigator v0.11.0
+	github.com/sailpoint-oss/navigator v0.12.0
 	github.com/sailpoint-oss/tree-sitter-openapi v0.1.0
 	github.com/spf13/cobra v1.10.2
 	github.com/tree-sitter/go-tree-sitter v0.25.0
