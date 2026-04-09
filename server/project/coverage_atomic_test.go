@@ -2,6 +2,7 @@ package project
 
 import (
 	"log/slog"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -115,16 +116,17 @@ func TestHasWindowsDrivePrefix(t *testing.T) {
 
 func TestDiscoveryFileByURI(t *testing.T) {
 	d := NewDiscovery(nil)
+	tmp := filepath.Join(t.TempDir(), "test.yaml")
 	d.mu.Lock()
-	d.files["/tmp/test.yaml"] = &DiscoveredFile{
-		Path: "/tmp/test.yaml",
-		URI:  PathToURI("/tmp/test.yaml"),
+	d.files[tmp] = &DiscoveredFile{
+		Path: tmp,
+		URI:  PathToURI(tmp),
 		Role: RoleRoot,
 	}
 	d.mu.Unlock()
 
 	t.Run("found by URI", func(t *testing.T) {
-		uri := PathToURI("/tmp/test.yaml")
+		uri := PathToURI(tmp)
 		got := d.FileByURI(uri)
 		if got == nil {
 			t.Fatal("expected file, got nil")

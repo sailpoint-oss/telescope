@@ -2,6 +2,7 @@ package contractrunner
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -118,19 +119,26 @@ func TestBuildBarometerClientConfig_Timeout(t *testing.T) {
 }
 
 func TestBuildBarometerClientConfig_TLSPaths(t *testing.T) {
+	var absCA string
+	if runtime.GOOS == "windows" {
+		// On Windows, filepath.IsAbs("/absolute/...") is false, so ResolveWorkspacePath would join.
+		absCA = `C:\absolute\ca.pem`
+	} else {
+		absCA = "/absolute/ca.pem"
+	}
 	ct := &config.ContractTestsConfig{
 		TLS: config.ContractTLSConfig{
 			ClientCertFile: "certs/client.pem",
 			ClientKeyFile:  "certs/client-key.pem",
-			CACertFile:     "/absolute/ca.pem",
+			CACertFile:     absCA,
 		},
 	}
 	cfg := BuildBarometerClientConfig(ct, "/workspace")
 	if cfg.TLSClientCertFile == "" {
 		t.Error("TLSClientCertFile should be resolved")
 	}
-	if cfg.TLSCACertFile != "/absolute/ca.pem" {
-		t.Errorf("absolute CA path should be preserved, got %q", cfg.TLSCACertFile)
+	if cfg.TLSCACertFile != absCA {
+		t.Errorf("absolute CA path should be preserved, got %q want %q", cfg.TLSCACertFile, absCA)
 	}
 }
 
