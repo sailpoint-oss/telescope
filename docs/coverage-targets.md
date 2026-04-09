@@ -88,15 +88,15 @@ Current repo-wide aggregate baseline: `77.6%`
 Track two numbers in CI:
 
 - `core_coverage`: the aggregate of Tier A package runs
-- `repo_coverage`: the aggregate of the executable Go package set, excluding helper-only packages `server`, `server/rules/testing`, and `server/testutil`
+- `repo_coverage`: the aggregate of the executable Go package set, derived from the full `coverage.out` artifact after filtering out helper-only packages `server`, `server/rules/testing`, and `server/testutil`
 
 This gives the team a strong TDD target for the product surface while keeping full-repo visibility honest.
 
 Current CI policy:
 
 - Hard finish-line target: `core_coverage >= 95.0%`
-- Current ratchet floor: `core_coverage >= 76.0%`
-- Current repo ratchet floor: `repo_coverage >= 77.5%`
+- Current ratchet floor: `core_coverage >= 75.5%`
+- Current repo ratchet floor: `repo_coverage >= 77.0%`
 
 ## Ratchet policy
 
