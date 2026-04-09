@@ -24,7 +24,7 @@ Current package coverage snapshot:
 | `server/lsp/adapt` | 100.0% |
 | `server/lsp/observe` | 100.0% |
 | `server/lsp/navadapt` | 85.7% |
-| `server/lsp/bun` | 72.3% |
+| `server/lsp/bun` | 70.1% |
 | `server/openapi` | 82.8% |
 | `server/project` | 77.7% |
 | `server/bridge` | 89.7% |
@@ -74,12 +74,12 @@ Current package coverage snapshot:
 | `server/cli` | 78.9% |
 | `server/plugin` | 96.3% |
 | `server/rules` | 58.1% |
-| `server/rules/checks` | 29.2% |
+| `server/rules/checks` | 100.0% |
 | `server/rules/analyzers` | 86.8% |
 | `server/rulesets` | 93.3% |
 | `server/core/parser` | 86.2% |
 
-Current repo-wide aggregate baseline: `77.6%`
+Current repo-wide aggregate baseline: `77.7%`
 
 `repo_coverage` intentionally excludes the helper-only `server`, `server/rules/testing`, and `server/testutil` packages from the aggregate while still running their tests in CI. This keeps the repo-wide ratchet focused on executable product code instead of scaffolding-only packages that otherwise pin the number near zero.
 
@@ -96,7 +96,18 @@ Current CI policy:
 
 - Hard finish-line target: `core_coverage >= 95.0%`
 - Current ratchet floor: `core_coverage >= 75.5%`
-- Current repo ratchet floor: `repo_coverage >= 77.0%`
+- Current repo ratchet floor: `repo_coverage >= 77.7%`
+
+## Local tooling
+
+From the repository root, after generating `server/coverage.out` with `go test -coverprofile=coverage.out ./...` inside `server/`:
+
+- **Sorted per-package table:** `python3 scripts/coverage-go-packages.py server/coverage.out`
+- **Fail if any package is below 95%** (skips helper roots `""` / server main, `rules/testing`, `testutil` when used with `--min-pct`):  
+  `cd server && bash ../scripts/coverage-enforce-packages.sh`  
+  Override minimum with `MIN_COVERAGE=90`, etc.
+
+CI publishes the per-package table in the Go job summary and runs the strict per-package gate as a **non-blocking** step (`continue-on-error`) until the repo reaches 95% on every package.
 
 ## Ratchet policy
 

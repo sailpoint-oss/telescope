@@ -30,6 +30,20 @@ func TestNormalize_nonFileUnchanged(t *testing.T) {
 	}
 }
 
+func TestNormalize_fileURI_emptyPathUnchanged(t *testing.T) {
+	in := "file://"
+	if got := Normalize(in); got != in {
+		t.Errorf("Normalize(%q) = %q, want unchanged", in, got)
+	}
+}
+
+func TestNormalize_invalidURLUnchanged(t *testing.T) {
+	in := ":%" // invalid URI per net/url.Parse
+	if got := Normalize(in); got != in {
+		t.Errorf("Normalize(%q) = %q, want unchanged", in, got)
+	}
+}
+
 func TestNormalize_roundTripWithFilepath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("path expectations are unix-style")

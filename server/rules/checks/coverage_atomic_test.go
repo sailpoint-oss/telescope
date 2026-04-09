@@ -76,3 +76,12 @@ func TestKindLabels_ContainsCommonTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestMissingTokenLabelForKind_KnownAndUnknown(t *testing.T) {
+	if got := missingTokenLabelForKind("}"); got != "`}`" {
+		t.Errorf("known kind: got %q", got)
+	}
+	if got := missingTokenLabelForKind("???"); got != "???" {
+		t.Errorf("unknown kind passthrough: got %q", got)
+	}
+}

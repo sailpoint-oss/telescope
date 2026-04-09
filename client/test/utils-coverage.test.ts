@@ -1,4 +1,5 @@
 import { describe, test, expect } from "bun:test";
+import type * as vscode from "vscode";
 import {
 	formatSetupLog,
 	keysToRecord,
@@ -6,7 +7,21 @@ import {
 	isOpenAPILanguage,
 	extractYAMLTopLevelKeys,
 	extractJSONTopLevelKeys,
+	classifyDocument,
+	getOpenAPILanguageId,
 } from "../src/utils";
+
+function textDoc(opts: {
+	languageId: string;
+	fsPath: string;
+	text: string;
+}): vscode.TextDocument {
+	return {
+		languageId: opts.languageId,
+		uri: { fsPath: opts.fsPath } as vscode.Uri,
+		getText: () => opts.text,
+	} as vscode.TextDocument;
+}
 
 describe("formatSetupLog", () => {
 	test("prefixes message with [Setup]", () => {
@@ -137,5 +152,71 @@ describe("extractJSONTopLevelKeys edge cases", () => {
 
 	test("returns empty set for empty string", () => {
 		expect(extractJSONTopLevelKeys("").size).toBe(0);
+	});
+});
+
+describe("getOpenAPILanguageId", () => {
+	test("maps json extension to openapi-json", () => {
+		expect(getOpenAPILanguageId("/x/spec.JSON")).toBe("openapi-json");
+	});
+
+	test("defaults non-json to openapi-yaml", () => {
+		expect(getOpenAPILanguageId("/x/spec.yaml")).toBe("openapi-yaml");
+	});
+});
+
+describe("classifyDocument", () => {
+	test("classifies yaml document with openapi root", () => {
+		const doc = textDoc({
+			languageId: "yaml",
+			fsPath: "/w/api.yaml",
+			text: "openapi: 3.0.0\ninfo:\n  title: T\n  version: '1'\npaths: {}\n",
+		});
+		expect(classifyDocument(doc)).toBe("openapi");
+	});
+
+	test("classifies openapi-yaml language id", () => {
+		const doc = textDoc({
+			languageId: "openapi-yaml",
+			fsPath: "/w/api.yaml",
+			text: "openapi: 3.0.0\ninfo:\n  title: T\n  version: '1'\npaths: {}\n",
+		});
+		expect(classifyDocument(doc)).toBe("openapi");
+	});
+
+	test("classifies json document", () => {
+		const doc = textDoc({
+			languageId: "json",
+			fsPath: "/w/api.json",
+			text: '{"openapi":"3.0.0","info":{"title":"T","version":"1"},"paths":{}}',
+		});
+		expect(classifyDocument(doc)).toBe("openapi");
+	});
+
+	test("returns undefined for unsupported language without yaml/json extension", () => {
+		const doc = textDoc({
+			languageId: "typescript",
+			fsPath: "/w/x.ts",
+			text: "export {}",
+		});
+		expect(classifyDocument(doc)).toBeUndefined();
+	});
+
+	test("uses plaintext extension fallback for yaml files", () => {
+		const doc = textDoc({
+			languageId: "plaintext",
+			fsPath: "/w/spec.yaml",
+			text: "openapi: 3.0.0\ninfo:\n  title: T\n  version: '1'\npaths: {}\n",
+		});
+		expect(classifyDocument(doc)).toBe("openapi");
+	});
+
+	test("returns undefined when keys do not look like OpenAPI", () => {
+		const doc = textDoc({
+			languageId: "yaml",
+			fsPath: "/w/other.yaml",
+			text: "foo: bar\n",
+		});
+		expect(classifyDocument(doc)).toBeUndefined();
 	});
 });

@@ -21,7 +21,7 @@ env:
   VSCODE_TEST_VERSION: "1.105.0"
   CORE_COVERAGE_TARGET: "95.0"
   CORE_COVERAGE_RATCHET_MIN: "75.5"
-  REPO_COVERAGE_RATCHET_MIN: "77.0"
+  REPO_COVERAGE_RATCHET_MIN: "77.7"
 
 jobs:
   go:
@@ -107,6 +107,17 @@ jobs:
         working-directory: server
         id: coverage_summary
 
+      - name: Per-package Go coverage table
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          {
+            echo "### Per-package coverage (statements)"
+            echo "Sorted ascending. Helper roots \`rules/testing\`, \`testutil\`, and empty package key (server main) are skipped by \`--min-pct\` enforcement only."
+            echo ""
+            python3 ../scripts/coverage-go-packages.py coverage.out
+          } >> "$GITHUB_STEP_SUMMARY"
+        working-directory: server
+
       - name: Enforce coverage ratchets
         if: matrix.os == 'ubuntu-latest'
         shell: bash
@@ -117,6 +128,16 @@ jobs:
             || { echo "Core coverage ${core}% is below ratchet floor ${CORE_COVERAGE_RATCHET_MIN}%"; exit 1; }
           awk -v current="$repo" -v floor="$REPO_COVERAGE_RATCHET_MIN" 'BEGIN { exit !(current + 0 >= floor + 0) }' \
             || { echo "Repo coverage ${repo}% is below ratchet floor ${REPO_COVERAGE_RATCHET_MIN}%"; exit 1; }
+          awk -v current="$core" -v target="$CORE_COVERAGE_TARGET" 'BEGIN { exit !(current + 0 >= target + 0) }' \
+            || { echo "::warning::Core Tier A ${core}% is below finish line ${CORE_COVERAGE_TARGET}% (ratchet still enforced)"; exit 0; }
+          awk -v current="$repo" -v target="$CORE_COVERAGE_TARGET" 'BEGIN { exit !(current + 0 >= target + 0) }' \
+            || { echo "::warning::Filtered repo ${repo}% is below finish line ${CORE_COVERAGE_TARGET}% (ratchet still enforced)"; exit 0; }
+
+      - name: Per-package coverage 95% gate (strict)
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: bash ../scripts/coverage-enforce-packages.sh
+        working-directory: server
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
