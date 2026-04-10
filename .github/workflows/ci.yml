@@ -19,9 +19,9 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   # Pinned VS Code for @vscode/test-electron; override to debug a specific release.
   VSCODE_TEST_VERSION: "1.105.0"
-  CORE_COVERAGE_TARGET: "90.0"
-  CORE_COVERAGE_RATCHET_MIN: "59.4"
-  REPO_COVERAGE_RATCHET_MIN: "56.9"
+  CORE_COVERAGE_TARGET: "95.0"
+  CORE_COVERAGE_RATCHET_MIN: "75.5"
+  REPO_COVERAGE_RATCHET_MIN: "77.7"
 
 jobs:
   go:
@@ -85,7 +85,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          REPO_TOTAL="$(go tool cover -func=coverage.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')"
+          awk '
+            NR == 1 { print; next }
+            $1 ~ /^github.com\/sailpoint-oss\/telescope\/server\/[^/]+\.go:/ { next }
+            $1 ~ /^github.com\/sailpoint-oss\/telescope\/server\/rules\/testing\// { next }
+            $1 ~ /^github.com\/sailpoint-oss\/telescope\/server\/testutil\/[^/]+\.go:/ { next }
+            { print }
+          ' coverage.out > repo-coverage.out
+          REPO_TOTAL="$(go tool cover -func=repo-coverage.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')"
           CORE_PKGS=(./lsp/... ./openapi ./project ./bridge ./core/graph ./core/classify)
           go test -coverprofile=core-coverage.out "${CORE_PKGS[@]}"
           CORE_TOTAL="$(go tool cover -func=core-coverage.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')"
@@ -93,11 +100,23 @@ jobs:
             echo "### Coverage"
             echo "- Core Tier A: ${CORE_TOTAL}% (target ${CORE_COVERAGE_TARGET}%, ratchet floor ${CORE_COVERAGE_RATCHET_MIN}%)"
             echo "- Repo-wide: ${REPO_TOTAL}% (ratchet floor ${REPO_COVERAGE_RATCHET_MIN}%)"
+            echo "  - excludes helper-only packages: \`server\`, \`server/rules/testing\`, \`server/testutil\`"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "core_coverage=${CORE_TOTAL}" >> "$GITHUB_OUTPUT"
           echo "repo_coverage=${REPO_TOTAL}" >> "$GITHUB_OUTPUT"
         working-directory: server
         id: coverage_summary
+
+      - name: Per-package Go coverage table
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          {
+            echo "### Per-package coverage (statements)"
+            echo "Sorted ascending. Helper roots \`rules/testing\`, \`testutil\`, and empty package key (server main) are skipped by \`--min-pct\` enforcement only."
+            echo ""
+            python3 ../scripts/coverage-go-packages.py coverage.out
+          } >> "$GITHUB_STEP_SUMMARY"
+        working-directory: server
 
       - name: Enforce coverage ratchets
         if: matrix.os == 'ubuntu-latest'
@@ -109,6 +128,16 @@ jobs:
             || { echo "Core coverage ${core}% is below ratchet floor ${CORE_COVERAGE_RATCHET_MIN}%"; exit 1; }
           awk -v current="$repo" -v floor="$REPO_COVERAGE_RATCHET_MIN" 'BEGIN { exit !(current + 0 >= floor + 0) }' \
             || { echo "Repo coverage ${repo}% is below ratchet floor ${REPO_COVERAGE_RATCHET_MIN}%"; exit 1; }
+          awk -v current="$core" -v target="$CORE_COVERAGE_TARGET" 'BEGIN { exit !(current + 0 >= target + 0) }' \
+            || { echo "::warning::Core Tier A ${core}% is below finish line ${CORE_COVERAGE_TARGET}% (ratchet still enforced)"; exit 0; }
+          awk -v current="$repo" -v target="$CORE_COVERAGE_TARGET" 'BEGIN { exit !(current + 0 >= target + 0) }' \
+            || { echo "::warning::Filtered repo ${repo}% is below finish line ${CORE_COVERAGE_TARGET}% (ratchet still enforced)"; exit 0; }
+
+      - name: Per-package coverage 95% gate (strict)
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: bash ../scripts/coverage-enforce-packages.sh
+        working-directory: server
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest'
@@ -117,6 +146,7 @@ jobs:
           name: go-coverage
           path: |
             server/coverage.out
+            server/repo-coverage.out
             server/core-coverage.out
 
   benchmarks:

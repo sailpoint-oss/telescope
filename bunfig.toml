@@ -14,8 +14,7 @@ coverageDir = "./coverage"
 coverageReporter = ["text", "lcov"]
 
 # Coverage thresholds - test run fails if coverage falls below these
-# Current targets: 75% line coverage, 75% function coverage (can be adjusted per package)
-coverageThreshold = { line = 0.75, function = 0.75 }
+coverageThreshold = { line = 0.85, function = 0.85 }
 
 # Exclude schema definitions from coverage calculations. These files are largely
 # declarative (Zod schema shapes + metadata) and otherwise drown out coverage

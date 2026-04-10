@@ -31,6 +31,13 @@ var kindLabels = map[string]string{
 	"'":  "`'`",
 }
 
+func missingTokenLabelForKind(kind string) string {
+	if label := kindLabels[kind]; label != "" {
+		return label
+	}
+	return kind
+}
+
 func registerMissingTokens(s *gossip.Server) {
 	s.Analyze("missing-token", treesitter.Analyzer{
 		Scope: treesitter.ScopeFile,
@@ -46,10 +53,7 @@ func registerMissingTokens(s *gossip.Server) {
 			var diags []protocol.Diagnostic
 			for _, node := range missing {
 				kind := node.Kind()
-				label := kindLabels[kind]
-				if label == "" {
-					label = kind
-				}
+				label := missingTokenLabelForKind(kind)
 				diags = append(diags, protocol.Diagnostic{
 					Range:    ctx.Tree.NodeRange(node),
 					Severity: protocol.SeverityError,

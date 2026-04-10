@@ -254,3 +254,205 @@ func TestVirtualDocumentManager_Remove(t *testing.T) {
 		t.Error("ForParent after Remove returned non-empty")
 	}
 }
+
+func TestExampleProvider_ExtractAndNoOpMethods(t *testing.T) {
+	root := &SemanticNode{
+		Kind:  NodeMapping,
+		Range: vrng(0, 0, 12, 0),
+		Children: map[string]*SemanticNode{
+			"components": {
+				Kind:  NodeMapping,
+				Range: vrng(1, 0, 10, 0),
+				Children: map[string]*SemanticNode{
+					"schemas": {
+						Kind:  NodeMapping,
+						Range: vrng(2, 0, 10, 0),
+						Children: map[string]*SemanticNode{
+							"Pet": {
+								Kind:  NodeMapping,
+								Range: vrng(3, 0, 8, 0),
+								Children: map[string]*SemanticNode{
+									"type": {
+										Kind:  NodeScalar,
+										Value: "string",
+										Range: vrng(4, 2, 4, 8),
+									},
+									"example": {
+										Kind:  NodeScalar,
+										Value: "pet-123",
+										Range: vrng(5, 2, 5, 11),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			"info": {
+				Kind:  NodeMapping,
+				Range: vrng(11, 0, 12, 0),
+				Children: map[string]*SemanticNode{
+					"example": {
+						Kind:  NodeScalar,
+						Value: "ignored",
+						Range: vrng(11, 2, 11, 9),
+					},
+				},
+			},
+		},
+	}
+
+	provider := &ExampleProvider{}
+	if provider.LanguageID() != "json" {
+		t.Fatalf("LanguageID() = %q, want json", provider.LanguageID())
+	}
+	if hover, err := provider.Hover(VirtualDocument{}, ctypes.Position{}); err != nil || hover != nil {
+		t.Fatalf("Hover() = (%v, %v), want (nil, nil)", hover, err)
+	}
+	if items, err := provider.Complete(VirtualDocument{}, ctypes.Position{}); err != nil || items != nil {
+		t.Fatalf("Complete() = (%v, %v), want (nil, nil)", items, err)
+	}
+	if diags, err := provider.Diagnostics(VirtualDocument{}); err != nil || diags != nil {
+		t.Fatalf("Diagnostics() = (%v, %v), want (nil, nil)", diags, err)
+	}
+
+	docs := provider.Extract(root, "file:///spec.yaml")
+	if len(docs) != 1 {
+		t.Fatalf("Extract returned %d docs, want 1", len(docs))
+	}
+	doc := docs[0]
+	if doc.URI != "vdoc:file:///spec.yaml#/components/schemas/Pet/example" {
+		t.Fatalf("doc.URI = %q", doc.URI)
+	}
+	if doc.Content != "pet-123" {
+		t.Fatalf("doc.Content = %q, want pet-123", doc.Content)
+	}
+	if _, ok := doc.Mapper.(*IdentityMapper); !ok {
+		t.Fatalf("expected IdentityMapper, got %T", doc.Mapper)
+	}
+}
+
+func TestIsExampleContext(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/components/schemas/Pet", true},
+		{"/components/parameters/Limit", true},
+		{"/paths/~1users/get/responses/200/content/application~1json", true},
+		{"/components/schemas/Pet/properties/id", true},
+		{"/info", false},
+		{"/paths/~1users/get", false},
+	}
+	for _, tt := range tests {
+		if got := isExampleContext(tt.path); got != tt.want {
+			t.Errorf("isExampleContext(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestCodeSampleProvider_ExtractAndNoOpMethods(t *testing.T) {
+	root := &SemanticNode{
+		Kind:  NodeMapping,
+		Range: vrng(0, 0, 20, 0),
+		Children: map[string]*SemanticNode{
+			"paths": {
+				Kind:  NodeMapping,
+				Range: vrng(1, 0, 20, 0),
+				Children: map[string]*SemanticNode{
+					"/users": {
+						Kind:  NodeMapping,
+						Range: vrng(2, 0, 20, 0),
+						Children: map[string]*SemanticNode{
+							"get": {
+								Kind:  NodeMapping,
+								Range: vrng(3, 0, 20, 0),
+								Children: map[string]*SemanticNode{
+									"x-codeSamples": {
+										Kind:  NodeSequence,
+										Range: vrng(4, 2, 12, 0),
+										Items: []*SemanticNode{
+											{
+												Kind:  NodeMapping,
+												Range: vrng(5, 4, 8, 0),
+												Children: map[string]*SemanticNode{
+													"lang": {
+														Kind:  NodeScalar,
+														Value: "Go",
+														Range: vrng(5, 6, 5, 8),
+													},
+													"source": {
+														Kind:  NodeScalar,
+														Value: "fmt.Println(\"hi\")\nfmt.Println(\"bye\")",
+														Range: vrng(6, 6, 7, 24),
+													},
+												},
+											},
+											{
+												Kind:  NodeMapping,
+												Range: vrng(9, 4, 10, 0),
+												Children: map[string]*SemanticNode{
+													"source": {
+														Kind:  NodeScalar,
+														Value: "curl /users",
+														Range: vrng(9, 6, 9, 17),
+													},
+												},
+											},
+											{
+												Kind:  NodeMapping,
+												Range: vrng(11, 4, 11, 8),
+												Children: map[string]*SemanticNode{
+													"lang": {
+														Kind:  NodeScalar,
+														Value: "python",
+														Range: vrng(11, 6, 11, 12),
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	provider := &CodeSampleProvider{}
+	if provider.LanguageID() != "code" {
+		t.Fatalf("LanguageID() = %q, want code", provider.LanguageID())
+	}
+	if hover, err := provider.Hover(VirtualDocument{}, ctypes.Position{}); err != nil || hover != nil {
+		t.Fatalf("Hover() = (%v, %v), want (nil, nil)", hover, err)
+	}
+	if items, err := provider.Complete(VirtualDocument{}, ctypes.Position{}); err != nil || items != nil {
+		t.Fatalf("Complete() = (%v, %v), want (nil, nil)", items, err)
+	}
+	if diags, err := provider.Diagnostics(VirtualDocument{}); err != nil || diags != nil {
+		t.Fatalf("Diagnostics() = (%v, %v), want (nil, nil)", diags, err)
+	}
+
+	docs := provider.Extract(root, "file:///spec.yaml")
+	if len(docs) != 2 {
+		t.Fatalf("Extract returned %d docs, want 2", len(docs))
+	}
+
+	first := docs[0]
+	if first.LanguageID != "go" {
+		t.Fatalf("first.LanguageID = %q, want go", first.LanguageID)
+	}
+	if _, ok := first.Mapper.(*LiteralBlockMapper); !ok {
+		t.Fatalf("expected LiteralBlockMapper for multiline source, got %T", first.Mapper)
+	}
+
+	second := docs[1]
+	if second.LanguageID != "text" {
+		t.Fatalf("second.LanguageID = %q, want text", second.LanguageID)
+	}
+	if _, ok := second.Mapper.(*IdentityMapper); !ok {
+		t.Fatalf("expected IdentityMapper for single-line source, got %T", second.Mapper)
+	}
+}

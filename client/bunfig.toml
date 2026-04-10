@@ -1,0 +1,8 @@
+[test]
+coverage = true
+coverageSkipTestFiles = true
+coverageReporter = ["text", "lcov"]
+coverageDir = "./coverage"
+# Test harness code should not dilute product coverage thresholds.
+coveragePathIgnorePatterns = ["test/**"]
+coverageThreshold = { line = 0.95, function = 0.95 }

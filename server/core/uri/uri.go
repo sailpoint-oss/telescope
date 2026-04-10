@@ -5,8 +5,6 @@ package uri
 import (
 	"net/url"
 	"path/filepath"
-	"runtime"
-	"strings"
 )
 
 // Normalize matches gossip/protocol.NormalizeURI and openapi.NormalizeURI:
@@ -26,10 +24,7 @@ func Normalize(s string) string {
 	if path == "" {
 		return s
 	}
-	cleaned := filepath.Clean(filepath.FromSlash(path))
-	if runtime.GOOS == "windows" && len(cleaned) >= 2 && cleaned[1] == ':' {
-		cleaned = strings.ToUpper(cleaned[:1]) + cleaned[1:]
-	}
+	cleaned := normalizeDriveLetter(filepath.Clean(filepath.FromSlash(path)))
 	result := &url.URL{
 		Scheme: "file",
 		Path:   filepath.ToSlash(cleaned),

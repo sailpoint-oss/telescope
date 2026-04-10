@@ -95,3 +95,7 @@ function mapSpectralSeverity(severity: number): number {
 export function clearSpectralCache(): void {
 	spectralCache.clear();
 }
+
+export function spectralCacheSize(): number {
+	return spectralCache.size;
+}

@@ -18,7 +18,7 @@ Full mapping of features, Go tests, and E2E cases (including A/B/C tags) lives i
 The [`CI` workflow](.github/workflows/ci.yml) runs on every push/PR to `main`. If branch protection is enabled, require both the `E2E` and `E2E Sidecar` checks so the full sidecar wiring suite stays mandatory on every PR:
 
 - **Go** — `go test -race` on Ubuntu, macOS, and Windows.
-- **Go coverage** — CI reports both `core_coverage` (Tier A packages) and `repo_coverage`. The finish-line gate is `core_coverage >= 90.0%`; both metrics also have ratchet floors that must not regress.
+- **Go coverage** — CI reports both `core_coverage` (Tier A packages) and `repo_coverage`. The finish-line target is `core_coverage >= 95.0%`; both metrics also have ratchet floors that must not regress.
 - **TypeScript** — client typecheck, build, Bun unit tests, and Bun sidecar runner tests (Ubuntu).
 - **E2E** — VS Code extension-host single-root and multi-root wiring on **Ubuntu, macOS, and Windows**.
 - **E2E Sidecar** — the full sidecar wiring suite on a fresh runner for **Ubuntu, macOS, and Windows**. No smoke subset on PRs: the matrix is the source of truth for host wiring.
@@ -42,11 +42,15 @@ go test -race ./...
 pnpm --filter ./client test
 ```
 
+Coverage thresholds for the VS Code client live in [`client/bunfig.toml`](../client/bunfig.toml) (95% line/function once green; `test/**` is excluded from the denominator).
+
 ### Bun sidecar runner tests
 
 ```bash
 pnpm --filter ./server/lsp/bun/runner run test
 ```
+
+Runner thresholds are in [`server/lsp/bun/runner/bunfig.toml`](../server/lsp/bun/runner/bunfig.toml).
 
 ### VS Code E2E
 
@@ -84,14 +88,15 @@ Run this before merging large LSP or E2E changes. Optional: `VSCODE_TEST_VERSION
 
 ## Go coverage
 
-CI treats **Tier A core packages** as the 90% finish line and tracks the whole repo separately.
+CI treats **Tier A core packages** as the **95% finish-line target** (`CORE_COVERAGE_TARGET`) and tracks the whole repo separately. Until Tier A and filtered `repo_coverage` consistently reach 95%, CI enforces **ratchet floors** and emits **GitHub Actions warnings** when aggregates are below the finish line.
 
-Use [`coverage-targets.md`](./coverage-targets.md) for the staged Tier A / Tier B / Tier C coverage model, the live per-package baselines, and the current ratchet floors.
+Use [`coverage-targets.md`](./coverage-targets.md) for the staged Tier A / Tier B / Tier C coverage model, the live per-package baselines, ratchet floors, and [`scripts/coverage-go-packages.py`](../scripts/coverage-go-packages.py) usage.
 
 Coverage contract:
 
-- `core_coverage` is the hard gate. It aggregates the Tier A packages that define Telescope's core product behavior.
-- `repo_coverage` is still measured and ratcheted in CI, but it is not the finish-line definition of "done".
+- `core_coverage` aggregates Tier A packages (`./lsp/...`, `./openapi`, `./project`, `./bridge`, `./core/graph`, `./core/classify`). The finish line is 95%; the **blocking** check today is the ratchet floor.
+- `repo_coverage` is measured and ratcheted. CI derives it from the full Go `coverage.out` artifact after filtering out the helper-only `server`, `server/rules/testing`, and `server/testutil` packages.
+- The Go job summary includes a **sorted per-package** statement table. A **strict per-package 95%** step runs with `continue-on-error` until every product package clears the bar; see [`scripts/coverage-enforce-packages.sh`](../scripts/coverage-enforce-packages.sh).
 - New LSP handler, analyzer, resolver, or CLI behavior should land with Go tests first. Expand E2E only when the risk is specifically editor host wiring, session routing, activation, or extension-only behavior.
 
 ## E2E design principles

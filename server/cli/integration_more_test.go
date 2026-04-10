@@ -91,6 +91,10 @@ func TestCLIHelperProcess(t *testing.T) {
 		cmd := newLintCmd()
 		cmd.SetArgs(subArgs)
 		err = cmd.Execute()
+	case "validate":
+		cmd := newValidateCmd()
+		cmd.SetArgs(subArgs)
+		err = cmd.Execute()
 	case "ci":
 		cmd := newCICmd()
 		cmd.SetArgs(subArgs)
@@ -206,6 +210,34 @@ components:
 	for _, report := range []string{ciJSON, ciMD} {
 		if _, err := os.Stat(report); err != nil {
 			t.Fatalf("expected ci report %q: %v", report, err)
+		}
+	}
+}
+
+func TestValidateCommand_HermeticSchemaFiltering(t *testing.T) {
+	dir := t.TempDir()
+	withWorkingDir(t, dir)
+	specPath := filepath.Join(dir, "invalid.yaml")
+	writeFile(t, specPath, `openapi: "3.1.0"
+info:
+  version: "1.0.0"
+paths: {}
+`)
+
+	resetCLIState()
+	reportJSON := filepath.Join(dir, "validate-report.json")
+	reportMD := filepath.Join(dir, "validate-report.md")
+	err := runCLISubprocess(t, dir, "validate",
+		"--report-json", reportJSON,
+		"--report-md", reportMD,
+		specPath,
+	)
+	if err != nil {
+		t.Fatalf("validate subprocess failed: %v", err)
+	}
+	for _, report := range []string{reportJSON, reportMD} {
+		if _, err := os.Stat(report); err != nil {
+			t.Fatalf("expected validate report %q: %v", report, err)
 		}
 	}
 }

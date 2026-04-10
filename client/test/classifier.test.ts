@@ -505,5 +505,81 @@ describe("OpenAPI Document Classifier", () => {
 			// This is a responses map - has numeric string keys but none start with /
 			expect(isOpenAPIDocument(doc)).toBe(false);
 		});
+
+		it("detects root fragment with only servers key", () => {
+			expect(isOpenAPIDocument({ servers: [{ url: "https://a" }] })).toBe(true);
+		});
+
+		it("detects parameter object with name, in, and schema", () => {
+			expect(
+				isOpenAPIDocument({
+					name: "limit",
+					in: "query",
+					schema: { type: "integer" },
+				}),
+			).toBe(true);
+		});
+
+		it("detects response with description and content", () => {
+			expect(
+				isOpenAPIDocument({
+					description: "OK",
+					content: { "application/json": { schema: { type: "string" } } },
+				}),
+			).toBe(true);
+		});
+
+		it("detects requestBody with content object and required", () => {
+			expect(
+				isOpenAPIDocument({
+					content: { "application/json": {} },
+					required: true,
+				}),
+			).toBe(true);
+		});
+
+		it("detects header-like object with schema and required", () => {
+			expect(
+				isOpenAPIDocument({
+					schema: { type: "string" },
+					required: true,
+				}),
+			).toBe(true);
+		});
+
+		it("detects example with value and summary", () => {
+			expect(
+				isOpenAPIDocument({
+					value: { foo: 1 },
+					summary: "example",
+				}),
+			).toBe(true);
+		});
+
+		it("detects two path-like keys at root", () => {
+			expect(
+				isOpenAPIDocument({
+					"/pets": { get: {} },
+					"/users": { get: {} },
+				}),
+			).toBe(true);
+		});
+
+		it("detects single path key whose value contains HTTP method keys", () => {
+			expect(
+				isOpenAPIDocument({
+					"/items": { get: { responses: { "200": { description: "ok" } } } },
+				}),
+			).toBe(true);
+		});
+
+		it("detects security scheme via type keyword", () => {
+			expect(
+				isOpenAPIDocument({
+					type: "http",
+					scheme: "bearer",
+				}),
+			).toBe(true);
+		});
 	});
 });

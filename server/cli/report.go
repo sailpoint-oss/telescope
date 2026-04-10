@@ -75,6 +75,8 @@ func buildLintReport(workspace, repoRoot string, allDiags []fileDiagnostics) *Li
 		if err != nil {
 			rel = fd.Path
 		}
+		// JSON reports and tests use forward slashes regardless of host OS.
+		rel = filepath.ToSlash(rel)
 		report.ByFile[rel] = len(fd.Diagnostics)
 		report.DiagnosticCount += len(fd.Diagnostics)
 

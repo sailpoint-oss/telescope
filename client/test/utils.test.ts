@@ -48,4 +48,14 @@ describe("matchesPatternList", () => {
 			),
 		).toBe(true);
 	});
+
+	it("with empty patterns matches yaml, yml, json, and jsonc extensions only", () => {
+		const root = "/workspace";
+		expect(matchesPatternList(`${root}/api/a.yaml`, [], root)).toBe(true);
+		expect(matchesPatternList(`${root}/api/a.yml`, [], root)).toBe(true);
+		expect(matchesPatternList(`${root}/api/a.json`, [], root)).toBe(true);
+		expect(matchesPatternList(`${root}/api/a.jsonc`, [], root)).toBe(true);
+		expect(matchesPatternList(`${root}/api/a.md`, [], root)).toBe(false);
+	});
+
 });
