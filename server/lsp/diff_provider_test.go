@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -159,6 +160,12 @@ func (r *recordingPublisher) publish(_ context.Context, params *protocol.Publish
 }
 
 func TestDiffProvider_OnDidSave_FullFlow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// filepath.Rel on Windows requires both paths to share a drive prefix;
+		// the file:// URI round-trip this test uses doesn't reliably produce
+		// drive-prefixed paths, so unix hosts own this branch's coverage.
+		t.Skip("windows filepath.Rel across file:// URIs is host-specific; covered on unix")
+	}
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}

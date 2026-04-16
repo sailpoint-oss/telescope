@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -44,6 +45,13 @@ func TestExecuteShowBreakingChanges_ErrorBranches(t *testing.T) {
 }
 
 func TestExecuteShowBreakingChanges_FullFlow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// filepath.Rel on Windows requires both paths to share a drive prefix;
+		// the file:// URI round-trip used by the full-flow helper doesn't
+		// reliably produce drive-prefixed paths, so the Linux/macOS integration
+		// path is the one that owns this branch's coverage.
+		t.Skip("windows filepath.Rel across file:// URIs is host-specific; covered on unix")
+	}
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
