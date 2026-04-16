@@ -5,9 +5,28 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// fakeExecutable writes a no-op stand-in script (or .bat on Windows) for
+// tests that shell out to external binaries, returning the path that should
+// be handed to the code under test.
+func fakeExecutable(t *testing.T, dir, name string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, name+".bat")
+		writeFile(t, path, "@echo off\r\nexit /B 0\r\n")
+		return path
+	}
+	path := filepath.Join(dir, name)
+	writeFile(t, path, "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatalf("Chmod(%q): %v", path, err)
+	}
+	return path
+}
 
 func writeFile(t *testing.T, path string, content string) {
 	t.Helper()
@@ -393,7 +412,6 @@ func TestDocsCommand_GenerateWithFakeBinary(t *testing.T) {
 	withWorkingDir(t, dir)
 	specPath := filepath.Join(dir, "spec.yaml")
 	outputDir := filepath.Join(dir, "site")
-	binaryPath := filepath.Join(dir, "printing-press")
 
 	writeFile(t, specPath, `openapi: 3.0.0
 info:
@@ -401,10 +419,7 @@ info:
   version: 1.0.0
 paths: {}
 `)
-	writeFile(t, binaryPath, "#!/bin/sh\nexit 0\n")
-	if err := os.Chmod(binaryPath, 0o755); err != nil {
-		t.Fatalf("Chmod(%q): %v", binaryPath, err)
-	}
+	binaryPath := fakeExecutable(t, dir, "printing-press")
 
 	resetCLIState()
 	cmd := newDocsCmd()

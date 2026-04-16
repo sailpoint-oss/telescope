@@ -138,8 +138,8 @@ func executeShowBreakingChanges(ctx *gossip.Context, uri protocol.DocumentURI, d
 		return "", fmt.Errorf("document not open")
 	}
 	updated := []byte(doc.Text())
-	ws := uriToFSPath(string(protocol.NormalizeURI(ctx.WorkspaceRoot())))
-	repoRoot := gitTopLevel(ws)
+	ws := workspaceRootForContext(ctx)
+	repoRoot := resolveGitTopLevel(ws)
 	if repoRoot == "" {
 		return "", fmt.Errorf("not a git repository")
 	}

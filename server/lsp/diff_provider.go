@@ -52,8 +52,8 @@ func (p *DiffProvider) OnDidSave(ctx *gossip.Context, params *protocol.DidSaveTe
 		return nil
 	}
 
-	ws := uriToFSPath(string(protocol.NormalizeURI(ctx.WorkspaceRoot())))
-	repoRoot := gitTopLevel(ws)
+	ws := workspaceRootForContext(ctx)
+	repoRoot := resolveGitTopLevel(ws)
 	if repoRoot == "" {
 		p.mux.ClearSource(uri, diffDiagSource)
 		return nil
@@ -111,6 +111,19 @@ func gitTopLevel(dir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// resolveGitTopLevel is indirected through a package variable so tests can
+// inject a known repo path without standing up a full gossip server.
+var resolveGitTopLevel = gitTopLevel
+
+// workspaceRootForContext likewise lets tests override the workspace-root
+// source that OnDidSave feeds into resolveGitTopLevel.
+var workspaceRootForContext = func(ctx *gossip.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	return uriToFSPath(string(protocol.NormalizeURI(ctx.WorkspaceRoot())))
 }
 
 func breakingChangeDiagnostics(res *diff.Result) []protocol.Diagnostic {
