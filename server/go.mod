@@ -3,7 +3,7 @@ module github.com/sailpoint-oss/telescope/server
 go 1.25.5
 
 require (
-	github.com/LukasParke/gossip v0.1.10
+	github.com/LukasParke/gossip v0.1.11
 	github.com/daveshanley/vacuum v0.25.9
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/pb33f/libopenapi v0.36.1
