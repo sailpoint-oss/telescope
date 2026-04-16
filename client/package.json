@@ -33,9 +33,37 @@
 		"onLanguage:json",
 		"onLanguage:jsonc",
 		"onLanguage:openapi-yaml",
-		"onLanguage:openapi-json"
+		"onLanguage:openapi-json",
+		"onView:telescope.openApiFiles",
+		"onView:telescope.contractTests",
+		"onView:telescope.breakingChanges"
 	],
 	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "telescope",
+					"title": "Telescope",
+					"icon": "./icons/openapi-dark.svg"
+				}
+			]
+		},
+		"views": {
+			"telescope": [
+				{
+					"id": "telescope.openApiFiles",
+					"name": "OpenAPI Files"
+				},
+				{
+					"id": "telescope.contractTests",
+					"name": "Contract Tests"
+				},
+				{
+					"id": "telescope.breakingChanges",
+					"name": "Breaking Changes"
+				}
+			]
+		},
 		"languages": [
 			{
 				"id": "openapi-yaml",
@@ -369,6 +397,34 @@
 			{
 				"command": "telescope.runContractTests",
 				"title": "Telescope: Run Contract Tests"
+			},
+			{
+				"command": "telescope.runAllContractTests",
+				"title": "Telescope: Run All Contract Tests"
+			},
+			{
+				"command": "telescope.runOperationTest",
+				"title": "Telescope: Run Contract Test for Operation"
+			},
+			{
+				"command": "telescope.docsPreview",
+				"title": "Telescope: Preview API Documentation"
+			},
+			{
+				"command": "telescope.openWiretapMonitor",
+				"title": "Telescope: Open Wiretap Monitor"
+			},
+			{
+				"command": "telescope.diffWithBase",
+				"title": "Telescope: Compare with Base Branch"
+			},
+			{
+				"command": "telescope.showBreakingChanges",
+				"title": "Telescope: Show Breaking Changes"
+			},
+			{
+				"command": "telescope.switchLintEngine",
+				"title": "Telescope: Switch Lint Engine"
 			}
 		],
 		"menus": {
@@ -434,6 +490,50 @@
 					"command": "telescope.bundlePreview",
 					"when": "editorLangId == openapi-yaml || editorLangId == openapi-json || editorLangId == yaml || editorLangId == json",
 					"group": "2_refactor@4"
+				},
+				{
+					"command": "telescope.docsPreview",
+					"when": "editorLangId == openapi-yaml || editorLangId == openapi-json || editorLangId == yaml || editorLangId == json",
+					"group": "2_refactor@5"
+				},
+				{
+					"command": "telescope.showBreakingChanges",
+					"when": "editorLangId == openapi-yaml || editorLangId == openapi-json || editorLangId == yaml || editorLangId == json",
+					"group": "2_refactor@6"
+				}
+			],
+			"view/title": [
+				{
+					"command": "telescope.rescanWorkspace",
+					"when": "view == telescope.openApiFiles",
+					"group": "navigation@1"
+				},
+				{
+					"command": "telescope.runAllContractTests",
+					"when": "view == telescope.contractTests",
+					"group": "navigation@1"
+				},
+				{
+					"command": "telescope.openWiretapMonitor",
+					"when": "view == telescope.contractTests",
+					"group": "navigation@2"
+				},
+				{
+					"command": "telescope.showBreakingChanges",
+					"when": "view == telescope.breakingChanges",
+					"group": "navigation@1"
+				}
+			],
+			"view/item/context": [
+				{
+					"command": "telescope.runOperationTest",
+					"when": "view == telescope.contractTests && viewItem == telescope.contractOperation",
+					"group": "inline@1"
+				},
+				{
+					"command": "telescope.openWiretapMonitor",
+					"when": "view == telescope.contractTests && viewItem == telescope.contractFile.monitor",
+					"group": "inline@2"
 				}
 			]
 		},
@@ -463,6 +563,41 @@
 					"type": "string",
 					"default": "http://localhost:8080",
 					"description": "Default base URL used when running Telescope's live contract-test command."
+				},
+				"telescope.lintEngine": {
+					"type": "string",
+					"enum": [
+						"barrelman",
+						"vacuum",
+						"both"
+					],
+					"default": "barrelman",
+					"description": "Lint engine to use for Telescope diagnostics and commands."
+				},
+				"telescope.vacuumRuleset": {
+					"type": "string",
+					"default": "",
+					"description": "Path to a vacuum-compatible ruleset file."
+				},
+				"telescope.diffAutoOnSave": {
+					"type": "boolean",
+					"default": true,
+					"description": "Automatically detect breaking changes on save."
+				},
+				"telescope.wiretapEnabled": {
+					"type": "boolean",
+					"default": false,
+					"description": "Route contract tests through the wiretap proxy when available."
+				},
+				"telescope.docsTheme": {
+					"type": "string",
+					"enum": [
+						"dark",
+						"roger",
+						"tektronix"
+					],
+					"default": "dark",
+					"description": "Theme to use for Telescope documentation previews."
 				},
 				"telescope.trace": {
 					"type": "string",

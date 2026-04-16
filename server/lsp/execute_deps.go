@@ -35,5 +35,6 @@ type ExecuteCommandDeps struct {
 	ConfigProvider       func() *config.Config
 	WorkspaceEnvProvider func() map[string]string
 	Runner               *contractrunner.Runner
+	DocsPreview          *DocsPreviewManager
 	DiagnosticMux        *DiagnosticMux
 }

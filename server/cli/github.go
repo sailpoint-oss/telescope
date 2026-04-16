@@ -804,6 +804,48 @@ func packMarkdownChunks(blocks []string) []string {
 	return chunks
 }
 
+func breakingChangePRStats(report *LintReport) (filesWithBreaking int, totalBreaking int) {
+	if report == nil {
+		return 0, 0
+	}
+	seen := make(map[string]struct{})
+	for _, b := range report.BreakingChanges {
+		if b.TotalBreakingChanges <= 0 {
+			continue
+		}
+		totalBreaking += b.TotalBreakingChanges
+		if _, ok := seen[b.Path]; !ok {
+			seen[b.Path] = struct{}{}
+			filesWithBreaking++
+		}
+	}
+	return filesWithBreaking, totalBreaking
+}
+
+func formatBreakingPRBlock(report *LintReport) string {
+	if report == nil || len(report.BreakingChanges) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Breaking API changes (libopenapi vs base)\n\n")
+	b.WriteString("| File | Changes | Breaking | Notes |\n")
+	b.WriteString("| --- | ---: | ---: | --- |\n")
+	for _, row := range report.BreakingChanges {
+		note := row.SkipReason
+		if note == "" {
+			note = "—"
+		}
+		note = strings.ReplaceAll(note, "|", "\\|")
+		if row.SkipReason != "" {
+			b.WriteString(fmt.Sprintf("| `%s` | — | — | _%s_ |\n", row.Path, note))
+			continue
+		}
+		b.WriteString(fmt.Sprintf("| `%s` | %d | %d | %s |\n", row.Path, row.TotalChanges, row.TotalBreakingChanges, note))
+	}
+	b.WriteByte('\n')
+	return b.String()
+}
+
 // GeneratePRComment creates markdown comment bodies from a lint report, grouped by rule
 // with clickable GitHub links. It returns one or more chunks under githubMaxIssueCommentBytes,
 // splitting at rule-group boundaries and splitting large single-rule tables by row.
@@ -814,10 +856,18 @@ func GeneratePRComment(report *LintReport, repo, headRef string) []string {
 	}
 	canLink := repo != "" && headRef != ""
 
+	breakFiles, breakCount := breakingChangePRStats(report)
+
 	if report.DiagnosticCount == 0 {
 		body := commentMarkerN(1) + "\n## 🔭 Telescope\n\n"
 		body += formatPRScopeSummary(report, 0)
-		body += "✅ **No findings** — all OpenAPI files pass validation.\n\n"
+		if breakCount == 0 {
+			body += "✅ **No findings** — all OpenAPI files pass validation.\n\n"
+		} else {
+			body += fmt.Sprintf("✅ **No lint findings** — but **%d** breaking API change(s) across **%d** file(s) vs the base ref.\n\n",
+				breakCount, breakFiles)
+			body += formatBreakingPRBlock(report)
+		}
 		body += commentFooter
 		return []string{body}
 	}
@@ -907,8 +957,11 @@ func GeneratePRComment(report *LintReport, repo, headRef string) []string {
 		report.Counts.Info, report.Counts.Hint, report.DiagnosticCount)
 	summary += formatTopFilesBlock(topFileDetails(report, relBase), repo, headRef, canLink)
 
-	blocks := make([]string, 0, len(groups)+1)
+	blocks := make([]string, 0, len(groups)+2)
 	blocks = append(blocks, summary)
+	if s := formatBreakingPRBlock(report); s != "" {
+		blocks = append(blocks, s)
+	}
 	for _, g := range groups {
 		label := g.code
 		if label == "" {

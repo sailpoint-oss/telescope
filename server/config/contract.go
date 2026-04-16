@@ -19,6 +19,7 @@ type ContractTestsConfig struct {
 	EnvFiles    []string                    `yaml:"envFiles,omitempty"`
 	Credentials map[string]CredentialSource `yaml:"credentials,omitempty"`
 	Targets     []ContractTarget            `yaml:"targets,omitempty"`
+	Wiretap     WiretapConfig               `yaml:"wiretap,omitempty"`
 }
 
 // ContractTLSConfig configures the HTTP client used for contract tests (Barometer runner).
@@ -26,6 +27,14 @@ type ContractTLSConfig struct {
 	ClientCertFile string `yaml:"clientCertFile,omitempty"`
 	ClientKeyFile  string `yaml:"clientKeyFile,omitempty"`
 	CACertFile     string `yaml:"caCertFile,omitempty"`
+}
+
+// WiretapConfig configures optional proxy-based contract validation.
+type WiretapConfig struct {
+	Enabled     bool     `yaml:"enabled,omitempty"`
+	BinaryPath  string   `yaml:"binaryPath,omitempty"`
+	MonitorPort int      `yaml:"monitorPort,omitempty"`
+	ExtraArgs   []string `yaml:"extraArgs,omitempty"`
 }
 
 // CredentialSource maps one OpenAPI security scheme name to env-based secrets.
@@ -70,7 +79,7 @@ func (s CredentialSource) CredentialEnvHintString() string {
 	if len(keys) == 0 {
 		return ""
 	}
-	return "credential env keys in .telescope.yaml for this scheme: " + strings.Join(keys, ", ")
+	return "credential env keys in .telescope/config.yaml for this scheme: " + strings.Join(keys, ", ")
 }
 
 // ContractTarget selects documents for batch contract runs (optional; single-doc runs use the open file).
@@ -173,4 +182,13 @@ func (c *ContractTestsConfig) EffectiveConcurrency() int {
 		return 2
 	}
 	return c.Concurrency
+}
+
+// EffectiveWiretapEnabled reports whether wiretap should be used for a run.
+// A non-nil override wins over config.
+func (c *ContractTestsConfig) EffectiveWiretapEnabled(override *bool) bool {
+	if override != nil {
+		return *override
+	}
+	return c != nil && c.Wiretap.Enabled
 }

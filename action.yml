@@ -1,12 +1,12 @@
-name: "Telescope - Spec Analysis"
-description: "Validate, lint, and report on OpenAPI or Arazzo files from a workspace."
+name: "Telescope"
+description: "All-in-one OpenAPI platform: lint, validate, diff, test, and document."
 branding:
   icon: "search"
   color: "blue"
 
 inputs:
   mode:
-    description: "Analysis mode: lint, validate, or ci"
+    description: "Comma-separated modes: lint, validate, ci, diff, contract, docs"
     default: "ci"
   go-version:
     description: "Go version used to build Telescope"
@@ -22,6 +22,12 @@ inputs:
     default: ""
   ruleset:
     description: "Optional ruleset path"
+    default: ""
+  lint-engine:
+    description: "Lint engine: barrelman, vacuum, or both"
+    default: "barrelman"
+  vacuum-ruleset:
+    description: "Optional vacuum-compatible ruleset path"
     default: ""
   diff-base:
     description: "Base ref for ci mode"
@@ -43,13 +49,49 @@ inputs:
     default: "false"
   comment-pr:
     description: "Post PR comment in ci mode"
-    default: "false"
+    default: "true"
   report-md:
     description: "Markdown report output path"
     default: "telescope-report.md"
   report-json:
     description: "JSON report output path"
     default: "telescope-report.json"
+  report-sarif:
+    description: "SARIF report output path"
+    default: ""
+  fail-on-breaking:
+    description: "CI/diff: exit 1 when libopenapi finds breaking API changes"
+    default: "true"
+  breaking-config:
+    description: "Optional path to openapi-changes-style breaking rules YAML"
+    default: ""
+  diff-left:
+    description: "diff mode: original spec (file path or REF:path)"
+    default: ""
+  diff-right:
+    description: "diff mode: updated spec (file path or REF:path)"
+    default: ""
+  diff-format:
+    description: "diff mode output format: text, json, markdown, sarif"
+    default: "json"
+  diff-output:
+    description: "diff mode: write report to this path (under workspace)"
+    default: "telescope-breaking.json"
+  contract-base-url:
+    description: "Base URL for contract test mode"
+    default: ""
+  contract-spec:
+    description: "Spec path for contract test mode"
+    default: ""
+  contract-wiretap:
+    description: "Enable wiretap proxy validation in contract mode"
+    default: "false"
+  docs-output:
+    description: "Output directory for docs mode"
+    default: "telescope-docs"
+  docs-publish:
+    description: "Build documentation for static hosting"
+    default: "false"
 
 outputs:
   report-md:
@@ -58,6 +100,24 @@ outputs:
   report-json:
     description: "JSON report path"
     value: ${{ steps.run.outputs.report-json }}
+  report-sarif:
+    description: "SARIF report path"
+    value: ${{ steps.run.outputs.report-sarif }}
+  lint-findings:
+    description: "Total lint and validation findings"
+    value: ${{ steps.run.outputs.lint-findings }}
+  breaking-changes:
+    description: "Total breaking changes detected"
+    value: ${{ steps.run.outputs.breaking-changes }}
+  contract-passed:
+    description: "Passing contract tests"
+    value: ${{ steps.run.outputs.contract-passed }}
+  contract-failed:
+    description: "Failing contract tests"
+    value: ${{ steps.run.outputs.contract-failed }}
+  exit-code:
+    description: "Overall exit code"
+    value: ${{ steps.run.outputs.exit-code }}
   error:
     description: "Error message if the action run failed"
     value: ${{ steps.run.outputs.error }}
@@ -99,6 +159,8 @@ runs:
         PATHS: ${{ inputs.paths }}
         CONFIG_PATH: ${{ inputs.config }}
         RULESET_PATH: ${{ inputs.ruleset }}
+        LINT_ENGINE: ${{ inputs.lint-engine }}
+        VACUUM_RULESET: ${{ inputs.vacuum-ruleset }}
         DIFF_BASE: ${{ inputs.diff-base }}
         DIFF_HEAD: ${{ inputs.diff-head }}
         REPORT_SCOPE: ${{ inputs.report-scope }}
@@ -108,89 +170,18 @@ runs:
         COMMENT_PR: ${{ inputs.comment-pr }}
         REPORT_MD: ${{ inputs.report-md }}
         REPORT_JSON: ${{ inputs.report-json }}
+        REPORT_SARIF: ${{ inputs.report-sarif }}
+        FAIL_ON_BREAKING: ${{ inputs.fail-on-breaking }}
+        BREAKING_CONFIG: ${{ inputs.breaking-config }}
+        DIFF_LEFT: ${{ inputs.diff-left }}
+        DIFF_RIGHT: ${{ inputs.diff-right }}
+        DIFF_FORMAT: ${{ inputs.diff-format }}
+        DIFF_OUTPUT: ${{ inputs.diff-output }}
+        CONTRACT_BASE_URL: ${{ inputs.contract-base-url }}
+        CONTRACT_SPEC: ${{ inputs.contract-spec }}
+        CONTRACT_WIRETAP: ${{ inputs.contract-wiretap }}
+        DOCS_OUTPUT: ${{ inputs.docs-output }}
+        DOCS_PUBLISH: ${{ inputs.docs-publish }}
         TELESCOPE_BIN: ${{ github.action_path }}/telescope
       run: |
-        set -euo pipefail
-
-        write_output() {
-          local key="$1"
-          local value="$2"
-          {
-            echo "$key<<EOF"
-            echo "$value"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-        }
-
-        resolve_path() {
-          local root="$1"
-          local value="$2"
-          if [ -z "$value" ]; then
-            return 0
-          fi
-          if [[ "$value" = /* ]]; then
-            printf '%s\n' "$value"
-          else
-            printf '%s\n' "$root/$value"
-          fi
-        }
-
-        workspace_dir="$(resolve_path "$GITHUB_WORKSPACE" "$WORKING_DIRECTORY")"
-        report_md_path="$(resolve_path "$workspace_dir" "$REPORT_MD")"
-        report_json_path="$(resolve_path "$workspace_dir" "$REPORT_JSON")"
-
-        mkdir -p "$(dirname "$report_md_path")" "$(dirname "$report_json_path")"
-        cd "$workspace_dir"
-
-        # shellcheck disable=SC2206
-        path_args=($PATHS)
-        if [ "${#path_args[@]}" -eq 0 ]; then
-          path_args=(.)
-        fi
-
-        cmd=("$TELESCOPE_BIN" "$MODE")
-        cmd+=("${path_args[@]}")
-
-        if [ -n "$CONFIG_PATH" ]; then
-          cmd+=(--config "$(resolve_path "$workspace_dir" "$CONFIG_PATH")")
-        fi
-        if [ -n "$RULESET_PATH" ]; then
-          cmd+=(--ruleset "$(resolve_path "$workspace_dir" "$RULESET_PATH")")
-        fi
-        if [ -n "$SEVERITY" ]; then
-          cmd+=(--severity "$SEVERITY")
-        fi
-        if [ "$NO_EXTERNAL_LSP" = "true" ]; then
-          cmd+=(--no-external-lsp)
-        fi
-
-        case "$MODE" in
-          lint|validate)
-            cmd+=(--fail-on "$FAIL_ON" --report-md "$report_md_path" --report-json "$report_json_path")
-            ;;
-          ci)
-            cmd+=(--diff-base "$DIFF_BASE" --diff-head "$DIFF_HEAD" --report-scope "$REPORT_SCOPE" --fail-on "$FAIL_ON" --report-md "$report_md_path" --report-json "$report_json_path")
-            if [ "$COMMENT_PR" = "true" ]; then
-              cmd+=(--comment-pr)
-            fi
-            ;;
-          *)
-            echo "unsupported Telescope action mode: $MODE" >&2
-            exit 1
-            ;;
-        esac
-
-        error=""
-        err_file="$(mktemp)"
-        trap 'rm -f "$err_file"' EXIT
-        if ! "${cmd[@]}" 2> >(tee "$err_file" >&2); then
-          error="$(tr -d '\000' < "$err_file")"
-        fi
-
-        write_output "report-md" "$report_md_path"
-        write_output "report-json" "$report_json_path"
-        write_output "error" "$error"
-
-        if [ -n "$error" ]; then
-          exit 1
-        fi
+        bash "${{ github.action_path }}/scripts/run-action.sh"

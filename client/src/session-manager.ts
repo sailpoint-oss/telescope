@@ -6,6 +6,10 @@
  */
 
 import * as vscode from "vscode";
+import type {
+	ContractTestFinishedPayload,
+	ContractTestProgressPayload,
+} from "./contract-events";
 import { Session, SessionState } from "./session";
 import { appendTraceEvent } from "./trace";
 import { formatSetupLog } from "./utils";
@@ -263,6 +267,16 @@ export class SessionManager implements vscode.Disposable {
 				this.onDeprecatedRanges(params);
 			}
 		};
+		session.onContractTestProgress = (params) => {
+			if (this.onContractTestProgress) {
+				this.onContractTestProgress(params);
+			}
+		};
+		session.onContractTestFinished = (params) => {
+			if (this.onContractTestFinished) {
+				this.onContractTestFinished(params);
+			}
+		};
 
 		try {
 			await session.start();
@@ -296,6 +310,14 @@ export class SessionManager implements vscode.Disposable {
 					kind: string;
 				}>;
 		  }) => void)
+		| null = null;
+
+	onContractTestProgress:
+		| ((params: ContractTestProgressPayload) => void)
+		| null = null;
+
+	onContractTestFinished:
+		| ((params: ContractTestFinishedPayload) => void)
 		| null = null;
 
 	/**

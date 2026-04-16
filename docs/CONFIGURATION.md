@@ -1,6 +1,10 @@
 # Configuration Reference
 
-Telescope is configured via `.telescope.yaml` (or `.telescope.yml`) in your workspace root. This document provides a complete reference for all configuration options.
+Telescope's canonical configuration file is now `.telescope/config.yaml` using the action-oriented `configVersion: 2` layout.
+
+See [Configuration v2](CONFIGURATION-V2.md) for the current recommended schema and examples.
+
+This document remains as the legacy compatibility reference for the older root-level `.telescope.yaml` / `.telescope.yml` structure, which Telescope still loads for existing workspaces.
 
 ## Quick Start
 

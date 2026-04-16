@@ -67,38 +67,42 @@ Once detected, Telescope treats the file as OpenAPI for language server features
 
 ## Configuration
 
-Create `.telescope.yaml` in your workspace root to customize behavior. The extension also supports `.telescope.yml`, `.telescope/config.yaml`, and `.telescope/config.yml` with the same precedence as the server and CLI:
+Create `.telescope/config.yaml` in your workspace root to customize behavior. Legacy `.telescope.yaml` and `.telescope.yml` files are still supported for compatibility:
 
 ```yaml
-extends: telescope:recommended
+configVersion: 2
 
-rules:
-  operation-summary: warn
-  parameter-description: error
-  ascii-only: off
+workspace:
+  targets:
+    apis:
+      kind: openapi
+      include:
+        - api/**/*.{yaml,yml,json}
 
-include:
-  - "**/*.yaml"
-  - "**/*.yml"
-  - "**/*.json"
+linting:
+  targets:
+    - apis
+  presets:
+    - telescope:recommended
 
-exclude:
-  - "node_modules/**"
-  - "dist/**"
-
-spectralRulesets:
-  - ./rulesets/custom.yaml
+validation:
+  openapi:
+    targets:
+      - apis
+    breakingChanges:
+      enabled: true
+      onSave: true
 ```
 
 ### Configuration Options
 
 | Option    | Description                                                           |
 | --------- | --------------------------------------------------------------------- |
-| `extends` | Base ruleset (`telescope:recommended`, `telescope:all`, `telescope:owasp`, `telescope:strict`) |
-| `rules`   | Override severity for built-in rules (`error`, `warn`, `info`, `off`) |
-| `include` | Glob patterns to match OpenAPI files                                  |
-| `exclude` | Glob patterns to exclude                                              |
-| `spectralRulesets` | Spectral-compatible YAML ruleset paths                                |
+| `workspace` | Shared targets, ignore patterns, and dotenv defaults |
+| `linting` | Rule presets, overrides, engines, Spectral rulesets, and Bun custom rules |
+| `validation` | OpenAPI validation, breaking-change checks, and schema validation |
+| `testing` | Contract tests, workflows, and mock defaults |
+| `documentation` | printing-press defaults for previews and generation |
 
 ### Default Patterns
 
@@ -171,7 +175,7 @@ rules:
 
 ## Custom Rules
 
-Telescope supports custom rules via declarative YAML in `.telescope.yaml`, Spectral-compatible YAML rulesets (`spectralRulesets`), and TypeScript/JavaScript rules through the optional Bun sidecar.
+Telescope supports custom rules via `.telescope/config.yaml` under `linting.rulesets` and `linting.customRules`, plus TypeScript/JavaScript rules through the optional Bun sidecar.
 
 If Bun is not installed, YAML-native rules still work and the extension's core OpenAPI diagnostics/navigation remain available, but Bun-backed TypeScript/JavaScript rules and Spectral rulesets stay disabled.
 

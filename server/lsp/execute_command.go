@@ -17,11 +17,14 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/sailpoint-oss/barometer/pkg/barometer"
 	navigator "github.com/sailpoint-oss/navigator"
+	telescopebundle "github.com/sailpoint-oss/telescope/server/bundle"
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/contractrunner"
+	"github.com/sailpoint-oss/telescope/server/diff"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/project"
+	"github.com/sailpoint-oss/telescope/server/wiretap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -48,10 +51,14 @@ func NewExecuteCommandHandler(cache *openapi.IndexCache, bridge *GraphBridge, de
 			return executeGenerateResponses(ctx, cache, uri)
 		case "telescope.bundlePreview":
 			return executeBundlePreview(ctx, cache, bridge, uri)
+		case "telescope.docsPreview":
+			return executeDocsPreview(ctx, cache, bridge, uri, deps)
 		case "telescope.validateExamples":
 			return executeValidateExamples(cache, uri)
 		case "telescope.runContractTests":
 			return executeRunContractTests(ctx, cache, uri, params.Arguments, deps)
+		case "telescope.showBreakingChanges":
+			return executeShowBreakingChanges(ctx, uri, deps)
 		default:
 			return nil, nil
 		}
@@ -74,6 +81,7 @@ type contractRunOptions struct {
 	Tags                []string
 	Sync                bool
 	CredentialOverrides map[string]string
+	Wiretap             *bool
 }
 
 func extractContractRunOptions(args []interface{}) contractRunOptions {
@@ -112,9 +120,64 @@ func extractContractRunOptions(args []interface{}) contractRunOptions {
 				}
 			}
 		}
+		if wiretapEnabled, ok := arg["wiretap"].(bool); ok {
+			opts.Wiretap = &wiretapEnabled
+		}
 	}
 
 	return opts
+}
+
+func executeShowBreakingChanges(ctx *gossip.Context, uri protocol.DocumentURI, deps *ExecuteCommandDeps) (interface{}, error) {
+	if uri == "" {
+		return "", fmt.Errorf("document uri required")
+	}
+	cfg := deps.EffectiveConfig()
+	doc := ctx.Documents.Get(uri)
+	if doc == nil {
+		return "", fmt.Errorf("document not open")
+	}
+	updated := []byte(doc.Text())
+	ws := uriToFSPath(string(protocol.NormalizeURI(ctx.WorkspaceRoot())))
+	repoRoot := gitTopLevel(ws)
+	if repoRoot == "" {
+		return "", fmt.Errorf("not a git repository")
+	}
+	abs := uriToFSPath(string(protocol.NormalizeURI(uri)))
+	rel, err := filepath.Rel(repoRoot, abs)
+	if err != nil {
+		return "", err
+	}
+	rel = filepath.ToSlash(rel)
+	ref := cfg.EffectiveDiffCompareBaseRef()
+	orig, err := diff.ReadAtRef(repoRoot, ref, rel)
+	if err != nil {
+		return "", fmt.Errorf("read base revision: %w", err)
+	}
+	rules := strings.TrimSpace(cfg.LSP.BreakingRulesPath)
+	if rules != "" && !filepath.IsAbs(rules) {
+		rules = filepath.Join(ws, rules)
+	}
+	res, err := diff.Compare(orig, updated, diff.CompareOpts{BreakingRulesPath: rules})
+	if err != nil {
+		return "", err
+	}
+	var buf strings.Builder
+	if err := diff.FormatMarkdown(res, &buf, diff.FormatOpts{}); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func executeDocsPreview(ctx *gossip.Context, cache *openapi.IndexCache, bridge *GraphBridge, uri protocol.DocumentURI, deps *ExecuteCommandDeps) (interface{}, error) {
+	if deps == nil || deps.DocsPreview == nil {
+		return nil, nil
+	}
+	url, err := deps.DocsPreview.StartPreview(ctx, cache, bridge, uri, deps.EffectiveConfig())
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"url": url}, nil
 }
 
 func executeSortTags(ctx *gossip.Context, cache *openapi.IndexCache, uri protocol.DocumentURI) (interface{}, error) {
@@ -388,7 +451,7 @@ func executeRunContractTests(ctx *gossip.Context, cache *openapi.IndexCache, uri
 		deps.Runner.SetConfig(cfg)
 	}
 	dotenv := deps.WorkspaceEnv()
-	baseURL := cfg.ContractTests.EffectiveContractBaseURL(opts.BaseURL)
+	baseURL := cfg.EffectiveContractBaseURL(opts.BaseURL)
 	workspaceRoot := workspaceRootForContract(ctx, uri)
 	clientCfg := contractrunner.BuildBarometerClientConfig(&cfg.ContractTests, workspaceRoot)
 
@@ -403,23 +466,52 @@ func executeRunContractTests(ctx *gossip.Context, cache *openapi.IndexCache, uri
 	oauthCtx, oauthCancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer oauthCancel()
 	tokenHTTP := &http.Client{Timeout: 45 * time.Second}
-	creds, err := cfg.ContractTests.ResolveAndFetchCredentials(oauthCtx, navIdx, opts.CredentialOverrides, dotenv, tokenHTTP)
+	creds, err := cfg.ResolveAndFetchCredentials(oauthCtx, navIdx, opts.CredentialOverrides, workspaceRoot, dotenv, tokenHTTP)
 	if err != nil {
 		return nil, err
 	}
+	wiretapCfg := effectiveWiretapConfig(&cfg.ContractTests, opts.Wiretap)
+	if wiretapCfg != nil && deps.Runner == nil {
+		return nil, fmt.Errorf("wiretap requires a configured contract runner")
+	}
 
 	if idx.DocumentKind() == openapi.DocumentKindOpenAPI {
+		specPath, cleanup, err := materializeContractTestDocument(ctx, uri)
+		if err != nil {
+			return nil, err
+		}
 		if opts.Sync {
+			defer cleanup()
 			runCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			result, err := contractrunner.RunOpenAPISync(runCtx, baseURL, navIdx, creds, opts.Tags, opts.OperationID, clientCfg)
+			if wiretapCfg != nil && deps.Runner != nil {
+				if err := deps.Runner.EnsureWiretap(runCtx, workspaceRoot, specPath, baseURL, *wiretapCfg); err != nil {
+					return nil, err
+				}
+				defer deps.Runner.StopWiretap()
+				notifyWiretapMonitorReady(ctx, deps.Runner)
+			}
+			result, findings, err := contractrunner.RunOpenAPISync(runCtx, baseURL, specPath, navIdx, creds, opts.Tags, opts.OperationID, clientCfg, deps.Runner)
 			if err != nil {
 				return nil, err
 			}
-			return buildContractPayload(baseURL, result, nil), nil
+			if deps.DiagnosticMux != nil {
+				deps.DiagnosticMux.Set(uri, contractDiagSource, contractDiagnosticsForOpenAPI(idx, result, &cfg.ContractTests))
+				if wiretapCfg != nil {
+					deps.DiagnosticMux.Set(uri, contractWiretapDiagSource, contractDiagnosticsFromWiretap(idx, uri, findings))
+				} else {
+					deps.DiagnosticMux.ClearSource(uri, contractWiretapDiagSource)
+				}
+				deps.DiagnosticMux.FlushNow(uri)
+			}
+			monitorURL := ""
+			if deps.Runner != nil {
+				monitorURL = deps.Runner.WiretapMonitorURL()
+			}
+			return buildContractPayload(baseURL, result, findings, monitorURL, nil), nil
 		}
 		runID := nextContractRunID()
-		go runContractOpenAPIAsync(ctx, deps, uri, idx, baseURL, navIdx, creds, opts, clientCfg, runID)
+		go runContractOpenAPIAsync(ctx, deps, uri, idx, baseURL, navIdx, creds, opts, clientCfg, runID, specPath, cleanup, wiretapCfg)
 		return map[string]interface{}{
 			"runId":  runID,
 			"status": "queued",
@@ -446,7 +538,7 @@ func executeRunContractTests(ctx *gossip.Context, cache *openapi.IndexCache, uri
 		if err != nil {
 			return nil, err
 		}
-		return buildContractPayload(baseURL, result, nil), nil
+		return buildContractPayload(baseURL, result, nil, "", nil), nil
 	}
 	runID := nextContractRunID()
 	go runContractArazzoAsync(ctx, deps, uri, idx, bcfg, clientCfg, runID)
@@ -456,11 +548,17 @@ func executeRunContractTests(ctx *gossip.Context, cache *openapi.IndexCache, uri
 	}, nil
 }
 
-func buildContractPayload(baseURL string, result *barometer.Result, stderr *string) map[string]interface{} {
+func buildContractPayload(baseURL string, result *barometer.Result, findings []wiretap.WiretapFinding, monitorURL string, stderr *string) map[string]interface{} {
 	m := barometerResultToMap(result)
 	payload := map[string]interface{}{
 		"baseUrl": baseURL,
 		"result":  m,
+	}
+	if len(findings) > 0 {
+		payload["wiretapFindings"] = findings
+	}
+	if strings.TrimSpace(monitorURL) != "" {
+		payload["wiretapMonitorUrl"] = strings.TrimSpace(monitorURL)
 	}
 	if stderr != nil && strings.TrimSpace(*stderr) != "" {
 		payload["stderr"] = strings.TrimSpace(*stderr)
@@ -498,23 +596,59 @@ func notifyContract(ctx *gossip.Context, method string, params interface{}) {
 	_ = conn.Notify(context.Background(), method, params)
 }
 
-func runContractOpenAPIAsync(ctx *gossip.Context, deps *ExecuteCommandDeps, uri protocol.DocumentURI, idx *openapi.Index, baseURL string, navIdx *navigator.Index, creds map[string]string, opts contractRunOptions, clientCfg *barometer.ClientConfig, runID string) {
+func notifyWiretapMonitorReady(ctx *gossip.Context, runner *contractrunner.Runner) {
+	if runner == nil {
+		return
+	}
+	url := strings.TrimSpace(runner.WiretapMonitorURL())
+	if url == "" {
+		return
+	}
+	notifyContract(ctx, "telescope/wiretapMonitorReady", map[string]string{"url": url})
+}
+
+func effectiveWiretapConfig(ct *config.ContractTestsConfig, override *bool) *config.WiretapConfig {
+	if ct == nil {
+		if override != nil && *override {
+			return &config.WiretapConfig{Enabled: true}
+		}
+		return nil
+	}
+	if !ct.EffectiveWiretapEnabled(override) {
+		return nil
+	}
+	cfg := ct.Wiretap
+	cfg.Enabled = true
+	return &cfg
+}
+
+func runContractOpenAPIAsync(ctx *gossip.Context, deps *ExecuteCommandDeps, uri protocol.DocumentURI, idx *openapi.Index, baseURL string, navIdx *navigator.Index, creds map[string]string, opts contractRunOptions, clientCfg *barometer.ClientConfig, runID, specPath string, cleanup func(), wiretapCfg *config.WiretapConfig) {
+	if cleanup != nil {
+		defer cleanup()
+	}
 	notifyContract(ctx, "telescope/contractTestProgress", map[string]interface{}{
 		"runId": runID, "phase": "running", "message": "OpenAPI contract tests",
 	})
 	runner := deps.Runner
-	if err := runner.Acquire(context.Background()); err != nil {
-		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
-		return
+	if runner != nil {
+		if err := runner.Acquire(context.Background()); err != nil {
+			notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+			return
+		}
+		defer runner.Release()
 	}
-	defer runner.Release()
 
-	job, err := contractrunner.StartOpenAPIAsync(context.Background(), baseURL, navIdx, creds, opts.Tags, opts.OperationID, clientCfg)
-	if err != nil {
-		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
-		return
+	if wiretapCfg != nil && runner != nil {
+		workspaceRoot := workspaceRootForContract(ctx, uri)
+		if err := runner.EnsureWiretap(context.Background(), workspaceRoot, specPath, baseURL, *wiretapCfg); err != nil {
+			notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+			return
+		}
+		defer runner.StopWiretap()
+		notifyWiretapMonitorReady(ctx, runner)
 	}
-	result, err := job.Wait(0)
+
+	result, findings, err := contractrunner.RunOpenAPISync(context.Background(), baseURL, specPath, navIdx, creds, opts.Tags, opts.OperationID, clientCfg, runner)
 	if err != nil {
 		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
 		return
@@ -522,12 +656,23 @@ func runContractOpenAPIAsync(ctx *gossip.Context, deps *ExecuteCommandDeps, uri 
 	if deps.DiagnosticMux != nil {
 		cfg := deps.EffectiveConfig()
 		deps.DiagnosticMux.Set(uri, contractDiagSource, contractDiagnosticsForOpenAPI(idx, result, &cfg.ContractTests))
+		if wiretapCfg != nil {
+			deps.DiagnosticMux.Set(uri, contractWiretapDiagSource, contractDiagnosticsFromWiretap(idx, uri, findings))
+		} else {
+			deps.DiagnosticMux.ClearSource(uri, contractWiretapDiagSource)
+		}
 		deps.DiagnosticMux.FlushNow(uri)
 	}
+	monitorURL := ""
+	if runner != nil {
+		monitorURL = runner.WiretapMonitorURL()
+	}
 	notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{
-		"runId":   runID,
-		"baseUrl": baseURL,
-		"result":  barometerResultToMap(result),
+		"runId":             runID,
+		"baseUrl":           baseURL,
+		"result":            barometerResultToMap(result),
+		"wiretapFindings":   findings,
+		"wiretapMonitorUrl": monitorURL,
 	})
 }
 
@@ -536,11 +681,13 @@ func runContractArazzoAsync(ctx *gossip.Context, deps *ExecuteCommandDeps, uri p
 		"runId": runID, "phase": "running", "message": "Arazzo contract tests",
 	})
 	runner := deps.Runner
-	if err := runner.Acquire(context.Background()); err != nil {
-		notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
-		return
+	if runner != nil {
+		if err := runner.Acquire(context.Background()); err != nil {
+			notifyContract(ctx, "telescope/contractTestFinished", map[string]interface{}{"runId": runID, "error": err.Error()})
+			return
+		}
+		defer runner.Release()
 	}
-	defer runner.Release()
 
 	cl, err := barometer.NewClient(clientCfg)
 	if err != nil {
@@ -700,6 +847,14 @@ func executeBundlePreview(ctx *gossip.Context, cache *openapi.IndexCache, bridge
 	if idx == nil || idx.Document == nil || !idx.IsOpenAPI() {
 		return nil, nil
 	}
+	rootPath, err := fileURIToPath(uri)
+	if err != nil {
+		return nil, fmt.Errorf("bundle preview: %w", err)
+	}
+	rootBytes, err := readBundleDocumentBytes(ctx, uri)
+	if err != nil {
+		return nil, fmt.Errorf("bundle preview: %w", err)
+	}
 
 	order := []string{string(uri)}
 	if bridge != nil {
@@ -718,31 +873,40 @@ func executeBundlePreview(ctx *gossip.Context, cache *openapi.IndexCache, bridge
 		}
 	}
 
-	merged := make(map[string]any)
 	warnings := make([]string, 0)
-	for i, depURI := range order {
-		docMap, err := readBundleDocument(ctx, protocol.DocumentURI(depURI))
+	files := make(map[string][]byte, len(order))
+	for _, depURI := range order {
+		raw, err := readBundleDocumentBytes(ctx, protocol.DocumentURI(depURI))
 		if err != nil {
 			warnings = append(warnings, err.Error())
 			continue
 		}
-		if i == 0 {
-			merged = docMap
+		depPath, err := fileURIToPath(protocol.DocumentURI(depURI))
+		if err != nil {
+			warnings = append(warnings, err.Error())
 			continue
 		}
-		mergeBundleComponents(merged, docMap)
+		files[depPath] = raw
 	}
-	if len(merged) == 0 {
-		return nil, nil
-	}
-
-	content, language, err := marshalBundleDocument(merged, idx.Format)
+	delete(files, rootPath)
+	result, err := telescopebundle.Bundle(telescopebundle.Options{
+		RootPath:  rootPath,
+		RootBytes: rootBytes,
+		Files:     files,
+		Mode:      telescopebundle.ModeComposed,
+		JSON:      idx.Format == openapi.FormatJSON,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("bundle preview: %w", err)
 	}
+	warnings = append(warnings, result.Warnings...)
+	language := "yaml"
+	if idx.Format == openapi.FormatJSON {
+		language = "json"
+	}
 
 	return map[string]interface{}{
-		"content":  string(content),
+		"content":  string(result.Content),
 		"language": language,
 		"files":    len(order),
 		"warnings": warnings,
@@ -800,25 +964,28 @@ func detectExampleLiteralType(raw string) string {
 	return "string"
 }
 
-func readBundleDocument(ctx *gossip.Context, uri protocol.DocumentURI) (map[string]any, error) {
-	var raw []byte
+func readBundleDocumentBytes(ctx *gossip.Context, uri protocol.DocumentURI) ([]byte, error) {
 	if ctx != nil && ctx.Documents != nil {
 		if doc := ctx.Documents.Get(uri); doc != nil {
-			raw = []byte(doc.Text())
+			return []byte(doc.Text()), nil
 		}
 	}
-	if len(raw) == 0 {
-		path, err := fileURIToPath(uri)
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", uri, err)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", uri, err)
-		}
-		raw = data
+	path, err := fileURIToPath(uri)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", uri, err)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", uri, err)
+	}
+	return data, nil
+}
 
+func readBundleDocument(ctx *gossip.Context, uri protocol.DocumentURI) (map[string]any, error) {
+	raw, err := readBundleDocumentBytes(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
 	doc := make(map[string]any)
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", uri, err)

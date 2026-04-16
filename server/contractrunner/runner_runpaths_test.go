@@ -13,7 +13,7 @@ func TestRunHelpers_ReturnClientConfigErrors(t *testing.T) {
 		TLSClientCertFile: "client-cert.pem",
 	}
 
-	if _, err := RunOpenAPISync(context.Background(), "http://localhost:8080", nil, nil, nil, "", badClientCfg); err == nil {
+	if _, _, err := RunOpenAPISync(context.Background(), "http://localhost:8080", "", nil, nil, nil, "", badClientCfg, nil); err == nil {
 		t.Fatal("expected RunOpenAPISync to return client construction error")
 	}
 
@@ -21,7 +21,7 @@ func TestRunHelpers_ReturnClientConfigErrors(t *testing.T) {
 		t.Fatal("expected RunArazzoSync to return client construction error")
 	}
 
-	job, err := StartOpenAPIAsync(context.Background(), "http://localhost:8080", nil, nil, nil, "", badClientCfg)
+	job, err := StartOpenAPIAsync(context.Background(), "http://localhost:8080", "", nil, nil, nil, "", badClientCfg, nil)
 	if err == nil {
 		t.Fatal("expected StartOpenAPIAsync to return client construction error")
 	}
@@ -31,9 +31,9 @@ func TestRunHelpers_ReturnClientConfigErrors(t *testing.T) {
 }
 
 func TestRunHelpers_ErrorMessageIncludesTLSHint(t *testing.T) {
-	_, err := RunOpenAPISync(context.Background(), "http://localhost:8080", nil, nil, nil, "", &barometer.ClientConfig{
+	_, _, err := RunOpenAPISync(context.Background(), "http://localhost:8080", "", nil, nil, nil, "", &barometer.ClientConfig{
 		TLSCACertFile: "missing-ca.pem",
-	})
+	}, nil)
 	if err == nil {
 		t.Fatal("expected TLS CA file error")
 	}

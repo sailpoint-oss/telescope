@@ -22,3 +22,24 @@ func TestResolveWorkspacePath(t *testing.T) {
 		t.Fatalf("absolute: %q", got)
 	}
 }
+
+func TestWorkspaceRootForConfigPath(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "workspace")
+	nested := filepath.Join(root, ".telescope", "config.yaml")
+	if got := WorkspaceRootForConfigPath(nested); got != root {
+		t.Fatalf("nested config root = %q, want %q", got, root)
+	}
+	legacy := filepath.Join(root, ".telescope.yaml")
+	if got := WorkspaceRootForConfigPath(legacy); got != root {
+		t.Fatalf("legacy config root = %q, want %q", got, root)
+	}
+}
+
+func TestTelescopeAssetRef(t *testing.T) {
+	if got := TelescopeAssetRef("rulesets/breaking.yaml"); got != ".telescope/rulesets/breaking.yaml" {
+		t.Fatalf("relative asset = %q", got)
+	}
+	if got := TelescopeAssetRef(".telescope/rulesets/breaking.yaml"); got != ".telescope/rulesets/breaking.yaml" {
+		t.Fatalf("prefixed asset = %q", got)
+	}
+}

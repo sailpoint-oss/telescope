@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,33 @@ func writeFile(t *testing.T, path string, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile(%q): %v", path, err)
+	}
+}
+
+func initGitRepo(t *testing.T, dir string, files ...string) {
+	t.Helper()
+	steps := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "telescope@test.local"},
+		{"git", "config", "user.name", "Telescope Test"},
+	}
+	for _, argv := range steps {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", argv, err, out)
+		}
+	}
+	add := append([]string{"git", "add"}, files...)
+	cmd := exec.Command(add[0], add[1:]...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	cmd = exec.Command("git", "commit", "-m", "init")
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
 	}
 }
 
@@ -38,6 +66,7 @@ func resetCLIState() {
 	outputFormat = "text"
 	minSeverity = ""
 	failOn = "error"
+	analysisEngine = ""
 	noColor = false
 	noExternalLSP = false
 	reportMDPath = ""
@@ -53,6 +82,13 @@ func resetCLIState() {
 	ciSeverity = ""
 	ciReportScope = reportScopeChanged
 	ciNoExtLSP = false
+	ciFailOnBreaking = true
+	ciBreakingConfig = ""
+	diffFormat = "text"
+	diffBreakingOnly = false
+	diffFailOnBreaking = false
+	diffBreakingConfig = ""
+	diffOutput = ""
 }
 
 func runCLISubprocess(t *testing.T, dir string, subcommand string, args ...string) error {
@@ -97,6 +133,10 @@ func TestCLIHelperProcess(t *testing.T) {
 		err = cmd.Execute()
 	case "ci":
 		cmd := newCICmd()
+		cmd.SetArgs(subArgs)
+		err = cmd.Execute()
+	case "diff":
+		cmd := newDiffCmd()
 		cmd.SetArgs(subArgs)
 		err = cmd.Execute()
 	default:
@@ -173,6 +213,8 @@ components:
             read:pets: Read pets
 `)
 
+	initGitRepo(t, dir, "spec.yaml")
+
 	resetCLIState()
 	lintJSON := filepath.Join(dir, "lint-report.json")
 	lintMD := filepath.Join(dir, "lint-report.md")
@@ -212,6 +254,22 @@ components:
 			t.Fatalf("expected ci report %q: %v", report, err)
 		}
 	}
+	var ciRep struct {
+		BreakingChanges []BreakingChangeFile `json:"breakingChanges"`
+	}
+	raw, err := os.ReadFile(ciJSON)
+	if err != nil {
+		t.Fatalf("read ci json: %v", err)
+	}
+	if err := json.Unmarshal(raw, &ciRep); err != nil {
+		t.Fatalf("parse ci json: %v", err)
+	}
+	if ciRep.BreakingChanges == nil {
+		t.Fatalf("expected breakingChanges field in ci report json")
+	}
+	if len(ciRep.BreakingChanges) != 1 {
+		t.Fatalf("expected 1 breakingChanges row, got %d", len(ciRep.BreakingChanges))
+	}
 }
 
 func TestValidateCommand_HermeticSchemaFiltering(t *testing.T) {
@@ -220,6 +278,7 @@ func TestValidateCommand_HermeticSchemaFiltering(t *testing.T) {
 	specPath := filepath.Join(dir, "invalid.yaml")
 	writeFile(t, specPath, `openapi: "3.1.0"
 info:
+  title: Hermetic validate fixture
   version: "1.0.0"
 paths: {}
 `)
@@ -283,9 +342,126 @@ components:
 		t.Fatalf("ReadFile(%q): %v", outputPath, err)
 	}
 	text := string(data)
-	for _, want := range []string{"openapi: 3.1.0", "schemas:", "Pet:", "type: object", "listPets"} {
+	for _, want := range []string{`openapi: "3.1.0"`, "schemas:", "Pet:", "type: object", "listPets"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected bundled output to contain %q, got:\n%s", want, text)
 		}
+	}
+}
+
+func TestOverlayApplyCommand_Hermetic(t *testing.T) {
+	dir := t.TempDir()
+	withWorkingDir(t, dir)
+	specPath := filepath.Join(dir, "spec.yaml")
+	overlayPath := filepath.Join(dir, "title.overlay.yaml")
+	outputPath := filepath.Join(dir, "applied.yaml")
+
+	writeFile(t, specPath, `openapi: 3.0.0
+info:
+  title: Original Title
+  version: 1.0.0
+paths: {}
+`)
+	writeFile(t, overlayPath, `overlay: 1.0.0
+info:
+  title: Title Overlay
+  version: 1.0.0
+actions:
+  - target: $.info
+    update:
+      title: Updated Title
+`)
+
+	resetCLIState()
+	cmd := newOverlayCmd()
+	cmd.SetArgs([]string{"apply", specPath, "--overlay", overlayPath, "--output", outputPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("overlay apply command failed: %v", err)
+	}
+
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q): %v", outputPath, err)
+	}
+	if !strings.Contains(string(data), "Updated Title") {
+		t.Fatalf("expected overlay-applied output, got:\n%s", data)
+	}
+}
+
+func TestDocsCommand_GenerateWithFakeBinary(t *testing.T) {
+	dir := t.TempDir()
+	withWorkingDir(t, dir)
+	specPath := filepath.Join(dir, "spec.yaml")
+	outputDir := filepath.Join(dir, "site")
+	binaryPath := filepath.Join(dir, "printing-press")
+
+	writeFile(t, specPath, `openapi: 3.0.0
+info:
+  title: Docs API
+  version: 1.0.0
+paths: {}
+`)
+	writeFile(t, binaryPath, "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(binaryPath, 0o755); err != nil {
+		t.Fatalf("Chmod(%q): %v", binaryPath, err)
+	}
+
+	resetCLIState()
+	cmd := newDocsCmd()
+	cmd.SetArgs([]string{specPath, "--binary", binaryPath, "--output", outputDir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("docs command failed: %v", err)
+	}
+	if _, err := os.Stat(outputDir); err != nil {
+		t.Fatalf("expected output directory to be created: %v", err)
+	}
+}
+
+func TestMockCommand_GenerateSchemaFiles(t *testing.T) {
+	dir := t.TempDir()
+	withWorkingDir(t, dir)
+	specPath := filepath.Join(dir, "spec.yaml")
+	outputDir := filepath.Join(dir, "mocks")
+
+	writeFile(t, specPath, `openapi: 3.1.0
+info:
+  title: Mock API
+  version: 1.0.0
+paths:
+  /pets:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+    Pet:
+      type: object
+      properties:
+        id:
+          type: string
+`)
+
+	resetCLIState()
+	cmd := newMockCmd()
+	cmd.SetArgs([]string{specPath, "--output", outputDir, "--schema", "User", "--format", "json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("mock command failed: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(outputDir, "User.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(User.json): %v", err)
+	}
+	if !json.Valid(data) {
+		t.Fatalf("expected valid JSON mock output, got:\n%s", data)
 	}
 }

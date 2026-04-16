@@ -183,6 +183,7 @@ func TestExtractContractRunOptions(t *testing.T) {
 			"operationId": "getUser",
 			"tags":        []interface{}{"users", "admin"},
 			"sync":        true,
+			"wiretap":     true,
 			"credentials": map[string]interface{}{"token": "secret"},
 		}})
 		if opts.BaseURL != "https://custom.test" {
@@ -196,6 +197,9 @@ func TestExtractContractRunOptions(t *testing.T) {
 		}
 		if !opts.Sync {
 			t.Error("Sync should be true")
+		}
+		if opts.Wiretap == nil || !*opts.Wiretap {
+			t.Fatalf("Wiretap = %v, want true", opts.Wiretap)
 		}
 		if opts.CredentialOverrides["token"] != "secret" {
 			t.Errorf("CredentialOverrides = %v", opts.CredentialOverrides)

@@ -12,11 +12,22 @@ import (
 
 // Config represents the Telescope configuration.
 type Config struct {
+	ConfigVersion        int                        `yaml:"configVersion,omitempty"`
+	Workspace            WorkspaceSection           `yaml:"workspace,omitempty"`
+	Generation           GenerationSection          `yaml:"generation,omitempty"`
+	Linting              LintingSection             `yaml:"linting,omitempty"`
+	Validation           ValidationSection          `yaml:"validation,omitempty"`
+	Formatting           FormattingSection          `yaml:"formatting,omitempty"`
+	Testing              TestingSection             `yaml:"testing,omitempty"`
+	Documentation        DocumentationSection       `yaml:"documentation,omitempty"`
+	Extension            ExtensionSection           `yaml:"extension,omitempty"`
+	Automation           AutomationSection          `yaml:"automation,omitempty"`
 	Extends              string                     `yaml:"extends,omitempty"`
 	Roots                []string                   `yaml:"roots,omitempty"`
 	Rules                map[string]string          `yaml:"rules,omitempty"`
 	Include              []string                   `yaml:"include,omitempty"`
 	Exclude              []string                   `yaml:"exclude,omitempty"`
+	Lint                 LintConfig                 `yaml:"lint,omitempty"`
 	SpectralRulesets     []string                   `yaml:"spectralRulesets,omitempty"`
 	GuidelinesBaseURL    string                     `yaml:"guidelinesBaseURL,omitempty"`
 	OpenAPI              OpenAPIConfig              `yaml:"openapi,omitempty"`
@@ -67,11 +78,27 @@ type OutputConfig struct {
 	Color  string `yaml:"color,omitempty"`  // auto, always, never
 }
 
+// LintConfig controls which lint engines run for CLI/LSP flows.
+type LintConfig struct {
+	Engines []string     `yaml:"engines,omitempty"` // barrelman, vacuum
+	Vacuum  VacuumConfig `yaml:"vacuum,omitempty"`
+}
+
+// VacuumConfig configures the optional pb33f/vacuum lint bridge.
+type VacuumConfig struct {
+	Ruleset  string `yaml:"ruleset,omitempty"`
+	Severity string `yaml:"severity,omitempty"` // error, warn, info, hint
+	Turbo    bool   `yaml:"turbo,omitempty"`
+}
+
 // LSPConfig controls LSP server behavior.
 type LSPConfig struct {
-	Debounce         time.Duration               `yaml:"debounce,omitempty"`
-	MaxFileSize      int64                       `yaml:"maxFileSize,omitempty"`
-	SchemaValidation LSPSchemaValidationSettings `yaml:"schemaValidation,omitempty"`
+	Debounce           time.Duration               `yaml:"debounce,omitempty"`
+	MaxFileSize        int64                       `yaml:"maxFileSize,omitempty"`
+	SchemaValidation   LSPSchemaValidationSettings `yaml:"schemaValidation,omitempty"`
+	DiffOnSave         bool                        `yaml:"diffOnSave,omitempty"`
+	BreakingRulesPath  string                      `yaml:"breakingRulesPath,omitempty"`
+	DiffCompareBaseRef string                      `yaml:"diffCompareBaseRef,omitempty"` // default: HEAD
 }
 
 // LSPSchemaValidationSettings configures schema validation behavior.
@@ -90,9 +117,13 @@ func DefaultConfig() *Config {
 			Format: "text",
 			Color:  "auto",
 		},
+		Lint: LintConfig{
+			Engines: []string{"barrelman"},
+		},
 		LSP: LSPConfig{
-			Debounce:    300 * time.Millisecond,
-			MaxFileSize: 5 * 1024 * 1024, // 5MB
+			Debounce:           300 * time.Millisecond,
+			MaxFileSize:        5 * 1024 * 1024, // 5MB
+			DiffCompareBaseRef: "HEAD",
 			SchemaValidation: LSPSchemaValidationSettings{
 				Mode: "go",
 			},
@@ -100,11 +131,55 @@ func DefaultConfig() *Config {
 	}
 }
 
+// EffectiveRuleSet returns the merged builtin rulesets and config overrides that
+// should drive enablement and severity decisions.
+func (c *Config) EffectiveRuleSet() *rulesets.RuleSet {
+	if c == nil {
+		return rulesets.Merge(rulesets.GetBuiltin(rulesets.Recommended))
+	}
+
+	var merged []*rulesets.RuleSet
+	for _, preset := range c.EffectivePresetNames() {
+		merged = append(merged, rulesets.GetBuiltin(strings.TrimSpace(preset)))
+	}
+	rs := rulesets.Merge(merged...)
+	if rs == nil {
+		rs = &rulesets.RuleSet{Rules: make(map[string]rulesets.RuleDefinition)}
+	}
+	if rs.Rules == nil {
+		rs.Rules = make(map[string]rulesets.RuleDefinition)
+	}
+	for id, sev := range c.Rules {
+		rs.Rules[rulesets.NormalizeRuleID(id)] = rulesets.RuleDefinition{Severity: sev}
+	}
+	return rs
+}
+
+// EffectivePresetNames returns the builtin preset list that should be applied.
+func (c *Config) EffectivePresetNames() []string {
+	if c == nil {
+		return []string{rulesets.Recommended}
+	}
+	if c.UsesV2Layout() && len(c.Linting.Presets) > 0 {
+		return dedupeTrimmed(c.Linting.Presets)
+	}
+	if strings.TrimSpace(c.Extends) != "" {
+		return []string{strings.TrimSpace(c.Extends)}
+	}
+	return []string{rulesets.Recommended}
+}
+
 // EffectiveGuidelinesBaseURL returns the configured docs base URL, falling back
 // to barrelman's env/default resolution.
 func (c *Config) EffectiveGuidelinesBaseURL() string {
 	if c == nil {
 		return barrelman.GuidelinesBaseURL()
+	}
+	if c.UsesV2Layout() {
+		base := strings.TrimSpace(c.Linting.GuidelinesBaseURL)
+		if base != "" {
+			return strings.TrimRight(base, "/") + "/"
+		}
 	}
 	base := strings.TrimSpace(c.GuidelinesBaseURL)
 	if base == "" {
@@ -117,6 +192,15 @@ func (c *Config) EffectiveGuidelinesBaseURL() string {
 // mode, defaulting to "go". Legacy "bun" and "compare" values are accepted
 // for compatibility but are normalized to "go".
 func (c *Config) EffectiveSchemaValidationMode() string {
+	if c != nil && c.UsesV2Layout() {
+		mode := strings.ToLower(strings.TrimSpace(c.Validation.OpenAPI.SchemaValidationMode))
+		switch mode {
+		case "", "go", "bun", "compare":
+			return "go"
+		default:
+			return "go"
+		}
+	}
 	mode := strings.ToLower(strings.TrimSpace(c.LSP.SchemaValidation.Mode))
 	switch mode {
 	case "go", "bun", "compare":
@@ -124,6 +208,59 @@ func (c *Config) EffectiveSchemaValidationMode() string {
 	default:
 		return "go"
 	}
+}
+
+// EffectiveDiffCompareBaseRef returns the git ref used for diff-on-save / breaking previews.
+func (c *Config) EffectiveDiffCompareBaseRef() string {
+	if c != nil && c.UsesV2Layout() {
+		s := strings.TrimSpace(c.Validation.OpenAPI.BreakingChanges.CompareTo)
+		if s != "" {
+			return s
+		}
+	}
+	if c == nil {
+		return "HEAD"
+	}
+	s := strings.TrimSpace(c.LSP.DiffCompareBaseRef)
+	if s == "" {
+		return "HEAD"
+	}
+	return s
+}
+
+// EffectiveLintEngines returns the normalized list of configured lint engines.
+// Supported values are "barrelman" and "vacuum"; "both" expands to both.
+func (c *Config) EffectiveLintEngines() []string {
+	if c == nil {
+		return []string{"barrelman"}
+	}
+	if c.UsesV2Layout() {
+		var raw []string
+		if c.Linting.Engines.Barrelman.Enabled || c.Linting.Engines.Vacuum.Enabled || (!c.Linting.Engines.Barrelman.Enabled && !c.Linting.Engines.Vacuum.Enabled) {
+			raw = append(raw, "barrelman")
+		}
+		if c.Linting.Engines.Vacuum.Enabled {
+			raw = append(raw, "vacuum")
+		}
+		if engines := normalizeLintEngines(raw); len(engines) > 0 {
+			return engines
+		}
+	}
+	engines := normalizeLintEngines(c.Lint.Engines)
+	if len(engines) == 0 {
+		return []string{"barrelman"}
+	}
+	return engines
+}
+
+// UsesVacuum reports whether the configured lint engine set includes vacuum.
+func (c *Config) UsesVacuum() bool {
+	for _, engine := range c.EffectiveLintEngines() {
+		if engine == "vacuum" {
+			return true
+		}
+	}
+	return false
 }
 
 // HasCustomRules reports whether the config declares any custom rules.
@@ -139,8 +276,40 @@ func (c *Config) HasCustomRules() bool {
 	return false
 }
 
+func normalizeLintEngines(raw []string) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []string
+	add := func(engine string) {
+		for _, existing := range out {
+			if existing == engine {
+				return
+			}
+		}
+		out = append(out, engine)
+	}
+	for _, item := range raw {
+		for _, part := range strings.Split(item, ",") {
+			switch strings.ToLower(strings.TrimSpace(part)) {
+			case "", "barrelman":
+				add("barrelman")
+			case "vacuum":
+				add("vacuum")
+			case "both":
+				add("barrelman")
+				add("vacuum")
+			}
+		}
+	}
+	return out
+}
+
 // HasSpectralRulesets reports whether the config declares any Spectral rulesets.
 func (c *Config) HasSpectralRulesets() bool {
+	if c != nil && c.UsesV2Layout() && len(c.Linting.Rulesets.Spectral) > 0 {
+		return true
+	}
 	return len(c.SpectralRulesets) > 0
 }
 
@@ -180,15 +349,5 @@ func ResolveRunner(ref RuleRef) string {
 
 // BuildEnabledRules resolves rule enables/disables from config + ruleset.
 func (c *Config) BuildEnabledRules() map[string]bool {
-	rs := rulesets.GetBuiltin(c.Extends)
-	if rs == nil {
-		rs = &rulesets.RuleSet{Rules: make(map[string]rulesets.RuleDefinition)}
-	}
-
-	// Apply config-level overrides
-	for id, sev := range c.Rules {
-		rs.Rules[rulesets.NormalizeRuleID(id)] = rulesets.RuleDefinition{Severity: sev}
-	}
-
-	return rulesets.BuildEnabledMap(rs)
+	return rulesets.BuildEnabledMap(c.EffectiveRuleSet())
 }

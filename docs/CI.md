@@ -37,6 +37,7 @@ permissions:
   contents: read
   pull-requests: write
   issues: write
+  security-events: write
 
 jobs:
   lint:
@@ -53,6 +54,13 @@ jobs:
           comment-pr: true
           report-md: telescope-report.md
           report-json: telescope-report.json
+          report-sarif: telescope-report.sarif
+
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: telescope-report.sarif
 
       - name: Upload Telescope report artifact
         if: always()
@@ -62,12 +70,14 @@ jobs:
           path: |
             telescope-report.md
             telescope-report.json
+            telescope-report.sarif
 ```
 
 ## CI behavior
 
 - **Always** writes a full markdown report (`telescope-report.md`) suitable for upload as an artifact.
 - **Also** writes a machine-readable JSON report (`telescope-report.json`) for downstream tooling.
+- **Optionally** writes a SARIF report (`telescope-report.sarif`) that can be uploaded to GitHub code scanning.
 - **Fails** the job if:
   - any **error** exists anywhere in the workspace, OR
   - any **warning or error** exists in files changed by the PR.

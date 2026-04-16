@@ -16,6 +16,10 @@ import {
 } from "vscode-languageclient/node";
 import { Trace } from "vscode-languageserver-protocol";
 import { parse as yamlParse } from "yaml";
+import type {
+	ContractTestFinishedPayload,
+	ContractTestProgressPayload,
+} from "./contract-events";
 import { appendTraceEvent } from "./trace";
 import {
 	classifyDocument,
@@ -514,12 +518,7 @@ export class Session implements vscode.Disposable {
 			const ch = this.contractOutputChannel;
 			this.client.onNotification(
 				"telescope/contractTestProgress",
-				(params: {
-					runId?: string;
-					phase?: string;
-					message?: string;
-					percent?: number;
-				}) => {
+				(params: ContractTestProgressPayload) => {
 					const parts = [
 						params.runId ? `[${params.runId}]` : "",
 						params.phase,
@@ -527,16 +526,12 @@ export class Session implements vscode.Disposable {
 						params.percent != null ? `${params.percent}%` : "",
 					].filter((p) => p !== "");
 					ch.appendLine(parts.length > 0 ? parts.join(" ") : "contract test progress");
+					this.onContractTestProgress?.(params);
 				},
 			);
 			this.client.onNotification(
 				"telescope/contractTestFinished",
-				(params: {
-					runId?: string;
-					error?: string;
-					baseUrl?: string;
-					result?: { pass?: boolean };
-				}) => {
+				(params: ContractTestFinishedPayload) => {
 					if (params.error) {
 						ch.appendLine(
 							`[${params.runId ?? "?"}] error: ${params.error}`,
@@ -558,6 +553,7 @@ export class Session implements vscode.Disposable {
 							"Contract tests reported failures. See Telescope Contract Tests output.",
 						);
 					}
+					this.onContractTestFinished?.(params);
 				},
 			);
 		}
@@ -578,6 +574,14 @@ export class Session implements vscode.Disposable {
 					kind: string;
 				}>;
 		  }) => void)
+		| null = null;
+
+	onContractTestProgress:
+		| ((params: ContractTestProgressPayload) => void)
+		| null = null;
+
+	onContractTestFinished:
+		| ((params: ContractTestFinishedPayload) => void)
 		| null = null;
 
 	/**

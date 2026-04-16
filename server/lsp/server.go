@@ -34,6 +34,7 @@ import (
 	"github.com/sailpoint-oss/telescope/server/rules"
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
 	"github.com/sailpoint-oss/telescope/server/rules/checks"
+	"github.com/sailpoint-oss/telescope/server/vacuum"
 	"github.com/sailpoint-oss/telescope/server/validation"
 )
 
@@ -161,6 +162,20 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 		// JSON Schema validation when Bun is unavailable.
 		s.DiagnosticEngine().RegisterAnalyzer("additional-validation",
 			additionalValidationAnalyzer(addlValidator, bunMgr, serverLogger))
+
+		// Register the optional Vacuum analyzer when configured.
+		if cfg.UsesVacuum() {
+			baseDir := ""
+			if workspaceRootPtr != nil {
+				baseDir = *workspaceRootPtr
+			}
+			vacuumEngine, err := vacuum.NewEngineWithBaseDir(cfg.Lint.Vacuum, baseDir, serverLogger)
+			if err != nil {
+				serverLogger.Warn("failed to initialize vacuum analyzer", "error", err)
+			} else {
+				s.DiagnosticEngine().RegisterAnalyzer("vacuum", vacuum.Analyzer(vacuumEngine, serverLogger))
+			}
+		}
 
 		// Register Bun sidecar analyzer for custom TS rules and Spectral rulesets
 		if bunMgr != nil {
@@ -317,6 +332,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		traceID := observe.NewTraceID()
 		logger.Debug("telescope.didChange", "trace_id", traceID, "uri", params.TextDocument.URI)
 		diagMux.ClearSource(params.TextDocument.URI, contractDiagSource)
+		diagMux.ClearSource(params.TextDocument.URI, contractWiretapDiagSource)
 		if doc := ctx.Documents.Get(params.TextDocument.URI); doc != nil {
 			uri := string(params.TextDocument.URI)
 			content := []byte(doc.Text())
@@ -332,9 +348,22 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		traceID := observe.NewTraceID()
 		logger.Debug("telescope.didClose", "trace_id", traceID, "uri", params.TextDocument.URI)
 		diagMux.ClearSource(params.TextDocument.URI, contractDiagSource)
+		diagMux.ClearSource(params.TextDocument.URI, contractWiretapDiagSource)
 		graphBridge.OnDocumentClose(string(params.TextDocument.URI))
 		if _, err := graphBridge.RunPipeline(ctx, indexCache, string(params.TextDocument.URI)); err != nil {
 			logger.Warn("failed to refresh closed document state", "uri", params.TextDocument.URI, "error", err)
+		}
+		return nil
+	})
+
+	diffProv := NewDiffProvider(cfg, diagMux, logger)
+	docsPreviewMgr := NewDocsPreviewManager(logger)
+	s.OnDidSave(func(ctx *gossip.Context, params *protocol.DidSaveTextDocumentParams) error {
+		if err := diffProv.OnDidSave(ctx, params); err != nil {
+			return err
+		}
+		if err := docsPreviewMgr.Refresh(ctx, indexCache, graphBridge, params.TextDocument.URI); err != nil {
+			logger.Warn("failed to refresh docs preview", "uri", params.TextDocument.URI, "error", err)
 		}
 		return nil
 	})
@@ -431,32 +460,32 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 				telescopeDir := filepath.Join(rootPath, ".telescope")
 				loadReq := buildLoadRulesRequest(cfg, telescopeDir)
 				bunMgr.SetRulesExpected(loadReq != nil)
-			go func() {
-				if err := bunMgr.Start(bgCtx); err != nil {
-					logger.Warn("failed to start bun sidecar", "error", err)
-					return
-				}
-				if loadReq != nil {
-					if err := bunMgr.LoadRules(bgCtx, loadReq); err != nil {
-						logger.Warn("failed to load custom rules", "error", err)
+				go func() {
+					if err := bunMgr.Start(bgCtx); err != nil {
+						logger.Warn("failed to start bun sidecar", "error", err)
+						return
 					}
-				}
-				if bunMgr.Available() {
-					recomputeOpenDiagnostics()
-				} else {
-					logger.Debug("skipping post-start diagnostic refresh: sidecar not yet available")
-				}
-				bunMgr.WatchRules(bgCtx, telescopeDir, func() {
-					reloadReq := buildLoadRulesRequest(cfg, telescopeDir)
-					if reloadReq != nil {
-						if err := bunMgr.LoadRules(bgCtx, reloadReq); err != nil {
-							logger.Warn("failed to reload custom rules", "error", err)
+					if loadReq != nil {
+						if err := bunMgr.LoadRules(bgCtx, loadReq); err != nil {
+							logger.Warn("failed to load custom rules", "error", err)
 						}
 					}
 					if bunMgr.Available() {
 						recomputeOpenDiagnostics()
+					} else {
+						logger.Debug("skipping post-start diagnostic refresh: sidecar not yet available")
 					}
-				})
+					bunMgr.WatchRules(bgCtx, telescopeDir, func() {
+						reloadReq := buildLoadRulesRequest(cfg, telescopeDir)
+						if reloadReq != nil {
+							if err := bunMgr.LoadRules(bgCtx, reloadReq); err != nil {
+								logger.Warn("failed to reload custom rules", "error", err)
+							}
+						}
+						if bunMgr.Available() {
+							recomputeOpenDiagnostics()
+						}
+					})
 				}()
 			}
 
@@ -503,6 +532,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		ConfigProvider:       rsMgr.TelescopeConfig,
 		WorkspaceEnvProvider: rsMgr.WorkspaceEnv,
 		Runner:               contractrunner.New(cfg),
+		DocsPreview:          docsPreviewMgr,
 		DiagnosticMux:        diagMux,
 	}
 	s.OnExecuteCommand(NewExecuteCommandHandler(indexCache, graphBridge, execDeps))
@@ -547,6 +577,8 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 
 	cleanup := func() {
 		bgCancel()
+		execDeps.Runner.StopWiretap()
+		docsPreviewMgr.StopAll()
 		bunMgr.Stop()
 		logger.Info("server cleanup complete")
 	}

@@ -221,7 +221,7 @@ func TestCredentialEnvHintString_Cases(t *testing.T) {
 		{
 			name: "single key",
 			src:  config.CredentialSource{APIKeyEnv: "MY_API_KEY"},
-			want: "credential env keys in .telescope.yaml for this scheme: MY_API_KEY",
+			want: "credential env keys in .telescope/config.yaml for this scheme: MY_API_KEY",
 		},
 		{
 			name: "multiple keys",
@@ -231,12 +231,12 @@ func TestCredentialEnvHintString_Cases(t *testing.T) {
 				ClientIDEnv:     "CID",
 				ClientSecretEnv: "CSEC",
 			},
-			want: "credential env keys in .telescope.yaml for this scheme: USER, PASS, CID, CSEC",
+			want: "credential env keys in .telescope/config.yaml for this scheme: USER, PASS, CID, CSEC",
 		},
 		{
 			name: "whitespace-only values ignored",
 			src:  config.CredentialSource{APIKeyEnv: "  ", AccessTokenEnv: "TOKEN"},
-			want: "credential env keys in .telescope.yaml for this scheme: TOKEN",
+			want: "credential env keys in .telescope/config.yaml for this scheme: TOKEN",
 		},
 	}
 
