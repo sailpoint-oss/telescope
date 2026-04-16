@@ -60,25 +60,34 @@ The universal VSIX works on other platforms too, but it does not bundle the nati
 
 ### Configuration
 
-Create `.telescope.yaml` in your project root. Telescope also supports `.telescope.yml`, `.telescope/config.yaml`, and `.telescope/config.yml`:
+Create `.telescope/config.yaml` in your project root. Legacy `.telescope.yaml` and `.telescope.yml` files are still supported for compatibility:
 
 ```yaml
-extends: telescope:recommended
+configVersion: 2
 
-rules:
-  operation-summary: warn
-  parameter-description: error
+workspace:
+  targets:
+    apis:
+      kind: openapi
+      include:
+        - api/**/*.{yaml,yml,json}
 
-include:
-  - "**/*.yaml"
-  - "**/*.yml"
-  - "**/*.json"
+linting:
+  targets:
+    - apis
+  presets:
+    - telescope:recommended
 
-exclude:
-  - "**/node_modules/**"
+validation:
+  openapi:
+    targets:
+      - apis
+    breakingChanges:
+      enabled: true
+      compareTo: HEAD
 ```
 
-See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration reference.
+See [docs/CONFIGURATION-V2.md](docs/CONFIGURATION-V2.md) for the full `v2` configuration reference and [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the legacy layout.
 
 ### OpenAPI detection (high-level)
 
@@ -100,7 +109,7 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration re
 - **Barometer** - Contract-test HTTP execution; linked into the Telescope binary for in-process runs (no separate Barometer install)
 - **Telescope** - VS Code client, LSP handlers, diagnostics aggregation, custom-rule runtimes, and spec-side CLI/editor UX
 
-Contract tests are configured under `contractTests` in `.telescope.yaml` (base URL, credentials keyed by OpenAPI security scheme names, optional `envFiles` for dotenv, optional TLS/mTLS file paths, optional `strategy: oauth2ClientCredentials` / `oauth2Refresh` for token exchange, concurrency). Workspace `.env` / `.env.local` are loaded and reloaded when those files change (same watcher as Telescope config). Credential `*Env` keys resolve from dotenv first, then the process environment—align CI job `env` with those names. The editor runs tests asynchronously via LSP (`telescope.runContractTests`); the CLI runs the same engine with `telescope contract test <spec.yaml>`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) (section **Contract tests**).
+Contract tests are configured under `testing.contract` in `.telescope/config.yaml` (base URL, credentials keyed by OpenAPI security scheme names, shared `workspace.envFiles` for dotenv loading, optional TLS/mTLS file paths, optional OAuth token exchange, concurrency, and Wiretap settings). Workspace `.env` / `.env.local` are loaded and reloaded when those files change (same watcher as Telescope config). The editor runs tests asynchronously via LSP (`telescope.runContractTests`); the CLI runs the same engine with `telescope contract test <spec.yaml>`. See [docs/CONFIGURATION-V2.md](docs/CONFIGURATION-V2.md).
 
 Use `Meridian` when you need codebase-side generation, extraction orchestration, or repo-scale report pipelines. Use Telescope when you already have workspace files in spec form and want linting, validation surfacing, and editor intelligence.
 
@@ -280,20 +289,24 @@ Use the reusable action when you want the same CLI contract in GitHub Actions:
 
 ## Custom Rules
 
-Shared built-in rules live upstream in Barrelman. Telescope-specific extensions are for custom or editor-local behavior and can be written as **declarative YAML** in `.telescope.yaml`, **Bun sidecar rules**, or **Spectral-compatible YAML rulesets**:
+Shared built-in rules live upstream in Barrelman. Telescope-specific extensions are configured under `linting` in `.telescope/config.yaml` and can be written as **preset/override YAML**, **Bun sidecar rules**, or **Spectral-compatible YAML rulesets**:
 
 ```yaml
-extends: telescope:recommended
-spectralRulesets:
-  - .telescope/company-rules.yaml
-openapi:
-  rules:
-    - rule: my-rule
-      severity: warn
-      # ... declarative rule definition (see guide)
+configVersion: 2
+
+linting:
+  presets:
+    - telescope:recommended
+  rulesets:
+    spectral:
+      - rulesets/company-rules.yaml
+  customRules:
+    bun:
+      - path: rules/custom/my-rule.ts
+        severity: warn
 ```
 
-Place shared rule files under `.telescope/` and reference them from `.telescope.yaml`. See [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for Spectral rules, Bun workflows, and YAML-native rules.
+Place shared rule files under `.telescope/` and reference them from `.telescope/config.yaml`. See [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md) for Spectral rules, Bun workflows, and YAML-native rules.
 
 Bun is optional for Telescope's core parsing, linting, and LSP features. It is only required when you enable sidecar-backed TypeScript/JavaScript custom rules or Spectral rulesets.
 

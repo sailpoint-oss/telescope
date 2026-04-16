@@ -9,9 +9,11 @@ import (
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
+	"github.com/sailpoint-oss/telescope/server/wiretap"
 )
 
 const contractDiagSource = "telescope-contract"
+const contractWiretapDiagSource = "telescope-contract-wiretap"
 
 func contractDiagnosticsForOpenAPI(idx *openapi.Index, result *barometer.Result, ct *config.ContractTestsConfig) []protocol.Diagnostic {
 	if idx == nil || result == nil || result.OpenAPI == nil {
@@ -125,4 +127,9 @@ func contractDiagnosticsForArazzo(uri protocol.DocumentURI, result *barometer.Re
 	}
 	_ = uri
 	return out
+}
+
+func contractDiagnosticsFromWiretap(idx *openapi.Index, uri protocol.DocumentURI, findings []wiretap.WiretapFinding) []protocol.Diagnostic {
+	_ = uri
+	return wiretap.ToDiagnostics(findings, idx, string(uri))
 }

@@ -15,17 +15,26 @@ import (
 
 // LintReport is the structured output written by --report-json.
 type LintReport struct {
-	Workspace       string            `json:"workspace"`
-	RepoRoot        string            `json:"repoRoot,omitempty"`
-	GeneratedAt     string            `json:"generatedAt"`
-	DiagnosticCount int               `json:"diagnosticCount"`
-	Files           []fileDiagnostics `json:"files"`
-	Counts          SeverityCounts    `json:"counts"`
-	ByFile          map[string]int    `json:"byFile"`
-	ByRule          map[string]int    `json:"byRule"`
-	RuleDocs        map[string]string `json:"ruleDocs,omitempty"`
-	FileDetails     []FileDetail      `json:"fileDetails"`
-	Scope           *ScopeMetadata    `json:"scope,omitempty"`
+	Workspace         string               `json:"workspace"`
+	RepoRoot          string               `json:"repoRoot,omitempty"`
+	GeneratedAt       string               `json:"generatedAt"`
+	DiagnosticCount   int                  `json:"diagnosticCount"`
+	Files             []fileDiagnostics    `json:"files"`
+	Counts            SeverityCounts       `json:"counts"`
+	ByFile            map[string]int       `json:"byFile"`
+	ByRule            map[string]int       `json:"byRule"`
+	RuleDocs          map[string]string    `json:"ruleDocs,omitempty"`
+	FileDetails       []FileDetail         `json:"fileDetails"`
+	Scope             *ScopeMetadata       `json:"scope,omitempty"`
+	BreakingChanges   []BreakingChangeFile `json:"breakingChanges,omitempty"`
+}
+
+// BreakingChangeFile summarizes semantic diff vs the CI base ref for one file.
+type BreakingChangeFile struct {
+	Path                 string `json:"path"`
+	TotalChanges         int    `json:"totalChanges"`
+	TotalBreakingChanges int    `json:"totalBreakingChanges"`
+	SkipReason           string `json:"skipReason,omitempty"`
 }
 
 // ScopeMetadata describes how the CI run selected files for analysis.
@@ -55,13 +64,14 @@ type FileDetail struct {
 
 func buildLintReport(workspace, repoRoot string, allDiags []fileDiagnostics) *LintReport {
 	report := &LintReport{
-		Workspace:   workspace,
-		RepoRoot:    repoRoot,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Files:       allDiags,
-		ByFile:      make(map[string]int),
-		ByRule:      make(map[string]int),
-		RuleDocs:    make(map[string]string),
+		Workspace:       workspace,
+		RepoRoot:        repoRoot,
+		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
+		Files:           allDiags,
+		ByFile:          make(map[string]int),
+		ByRule:          make(map[string]int),
+		RuleDocs:        make(map[string]string),
+		BreakingChanges: []BreakingChangeFile{},
 	}
 
 	// Use repo root for path display if available, otherwise fall back to workspace.
@@ -165,7 +175,30 @@ func writeMDReportTo(w io.Writer, report *LintReport) error {
 	b.WriteString(fmt.Sprintf("| Diagnostics | %d (errors: %d, warnings: %d, other: %d) |\n",
 		report.DiagnosticCount, report.Counts.Error, report.Counts.Warning, other))
 	b.WriteString(fmt.Sprintf("| Files with issues | %d |\n", len(report.FileDetails)))
+	breakTotal := 0
+	for _, bc := range report.BreakingChanges {
+		breakTotal += bc.TotalBreakingChanges
+	}
+	if len(report.BreakingChanges) > 0 {
+		b.WriteString(fmt.Sprintf("| Breaking API changes (libopenapi) | %d across %d file(s) |\n",
+			breakTotal, len(report.BreakingChanges)))
+	}
 	b.WriteString("\n")
+
+	if len(report.BreakingChanges) > 0 {
+		b.WriteString("## Breaking changes (vs base ref)\n\n")
+		b.WriteString("| File | Total changes | Breaking | Notes |\n")
+		b.WriteString("| --- | ---: | ---: | --- |\n")
+		for _, row := range report.BreakingChanges {
+			note := row.SkipReason
+			if note == "" {
+				note = "—"
+			}
+			b.WriteString(fmt.Sprintf("| `%s` | %d | %d | %s |\n",
+				row.Path, row.TotalChanges, row.TotalBreakingChanges, strings.ReplaceAll(note, "|", "\\|")))
+		}
+		b.WriteString("\n")
+	}
 
 	// Files table with errors/warnings breakdown and markdown links.
 	if len(report.FileDetails) > 0 {

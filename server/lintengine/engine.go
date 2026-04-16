@@ -24,6 +24,7 @@ import (
 	"github.com/sailpoint-oss/telescope/server/rules/analyzers"
 	"github.com/sailpoint-oss/telescope/server/rules/checks"
 	"github.com/sailpoint-oss/telescope/server/rulesets"
+	"github.com/sailpoint-oss/telescope/server/vacuum"
 )
 
 var (
@@ -36,6 +37,7 @@ type Options struct {
 	WorkingDir  string
 	ConfigPath  string
 	RulesetPath string
+	Engines     []string
 
 	MinSeverity   protocol.DiagnosticSeverity
 	NoExternalLSP bool // Deprecated compatibility flag; Telescope no longer spawns external YAML/JSON LSPs.
@@ -78,13 +80,34 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 		return &RunResult{Workspace: opts.WorkingDir, Files: files}, nil
 	}
 
-	allAnalyzers, allChecks := rules.CollectAll(analyzers.RegisterAll, checks.RegisterAll)
+	selectedEngines := opts.Engines
+	if len(selectedEngines) == 0 {
+		selectedEngines = cfg.EffectiveLintEngines()
+	}
+	useBarrelman, useVacuum := engineSelection(selectedEngines)
+
+	var allAnalyzers []rules.NamedAnalyzer
+	var allChecks []rules.NamedCheck
 	enabledRules := cfg.BuildEnabledRules()
 	sevOverrides := buildSeverityOverrides(cfg)
-	allAnalyzers = filterAnalyzers(allAnalyzers, enabledRules)
-	allChecks = filterChecks(allChecks, enabledRules)
+	if useBarrelman {
+		allAnalyzers, allChecks = rules.CollectAll(analyzers.RegisterAll, checks.RegisterAll)
+		allAnalyzers = filterAnalyzers(allAnalyzers, enabledRules)
+		allChecks = filterChecks(allChecks, enabledRules)
+	}
 
-	projectContexts := buildProjectContexts(files, logger)
+	var vacuumEngine *vacuum.Engine
+	if useVacuum {
+		vacuumEngine, err = vacuum.NewEngineWithBaseDir(cfg.Lint.Vacuum, opts.WorkingDir, logger)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	projectContexts := map[string]*project.ProjectContext{}
+	if useBarrelman {
+		projectContexts = buildProjectContexts(files, logger)
+	}
 	var allDiags []FileDiagnostics
 
 	for _, file := range files {
@@ -92,7 +115,20 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", file, err)
 		}
-		diags := lintFile(file, content, cfg, allAnalyzers, allChecks, projectContexts)
+		var diags []protocol.Diagnostic
+		if useBarrelman {
+			diags = lintFile(file, content, cfg, allAnalyzers, allChecks, projectContexts)
+		}
+		if useVacuum {
+			vacuumDiags, vacuumErr := vacuumEngine.LintBytes(content, pathToFileURI(file))
+			if vacuumErr != nil {
+				if len(vacuumDiags) == 0 {
+					return nil, fmt.Errorf("vacuum %s: %w", file, vacuumErr)
+				}
+				logger.Debug("vacuum returned diagnostics with execution errors", "path", file, "error", vacuumErr)
+			}
+			diags = vacuum.Deduplicate(diags, adapt.DiagnosticsToProtocol(vacuumDiags))
+		}
 		diags = filterDisabledDiagnostics(diags, enabledRules)
 		diags = applySeverityOverrides(diags, sevOverrides)
 		if opts.MinSeverity > 0 {
@@ -108,6 +144,24 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 		Files:     files,
 		Results:   allDiags,
 	}, nil
+}
+
+func engineSelection(raw []string) (useBarrelman bool, useVacuum bool) {
+	for _, engine := range raw {
+		switch strings.ToLower(strings.TrimSpace(engine)) {
+		case "vacuum":
+			useVacuum = true
+		case "both":
+			useBarrelman = true
+			useVacuum = true
+		default:
+			useBarrelman = true
+		}
+	}
+	if !useBarrelman && !useVacuum {
+		return true, false
+	}
+	return useBarrelman, useVacuum
 }
 
 func loadConfig(opts Options) (*config.Config, error) {
@@ -326,13 +380,7 @@ func filterChecks(all []rules.NamedCheck, enabled map[string]bool) []rules.Named
 }
 
 func buildSeverityOverrides(cfg *config.Config) map[string]protocol.DiagnosticSeverity {
-	rs := rulesets.GetBuiltin(cfg.Extends)
-	if rs == nil {
-		rs = &rulesets.RuleSet{Rules: make(map[string]rulesets.RuleDefinition)}
-	}
-	for id, sev := range cfg.Rules {
-		rs.Rules[id] = rulesets.RuleDefinition{Severity: sev}
-	}
+	rs := cfg.EffectiveRuleSet()
 	overrides := rulesets.BuildSeverityOverrides(rs)
 	m := make(map[string]protocol.DiagnosticSeverity, len(overrides))
 	for _, o := range overrides {

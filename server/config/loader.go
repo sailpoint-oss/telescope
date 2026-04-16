@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,10 +13,10 @@ import (
 
 // ConfigFiles are the files searched for configuration, in priority order.
 var ConfigFiles = []string{
-	".telescope.yaml",
-	".telescope.yml",
 	".telescope/config.yaml",
 	".telescope/config.yml",
+	".telescope.yaml",
+	".telescope.yml",
 }
 
 // Load finds and loads the telescope config from the given workspace root.
@@ -40,8 +41,13 @@ func LoadFile(path string) (*Config, error) {
 	}
 
 	cfg := DefaultConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	if err := cfg.normalizeV2(path); err != nil {
+		return nil, fmt.Errorf("normalize config %s: %w", path, err)
 	}
 	cfg.Rules = normalizeRuleOverrides(cfg.Rules)
 	cfg.GuidelinesBaseURL = cfg.EffectiveGuidelinesBaseURL()

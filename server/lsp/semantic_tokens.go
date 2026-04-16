@@ -90,19 +90,7 @@ func buildSemanticTokens(idx *openapi.Index, docText string) []semanticToken {
 
 	for pathStr, item := range idx.Document.Paths {
 		if !isZeroRange(adapt.RangeToProtocol(item.PathLoc.Range)) {
-			tokens = append(tokens, semanticToken{
-				line: item.PathLoc.Range.Start.Line, char: item.PathLoc.Range.Start.Character,
-				length: rangeLen(adapt.RangeToProtocol(item.PathLoc.Range)), tokenType: tokNamespace,
-			})
-		}
-
-		for _, match := range pathParamRe.FindAllStringIndex(pathStr, -1) {
-			paramOffset := byteOffsetToUTF16(pathStr, match[0])
-			paramLen := byteOffsetToUTF16(pathStr[match[0]:], match[1]-match[0])
-			tokens = append(tokens, semanticToken{
-				line: item.PathLoc.Range.Start.Line, char: item.PathLoc.Range.Start.Character + paramOffset,
-				length: paramLen, tokenType: tokTypeParameter,
-			})
+			tokens = append(tokens, buildPathSemanticTokens(pathStr, item.PathLoc.Range.Start.Line, item.PathLoc.Range.Start.Character)...)
 		}
 
 		for _, mo := range item.Operations() {
@@ -197,8 +185,75 @@ func buildSemanticTokens(idx *openapi.Index, docText string) []semanticToken {
 		if tokens[i].line != tokens[j].line {
 			return tokens[i].line < tokens[j].line
 		}
-		return tokens[i].char < tokens[j].char
+		if tokens[i].char != tokens[j].char {
+			return tokens[i].char < tokens[j].char
+		}
+		if tokens[i].length != tokens[j].length {
+			return tokens[i].length < tokens[j].length
+		}
+		if tokens[i].tokenType != tokens[j].tokenType {
+			return tokens[i].tokenType < tokens[j].tokenType
+		}
+		return tokens[i].modifiers < tokens[j].modifiers
 	})
+	tokens = filterOverlappingSemanticTokens(tokens)
+
+	return tokens
+}
+
+func buildPathSemanticTokens(pathStr string, line, startChar uint32) []semanticToken {
+	matches := pathParamRe.FindAllStringIndex(pathStr, -1)
+	if len(matches) == 0 {
+		length := utf16StringLen(pathStr)
+		if length == 0 {
+			return nil
+		}
+		return []semanticToken{{
+			line:      line,
+			char:      startChar,
+			length:    length,
+			tokenType: tokNamespace,
+		}}
+	}
+
+	tokens := make([]semanticToken, 0, len(matches)*2+1)
+	cursor := 0
+	for _, match := range matches {
+		if match[0] > cursor {
+			prefix := pathStr[cursor:match[0]]
+			if length := utf16StringLen(prefix); length > 0 {
+				tokens = append(tokens, semanticToken{
+					line:      line,
+					char:      startChar + byteOffsetToUTF16(pathStr, cursor),
+					length:    length,
+					tokenType: tokNamespace,
+				})
+			}
+		}
+
+		param := pathStr[match[0]:match[1]]
+		if length := utf16StringLen(param); length > 0 {
+			tokens = append(tokens, semanticToken{
+				line:      line,
+				char:      startChar + byteOffsetToUTF16(pathStr, match[0]),
+				length:    length,
+				tokenType: tokTypeParameter,
+			})
+		}
+		cursor = match[1]
+	}
+
+	if cursor < len(pathStr) {
+		suffix := pathStr[cursor:]
+		if length := utf16StringLen(suffix); length > 0 {
+			tokens = append(tokens, semanticToken{
+				line:      line,
+				char:      startChar + byteOffsetToUTF16(pathStr, cursor),
+				length:    length,
+				tokenType: tokNamespace,
+			})
+		}
+	}
 
 	return tokens
 }
@@ -264,6 +319,53 @@ func clampAndFilterSemanticTokens(tokens []semanticToken, docText string) []sema
 			continue
 		}
 		out = append(out, t)
+	}
+	return out
+}
+
+func filterOverlappingSemanticTokens(tokens []semanticToken) []semanticToken {
+	if len(tokens) <= 1 {
+		return tokens
+	}
+	out := make([]semanticToken, 0, len(tokens))
+	for _, tok := range tokens {
+		if tok.length == 0 {
+			continue
+		}
+		if len(out) == 0 {
+			out = append(out, tok)
+			continue
+		}
+		prev := out[len(out)-1]
+		if tok.line != prev.line {
+			out = append(out, tok)
+			continue
+		}
+
+		prevEnd := prev.char + prev.length
+		if tok.char >= prevEnd {
+			out = append(out, tok)
+			continue
+		}
+
+		// Skip exact duplicates.
+		if tok.char == prev.char &&
+			tok.length == prev.length &&
+			tok.tokenType == prev.tokenType &&
+			tok.modifiers == prev.modifiers {
+			continue
+		}
+
+		// When two tokens start at the same position, keep the shorter/more
+		// specific token and drop the broader one to avoid VS Code warnings.
+		if tok.char == prev.char {
+			if tok.length < prev.length {
+				out[len(out)-1] = tok
+			}
+			continue
+		}
+
+		// For partial overlaps, prefer the earlier token and drop the later one.
 	}
 	return out
 }

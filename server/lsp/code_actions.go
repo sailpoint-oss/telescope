@@ -11,9 +11,11 @@ import (
 	"github.com/LukasParke/gossip/jsonschema"
 	"github.com/LukasParke/gossip/protocol"
 	barrelAnalyzers "github.com/sailpoint-oss/barrelman/analyzers"
+	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/rules"
+	"github.com/sailpoint-oss/telescope/server/vacuum"
 )
 
 // lineEndCharUTF16 returns the length of the line in UTF-16 code units,
@@ -34,6 +36,7 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 		}
 
 		var actions []protocol.CodeAction
+		var vacuumDiagnostics []protocol.Diagnostic
 
 		// Scaffolding code actions when cursor is on a path
 		if idx != nil && doc != nil {
@@ -42,6 +45,10 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 
 		// Diagnostic-triggered actions
 		for _, diag := range params.Context.Diagnostics {
+			if diag.Source == vacuum.Source {
+				vacuumDiagnostics = append(vacuumDiagnostics, diag)
+				continue
+			}
 			if diag.Source == "oas3-schema" {
 				if action := invalidKeyQuickFix(uri, diag); action != nil {
 					actions = append(actions, *action)
@@ -109,6 +116,17 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 			}
 		}
 
+		if len(vacuumDiagnostics) > 0 && doc != nil {
+			if edit := vacuumFixAllEdit(ctx, uri, doc); edit != nil {
+				actions = append(actions, protocol.CodeAction{
+					Title:       "Apply Vacuum auto-fixes",
+					Kind:        "quickfix",
+					Diagnostics: append([]protocol.Diagnostic(nil), vacuumDiagnostics...),
+					Edit:        edit,
+				})
+			}
+		}
+
 		// "Fix All" source action: collect all auto-fixable diagnostics
 		if params.Context.Only != nil {
 			for _, kind := range params.Context.Only {
@@ -116,6 +134,15 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 					fixAllAction := buildFixAllAction(uri, doc, idx, params.Context.Diagnostics)
 					if fixAllAction != nil {
 						actions = append(actions, *fixAllAction)
+					}
+				}
+				if kind == "source.fixAll.vacuum" || kind == "source.fixAll" {
+					if edit := vacuumFixAllEdit(ctx, uri, doc); edit != nil {
+						actions = append(actions, protocol.CodeAction{
+							Title: "Fix all Vacuum auto-fixable issues",
+							Kind:  "source.fixAll.vacuum",
+							Edit:  edit,
+						})
 					}
 				}
 			}
@@ -1108,6 +1135,43 @@ func buildFixAllAction(uri protocol.DocumentURI, doc interface{ LineAt(uint32) s
 			Changes: map[protocol.DocumentURI][]protocol.TextEdit{
 				uri: edits,
 			},
+		},
+	}
+}
+
+func vacuumFixAllEdit(ctx *gossip.Context, uri protocol.DocumentURI, doc interface {
+	Text() string
+	PositionAt(int) protocol.Position
+}) *protocol.WorkspaceEdit {
+	if ctx == nil || doc == nil {
+		return nil
+	}
+	text := doc.Text()
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	workspaceRoot := uriToFSPath(string(protocol.NormalizeURI(ctx.WorkspaceRoot())))
+	cfg, err := config.Load(workspaceRoot)
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+	engine, err := vacuum.NewEngineWithBaseDir(cfg.Lint.Vacuum, workspaceRoot, nil)
+	if err != nil {
+		return nil
+	}
+	_, modified, err := engine.LintAndFix([]byte(text), string(uri))
+	if err != nil || string(modified) == text {
+		return nil
+	}
+	return &protocol.WorkspaceEdit{
+		Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+			uri: {{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: 0, Character: 0},
+					End:   doc.PositionAt(len(text)),
+				},
+				NewText: string(modified),
+			}},
 		},
 	}
 }

@@ -18,9 +18,17 @@ import {
 	DocumentSymbolRequest,
 } from "vscode-languageserver-protocol";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
+import type { ContractTestFinishedPayload } from "./contract-events";
 import { SessionManager } from "./session-manager";
 import { appendTraceEvent, summarizeForTrace } from "./trace";
 import { classifyDocument, formatSetupLog } from "./utils";
+import { BreakingChangesProvider } from "./views/breaking-changes";
+import {
+	ContractFileNode,
+	ContractOperationNode,
+	ContractTestsProvider,
+} from "./views/contract-tests";
+import { OpenAPIFilesProvider } from "./views/openapi-files";
 
 const execFileAsync = promisify(execFile);
 
@@ -305,6 +313,18 @@ export async function activate(context: ExtensionContext) {
 		);
 		statusBarItem.command = "telescope.showOpenAPIFiles";
 		context.subscriptions.push(statusBarItem);
+		const contractStatusBarItem = window.createStatusBarItem(
+			vscode.StatusBarAlignment.Right,
+			99,
+		);
+		contractStatusBarItem.command = "workbench.view.extension.telescope";
+		context.subscriptions.push(contractStatusBarItem);
+		const breakingStatusBarItem = window.createStatusBarItem(
+			vscode.StatusBarAlignment.Right,
+			98,
+		);
+		breakingStatusBarItem.command = "workbench.view.extension.telescope";
+		context.subscriptions.push(breakingStatusBarItem);
 
 		sessionManager = new SessionManager({
 			serverPath,
@@ -315,6 +335,57 @@ export async function activate(context: ExtensionContext) {
 		});
 
 		context.subscriptions.push(sessionManager);
+		const openAPIFilesProvider = new OpenAPIFilesProvider(sessionManager);
+		const contractTestsProvider = new ContractTestsProvider();
+		const breakingChangesProvider = new BreakingChangesProvider();
+		const openAPIFilesView = window.createTreeView("telescope.openApiFiles", {
+			treeDataProvider: openAPIFilesProvider,
+			showCollapseAll: true,
+		});
+		const contractTestsView = window.createTreeView("telescope.contractTests", {
+			treeDataProvider: contractTestsProvider,
+			showCollapseAll: true,
+		});
+		const breakingChangesView = window.createTreeView("telescope.breakingChanges", {
+			treeDataProvider: breakingChangesProvider,
+			showCollapseAll: true,
+		});
+		context.subscriptions.push(
+			openAPIFilesView,
+			contractTestsView,
+			breakingChangesView,
+		);
+
+		const refreshOpenAPIViews = () => {
+			openAPIFilesProvider.refresh();
+			breakingChangesProvider.refresh();
+			const contractSummary = contractTestsProvider.getSummary();
+			if (
+				contractSummary.running === 0 &&
+				contractSummary.total === 0 &&
+				contractSummary.failed === 0
+			) {
+				contractStatusBarItem.hide();
+			} else if (contractSummary.running > 0) {
+				contractStatusBarItem.text = `$(loading~spin) ${contractSummary.running} contract run${contractSummary.running === 1 ? "" : "s"}`;
+				contractStatusBarItem.tooltip = "Open Telescope contract test results";
+				contractStatusBarItem.show();
+			} else {
+				contractStatusBarItem.text = `$(beaker) ${contractSummary.passed}/${contractSummary.total} tests`;
+				contractStatusBarItem.tooltip = "Open Telescope contract test results";
+				contractStatusBarItem.show();
+			}
+			const breakingSummary = breakingChangesProvider.getSummary();
+			if (breakingSummary.breaking === 0) {
+				breakingStatusBarItem.hide();
+			} else {
+				breakingStatusBarItem.text = `$(git-compare) ${breakingSummary.breaking} breaking`;
+				breakingStatusBarItem.tooltip =
+					"Open Telescope breaking-change diagnostics";
+				breakingStatusBarItem.show();
+			}
+		};
+		refreshOpenAPIViews();
 
 		// Deprecated element decorations: red italic "deprecated" label after the name
 		const deprecatedDecorationType =
@@ -377,10 +448,21 @@ export async function activate(context: ExtensionContext) {
 				}
 			}
 		};
+		sessionManager.onContractTestProgress = (params) => {
+			contractTestsProvider.updateProgress(params);
+			refreshOpenAPIViews();
+		};
+		sessionManager.onContractTestFinished = (
+			params: ContractTestFinishedPayload,
+		) => {
+			contractTestsProvider.finishRun(params);
+			refreshOpenAPIViews();
+		};
 
 		sessionManager.initialize().then(
 			() => {
 				outputChannel.appendLine(formatSetupLog("All sessions initialized"));
+				refreshOpenAPIViews();
 			},
 			(error) => {
 				outputChannel.appendLine(
@@ -424,6 +506,24 @@ export async function activate(context: ExtensionContext) {
 					uri: doc.uri.toString(),
 					languageId: doc.languageId,
 				});
+				refreshOpenAPIViews();
+			}),
+		);
+		context.subscriptions.push(
+			vscode.workspace.onDidSaveTextDocument(() => {
+				refreshOpenAPIViews();
+			}),
+			vscode.workspace.onDidCreateFiles(() => {
+				refreshOpenAPIViews();
+			}),
+			vscode.workspace.onDidDeleteFiles(() => {
+				refreshOpenAPIViews();
+			}),
+			vscode.workspace.onDidRenameFiles(() => {
+				refreshOpenAPIViews();
+			}),
+			vscode.languages.onDidChangeDiagnostics(() => {
+				refreshOpenAPIViews();
 			}),
 		);
 
@@ -516,6 +616,7 @@ export async function activate(context: ExtensionContext) {
 		context.subscriptions.push(
 			registerTracedCommand("telescope.rescanWorkspace", async () => {
 				const totalFiles = await sessionManager?.rescanAll();
+				refreshOpenAPIViews();
 				window.showInformationMessage(
 					`Scan complete: ${totalFiles || 0} OpenAPI files found`,
 				);
@@ -525,6 +626,7 @@ export async function activate(context: ExtensionContext) {
 		context.subscriptions.push(
 			registerTracedCommand("telescope.restartServer", async () => {
 				await sessionManager?.restartAllSessions();
+				refreshOpenAPIViews();
 				window.showInformationMessage("Telescope language servers restarted");
 			}),
 		);
@@ -766,140 +868,346 @@ export async function activate(context: ExtensionContext) {
 			),
 		);
 
+		type ContractCommandResponse = ContractTestFinishedPayload & {
+			status?: string;
+			runId?: string;
+		};
+
+		async function promptContractBaseURL(
+			initialValue?: string,
+		): Promise<string | undefined> {
+			return await window.showInputBox({
+				prompt: "Base URL for live contract tests",
+				value: initialValue || "http://localhost:8080",
+				ignoreFocusOut: true,
+			});
+		}
+
+		async function openBrowserURL(url: string, title: string): Promise<void> {
+			const target = url.trim();
+			if (!target) {
+				return;
+			}
+			try {
+				await vscode.commands.executeCommand("simpleBrowser.show", target, {
+					title,
+				});
+			} catch {
+				await vscode.env.openExternal(vscode.Uri.parse(target));
+			}
+		}
+
+		async function showBreakingChangesForDocument(
+			document: vscode.TextDocument,
+		): Promise<void> {
+			const session = sessionManager?.getSessionForUri(document.uri);
+			if (!session) {
+				window.showWarningMessage("No Telescope session found for this document");
+				return;
+			}
+			const result = await session.executeServerCommand(
+				"telescope.showBreakingChanges",
+				[document.uri.toString()],
+			);
+			const markdown =
+				typeof result === "string" ? result.trim() : "";
+			if (!markdown) {
+				window.showInformationMessage(
+					"No breaking changes found against the configured base revision.",
+				);
+				return;
+			}
+			const previewDoc = await workspace.openTextDocument({
+				content: markdown,
+				language: "markdown",
+			});
+			await window.showTextDocument(previewDoc, { preview: true });
+		}
+
+		async function showDocsPreviewForDocument(
+			document: vscode.TextDocument,
+		): Promise<void> {
+			const session = sessionManager?.getSessionForUri(document.uri);
+			if (!session) {
+				window.showWarningMessage("No Telescope session found for this document");
+				return;
+			}
+			const result = (await session.executeServerCommand(
+				"telescope.docsPreview",
+				[document.uri.toString()],
+			)) as { url?: string } | null;
+			const url = result?.url?.trim() || "";
+			if (!url) {
+				window.showWarningMessage("Documentation preview did not return a URL");
+				return;
+			}
+			await openBrowserURL(url, "Telescope Docs Preview");
+		}
+
+		async function runContractTestsForDocument(
+			document: vscode.TextDocument,
+			options?: {
+				baseUrl?: string;
+				operationId?: string;
+				sync?: boolean;
+				promptForBaseUrl?: boolean;
+				silentStart?: boolean;
+			},
+		): Promise<ContractCommandResponse | undefined> {
+			if (!sessionManager) {
+				return undefined;
+			}
+			const session = sessionManager.getSessionForUri(document.uri);
+			if (!session) {
+				window.showWarningMessage("No Telescope session found for this document");
+				return undefined;
+			}
+
+			const config = workspace.getConfiguration("telescope", document.uri);
+			const configuredBaseUrl =
+				config.get<string>("contractTestBaseUrl") || "http://localhost:8080";
+			const baseUrl =
+				options?.baseUrl ??
+				(options?.promptForBaseUrl === false
+					? configuredBaseUrl
+					: await promptContractBaseURL(configuredBaseUrl));
+			if (baseUrl === undefined) {
+				return undefined;
+			}
+			const wiretap = config.get<boolean>("wiretapEnabled", false);
+
+			try {
+				const response = (await session.executeServerCommand(
+					"telescope.runContractTests",
+					[
+						document.uri.toString(),
+						{
+							baseUrl,
+							operationId: options?.operationId,
+							sync: options?.sync ?? false,
+							wiretap,
+						},
+					],
+				)) as ContractCommandResponse | null;
+				if (
+					response &&
+					typeof response === "object" &&
+					response.status === "queued" &&
+					response.runId
+				) {
+					contractTestsProvider.startRun(
+						document.uri,
+						response.runId,
+						response.baseUrl ?? baseUrl,
+					);
+					refreshOpenAPIViews();
+					contractOutputChannel.show(true);
+					contractOutputChannel.appendLine(
+						formatSetupLog(
+							`Contract tests queued (${response.runId}) for ${workspace.asRelativePath(document.uri)}.`,
+						),
+					);
+					if (!options?.silentStart) {
+						window.showInformationMessage(
+							`Contract tests started (${response.runId}). See "Telescope Contract Tests" output for progress and results.`,
+						);
+					}
+					return response;
+				}
+				if (response) {
+					const syntheticRunID = response.runId ?? `sync-${Date.now()}`;
+					contractTestsProvider.startRun(
+						document.uri,
+						syntheticRunID,
+						response.baseUrl ?? baseUrl,
+					);
+					contractTestsProvider.finishRun({
+						...response,
+						runId: syntheticRunID,
+						baseUrl: response.baseUrl ?? baseUrl,
+					});
+					refreshOpenAPIViews();
+					const passed =
+						(response.result?.openapi?.passed ?? 0) +
+						(response.result?.arazzo?.passed ?? 0);
+					const total =
+						(response.result?.openapi?.total ?? 0) +
+						(response.result?.arazzo?.total ?? 0);
+					if (response.result?.pass) {
+						window.showInformationMessage(
+							`Contract tests passed (${passed}/${total}).`,
+						);
+					} else {
+						window.showWarningMessage(
+							`Contract tests found failures (${passed}/${total} passed). See Telescope output for details.`,
+						);
+					}
+				}
+				return response ?? undefined;
+			} catch (error) {
+				contractOutputChannel.appendLine(
+					formatSetupLog(
+						`Contract tests failed for ${document.uri.toString()}: ${String(error)}`,
+					),
+				);
+				window.showErrorMessage(
+					"Telescope contract tests failed. See Telescope Contract Tests output for details.",
+				);
+				return undefined;
+			}
+		}
+
 		context.subscriptions.push(
 			registerTracedCommand(
 				"telescope.runContractTests",
 				async (uriOrString?: vscode.Uri | string) => {
-					if (!sessionManager) return;
 					const uri =
 						typeof uriOrString === "string"
 							? vscode.Uri.parse(uriOrString)
 							: uriOrString;
 					const document = await getDocument(uri);
 					if (!document) return;
-					const session = sessionManager.getSessionForUri(document.uri);
-					if (!session) {
-						window.showWarningMessage("No Telescope session found for this document");
-						return;
-					}
-
-					const config = workspace.getConfiguration("telescope");
-					const configuredBaseUrl =
-						config.get<string>("contractTestBaseUrl") || "http://localhost:8080";
-					const baseUrl = await window.showInputBox({
-						prompt: "Base URL for live contract tests",
-						value: configuredBaseUrl,
-						ignoreFocusOut: true,
-					});
-					if (baseUrl === undefined) {
-						return;
-					}
-
-					try {
-						const response = (await session.executeServerCommand(
-							"telescope.runContractTests",
-							[document.uri.toString(), { baseUrl }],
-						)) as
-							| {
-									status?: string;
-									runId?: string;
-									baseUrl?: string;
-									stderr?: string;
-									result?: {
-										pass?: boolean;
-										openapi?: {
-											passed?: number;
-											total?: number;
-											results?: Array<{
-												method?: string;
-												path?: string;
-												status?: number;
-												error?: string;
-												pass?: boolean;
-												operationId?: string;
-											}>;
-										};
-										arazzo?: {
-											passed?: number;
-											total?: number;
-											workflows?: Array<{
-												workflowId?: string;
-												error?: string;
-												pass?: boolean;
-											}>;
-										};
-									};
-							  }
-							| null;
-						if (
-							response &&
-							typeof response === "object" &&
-							response.status === "queued" &&
-							response.runId
-						) {
-							contractOutputChannel.show(true);
-							contractOutputChannel.appendLine(
-								formatSetupLog(
-									`Contract tests queued (${response.runId}). Progress and final summary appear in this channel.`,
-								),
-							);
-							window.showInformationMessage(
-								`Contract tests started (${response.runId}). See "Telescope Contract Tests" output for progress and results.`,
-							);
-							return;
-						}
-						const result = response?.result;
-						const openapiResult = result?.openapi;
-						const arazzoResult = result?.arazzo;
-						const total =
-							(openapiResult?.total ?? 0) + (arazzoResult?.total ?? 0);
-						const passed =
-							(openapiResult?.passed ?? 0) + (arazzoResult?.passed ?? 0);
-						contractOutputChannel.appendLine(
-							formatSetupLog(
-								`Contract tests against ${response?.baseUrl ?? baseUrl}: ${passed}/${total} passed`,
-							),
-						);
-						for (const item of openapiResult?.results ?? []) {
-							const status =
-								item.status !== undefined && item.status !== 0
-									? ` status=${item.status}`
-									: "";
-							const detail = item.error ? ` ${item.error}` : "";
-							contractOutputChannel.appendLine(
-								`  - ${item.pass ? "PASS" : "FAIL"} ${item.method ?? "GET"} ${item.path ?? ""}${status}${detail}`,
-							);
-						}
-						for (const workflow of arazzoResult?.workflows ?? []) {
-							const detail = workflow.error ? ` ${workflow.error}` : "";
-							contractOutputChannel.appendLine(
-								`  - ${workflow.pass ? "PASS" : "FAIL"} workflow ${workflow.workflowId ?? ""}${detail}`,
-							);
-						}
-						if (response?.stderr) {
-							contractOutputChannel.appendLine(`  stderr: ${response.stderr}`);
-						}
-						if (result?.pass) {
-							window.showInformationMessage(
-								`Contract tests passed (${passed}/${total}).`,
-							);
-						} else {
-							window.showWarningMessage(
-								`Contract tests found failures (${passed}/${total} passed). See Telescope output for details.`,
-							);
-						}
-					} catch (error) {
-						contractOutputChannel.appendLine(
-							formatSetupLog(
-								`Contract tests failed for ${document.uri.toString()}: ${String(error)}`,
-							),
-						);
-						window.showErrorMessage(
-							"Telescope contract tests failed. See Telescope Contract Tests output for details.",
-						);
-					}
+					await runContractTestsForDocument(document);
 				},
 			),
+		);
+		context.subscriptions.push(
+			registerTracedCommand("telescope.runAllContractTests", async () => {
+				if (!sessionManager) {
+					return;
+				}
+				const config = workspace.getConfiguration("telescope");
+				const baseUrl = await promptContractBaseURL(
+					config.get<string>("contractTestBaseUrl") || "http://localhost:8080",
+				);
+				if (baseUrl === undefined) {
+					return;
+				}
+				const files = sessionManager.getAllOpenAPIFiles();
+				if (files.length === 0) {
+					window.showWarningMessage("No OpenAPI files found in workspace");
+					return;
+				}
+				for (const rawURI of files) {
+					const document = await getDocument(vscode.Uri.parse(rawURI));
+					if (document) {
+						await runContractTestsForDocument(document, {
+							baseUrl,
+							promptForBaseUrl: false,
+							silentStart: true,
+						});
+					}
+				}
+				window.showInformationMessage(
+					`Queued contract tests for ${files.length} OpenAPI file${files.length === 1 ? "" : "s"}.`,
+				);
+			}),
+			registerTracedCommand(
+				"telescope.runOperationTest",
+				async (node?: ContractOperationNode) => {
+					const uri = node?.uri;
+					const document = await getDocument(uri);
+					if (!document) {
+						return;
+					}
+					const operationId =
+						node?.result.operationId?.trim() ||
+						(await window.showInputBox({
+							prompt: "Operation ID to test",
+							ignoreFocusOut: true,
+						}));
+					if (!operationId) {
+						window.showWarningMessage("An operationId is required");
+						return;
+					}
+					await runContractTestsForDocument(document, {
+						baseUrl: node?.baseUrl,
+						promptForBaseUrl: !node?.baseUrl,
+						operationId,
+					});
+				},
+			),
+			registerTracedCommand(
+				"telescope.docsPreview",
+				async (uriOrString?: vscode.Uri | string) => {
+					const uri =
+						typeof uriOrString === "string"
+							? vscode.Uri.parse(uriOrString)
+							: uriOrString;
+					const document = await getDocument(uri);
+					if (!document) {
+						return;
+					}
+					await showDocsPreviewForDocument(document);
+				},
+			),
+			registerTracedCommand(
+				"telescope.showBreakingChanges",
+				async (uriOrString?: vscode.Uri | string) => {
+					const uri =
+						typeof uriOrString === "string"
+							? vscode.Uri.parse(uriOrString)
+							: uriOrString;
+					const document = await getDocument(uri);
+					if (!document) {
+						return;
+					}
+					await showBreakingChangesForDocument(document);
+				},
+			),
+			registerTracedCommand(
+				"telescope.diffWithBase",
+				async (uriOrString?: vscode.Uri | string) => {
+					const uri =
+						typeof uriOrString === "string"
+							? vscode.Uri.parse(uriOrString)
+							: uriOrString;
+					const document = await getDocument(uri);
+					if (!document) {
+						return;
+					}
+					await showBreakingChangesForDocument(document);
+				},
+			),
+			registerTracedCommand(
+				"telescope.openWiretapMonitor",
+				async (node?: ContractFileNode) => {
+					const url =
+						node?.record.wiretapMonitorUrl ||
+						contractTestsProvider.getLatestWiretapMonitorURL();
+					if (!url) {
+						window.showInformationMessage(
+							"No Wiretap monitor URL is available yet.",
+						);
+						return;
+					}
+					await openBrowserURL(url, "Wiretap Monitor");
+				},
+			),
+			registerTracedCommand("telescope.switchLintEngine", async () => {
+				const current = workspace
+					.getConfiguration("telescope")
+					.get<string>("lintEngine", "barrelman");
+				const next = await window.showQuickPick(
+					[
+						{ label: "barrelman", description: "Navigator-guideline linting" },
+						{ label: "vacuum", description: "vacuum / Spectral-compatible linting" },
+						{ label: "both", description: "Run both lint engines" },
+					],
+					{
+						placeHolder: `Current lint engine: ${current}`,
+					},
+				);
+				if (!next) {
+					return;
+				}
+				await workspace
+					.getConfiguration("telescope")
+					.update("lintEngine", next.label, vscode.ConfigurationTarget.Workspace);
+				window.showInformationMessage(
+					`Telescope lint engine set to ${next.label}.`,
+				);
+			}),
 		);
 
 		context.subscriptions.push(

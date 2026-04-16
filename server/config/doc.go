@@ -1,10 +1,10 @@
-// Package config handles loading and parsing of Telescope's
-// .telescope.yaml configuration files.
+// Package config handles loading and parsing of Telescope configuration files.
 //
 // # Loading Configuration
 //
 // [Load] searches for configuration files in a workspace directory,
-// trying each path in [ConfigFiles] order:
+// trying each path in [ConfigFiles] order. The canonical location is
+// .telescope/config.yaml, with legacy root-level config files still supported:
 //
 //	cfg, err := config.Load("/path/to/project")
 //
@@ -14,17 +14,18 @@
 //
 // [LoadFile] loads from a specific path:
 //
-//	cfg, err := config.LoadFile(".telescope.yaml")
+//	cfg, err := config.LoadFile(".telescope/config.yaml")
 //
 // # Configuration Fields
 //
 // The [Config] struct supports:
 //
-//   - Extends: base ruleset name (e.g., "telescope:recommended")
-//   - Rules: per-rule severity overrides
-//   - SpectralRulesets: Spectral-compatible YAML ruleset paths
-//   - Include/Exclude: glob patterns for file discovery
-//   - OpenAPI: version targeting and extension schemas
-//   - Output: CLI format and color preferences
-//   - LSP: debounce and file size limits
+//   - Workspace: shared targets, ignore globs, and env files
+//   - Generation: inline Cartographer config plus bundle/overlay defaults
+//   - Linting: rule presets, overrides, Spectral rulesets, and engine settings
+//   - Validation: OpenAPI validation, breaking changes, and schema validation
+//   - Testing: contract tests, workflow targets, and mock defaults
+//   - Documentation: printing-press generation and preview defaults
+//   - Extension: editor-only settings
+//   - Legacy fields: root-level .telescope.yaml compatibility
 package config

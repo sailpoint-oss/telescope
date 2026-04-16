@@ -14,21 +14,24 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/spf13/cobra"
 
+	"github.com/sailpoint-oss/telescope/server/diff"
 	"github.com/sailpoint-oss/telescope/server/lintengine"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/rulesets"
 )
 
 var (
-	diffBase      string
-	diffHead      string
-	reportMD      string
-	reportJSON    string
-	commentPR     bool
-	ciFailOn      string
-	ciSeverity    string
-	ciReportScope string
-	ciNoExtLSP    bool
+	diffBase          string
+	diffHead          string
+	reportMD          string
+	reportJSON        string
+	commentPR         bool
+	ciFailOn          string
+	ciSeverity        string
+	ciReportScope     string
+	ciNoExtLSP        bool
+	ciFailOnBreaking  bool
+	ciBreakingConfig  string
 )
 
 func newCICmd() *cobra.Command {
@@ -48,6 +51,8 @@ func newCICmd() *cobra.Command {
 	cmd.Flags().StringVar(&ciSeverity, "severity", "", "Minimum severity: error, warn, info, hint")
 	cmd.Flags().StringVar(&ciReportScope, "report-scope", reportScopeChanged, "Report scope: changed (graph-expanded impact) or all")
 	cmd.Flags().BoolVar(&ciNoExtLSP, "no-external-lsp", false, "Deprecated no-op; retained for compatibility")
+	cmd.Flags().BoolVar(&ciFailOnBreaking, "fail-on-breaking", true, "Exit with code 1 when libopenapi reports breaking API changes vs --diff-base")
+	cmd.Flags().StringVar(&ciBreakingConfig, "breaking-config", "", "Path to openapi-changes-style breaking rules YAML")
 
 	return cmd
 }
@@ -133,6 +138,17 @@ func runCI(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	breakingPath := resolveBreakingRulesPath(wd, ciBreakingConfig)
+	report := buildLintReport(wd, repoRoot, allDiags)
+	report.BreakingChanges = collectBreakingChanges(run.Files, wd, repoRoot, diffBase, breakingPath)
+	if ciFailOnBreaking {
+		for _, b := range report.BreakingChanges {
+			if b.TotalBreakingChanges > 0 {
+				exitCode = 1
+			}
+		}
+	}
+
 	outputResults(allDiags, "text")
 
 	// Emit GitHub annotations when running in GitHub Actions.
@@ -141,7 +157,6 @@ func runCI(cmd *cobra.Command, args []string) error {
 	}
 
 	// Write reports.
-	report := buildLintReport(wd, repoRoot, allDiags)
 	report.Scope = scope.Metadata(len(run.Files))
 	if reportJSON != "" {
 		if err := writeJSONReport(reportJSON, report); err != nil {
@@ -218,6 +233,66 @@ func gitRepoRoot() string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func resolveBreakingRulesPath(wd, p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(wd, p)
+}
+
+func collectBreakingChanges(files []string, wd, repoRoot, baseRef, rulesPath string) []BreakingChangeFile {
+	if repoRoot == "" || baseRef == "" || len(files) == 0 {
+		return []BreakingChangeFile{}
+	}
+	opts := diff.CompareOpts{}
+	if rulesPath != "" {
+		opts.BreakingRulesPath = rulesPath
+	}
+	var out []BreakingChangeFile
+	for _, fp := range files {
+		abs := fp
+		if !filepath.IsAbs(abs) {
+			abs = filepath.Join(wd, fp)
+		}
+		abs = filepath.Clean(abs)
+		rel, err := filepath.Rel(repoRoot, abs)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			out = append(out, BreakingChangeFile{Path: filepath.ToSlash(fp), SkipReason: "outside repository"})
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		baseBytes, err := diff.ReadAtRef(repoRoot, baseRef, rel)
+		if err != nil {
+			out = append(out, BreakingChangeFile{Path: rel, SkipReason: "not found at base ref"})
+			continue
+		}
+		headBytes, err := os.ReadFile(abs)
+		if err != nil {
+			out = append(out, BreakingChangeFile{Path: rel, SkipReason: err.Error()})
+			continue
+		}
+		if len(baseBytes) == 0 || len(headBytes) == 0 {
+			out = append(out, BreakingChangeFile{Path: rel, SkipReason: "empty document"})
+			continue
+		}
+		res, err := diff.Compare(baseBytes, headBytes, opts)
+		if err != nil {
+			out = append(out, BreakingChangeFile{Path: rel, SkipReason: err.Error()})
+			continue
+		}
+		out = append(out, BreakingChangeFile{
+			Path:                 rel,
+			TotalChanges:         res.TotalChanges(),
+			TotalBreakingChanges: res.TotalBreakingChanges(),
+		})
+	}
+	return out
 }
 
 // githubActionsPRHeadSHA returns the PR head commit SHA from the GitHub Actions

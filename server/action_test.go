@@ -34,12 +34,17 @@ func TestActionYAML_ExposesSpecAnalysisContract(t *testing.T) {
 	if meta.Inputs["mode"].Default != "ci" {
 		t.Fatalf("mode default = %q, want ci", meta.Inputs["mode"].Default)
 	}
+	if meta.Inputs["comment-pr"].Default != "true" {
+		t.Fatalf("comment-pr default = %q, want true", meta.Inputs["comment-pr"].Default)
+	}
 
 	for _, key := range []string{
 		"working-directory",
 		"paths",
 		"config",
 		"ruleset",
+		"lint-engine",
+		"vacuum-ruleset",
 		"diff-base",
 		"diff-head",
 		"severity",
@@ -48,13 +53,29 @@ func TestActionYAML_ExposesSpecAnalysisContract(t *testing.T) {
 		"comment-pr",
 		"report-md",
 		"report-json",
+		"report-sarif",
+		"contract-base-url",
+		"contract-spec",
+		"contract-wiretap",
+		"docs-output",
+		"docs-publish",
 	} {
 		if _, ok := meta.Inputs[key]; !ok {
 			t.Fatalf("missing action input %q", key)
 		}
 	}
 
-	for _, key := range []string{"report-md", "report-json", "error"} {
+	for _, key := range []string{
+		"report-md",
+		"report-json",
+		"report-sarif",
+		"lint-findings",
+		"breaking-changes",
+		"contract-passed",
+		"contract-failed",
+		"exit-code",
+		"error",
+	} {
 		if _, ok := meta.Outputs[key]; !ok {
 			t.Fatalf("missing action output %q", key)
 		}

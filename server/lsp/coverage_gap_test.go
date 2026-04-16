@@ -132,6 +132,7 @@ func TestExecuteCommandHandler_SortBranchesNoError(t *testing.T) {
 		"telescope.sortPaths",
 		"telescope.generateResponseSkeletons",
 		"telescope.bundlePreview",
+		"telescope.docsPreview",
 	}
 	for _, cmd := range commands {
 		_, err := handler(env.ctx, &protocol.ExecuteCommandParams{

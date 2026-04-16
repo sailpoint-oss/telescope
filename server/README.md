@@ -71,66 +71,50 @@ telescope ci --diff-base main --comment-pr
 
 ## Configuration
 
-Create `.telescope.yaml` in your project root:
+Create `.telescope/config.yaml` in your project root:
 
 ```yaml
-extends: telescope:recommended
+configVersion: 2
 
-rules:
-  operationid-unique: error
-  no-trailing-slash: off
+workspace:
+  targets:
+    apis:
+      kind: openapi
+      include:
+        - api/**/*.{yaml,yml,json}
 
-spectralRulesets:
-  - ./rulesets/custom.yaml
+linting:
+  targets:
+    - apis
+  presets:
+    - telescope:recommended
+  rulesets:
+    spectral:
+      - rulesets/custom.yaml
 
-include:
-  - "**/*.yaml"
-  - "**/*.json"
-
-exclude:
-  - "node_modules/**"
-  - "vendor/**"
-
-openapi:
-  extensions:
-    schemas:
-      - redocly-extensions.json
-      - my-extensions.json
-    required:
-      - x-stability
-
-additionalValidation:
-  github-actions:
-    patterns:
-      - ".github/workflows/*.yaml"
-    schemas:
-      - schema: github-actions.json
-
-output:
-  format: text   # text, json, sarif, github
-  color: auto    # auto, always, never
-
-lsp:
-  debounce: 300ms
-  maxFileSize: 5242880  # 5MB
+validation:
+  openapi:
+    targets:
+      - apis
+    targetVersion: "3.1"
+    breakingChanges:
+      enabled: true
+      compareTo: HEAD
 ```
 
 ### Configuration Fields
 
 | Field | Type | Description |
 |---|---|---|
-| `extends` | `string` | Base ruleset (`telescope:recommended`, `telescope:all`, `telescope:owasp`, `telescope:strict`) |
-| `rules` | `map[string]string` | Per-rule severity overrides (`error`, `warn`, `info`, `hint`, `off`) |
-| `spectralRulesets` | `[]string` | Paths to Spectral/Vacuum-compatible YAML ruleset files |
-| `include` | `[]string` | Glob patterns for files to lint |
-| `exclude` | `[]string` | Glob patterns for files to ignore |
-| `openapi.extensions.schemas` | `[]string` | Extension schema files in `.telescope/extensions/` |
-| `openapi.extensions.required` | `[]string` | Extension names that must be present where scoped |
-| `additionalValidation` | `map` | File patterns mapped to JSON Schema files for non-OpenAPI validation |
-| `output.format` | `string` | CLI output format |
-| `output.color` | `string` | Color mode for CLI output |
-| `lsp.debounce` | `duration` | Debounce interval for LSP diagnostics |
-| `lsp.maxFileSize` | `int64` | Maximum file size the LSP will process |
+| `workspace` | `map` | Shared file targets, ignores, and dotenv defaults |
+| `generation` | `map` | Inline Cartographer config plus bundle/overlay defaults |
+| `linting` | `map` | Presets, overrides, Barrelman/Vacuum engines, Spectral rulesets, Bun rules |
+| `validation` | `map` | OpenAPI validation, breaking changes, and file-schema validation |
+| `formatting` | `map` | Prettier / OpenAPI formatting defaults |
+| `testing` | `map` | Contract tests, workflow targets, and mock settings |
+| `documentation` | `map` | printing-press generation and preview defaults |
+| `extension` | `map` | LSP/editor-only defaults |
+| `automation` | `map` | CI and GitHub Action defaults |
 
 ## Built-in Rulesets
 
@@ -145,7 +129,7 @@ lsp:
 
 ## Custom rules (YAML and Bun)
 
-User-defined rules are **declarative YAML** in `.telescope.yaml` (`openapi.rules`, `spectralRulesets`, and related fields) and **TypeScript/JavaScript** executed by the optional Bun sidecar. See the [Custom Rules Guide](../docs/CUSTOM-RULES.md) for formats and examples.
+User-defined rules are configured in `.telescope/config.yaml` under `linting.rulesets` and `linting.customRules`, with TypeScript/JavaScript rules executed by the optional Bun sidecar. See the [Custom Rules Guide](../docs/CUSTOM-RULES.md) for formats and examples.
 
 When running the standalone server from a source checkout, build the bundled sidecar script once before using Bun-backed rules:
 

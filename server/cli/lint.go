@@ -21,6 +21,7 @@ var (
 	outputFormat   string
 	minSeverity    string
 	failOn         string
+	analysisEngine string
 	noColor        bool
 	noExternalLSP  bool
 	reportMDPath   string
@@ -38,6 +39,7 @@ func newLintCmd() *cobra.Command {
 	}
 
 	addAnalysisFlags(cmd, true)
+	cmd.Flags().StringVarP(&analysisEngine, "engine", "E", "", "Lint engine: barrelman, vacuum, or both (default: config)")
 	return cmd
 }
 
@@ -68,18 +70,22 @@ func addAnalysisFlags(cmd *cobra.Command, includeBaselineFlags bool) {
 }
 
 func runLint(cmd *cobra.Command, args []string) error {
-	return runAnalysis(args, nil)
+	return runAnalysis(args, nil, selectedAnalysisEngines(analysisEngine))
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
 	return runAnalysis(args, func(diag protocol.Diagnostic) bool {
-		return diag.Source == "oas3-schema"
-	})
+		// Structural / meta-schema issues are published with code "oas3-schema"
+		// (Navigator → Barrelman bridge). Source is typically "telescope", not
+		// the rule id string, so match on code.
+		code, _ := diag.Code.(string)
+		return code == "oas3-schema"
+	}, []string{"barrelman"})
 }
 
 type diagnosticFilter func(protocol.Diagnostic) bool
 
-func runAnalysis(args []string, filter diagnosticFilter) error {
+func runAnalysis(args []string, filter diagnosticFilter, engines []string) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	// Parse minSeverity flag for output filtering.
@@ -96,6 +102,7 @@ func runAnalysis(args []string, filter diagnosticFilter) error {
 		WorkingDir:    wd,
 		ConfigPath:    cfgFile,
 		RulesetPath:   rulesetArg,
+		Engines:       engines,
 		MinSeverity:   minSev,
 		NoExternalLSP: noExternalLSP,
 	}, logger)
@@ -169,6 +176,20 @@ func runAnalysis(args []string, filter diagnosticFilter) error {
 		os.Exit(exitCode)
 	}
 	return nil
+}
+
+func selectedAnalysisEngines(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func filterRunResult(run *lintengine.RunResult, keep diagnosticFilter) *lintengine.RunResult {

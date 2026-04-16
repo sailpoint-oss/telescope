@@ -104,7 +104,7 @@ func (v *AdditionalValidator) Configure(rootDir string, groups map[string]Valida
 }
 
 func (v *AdditionalValidator) loadSchema(filename string) (*jsonschema.CompiledSchema, error) {
-	path := filepath.Join(v.schemasDir, filename)
+	path := resolveSchemaPath(v.rootDir, filename)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read schema %s: %w", path, err)
@@ -138,7 +138,7 @@ func (v *AdditionalValidator) MatchesFile(uri string) (*matchedSchema, bool) {
 			}
 			if matchesPatterns(relPath, patterns) {
 				st := DetectSchemaType(sm.Schema)
-				schemaPath := filepath.Join(v.schemasDir, sm.Schema)
+				schemaPath := resolveSchemaPath(v.rootDir, sm.Schema)
 				compiled := v.schemas[sm.Schema] // may be nil for Zod schemas
 				return &matchedSchema{
 					compiled:   compiled,
@@ -183,7 +183,7 @@ func (v *AdditionalValidator) MatchesFileForSidecar(uri string) ([]SchemaMatch, 
 			if matchesPatterns(relPath, patterns) {
 				matches = append(matches, SchemaMatch{
 					GroupName:  groupName,
-					SchemaPath: filepath.Join(v.schemasDir, sm.Schema),
+					SchemaPath: resolveSchemaPath(v.rootDir, sm.Schema),
 					SchemaType: DetectSchemaType(sm.Schema),
 				})
 			}
@@ -262,6 +262,24 @@ func matchesPatterns(path string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+func resolveSchemaPath(rootDir, filename string) string {
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return ""
+	}
+	if filepath.IsAbs(filename) {
+		return filepath.Clean(filename)
+	}
+	clean := filepath.Clean(filepath.FromSlash(filename))
+	if strings.HasPrefix(filepath.ToSlash(clean), ".telescope/") {
+		return filepath.Join(rootDir, clean)
+	}
+	if strings.Contains(filepath.ToSlash(clean), "/") {
+		return filepath.Join(rootDir, ".telescope", clean)
+	}
+	return filepath.Join(rootDir, ".telescope", "schemas", clean)
 }
 
 // doubleStarMatch handles ** glob patterns by expanding them to match any path segment.
