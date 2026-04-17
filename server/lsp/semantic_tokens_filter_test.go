@@ -153,7 +153,7 @@ func TestDeltaEncode_RoundTrips(t *testing.T) {
 
 func TestSemanticTokensRangeHandler_Scoped(t *testing.T) {
 	env := newCoverageEnv(t)
-	handler := NewSemanticTokensRangeHandler(env.cache, nil)
+	handler := NewSemanticTokensRangeHandler(env.cache, nil, nil)
 
 	// Full range covers the whole spec — should return the same set as the
 	// non-range handler (or at least a populated slice).

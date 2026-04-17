@@ -54,7 +54,7 @@ func decodeSemanticTokens(data []uint32) []decodedSemanticToken {
 
 func TestSemanticTokens_PathParametersDoNotOverlap(t *testing.T) {
 	env := setupTestEnv(t, "file:///path-params.yaml", pathParamSemanticTokenSpec)
-	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},

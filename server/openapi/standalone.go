@@ -1,6 +1,8 @@
 package openapi
 
 import (
+	"sync/atomic"
+
 	"github.com/LukasParke/gossip/protocol"
 
 	navigator "github.com/sailpoint-oss/navigator"
@@ -23,6 +25,7 @@ func ParseAndIndex(content []byte) *Index {
 			Refs:             make(map[string][]RefUsage),
 			Tags:             make(map[string]*Tag),
 			Kind:             DocumentKindUnknown,
+			sorted:           &atomic.Pointer[sortedViews]{},
 		}
 	}
 	return IndexFromNavigator(navIdx, "")
@@ -50,6 +53,7 @@ func IndexFromNavigator(navIdx *navigator.Index, uri protocol.DocumentURI) *Inde
 		Format:           FileFormat(navIdx.Format),
 		Kind:             navIdx.Kind,
 		nav:              navIdx,
+		sorted:           &atomic.Pointer[sortedViews]{},
 	}
 	if idx.Kind == DocumentKindArazzo && idx.Arazzo != nil {
 		idx.Version = Version(idx.Arazzo.Version)
