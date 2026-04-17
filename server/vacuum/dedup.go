@@ -5,36 +5,22 @@ import (
 	"strings"
 
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/barrelman/rulesets/bridge"
 )
 
-// ruleAliases maps human-friendly rule IDs to the canonical SailPoint rule ID
-// they duplicate at the same source position. When two diagnostics collide on
-// (line, character) and land in the same bucket via this map, the secondary
-// is dropped.
-//
-// Pairs chosen from docs/pr-review-tooling.md gap #8 in cloud-api-client-common:
-// reviewers saw the same violation twice (sp-115 AND parameter-description,
-// sp-403 AND missing-error-responses, sp-602 AND missing-pagination). The
-// SailPoint rule is preferred because it carries the guideline-link metadata.
-var ruleAliases = map[string]string{
-	"parameter-description":   "sp-115",
-	"missing-error-responses": "sp-403",
-	"missing-pagination":      "sp-602",
-}
-
-// canonicalRuleID returns the SailPoint rule ID for an aliased alternative,
-// or the input unchanged if no alias applies.
+// canonicalRuleID returns the canonical SailPoint slug for an aliased
+// rule id (vacuum, spectral, or legacy kebab), or the input unchanged
+// if no bridge entry applies. Lookups go through barrelman's bridge
+// so telescope and barrelman stay in sync.
 func canonicalRuleID(code string) string {
-	if alias, ok := ruleAliases[code]; ok {
-		return alias
-	}
-	return code
+	return bridge.Canonical(code)
 }
 
 // Deduplicate keeps all primary diagnostics and drops secondary diagnostics
 // that collide on start position plus a canonical category bucket. The
-// canonical bucket folds known alias pairs (e.g. parameter-description and
-// sp-115) onto a single key so reviewers see one row per underlying rule.
+// canonical bucket folds aliased rule pairs (for example
+// `parameter-description` and `sailpoint-parameter-description`) onto a
+// single key so reviewers see one row per underlying rule.
 func Deduplicate(primary []protocol.Diagnostic, secondary []protocol.Diagnostic) []protocol.Diagnostic {
 	if len(primary) == 0 {
 		return append([]protocol.Diagnostic(nil), secondary...)
@@ -60,8 +46,9 @@ func Deduplicate(primary []protocol.Diagnostic, secondary []protocol.Diagnostic)
 
 // DeduplicateWithin folds aliased rule IDs within a single diagnostic stream.
 // Callers like the lintengine apply this after merging Barrelman + Vacuum
-// results to ensure the combined set does not emit both sp-115 and
-// parameter-description for the same location.
+// results to ensure the combined set does not emit both the canonical
+// SailPoint slug and its vacuum/spectral/legacy alias for the same
+// source location.
 func DeduplicateWithin(diags []protocol.Diagnostic) []protocol.Diagnostic {
 	if len(diags) <= 1 {
 		return diags

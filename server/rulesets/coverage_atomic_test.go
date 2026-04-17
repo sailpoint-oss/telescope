@@ -201,10 +201,10 @@ func TestNormalizeRuleID_KnownAliases(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"operation-operationid", "operation-operationId"},
+		{"operation-operationid", "sailpoint-operation-id-camel-case"},
 		{"no-trailing-slash", "path-keys-no-trailing-slash"},
-		{"operation-operationId", "sp-122"},
-		{"missing-pagination", "sp-602"},
+		{"operation-operationId", "sailpoint-operation-id-camel-case"},
+		{"missing-pagination", "sailpoint-collection-offset-pagination"},
 		{"unknown-rule", "unknown-rule"},
 	}
 	for _, tt := range tests {

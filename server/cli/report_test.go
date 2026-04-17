@@ -19,7 +19,7 @@ func TestBuildLintReport_CapturesRuleDocsAndMarkdownLinks(t *testing.T) {
 				{
 					Range:           protocol.NewRange(0, 0, 0, 1),
 					Severity:        protocol.SeverityError,
-					Code:            "sp-122",
+					Code:            "sailpoint-operation-id-unique",
 					Message:         "duplicate operationId",
 					CodeDescription: &protocol.CodeDescription{Href: protocol.URI(docURL)},
 				},
@@ -27,16 +27,16 @@ func TestBuildLintReport_CapturesRuleDocsAndMarkdownLinks(t *testing.T) {
 		},
 	})
 
-	if got := report.RuleDocs["sp-122"]; got != docURL {
-		t.Fatalf("RuleDocs[sp-122] = %q, want %q", got, docURL)
+	if got := report.RuleDocs["sailpoint-operation-id-unique"]; got != docURL {
+		t.Fatalf("RuleDocs[sailpoint-operation-id-unique] = %q, want %q", got, docURL)
 	}
 
 	var out bytes.Buffer
 	if err := writeMDReportTo(&out, report); err != nil {
 		t.Fatalf("writeMDReportTo: %v", err)
 	}
-	if !strings.Contains(out.String(), "[`sp-122`]("+docURL+")") {
-		t.Fatalf("expected markdown report to link sp-122 docs, got:\n%s", out.String())
+	if !strings.Contains(out.String(), "[`sailpoint-operation-id-unique`]("+docURL+")") {
+		t.Fatalf("expected markdown report to link sailpoint-operation-id-unique docs, got:\n%s", out.String())
 	}
 }
 
