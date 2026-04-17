@@ -2,6 +2,7 @@ package openapi
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/LukasParke/gossip/protocol"
@@ -67,10 +68,17 @@ func TestSortedRefs_EmptyIndex(t *testing.T) {
 
 // TestSortedViewsLazy_SingleBuildUnderConcurrency confirms that 64 goroutines
 // racing to call SortedRefs only ever see one allocation of the views
-// container, and that the build function runs exactly once (sync.Once + the
-// sortedMu pointer-swap guard).
+// container, and that the build function runs exactly once (sync.Once inside
+// the container plus a lock-free CAS install on Index.sorted).
 func TestSortedViewsLazy_SingleBuildUnderConcurrency(t *testing.T) {
-	idx := &Index{AllRefs: []RefUsage{makeRef(1, 0), makeRef(2, 0)}}
+	// Pre-initialize idx.sorted to emulate BuildIndex output; hand-
+	// constructed indexes with a nil idx.sorted intentionally fall back to
+	// an uncached per-call build, which is correct but not the path we
+	// want to exercise here.
+	idx := &Index{
+		AllRefs: []RefUsage{makeRef(1, 0), makeRef(2, 0)},
+		sorted:  &atomic.Pointer[sortedViews]{},
+	}
 
 	var wg sync.WaitGroup
 	const workers = 64
@@ -80,7 +88,7 @@ func TestSortedViewsLazy_SingleBuildUnderConcurrency(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			_ = idx.SortedRefs()
-			results[i] = idx.sorted
+			results[i] = idx.sorted.Load()
 		}(i)
 	}
 	wg.Wait()

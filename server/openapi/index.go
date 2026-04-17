@@ -2,6 +2,7 @@ package openapi
 
 import (
 	"sync"
+	"sync/atomic"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
@@ -76,10 +77,14 @@ type Index struct {
 	// Pointer so Index stays copyable (same rationale as navOnce).
 	navMu *sync.RWMutex
 
-	// sorted is populated lazily on first access by sortedViewsForRange
-	// (see sorted.go). Held via pointer so the Index remains copyable by
-	// value, and shared across copies so the sort cost is paid at most once.
-	sorted *sortedViews
+	// sorted is populated lazily on first access by sortedViewsLazy (see
+	// sorted.go). Held via *atomic.Pointer (not an inline atomic.Pointer)
+	// so the Index struct remains copyable — sync/atomic types embed a
+	// noCopy guard that trips go vet's copylocks check, and existing tests
+	// in this package legitimately copy an Index by value for coverage of
+	// the fallback resolver paths. Using a pointer lets the copy share the
+	// same once-computed view.
+	sorted *atomic.Pointer[sortedViews]
 }
 
 // BuildIndex creates a full index from a parsed tree and document.
@@ -100,6 +105,7 @@ func BuildIndex(tree *treesitter.Tree, doc *document.Document) *Index {
 		Tags:             make(map[string]*Tag),
 		Version:          oaDoc.ParsedVersion,
 		Format:           format,
+		sorted:           &atomic.Pointer[sortedViews]{},
 	}
 
 	idx.indexPaths(oaDoc, doc.URI())

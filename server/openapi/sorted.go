@@ -60,11 +60,6 @@ type sortedViews struct {
 	components []SortedComponentEntry
 }
 
-// sortedMu serializes the one-time allocation of Index.sorted. It's held only
-// for the check-and-set window; the actual build cost is amortized by
-// sortedViews.once inside the container.
-var sortedMu sync.Mutex
-
 // SortedRefs returns AllRefs ordered by (Loc.Range.Start.Line, Start.Character).
 // Lazy: the sort happens on first call. Subsequent calls return the same
 // backing slice; callers must not mutate it.
@@ -100,21 +95,37 @@ func (idx *Index) SortedComponents() []SortedComponentEntry {
 
 // sortedViewsLazy returns the Index's lazy view container, creating and
 // populating it on first access. Returns nil when called on a nil Index.
+//
+// Install is lock-free via atomic.Pointer.CompareAndSwap: readers see
+// either nil (not yet installed) or a fully published *sortedViews.
+// Multiple goroutines racing the first call may each allocate a candidate
+// container, but only one CAS wins; the losers drop their candidate and
+// re-Load the winning pointer. The actual sort work is serialized by the
+// sync.Once inside sortedViews.
+//
+// Indexes that go through BuildIndex / IndexFromNavigator / ParseAndIndex
+// have idx.sorted pre-initialized; hand-constructed fixtures that leave
+// it nil fall back to a non-cached per-call build. That's enough for the
+// semantic-tokens production path (always cache-backed) and for
+// single-threaded tests, and avoids the double-checked-locking race that
+// a lazy install on idx.sorted itself would introduce.
 func (idx *Index) sortedViewsLazy() *sortedViews {
 	if idx == nil {
 		return nil
 	}
-	v := idx.sorted
+	if idx.sorted == nil {
+		v := &sortedViews{}
+		v.build(idx)
+		return v
+	}
+	v := idx.sorted.Load()
 	if v == nil {
-		// Allocate-and-install under a package mutex so two goroutines racing
-		// on the bare field can't both end up with different *sortedViews.
-		// This lock is held only for the pointer swap, not the build itself.
-		sortedMu.Lock()
-		if idx.sorted == nil {
-			idx.sorted = &sortedViews{}
+		candidate := &sortedViews{}
+		if idx.sorted.CompareAndSwap(nil, candidate) {
+			v = candidate
+		} else {
+			v = idx.sorted.Load()
 		}
-		v = idx.sorted
-		sortedMu.Unlock()
 	}
 	v.once.Do(func() { v.build(idx) })
 	return v
