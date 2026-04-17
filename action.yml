@@ -6,8 +6,23 @@ branding:
 
 inputs:
   mode:
-    description: "Comma-separated modes: lint, validate, ci, diff, contract, docs"
+    description: "Comma-separated modes: lint, validate, ci, diff, contract, docs, generate, generate-and-lint"
     default: "ci"
+  generate-root:
+    description: "generate mode: path to the repo to extract from"
+    default: "."
+  generate-lang:
+    description: "generate mode: language override (go/java/ts); auto-detected when empty"
+    default: ""
+  generate-output:
+    description: "generate mode: spec output path"
+    default: "openapi.yaml"
+  generate-config:
+    description: "generate mode: cartographer config directory"
+    default: ""
+  generate-sourcemap:
+    description: "generate mode: also emit an openapi.sourcemap.json alongside output"
+    default: "false"
   go-version:
     description: "Go version used to build Telescope"
     default: "1.25.x"
@@ -182,6 +197,11 @@ runs:
         CONTRACT_WIRETAP: ${{ inputs.contract-wiretap }}
         DOCS_OUTPUT: ${{ inputs.docs-output }}
         DOCS_PUBLISH: ${{ inputs.docs-publish }}
+        GENERATE_ROOT: ${{ inputs.generate-root }}
+        GENERATE_LANG: ${{ inputs.generate-lang }}
+        GENERATE_OUTPUT: ${{ inputs.generate-output }}
+        GENERATE_CONFIG: ${{ inputs.generate-config }}
+        GENERATE_SOURCEMAP: ${{ inputs.generate-sourcemap }}
         TELESCOPE_BIN: ${{ github.action_path }}/telescope
       run: |
         bash "${{ github.action_path }}/scripts/run-action.sh"

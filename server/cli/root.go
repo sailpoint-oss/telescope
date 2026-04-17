@@ -26,6 +26,7 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&rulesetArg, "ruleset", "r", "", "Ruleset file or URL")
 
 	cmd.AddCommand(newLintCmd())
+	cmd.AddCommand(newGenerateCmd())
 	cmd.AddCommand(newValidateCmd())
 	cmd.AddCommand(newCICmd())
 	cmd.AddCommand(newServeCmd())
