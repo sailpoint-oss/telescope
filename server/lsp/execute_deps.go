@@ -3,6 +3,7 @@ package lsp
 import (
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/contractrunner"
+	"github.com/sailpoint-oss/telescope/server/generation"
 )
 
 // EffectiveConfig returns live workspace Telescope config when ConfigProvider is set.
@@ -37,4 +38,8 @@ type ExecuteCommandDeps struct {
 	Runner               *contractrunner.Runner
 	DocsPreview          *DocsPreviewManager
 	DiagnosticMux        *DiagnosticMux
+	// Generation is the shared generation.Manager; non-nil when the
+	// generation loop is wired into the server. The generation-facing
+	// execute commands (regenerate, openGeneratedSpec, etc.) key off it.
+	Generation *generation.Manager
 }

@@ -59,6 +59,15 @@ func NewExecuteCommandHandler(cache *openapi.IndexCache, bridge *GraphBridge, de
 			return executeRunContractTests(ctx, cache, uri, params.Arguments, deps)
 		case "telescope.showBreakingChanges":
 			return executeShowBreakingChanges(ctx, uri, deps)
+		case "telescope.regenerate",
+			"telescope.writeSpecNow",
+			"telescope.openGeneratedSpec",
+			"telescope.openSourceForSpec",
+			"telescope.getGeneratedSpecBytes",
+			"telescope.getGeneratedSpecTree",
+			"telescope.getSourceContributions",
+			"telescope.getSourceMapForFile":
+			return ExecuteGenerationCommand(ctx, deps.Generation, params.Command, params.Arguments)
 		default:
 			return nil, nil
 		}

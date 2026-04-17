@@ -605,6 +605,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		Runner:               contractrunner.New(cfg),
 		DocsPreview:          docsPreviewMgr,
 		DiagnosticMux:        diagMux,
+		Generation:           genMgr,
 	}
 	s.OnExecuteCommand(NewExecuteCommandHandler(indexCache, graphBridge, execDeps))
 	s.OnCompletionResolve(NewCompletionResolveHandler(indexCache, graphBridge))
