@@ -14,6 +14,8 @@ import (
 func telescopeNativeRules() []barrelman.Rule {
 	return []barrelman.Rule{
 		exampleMatchesFormatRule(),
+		contactPropertiesRule(),
+		licenseURLRule(),
 	}
 }
 

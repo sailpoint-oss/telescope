@@ -4,6 +4,7 @@ package bridge
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/LukasParke/gossip/protocol"
 	"github.com/LukasParke/gossip/treesitter"
@@ -24,9 +25,116 @@ func WrapForGossip(rule barrelman.Rule) treesitter.Analyzer {
 			diags := rule.Run(bctx)
 			diags = stabilizeDiagnostics(bctx.Index, diags)
 			diags = filterLSPOnlyDiagnostics(diags)
+			diags = enrichStructuralMessages(diags)
 			return DiagnosticsToProtocol(diags)
 		},
 	}
+}
+
+// enrichStructuralMessages rewrites oas3-schema diagnostic messages so that
+// reviewers see "Properties 'allOf' are not valid in Response Object" instead
+// of the generic "Value is not valid in this document". The pointer embedded
+// in diag.Data tells us which OpenAPI object class the violation belongs to;
+// we only prefix when the location is unambiguously one of the well-known
+// classes (Response Object, Reference Object, Path Item, Operation).
+//
+// Closes docs/pr-review-tooling.md gap #2 without requiring a Barrelman
+// upstream release: the issueCode + pointer payload barrelman already emits
+// is sufficient to classify the violation.
+func enrichStructuralMessages(diags []barrelman.Diagnostic) []barrelman.Diagnostic {
+	for i := range diags {
+		if diags[i].Code != "oas3-schema" {
+			continue
+		}
+		pointer := diagnosticDataString(diags[i].Data, "pointer")
+		if pointer == "" {
+			continue
+		}
+		kind := classifyPointer(pointer)
+		if kind == "" {
+			continue
+		}
+		diags[i].Message = prefixWithKind(diags[i].Message, kind)
+	}
+	return diags
+}
+
+// classifyPointer returns a human-readable OpenAPI object class name based on
+// the segments of a JSON Pointer. The mapping is intentionally conservative:
+// if the pointer doesn't clearly land in a known class we return "" so the
+// caller falls back to the original message.
+//
+// The classifier walks segments once and tracks the most-specific known
+// container encountered. For example, /paths/~1users/get/responses/200/allOf
+// passes through "Path Item" → "Operation" → "Response Object", and the last
+// state wins.
+func classifyPointer(pointer string) string {
+	segs := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
+	kind := ""
+	i := 0
+	for i < len(segs) {
+		seg := segs[i]
+		switch {
+		case seg == "paths":
+			// The very next segment is a path template; anything deeper is
+			// an Operation or below. A path template without a following
+			// segment is a Path Item.
+			if i+1 >= len(segs) {
+				return kind
+			}
+			if i+2 >= len(segs) {
+				return "Path Item"
+			}
+			if _, ok := httpMethodSegments[segs[i+2]]; ok {
+				kind = "Operation"
+				i += 3
+				continue
+			}
+			kind = "Path Item"
+			i += 2
+			continue
+		case seg == "responses" && i+1 < len(segs):
+			kind = "Response Object"
+			i += 2
+			continue
+		case seg == "parameters" && i+1 < len(segs):
+			kind = "Parameter Object"
+			i += 2
+			continue
+		case seg == "requestBody":
+			kind = "Request Body Object"
+			i++
+			continue
+		case seg == "schemas" && i+1 < len(segs):
+			kind = "Schema Object"
+			i += 2
+			continue
+		}
+		i++
+	}
+	return kind
+}
+
+var httpMethodSegments = map[string]struct{}{
+	"get":     {},
+	"put":     {},
+	"post":    {},
+	"delete":  {},
+	"options": {},
+	"head":    {},
+	"patch":   {},
+	"trace":   {},
+}
+
+func prefixWithKind(message, kind string) string {
+	if message == "" {
+		return message
+	}
+	// Avoid double-prefixing if upstream already mentioned the kind.
+	if strings.Contains(message, kind) {
+		return message
+	}
+	return kind + ": " + message
 }
 
 func shouldSuppressMalformedIndex(userData any) bool {
