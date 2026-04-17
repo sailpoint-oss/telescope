@@ -176,15 +176,16 @@ func (idx *Index) navIndex() *navigator.Index {
 		// or a hand-crafted test value). Fall back to the raw field.
 		return idx.nav
 	}
+	// navMu is always paired with navOnce in every constructor that sets
+	// navOnce (BuildIndex, IndexFromNavigator, ParseAndIndex), so by the
+	// time we reach this point navMu is guaranteed non-nil.
 	idx.navOnce.Do(func() {
 		if idx.nav != nil || len(idx.navSource) == 0 {
 			return
 		}
 		parsed := navigator.ParseContent(idx.navSource, idx.navURI)
-		if idx.navMu != nil {
-			idx.navMu.Lock()
-			defer idx.navMu.Unlock()
-		}
+		idx.navMu.Lock()
+		defer idx.navMu.Unlock()
 		if parsed != nil {
 			idx.nav = parsed
 			if idx.Kind == DocumentKindUnknown {
@@ -197,10 +198,8 @@ func (idx *Index) navIndex() *navigator.Index {
 		// Release the source so repeated Nav() calls don't keep the raw bytes alive.
 		idx.navSource = nil
 	})
-	if idx.navMu != nil {
-		idx.navMu.RLock()
-		defer idx.navMu.RUnlock()
-	}
+	idx.navMu.RLock()
+	defer idx.navMu.RUnlock()
 	return idx.nav
 }
 
