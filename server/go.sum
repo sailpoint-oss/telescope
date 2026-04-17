@@ -119,6 +119,8 @@ github.com/sailpoint-oss/barometer v0.3.0 h1:YECHuKgeIaA9F8su4Evvbd8VAZP+a/GKKMC
 github.com/sailpoint-oss/barometer v0.3.0/go.mod h1:GdHJ2zd2mnnO3u31r5Z5q7hir+xMr+PY4tPAZ4OHBlI=
 github.com/sailpoint-oss/barrelman v0.7.0 h1:/A5LK804ailoYO+xwImKUTv5YumblTDvyE1agCAoqKs=
 github.com/sailpoint-oss/barrelman v0.7.0/go.mod h1:qVABatUTcQTDPXGjxRXC0XH1aLGFuTIVAsGDoutLiBY=
+github.com/sailpoint-oss/cartographer v0.1.0 h1:amcfmOkSVwUqQG60boqOBxn9L8AaS8mP8D70cNLNUQo=
+github.com/sailpoint-oss/cartographer v0.1.0/go.mod h1:qVhfSail6sF7qX6zGmaHTKAhxP6k3ncC3J2+O/o45hE=
 github.com/sailpoint-oss/navigator v0.12.1 h1:6slybm/cBXwMDM7ld7SI9Z5oN0v/0dw78ADoesVCa4A=
 github.com/sailpoint-oss/navigator v0.12.1/go.mod h1:iVh7sjbrrUVMUvMbjWEqlHTzxnlm1VhdzXDxjmCPfok=
 github.com/sailpoint-oss/tree-sitter-openapi v0.1.0 h1:Vgv/dTfNrItDpK3p1A7yr33gdOzVf6Kfgqu5mQ/6Mjk=

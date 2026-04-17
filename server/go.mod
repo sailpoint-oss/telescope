@@ -56,6 +56,7 @@ require (
 	github.com/pb33f/libopenapi-validator v0.13.4 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/sailpoint-oss/cartographer v0.1.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
@@ -68,3 +69,5 @@ require (
 )
 
 replace github.com/dprotaso/go-yit => github.com/dprotaso/go-yit v0.0.0-20191028211022-135eb7262960
+
+replace github.com/sailpoint-oss/cartographer => ../../cartographer/cartographer
