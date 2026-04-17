@@ -16,6 +16,8 @@ func telescopeNativeRules() []barrelman.Rule {
 		exampleMatchesFormatRule(),
 		contactPropertiesRule(),
 		licenseURLRule(),
+		filterParametersMatchDescriptionRule(),
+		newPathsInNewestVersionRule(),
 	}
 }
 
