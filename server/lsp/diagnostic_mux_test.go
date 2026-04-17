@@ -104,3 +104,63 @@ func drainDiagnostics(ch <-chan []protocol.Diagnostic) {
 		}
 	}
 }
+
+// TestDiagnosticMux_CoalescesBursts verifies that a tight burst of Set calls
+// on the same URI yields a single publish containing the merged final state,
+// not three separate publishes. Matches the production debounce used for
+// Barrelman + Vacuum + diff-on-save updates landing during a keystroke.
+func TestDiagnosticMux_CoalescesBursts(t *testing.T) {
+	var publishCount int
+	var lastDiags []protocol.Diagnostic
+	done := make(chan struct{})
+	mux := NewDiagnosticMux(func(_ context.Context, params *protocol.PublishDiagnosticsParams) error {
+		publishCount++
+		lastDiags = append([]protocol.Diagnostic(nil), params.Diagnostics...)
+		close(done)
+		return nil
+	}, nil)
+	mux.SetCoalesceWindow(25 * time.Millisecond)
+
+	uri := protocol.DocumentURI("file:///burst.yaml")
+	mux.Set(uri, "barrelman", []protocol.Diagnostic{{Message: "b"}})
+	mux.Set(uri, "vacuum", []protocol.Diagnostic{{Message: "v"}})
+	mux.Set(uri, "diff", []protocol.Diagnostic{{Message: "d"}})
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("coalesced publish never fired")
+	}
+
+	if publishCount != 1 {
+		t.Fatalf("expected exactly 1 coalesced publish, got %d", publishCount)
+	}
+	if len(lastDiags) != 3 {
+		t.Fatalf("expected 3 merged diagnostics, got %d: %+v", len(lastDiags), lastDiags)
+	}
+}
+
+// TestDiagnosticMux_CoalesceResetsOnBursts verifies that a later Set before
+// the timer fires resets the window (i.e. the mux does not publish an older
+// partial snapshot while subsequent Sets are still arriving).
+func TestDiagnosticMux_CoalesceResetsOnBursts(t *testing.T) {
+	var publishCount int
+	mux := NewDiagnosticMux(func(_ context.Context, _ *protocol.PublishDiagnosticsParams) error {
+		publishCount++
+		return nil
+	}, nil)
+	mux.SetCoalesceWindow(30 * time.Millisecond)
+
+	uri := protocol.DocumentURI("file:///reset.yaml")
+	mux.Set(uri, "a", []protocol.Diagnostic{{Message: "a"}})
+	time.Sleep(15 * time.Millisecond)
+	mux.Set(uri, "b", []protocol.Diagnostic{{Message: "b"}})
+	time.Sleep(15 * time.Millisecond)
+	mux.Set(uri, "c", []protocol.Diagnostic{{Message: "c"}})
+	// Wait well past the window for the final publish.
+	time.Sleep(60 * time.Millisecond)
+
+	if publishCount != 1 {
+		t.Fatalf("expected a single coalesced publish after a running burst, got %d", publishCount)
+	}
+}
