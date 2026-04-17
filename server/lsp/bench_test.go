@@ -278,7 +278,7 @@ func BenchmarkSemanticTokens(b *testing.B) {
 	for _, spec := range specs.BenchmarkSpecs() {
 		b.Run(fmt.Sprintf("%s/%s", spec.Size, spec.Name), func(b *testing.B) {
 			env := setupBenchEnv(b, spec)
-			handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+			handler := lsp.NewSemanticTokensHandler(env.cache, nil, nil)
 			params := &protocol.SemanticTokensParams{
 				TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
 			}

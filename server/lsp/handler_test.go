@@ -1147,7 +1147,7 @@ func TestCallHierarchyIncomingHandler(t *testing.T) {
 
 func TestSemanticTokensHandler(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -1169,7 +1169,7 @@ func TestSemanticTokensHandler(t *testing.T) {
 
 func TestSemanticTokensPositions(t *testing.T) {
 	env := setupTestEnv(t, "file:///test.yaml", testSpec)
-	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -1896,7 +1896,7 @@ func TestCompletionResolve_TagRich(t *testing.T) {
 
 func TestSemanticTokens_DeprecatedSchema(t *testing.T) {
 	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
-	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -1954,7 +1954,7 @@ func TestSemanticTokens_DeprecatedSchema(t *testing.T) {
 
 func TestSemanticTokens_TagNames(t *testing.T) {
 	env := setupTestEnv(t, "file:///rich.yaml", testSpecRich)
-	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},
@@ -2270,7 +2270,7 @@ components:
 
 func TestSemanticTokens_UnicodePathParam(t *testing.T) {
 	env := setupTestEnv(t, "file:///unicode.yaml", testSpecUnicode)
-	handler := lsp.NewSemanticTokensHandler(env.cache, nil)
+	handler := lsp.NewSemanticTokensHandler(env.cache, nil, nil)
 
 	result, err := handler(env.ctx, &protocol.SemanticTokensParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: env.uri},

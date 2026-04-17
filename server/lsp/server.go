@@ -43,7 +43,7 @@ var Version = "dev"
 
 // telescopeSetup is a gossip Option that wires the OpenAPI index and rules
 // after the tree-sitter manager has been initialized by WithTreeSitter.
-func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *RulesetManager, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, graphBridge *GraphBridge, bunMgr *bun.Manager, workspaceRootPtr *string) gossip.Option {
+func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, semanticTokenCache *SemanticTokenCache, rsMgr *RulesetManager, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, graphBridge *GraphBridge, bunMgr *bun.Manager, workspaceRootPtr *string) gossip.Option {
 	return func(s *gossip.Server) {
 		// Bind the DiagnosticEngine now that WithTreeSitter has been applied.
 		// This must happen here (inside an Option) because gossip.NewServer
@@ -149,6 +149,9 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 			if idx := graphBridge.IndexForURI(string(uri)); idx != nil {
 				indexCache.Set(uri, idx)
 			}
+			// Drop any cached token slice so we don't hold onto memory for
+			// files no longer visible to the editor. didOpen will rebuild.
+			semanticTokenCache.Remove(uri)
 		})
 
 		// Register all rules unconditionally; filtering is handled by the
@@ -263,6 +266,10 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	var workspaceRootStr string
 
 	indexCache := openapi.NewIndexCache()
+	// LRU of pre-sorted semantic-token slices keyed by (uri, version). Sized
+	// for typical multi-file editor sessions; Range requests during scroll
+	// all hit this cache after the first build on a given version.
+	semanticTokenCache := NewSemanticTokenCache(0)
 
 	// Create a temporary RulesetManager; it gets the real engine during
 	// telescopeSetup once gossip has initialized the DiagnosticEngine.
@@ -316,7 +323,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		gossip.WithMiddleware(middleware.Logging(logger), middleware.Recovery(), observe.TraceID(logger)),
 		gossip.WithCompletionTriggerCharacters("$", "/", "#", ":"),
 		gossip.WithSemanticTokensLegend(semanticTokensLegend),
-		telescopeSetup(cfg, indexCache, rsMgr, extRegistry, addlValidator, projMgr, graphBridge, bunMgr, &workspaceRootStr),
+		telescopeSetup(cfg, indexCache, semanticTokenCache, rsMgr, extRegistry, addlValidator, projMgr, graphBridge, bunMgr, &workspaceRootStr),
 	)
 
 	// Register document sync handlers and update the V2 graph engine.
@@ -532,7 +539,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	s.OnRename(NewRenameHandler(indexCache, graphBridge))
 	s.OnPrepareRename(NewPrepareRenameHandler(indexCache, graphBridge))
 	s.OnInlayHint(NewInlayHintHandler(indexCache, graphBridge))
-	s.OnSemanticTokens(NewSemanticTokensHandler(indexCache, graphBridge))
+	s.OnSemanticTokens(NewSemanticTokensHandler(indexCache, graphBridge, semanticTokenCache))
 	s.OnFoldingRange(NewFoldingRangeHandler(indexCache, graphBridge))
 	execDeps := &ExecuteCommandDeps{
 		Config:               cfg,
@@ -551,7 +558,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	s.OnCallHierarchyOutgoing(NewCallHierarchyOutgoingHandler(indexCache, graphBridge))
 	s.OnSelectionRange(NewSelectionRangeHandler(indexCache, graphBridge))
 	s.OnLinkedEditingRange(NewLinkedEditingRangeHandler(indexCache, graphBridge))
-	s.OnSemanticTokensRange(NewSemanticTokensRangeHandler(indexCache, graphBridge))
+	s.OnSemanticTokensRange(NewSemanticTokensRangeHandler(indexCache, graphBridge, semanticTokenCache))
 	s.OnFormatting(NewFormattingHandler(indexCache, graphBridge))
 	s.OnTypeDefinition(NewTypeDefinitionHandler(indexCache, projMgr, graphBridge))
 

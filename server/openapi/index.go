@@ -75,6 +75,11 @@ type Index struct {
 	// directly and must synchronize with the writer via this RWMutex.
 	// Pointer so Index stays copyable (same rationale as navOnce).
 	navMu *sync.RWMutex
+
+	// sorted is populated lazily on first access by sortedViewsForRange
+	// (see sorted.go). Held via pointer so the Index remains copyable by
+	// value, and shared across copies so the sort cost is paid at most once.
+	sorted *sortedViews
 }
 
 // BuildIndex creates a full index from a parsed tree and document.
