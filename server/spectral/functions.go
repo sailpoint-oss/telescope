@@ -5,10 +5,22 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
+
+// spectralRegexCache memoizes compileSpectralRegex results keyed by the raw
+// expression (including any `/pattern/flags` wrapper). *regexp.Regexp is safe
+// for concurrent use; sharing compiled regexes across pattern evaluations
+// removes a large source of per-Execute allocations.
+type spectralRegexCacheEntry struct {
+	re  *regexp.Regexp
+	err error
+}
+
+var spectralRegexCache sync.Map // expr string -> *spectralRegexCacheEntry
 
 // SpectralFunc validates a YAML node and returns any issues found. The field
 // parameter narrows the check to a specific child of the node. Options come
@@ -117,6 +129,17 @@ func funcPattern(node *yaml.Node, field string, opts map[string]interface{}) []I
 }
 
 func compileSpectralRegex(expr string) (*regexp.Regexp, error) {
+	if cached, ok := spectralRegexCache.Load(expr); ok {
+		entry := cached.(*spectralRegexCacheEntry)
+		return entry.re, entry.err
+	}
+	re, err := compileSpectralRegexUncached(expr)
+	entry := &spectralRegexCacheEntry{re: re, err: err}
+	actual, _ := spectralRegexCache.LoadOrStore(expr, entry)
+	return actual.(*spectralRegexCacheEntry).re, actual.(*spectralRegexCacheEntry).err
+}
+
+func compileSpectralRegexUncached(expr string) (*regexp.Regexp, error) {
 	// Spectral allows /regex/flags syntax
 	if strings.HasPrefix(expr, "/") {
 		lastSlash := strings.LastIndex(expr, "/")

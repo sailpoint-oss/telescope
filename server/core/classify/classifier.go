@@ -84,6 +84,40 @@ var oasExtensions = map[string]bool{
 	".oas.json":     true,
 }
 
+// keyMatchers holds the precompiled YAML + JSON regexes for every key that
+// matchKey recognizes. The hot path (Classify -> computeKeyScore -> matchKey)
+// used to compile 36 regexes per file (two per entry in rootKeyWeights and
+// fragmentKeyWeights via regexp.MatchString). All keys are lower-cased and
+// already known at init time, so we precompile once and look up by lower-case
+// key string.
+var keyMatchers = func() map[string][2]*regexp.Regexp {
+	out := make(map[string][2]*regexp.Regexp, len(rootKeyWeights)+len(fragmentKeyWeights))
+	add := func(key string) {
+		lower := strings.ToLower(key)
+		if _, ok := out[lower]; ok {
+			return
+		}
+		yaml := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(lower) + `\s*:`)
+		json := regexp.MustCompile(`"` + regexp.QuoteMeta(lower) + `"\s*:`)
+		out[lower] = [2]*regexp.Regexp{yaml, json}
+	}
+	for key := range rootKeyWeights {
+		add(key)
+	}
+	for key := range fragmentKeyWeights {
+		add(key)
+	}
+	return out
+}()
+
+// JSON-root detection regexes, precompiled once at init. detectRootKey and
+// detectArazzoRoot used to MustCompile these on every call.
+var (
+	jsonOpenAPIRe = regexp.MustCompile(`"openapi"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"`)
+	jsonSwaggerRe = regexp.MustCompile(`"swagger"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"`)
+	jsonArazzoRe  = regexp.MustCompile(`"arazzo"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"`)
+)
+
 // RegisterRootDir marks a directory as containing a known root spec for proximity scoring.
 func (c *FileClassifier) RegisterRootDir(dir string) {
 	if c.knownRootDirs == nil {
@@ -281,16 +315,26 @@ func computeKeyScore(head string) float64 {
 	return score
 }
 
+// matchKey tests whether content contains key at the YAML line start or as a
+// JSON property name. Regexes are precompiled at package init via keyMatchers;
+// the key parameter must already be lower-cased (computeKeyScore does this).
 func matchKey(content, key string) bool {
-	// YAML: key at start of line
-	pat := `(?m)^` + regexp.QuoteMeta(key) + `\s*:`
-	if matched, _ := regexp.MatchString(pat, content); matched {
+	pair, ok := keyMatchers[key]
+	if !ok {
+		// Fallback path for callers outside the preregistered key set.
+		// Should not hit in normal operation because computeKeyScore only
+		// iterates rootKeyWeights and fragmentKeyWeights.
+		yaml := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(key) + `\s*:`)
+		if yaml.MatchString(content) {
+			return true
+		}
+		json := regexp.MustCompile(`"` + regexp.QuoteMeta(key) + `"\s*:`)
+		return json.MatchString(content)
+	}
+	if pair[0].MatchString(content) {
 		return true
 	}
-	// JSON: "key":
-	pat = `"` + regexp.QuoteMeta(key) + `"\s*:`
-	matched, _ := regexp.MatchString(pat, content)
-	return matched
+	return pair[1].MatchString(content)
 }
 
 func hasOASExtension(uri string) bool {
@@ -341,11 +385,9 @@ func detectRootKey(head string) (string, bool) {
 	if m := swaggerRe.FindStringSubmatch(head); m != nil {
 		return "2.0", true
 	}
-	jsonOpenAPIRe := regexp.MustCompile(`"openapi"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"`)
 	if m := jsonOpenAPIRe.FindStringSubmatch(head); m != nil {
 		return normalizeVersion(m[1]), true
 	}
-	jsonSwaggerRe := regexp.MustCompile(`"swagger"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"`)
 	if m := jsonSwaggerRe.FindStringSubmatch(head); m != nil {
 		return "2.0", true
 	}
@@ -356,7 +398,6 @@ func detectArazzoRoot(head string) (string, bool) {
 	if m := arazzoRe.FindStringSubmatch(head); m != nil {
 		return m[1], true
 	}
-	jsonArazzoRe := regexp.MustCompile(`"arazzo"\s*:\s*"(\d+\.\d+(?:\.\d+)?)"`)
 	if m := jsonArazzoRe.FindStringSubmatch(head); m != nil {
 		return m[1], true
 	}

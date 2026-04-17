@@ -11,8 +11,8 @@ func (idx *Index) ResolveRef(ref string) (interface{}, error) {
 	if idx == nil {
 		return nil, fmt.Errorf("nil index")
 	}
-	if idx.nav != nil {
-		return idx.nav.ResolveRef(ref)
+	if nav := idx.navIndex(); nav != nil {
+		return nav.ResolveRef(ref)
 	}
 	if idx.Document == nil {
 		return nil, fmt.Errorf("no document")

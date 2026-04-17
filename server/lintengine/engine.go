@@ -129,6 +129,9 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 			}
 			diags = vacuum.Deduplicate(diags, adapt.DiagnosticsToProtocol(vacuumDiags))
 		}
+		// Fold aliased rule IDs (parameter-description → sp-115 etc.) so
+		// reviewers only see one diagnostic per underlying rule.
+		diags = vacuum.DeduplicateWithin(diags)
 		diags = filterDisabledDiagnostics(diags, enabledRules)
 		diags = applySeverityOverrides(diags, sevOverrides)
 		if opts.MinSeverity > 0 {
@@ -351,16 +354,26 @@ func pathToFileURI(fsPath string) string {
 	return u.String()
 }
 
+// filterAnalyzers returns only those analyzers whose ID appears in the enabled
+// map with value true. An empty map means "no preset resolved, run everything"
+// (legacy fallback that matters only when tests construct a config without any
+// preset). A non-empty map is treated as a strict allowlist because
+// Config.EffectiveRuleSet always merges at least one named preset; rules not
+// present in that preset are, by definition, not part of the user's intent.
+//
+// Prior behavior skipped only rules explicitly set to `off`, which let OWASP
+// and other non-recommended rules run under `extends: telescope:recommended`.
+// See .telescope/TRIAGE-SUMMARY.md §3.2 in cloud-api-client-common for the bug
+// report, and docs/pr-review-tooling.md gap #9.
 func filterAnalyzers(all []rules.NamedAnalyzer, enabled map[string]bool) []rules.NamedAnalyzer {
 	if len(enabled) == 0 {
 		return all
 	}
 	var out []rules.NamedAnalyzer
 	for _, a := range all {
-		if v, ok := enabled[a.ID]; ok && !v {
-			continue
+		if v, ok := enabled[a.ID]; ok && v {
+			out = append(out, a)
 		}
-		out = append(out, a)
 	}
 	return out
 }
@@ -371,10 +384,9 @@ func filterChecks(all []rules.NamedCheck, enabled map[string]bool) []rules.Named
 	}
 	var out []rules.NamedCheck
 	for _, c := range all {
-		if v, ok := enabled[c.Name]; ok && !v {
-			continue
+		if v, ok := enabled[c.Name]; ok && v {
+			out = append(out, c)
 		}
-		out = append(out, c)
 	}
 	return out
 }
@@ -407,6 +419,13 @@ func applySeverityOverrides(diags []protocol.Diagnostic, overrides map[string]pr
 	return diags
 }
 
+// filterDisabledDiagnostics gates diagnostics coming out of the Vacuum and
+// Spectral engines against the same enabled map used by filterAnalyzers.
+// Vacuum and Spectral rules can emit diagnostics with rule IDs that Barrelman
+// never registered, and diagnostics without a code (for example, parse errors
+// or LSP fallbacks) always pass through. Rule IDs explicitly disabled or
+// absent from the preset are dropped, matching the allowlist semantics
+// documented on filterAnalyzers.
 func filterDisabledDiagnostics(diags []protocol.Diagnostic, enabled map[string]bool) []protocol.Diagnostic {
 	if len(enabled) == 0 {
 		return diags
@@ -414,12 +433,14 @@ func filterDisabledDiagnostics(diags []protocol.Diagnostic, enabled map[string]b
 	out := make([]protocol.Diagnostic, 0, len(diags))
 	for _, d := range diags {
 		code, _ := d.Code.(string)
-		if code != "" {
-			if v, ok := enabled[code]; ok && !v {
-				continue
-			}
+		if code == "" {
+			// No code means we cannot gate; let it through.
+			out = append(out, d)
+			continue
 		}
-		out = append(out, d)
+		if v, ok := enabled[code]; ok && v {
+			out = append(out, d)
+		}
 	}
 	return out
 }

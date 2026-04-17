@@ -383,6 +383,8 @@ func TestDiagnosticMux_SetAndMerge(t *testing.T) {
 		published = append(published, p)
 		return nil
 	}, nil)
+	// Legacy behavior: one publish per Set. Production callers get coalescing.
+	mux.SetCoalesceWindow(0)
 
 	uri := protocol.DocumentURI("file:///test.yaml")
 	mux.Set(uri, "source-a", []protocol.Diagnostic{
@@ -425,6 +427,7 @@ func TestDiagnosticMux_SetEmptyDiags(t *testing.T) {
 		published = append(published, p)
 		return nil
 	}, nil)
+	mux.SetCoalesceWindow(0)
 
 	uri := protocol.DocumentURI("file:///test.yaml")
 	mux.Set(uri, "src", []protocol.Diagnostic{{Message: "x"}})

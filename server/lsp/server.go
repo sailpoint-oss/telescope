@@ -109,16 +109,23 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, rsMgr *R
 			}
 			indexCache.Set(uri, idx)
 
-			// Send deprecated ranges notification to the client.
+			// Send deprecated ranges notification to the client. The collect
+			// walk + JSON-RPC write used to block the diagnostic publish on
+			// large specs; firing the notification on a goroutine lets the
+			// server return the AnalysisData immediately so the real
+			// diagnostic publish races the client's response rather than
+			// queueing behind this informational message.
 			if conn := s.Conn(); conn != nil {
-				deprecatedRanges := collectDeprecatedRanges(idx)
-				if deprecatedRanges == nil {
-					deprecatedRanges = []DeprecatedRange{}
-				}
-				_ = conn.Notify(context.Background(), "telescope/deprecatedRanges", DeprecatedRangesParams{
-					URI:    string(uri),
-					Ranges: deprecatedRanges,
-				})
+				go func(uri protocol.DocumentURI, idx *openapi.Index) {
+					deprecatedRanges := collectDeprecatedRanges(idx)
+					if deprecatedRanges == nil {
+						deprecatedRanges = []DeprecatedRange{}
+					}
+					_ = conn.Notify(context.Background(), "telescope/deprecatedRanges", DeprecatedRangesParams{
+						URI:    string(uri),
+						Ranges: deprecatedRanges,
+					})
+				}(uri, idx)
 			}
 
 			data := &rules.AnalysisData{
