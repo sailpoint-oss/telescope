@@ -234,13 +234,13 @@ func TestSemanticValidation_InvalidOpenAPI(t *testing.T) {
 		minHits int
 	}{
 		{"operation-description", 1},
-		{"operation-operationId", 1},
-		{"tag-description", 1},
+		{"sailpoint-operation-id-camel-case", 1},
+		{"sailpoint-tag-documented", 1},
 		{"info-contact", 1},
 		{"info-license", 1},
 		{"kebab-case", 1},
 		{"no-http-verbs", 1},
-		{"operation-operationId-unique", 1},
+		{"sailpoint-operation-id-unique", 1},
 	}
 
 	for _, exp := range expectedRules {
@@ -424,8 +424,6 @@ func TestDiagnosticSeverities_AreCorrect(t *testing.T) {
 
 	warningCodes := map[string]bool{
 		"operation-description": true,
-		"operation-operationId": true,
-		"tag-description":       true,
 		"info-contact":          true,
 		"info-license":          true,
 		"kebab-case":            true,
@@ -443,9 +441,11 @@ func TestDiagnosticSeverities_AreCorrect(t *testing.T) {
 	}
 
 	errorCodes := map[string]bool{
-		"duplicate-keys":               true,
-		"oas3-schema":                  true,
-		"operation-operationId-unique": true,
+		"duplicate-keys":                   true,
+		"oas3-schema":                      true,
+		"sailpoint-operation-id-unique":    true,
+		"sailpoint-operation-id-camel-case": true,
+		"sailpoint-tag-documented":         true,
 	}
 
 	for _, d := range diags {

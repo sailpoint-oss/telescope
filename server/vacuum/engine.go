@@ -14,6 +14,7 @@ import (
 	"github.com/daveshanley/vacuum/motor"
 	vrulesets "github.com/daveshanley/vacuum/rulesets"
 	"github.com/sailpoint-oss/barrelman"
+	"github.com/sailpoint-oss/barrelman/rulesets/bridge"
 	"github.com/sailpoint-oss/telescope/server/config"
 )
 
@@ -159,11 +160,15 @@ func (e *Engine) convertResults(results []vmodel.RuleFunctionResult, uri string)
 }
 
 func convertResult(result vmodel.RuleFunctionResult, uri string) barrelman.Diagnostic {
+	// Route the vacuum rule id through the bridge so diagnostics emitted by
+	// vacuum converge on the same canonical SailPoint slug that barrelman
+	// emits. Rules with no bridge entry pass through unchanged.
+	ruleID := bridge.Canonical(result.RuleId)
 	diag := barrelman.Diagnostic{
 		URI:      uri,
 		Range:    rangeFromResult(result),
 		Severity: severityFromResult(result),
-		Code:     result.RuleId,
+		Code:     ruleID,
 		Source:   Source,
 		Message:  strings.TrimSpace(result.Message),
 	}
@@ -185,6 +190,9 @@ func convertResult(result vmodel.RuleFunctionResult, uri string) barrelman.Diagn
 	}
 	if result.AutoFixed {
 		data["autoFixed"] = true
+	}
+	if ruleID != result.RuleId {
+		data["vacuumRuleId"] = result.RuleId
 	}
 	if len(data) > 0 {
 		diag.Data = data

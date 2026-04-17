@@ -52,8 +52,8 @@ func TestConfig_BuildEnabledRules(t *testing.T) {
 		"operation-tags": "off",
 	}
 	enabled := cfg.BuildEnabledRules()
-	if enabled["sp-123"] {
-		t.Error("sp-123 should be disabled via legacy alias")
+	if enabled["sailpoint-operation-single-tag"] {
+		t.Error("sailpoint-operation-single-tag should be disabled via legacy alias")
 	}
 }
 
@@ -167,8 +167,8 @@ rules:
 	if _, ok := cfg.Rules["operation-tags"]; ok {
 		t.Fatalf("expected legacy rule ID to be normalized, got %+v", cfg.Rules)
 	}
-	if cfg.Rules["sp-123"] != "error" {
-		t.Fatalf("expected sp-123 override, got %+v", cfg.Rules)
+	if cfg.Rules["sailpoint-operation-single-tag"] != "error" {
+		t.Fatalf("expected sailpoint-operation-single-tag override, got %+v", cfg.Rules)
 	}
 	if got := cfg.GuidelinesBaseURL; got != "https://docs.example.com/guidelines/" {
 		t.Fatalf("GuidelinesBaseURL = %q, want %q", got, "https://docs.example.com/guidelines/")

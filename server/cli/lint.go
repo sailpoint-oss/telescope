@@ -22,6 +22,7 @@ var (
 	minSeverity    string
 	failOn         string
 	analysisEngine string
+	validatorMode  string
 	noColor        bool
 	noExternalLSP  bool
 	reportMDPath   string
@@ -63,6 +64,7 @@ func addAnalysisFlags(cmd *cobra.Command, includeBaselineFlags bool) {
 	cmd.Flags().StringVar(&reportMDPath, "report-md", "", "Write Markdown report to file")
 	cmd.Flags().StringVar(&reportJSONPath, "report-json", "", "Write JSON report to file")
 	cmd.Flags().BoolVar(&noExternalLSP, "no-external-lsp", false, "Deprecated no-op; retained for compatibility")
+	cmd.Flags().StringVar(&validatorMode, "validator", "legacy", "Schema validation backend: 'engine' (unified barrelman validation engine) or 'legacy' (current stack). Default stays 'legacy' until api-specs parity is proven.")
 	if includeBaselineFlags {
 		cmd.Flags().BoolVar(&saveBaseline, "save-baseline", false, "Save current diagnostics as baseline")
 		cmd.Flags().BoolVar(&failOnNew, "fail-on-new", false, "Only fail if new diagnostics are introduced (compared to baseline)")

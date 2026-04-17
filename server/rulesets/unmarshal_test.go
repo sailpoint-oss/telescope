@@ -92,8 +92,8 @@ func TestLoadBytes_NormalizesLegacyRuleIDs(t *testing.T) {
 	if _, ok := rs.Rules["operation-tags"]; ok {
 		t.Fatalf("expected legacy rule ID to be normalized, got %+v", rs.Rules)
 	}
-	if def, ok := rs.Rules["sp-123"]; !ok {
-		t.Fatalf("expected sp-123 rule, got %+v", rs.Rules)
+	if def, ok := rs.Rules["sailpoint-operation-single-tag"]; !ok {
+		t.Fatalf("expected sailpoint-operation-single-tag rule, got %+v", rs.Rules)
 	} else if def.Severity != "error" {
 		t.Fatalf("Severity = %q, want error", def.Severity)
 	}

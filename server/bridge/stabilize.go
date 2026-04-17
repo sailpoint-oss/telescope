@@ -11,12 +11,12 @@ import (
 
 const (
 	duplicateOperationIDCodeLegacy       = "operation-operationId-unique"
-	duplicateOperationIDCodeGuideline    = "sp-122"
+	duplicateOperationIDCodeGuideline    = "sailpoint-operation-id-unique"
 	duplicateOperationIDPrefixLegacy     = "operationId '"
-	duplicateOperationIDPrefixGuideline  = "[#122] operationId '"
+	duplicateOperationIDPrefixGuideline  = "operationId '"
 	duplicateOperationIDMessage          = "' is already used at "
 	duplicateOperationIDRelatedLegacy    = "First defined here at %s"
-	duplicateOperationIDRelatedGuideline = "[#122] First defined here at %s"
+	duplicateOperationIDRelatedGuideline = "First defined here at %s"
 )
 
 type duplicateOperationIDFirst struct {

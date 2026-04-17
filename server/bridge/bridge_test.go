@@ -299,9 +299,9 @@ paths:
 		{
 			name:           "guideline",
 			code:           duplicateOperationIDCodeGuideline,
-			message:        "[#122] operationId 'dup' is already used at GET /zebra",
-			wantMessage:    "[#122] operationId 'dup' is already used at GET /alpha",
-			wantRelatedMsg: "[#122] First defined here at GET /alpha",
+			message:        "operationId 'dup' is already used at GET /zebra",
+			wantMessage:    "operationId 'dup' is already used at GET /alpha",
+			wantRelatedMsg: "First defined here at GET /alpha",
 		},
 	}
 
@@ -368,7 +368,7 @@ components:
 	}
 }
 
-func TestSP122ProtocolDiagnostics_IncludeGuidelineLinkAndRelatedInfo(t *testing.T) {
+func TestSailpointOperationIDUniqueProtocolDiagnostics_IncludeGuidelineLinkAndRelatedInfo(t *testing.T) {
 	barrelAnalyzers.RegisterAll(barrelman.DefaultRegistry)
 	reg := barrelman.NewRegistry()
 	barrelAnalyzers.RegisterAll(reg)
@@ -376,14 +376,14 @@ func TestSP122ProtocolDiagnostics_IncludeGuidelineLinkAndRelatedInfo(t *testing.
 	var rule barrelman.Rule
 	found := false
 	for _, candidate := range reg.AllRules() {
-		if candidate.ID == "sp-122" {
+		if candidate.ID == "sailpoint-operation-id-unique" {
 			rule = candidate
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("expected sp-122 rule to be registered")
+		t.Fatal("expected sailpoint-operation-id-unique rule to be registered")
 	}
 
 	idx := navigator.ParseContent([]byte(`openapi: "3.1.0"
@@ -416,13 +416,13 @@ paths:
 	}
 	var match *protocol.Diagnostic
 	for i := range proto {
-		if code, ok := proto[i].Code.(string); ok && code == "sp-122" {
+		if code, ok := proto[i].Code.(string); ok && code == "sailpoint-operation-id-unique" {
 			match = &proto[i]
 			break
 		}
 	}
 	if match == nil {
-		t.Fatalf("expected sp-122 diagnostic, got %+v", proto)
+		t.Fatalf("expected sailpoint-operation-id-unique diagnostic, got %+v", proto)
 	}
 	if match.CodeDescription == nil || match.CodeDescription.Href != protocol.URI(barrelman.GuidelineDocURL("122")) {
 		t.Fatalf("expected CodeDescription href %q, got %+v", barrelman.GuidelineDocURL("122"), match.CodeDescription)
