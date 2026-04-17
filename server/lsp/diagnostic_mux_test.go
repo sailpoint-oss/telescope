@@ -2,6 +2,8 @@ package lsp
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -110,12 +112,15 @@ func drainDiagnostics(ch <-chan []protocol.Diagnostic) {
 // not three separate publishes. Matches the production debounce used for
 // Barrelman + Vacuum + diff-on-save updates landing during a keystroke.
 func TestDiagnosticMux_CoalescesBursts(t *testing.T) {
-	var publishCount int
+	var publishCount atomic.Int32
+	var diagsMu sync.Mutex
 	var lastDiags []protocol.Diagnostic
 	done := make(chan struct{})
 	mux := NewDiagnosticMux(func(_ context.Context, params *protocol.PublishDiagnosticsParams) error {
-		publishCount++
+		publishCount.Add(1)
+		diagsMu.Lock()
 		lastDiags = append([]protocol.Diagnostic(nil), params.Diagnostics...)
+		diagsMu.Unlock()
 		close(done)
 		return nil
 	}, nil)
@@ -132,11 +137,14 @@ func TestDiagnosticMux_CoalescesBursts(t *testing.T) {
 		t.Fatal("coalesced publish never fired")
 	}
 
-	if publishCount != 1 {
-		t.Fatalf("expected exactly 1 coalesced publish, got %d", publishCount)
+	if got := publishCount.Load(); got != 1 {
+		t.Fatalf("expected exactly 1 coalesced publish, got %d", got)
 	}
-	if len(lastDiags) != 3 {
-		t.Fatalf("expected 3 merged diagnostics, got %d: %+v", len(lastDiags), lastDiags)
+	diagsMu.Lock()
+	got := append([]protocol.Diagnostic(nil), lastDiags...)
+	diagsMu.Unlock()
+	if len(got) != 3 {
+		t.Fatalf("expected 3 merged diagnostics, got %d: %+v", len(got), got)
 	}
 }
 
@@ -144,9 +152,9 @@ func TestDiagnosticMux_CoalescesBursts(t *testing.T) {
 // the timer fires resets the window (i.e. the mux does not publish an older
 // partial snapshot while subsequent Sets are still arriving).
 func TestDiagnosticMux_CoalesceResetsOnBursts(t *testing.T) {
-	var publishCount int
+	var publishCount atomic.Int32
 	mux := NewDiagnosticMux(func(_ context.Context, _ *protocol.PublishDiagnosticsParams) error {
-		publishCount++
+		publishCount.Add(1)
 		return nil
 	}, nil)
 	mux.SetCoalesceWindow(30 * time.Millisecond)
@@ -160,7 +168,7 @@ func TestDiagnosticMux_CoalesceResetsOnBursts(t *testing.T) {
 	// Wait well past the window for the final publish.
 	time.Sleep(60 * time.Millisecond)
 
-	if publishCount != 1 {
-		t.Fatalf("expected a single coalesced publish after a running burst, got %d", publishCount)
+	if got := publishCount.Load(); got != 1 {
+		t.Fatalf("expected a single coalesced publish after a running burst, got %d", got)
 	}
 }

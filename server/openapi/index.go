@@ -68,6 +68,13 @@ type Index struct {
 	// exactly what we want: once the navigator is materialized, every view
 	// of the index observes the same value.
 	navOnce *sync.Once
+	// navMu protects reads and writes of nav, Kind, and Version against the
+	// lazy navigator initialization. sync.Once only establishes happens-before
+	// between callers of Do(); accessors like DocumentKind(), NavigatorIndex(),
+	// PrimaryValue(), ResolveRef(), and IsMalformed() read those fields
+	// directly and must synchronize with the writer via this RWMutex.
+	// Pointer so Index stays copyable (same rationale as navOnce).
+	navMu *sync.RWMutex
 }
 
 // BuildIndex creates a full index from a parsed tree and document.
@@ -101,6 +108,7 @@ func BuildIndex(tree *treesitter.Tree, doc *document.Document) *Index {
 		// populate Arazzo-specific fields, so we MUST parse navigator
 		// eagerly for them. Fast-path the common OpenAPI case by doing a
 		// lightweight prefix check first.
+		idx.navMu = &sync.RWMutex{}
 		if looksLikeArazzo(source) {
 			if navIdx := navigator.ParseContent(source, string(doc.URI())); navIdx != nil {
 				if navIdx.IsArazzo() {
@@ -172,7 +180,12 @@ func (idx *Index) navIndex() *navigator.Index {
 		if idx.nav != nil || len(idx.navSource) == 0 {
 			return
 		}
-		if parsed := navigator.ParseContent(idx.navSource, idx.navURI); parsed != nil {
+		parsed := navigator.ParseContent(idx.navSource, idx.navURI)
+		if idx.navMu != nil {
+			idx.navMu.Lock()
+			defer idx.navMu.Unlock()
+		}
+		if parsed != nil {
 			idx.nav = parsed
 			if idx.Kind == DocumentKindUnknown {
 				idx.Kind = parsed.Kind
@@ -184,6 +197,10 @@ func (idx *Index) navIndex() *navigator.Index {
 		// Release the source so repeated Nav() calls don't keep the raw bytes alive.
 		idx.navSource = nil
 	})
+	if idx.navMu != nil {
+		idx.navMu.RLock()
+		defer idx.navMu.RUnlock()
+	}
 	return idx.nav
 }
 
@@ -354,9 +371,17 @@ func (idx *Index) PrimaryValue() interface{} {
 // would still need navigator is a document whose telescope parser produced
 // an unknown DocType, and in that case falling back to the parsed Document
 // type already reports the correct kind.
+//
+// Kind / nav reads are guarded by navMu so they synchronize with lazy nav
+// initialization (which writes both). The lock is a no-op on indexes
+// constructed without BuildIndex (e.g. IndexFromNavigator fixtures).
 func (idx *Index) DocumentKind() DocumentKind {
 	if idx == nil {
 		return DocumentKindUnknown
+	}
+	if idx.navMu != nil {
+		idx.navMu.RLock()
+		defer idx.navMu.RUnlock()
 	}
 	if idx.Kind != DocumentKindUnknown {
 		return idx.Kind
