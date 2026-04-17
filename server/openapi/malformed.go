@@ -3,12 +3,14 @@ package openapi
 import navigator "github.com/sailpoint-oss/navigator"
 
 // IsMalformed reports whether Navigator found syntax-level issues that should
-// be left to the YAML/JSON language servers instead of Telescope.
+// be left to the YAML/JSON language servers instead of Telescope. This
+// triggers the lazy navigator parse since the malformed-check is fundamentally
+// a navigator concern.
 func (idx *Index) IsMalformed() bool {
 	if idx == nil {
 		return false
 	}
-	return NavigatorIndexIsMalformed(idx.nav)
+	return NavigatorIndexIsMalformed(idx.navIndex())
 }
 
 // NavigatorIndexIsMalformed reports whether Navigator found syntax-level

@@ -1,7 +1,6 @@
 package openapi
 
 import (
-	"strings"
 	"sync"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
@@ -29,6 +28,13 @@ type RefUsage struct {
 }
 
 // Index provides fast lookups into a parsed OpenAPI document.
+//
+// The navigator-backed index is computed lazily on first access via
+// NavigatorIndex() / navIndex(); BuildIndex itself only invokes navigator for
+// documents that are known-or-suspected to be Arazzo (which requires
+// navigator's model to branch into IndexFromNavigator). For the common
+// OpenAPI path we skip the ~400k-allocation navigator.ParseContent and
+// amortize that cost across the features that actually dereference nav.
 type Index struct {
 	Document         *Document
 	Arazzo           *ArazzoDocument
@@ -44,7 +50,24 @@ type Index struct {
 	Version          Version
 	Format           FileFormat
 	Kind             DocumentKind
-	nav              *navigator.Index
+
+	// nav is the navigator index backing richer resolution/kind queries.
+	// It is populated lazily by navIndex(); access via NavigatorIndex() or
+	// navIndex() rather than the bare field.
+	nav *navigator.Index
+	// navSource captures the raw document source so navIndex() can run
+	// navigator.ParseContent on demand when the eager path was skipped.
+	// nil when the index came in through IndexFromNavigator (which already
+	// owns its navigator.Index).
+	navSource []byte
+	navURI    string
+	// navOnce is a pointer rather than an inline sync.Once so that the Index
+	// struct remains copyable (tests in this package legitimately copy an
+	// Index by value to mutate nav for fallback-path coverage, and go vet's
+	// copylocks check forbids inlining locks). Shared Once across copies is
+	// exactly what we want: once the navigator is materialized, every view
+	// of the index observes the same value.
+	navOnce *sync.Once
 }
 
 // BuildIndex creates a full index from a parsed tree and document.
@@ -73,15 +96,30 @@ func BuildIndex(tree *treesitter.Tree, doc *document.Document) *Index {
 	idx.collectRefs(tree, doc, format)
 
 	if doc != nil && tree != nil {
-		if navIdx := navigator.ParseContent(tree.Source(), string(doc.URI())); navIdx != nil {
-			if navIdx.IsArazzo() {
-				return IndexFromNavigator(navIdx, doc.URI())
+		source := tree.Source()
+		// Arazzo documents require navigator's branch-sensitive index to
+		// populate Arazzo-specific fields, so we MUST parse navigator
+		// eagerly for them. Fast-path the common OpenAPI case by doing a
+		// lightweight prefix check first.
+		if looksLikeArazzo(source) {
+			if navIdx := navigator.ParseContent(source, string(doc.URI())); navIdx != nil {
+				if navIdx.IsArazzo() {
+					return IndexFromNavigator(navIdx, doc.URI())
+				}
+				idx.nav = navIdx
+				idx.Kind = navIdx.Kind
+				if idx.Version == "" || idx.Version == VersionUnknown {
+					idx.Version = navIdx.Version
+				}
+				// Eagerly populated — skip any future lazy work.
+				idx.navOnce = &sync.Once{}
+				idx.navOnce.Do(func() {})
 			}
-			idx.nav = navIdx
-			idx.Kind = navIdx.Kind
-			if idx.Version == "" || idx.Version == VersionUnknown {
-				idx.Version = navIdx.Version
-			}
+		} else {
+			// Defer navigator parse until a feature actually needs it.
+			idx.navSource = source
+			idx.navURI = string(doc.URI())
+			idx.navOnce = &sync.Once{}
 		}
 	}
 	if idx.Kind == DocumentKindUnknown && idx.Document != nil && idx.Document.DocType != DocTypeUnknown {
@@ -89,6 +127,64 @@ func BuildIndex(tree *treesitter.Tree, doc *document.Document) *Index {
 	}
 
 	return idx
+}
+
+// looksLikeArazzo returns true when the source begins with an arazzo root
+// key. The check is deliberately conservative: it scans only the first 4 KiB
+// for `\narazzo:` (YAML) or `"arazzo":` (JSON). False positives fall back to
+// navigator.ParseContent in BuildIndex, false negatives skip the nav parse
+// entirely (recovered on demand via navIndex()).
+func looksLikeArazzo(source []byte) bool {
+	limit := len(source)
+	if limit > 4096 {
+		limit = 4096
+	}
+	head := source[:limit]
+	for i := 0; i < limit; i++ {
+		// YAML: line starts with "arazzo:" at column 0 (either first line or
+		// after a newline).
+		if head[i] == 'a' && (i == 0 || head[i-1] == '\n') {
+			if i+len("arazzo:") <= limit && string(head[i:i+len("arazzo:")]) == "arazzo:" {
+				return true
+			}
+		}
+		// JSON: `"arazzo"` property name anywhere near the top of the doc.
+		if head[i] == '"' && i+len(`"arazzo"`) <= limit && string(head[i:i+len(`"arazzo"`)]) == `"arazzo"` {
+			return true
+		}
+	}
+	return false
+}
+
+// navIndex returns the navigator-backed index, parsing it from navSource on
+// first access. Thread-safe: the sync.Once guard guarantees a single parse
+// even when several LSP handlers race on the same document.
+func (idx *Index) navIndex() *navigator.Index {
+	if idx == nil {
+		return nil
+	}
+	if idx.navOnce == nil {
+		// Index was constructed without BuildIndex (e.g. IndexFromNavigator
+		// or a hand-crafted test value). Fall back to the raw field.
+		return idx.nav
+	}
+	idx.navOnce.Do(func() {
+		if idx.nav != nil || len(idx.navSource) == 0 {
+			return
+		}
+		if parsed := navigator.ParseContent(idx.navSource, idx.navURI); parsed != nil {
+			idx.nav = parsed
+			if idx.Kind == DocumentKindUnknown {
+				idx.Kind = parsed.Kind
+			}
+			if idx.Version == "" || idx.Version == VersionUnknown {
+				idx.Version = parsed.Version
+			}
+		}
+		// Release the source so repeated Nav() calls don't keep the raw bytes alive.
+		idx.navSource = nil
+	})
+	return idx.nav
 }
 
 func (idx *Index) indexPaths(doc *Document, uri protocol.DocumentURI) {
@@ -144,18 +240,54 @@ func (idx *Index) collectRefs(tree *treesitter.Tree, doc *document.Document, for
 	if root == nil {
 		return
 	}
-	idx.walkForRefs(root, tree, format, nil)
+	// Pre-size the path buffer to a depth that covers typical OpenAPI structures
+	// (components.schemas.FooBar.properties.name is 5 segments deep). A single
+	// reusable byte buffer is mutated via push/pop to avoid the per-descent
+	// slice allocation and per-ref strings.Join the previous implementation
+	// paid for every reference.
+	var from fromPath
+	from.buf = make([]byte, 0, 256)
+	idx.walkForRefs(root, tree, format, &from)
+	uri := doc.URI()
 	for i := range idx.AllRefs {
-		idx.AllRefs[i].URI = doc.URI()
+		idx.AllRefs[i].URI = uri
 	}
 	for target := range idx.Refs {
 		for i := range idx.Refs[target] {
-			idx.Refs[target][i].URI = doc.URI()
+			idx.Refs[target][i].URI = uri
 		}
 	}
 }
 
-func (idx *Index) walkForRefs(node *tree_sitter.Node, tree *treesitter.Tree, format FileFormat, path []string) {
+// fromPath is a mutable JSON-Pointer-like buffer used during the ref walk.
+// push appends "/escaped-key" and returns the checkpoint for a matching pop;
+// string() returns a fresh Go string snapshot suitable for storing on a
+// RefUsage. Using a reusable buffer instead of a []string path avoids the
+// append-on-descent allocation for every nested value and the strings.Join
+// allocation every time a $ref is recorded.
+type fromPath struct {
+	buf []byte
+}
+
+func (p *fromPath) push(escapedKey string) int {
+	checkpoint := len(p.buf)
+	p.buf = append(p.buf, '/')
+	p.buf = append(p.buf, escapedKey...)
+	return checkpoint
+}
+
+func (p *fromPath) pop(checkpoint int) {
+	p.buf = p.buf[:checkpoint]
+}
+
+func (p *fromPath) string() string {
+	if len(p.buf) == 0 {
+		return "/"
+	}
+	return string(p.buf)
+}
+
+func (idx *Index) walkForRefs(node *tree_sitter.Node, tree *treesitter.Tree, format FileFormat, from *fromPath) {
 	if node == nil {
 		return
 	}
@@ -174,15 +306,16 @@ func (idx *Index) walkForRefs(node *tree_sitter.Node, tree *treesitter.Tree, for
 				usage := RefUsage{
 					Loc:    Loc{Range: adapt.RangeFromProtocol(tree.NodeRange(valueNode)), Node: valueNode},
 					Target: refTarget,
-					From:   "/" + strings.Join(path, "/"),
+					From:   from.string(),
 				}
 				idx.Refs[refTarget] = append(idx.Refs[refTarget], usage)
 				idx.AllRefs = append(idx.AllRefs, usage)
 				return // $ref nodes don't have meaningful children
 			}
 			// Descend into the value with the key appended to the path.
-			childPath := append(path, escapeJSONPointer(keyText))
-			idx.walkForRefs(valueNode, tree, format, childPath)
+			checkpoint := from.push(escapeJSONPointer(keyText))
+			idx.walkForRefs(valueNode, tree, format, from)
+			from.pop(checkpoint)
 			return
 		}
 	}
@@ -190,7 +323,7 @@ func (idx *Index) walkForRefs(node *tree_sitter.Node, tree *treesitter.Tree, for
 	for i := uint(0); i < node.ChildCount(); i++ {
 		child := node.Child(i)
 		if child != nil {
-			idx.walkForRefs(child, tree, format, path)
+			idx.walkForRefs(child, tree, format, from)
 		}
 	}
 }
@@ -207,8 +340,8 @@ func (idx *Index) PrimaryValue() interface{} {
 	if idx == nil {
 		return nil
 	}
-	if idx.nav != nil {
-		if pv, ok := any(idx.nav).(interface{ PrimaryValue() interface{} }); ok {
+	if nav := idx.navIndex(); nav != nil {
+		if pv, ok := any(nav).(interface{ PrimaryValue() interface{} }); ok {
 			return pv.PrimaryValue()
 		}
 	}
@@ -216,6 +349,11 @@ func (idx *Index) PrimaryValue() interface{} {
 }
 
 // DocumentKind returns the API-description family represented by the index.
+// This accessor does NOT trigger lazy navigator parsing because the kind is
+// populated eagerly whenever BuildIndex can determine it — the only path that
+// would still need navigator is a document whose telescope parser produced
+// an unknown DocType, and in that case falling back to the parsed Document
+// type already reports the correct kind.
 func (idx *Index) DocumentKind() DocumentKind {
 	if idx == nil {
 		return DocumentKindUnknown
@@ -235,12 +373,14 @@ func (idx *Index) DocumentKind() DocumentKind {
 	return DocumentKindUnknown
 }
 
-// NavigatorIndex returns the navigator-backed index when available.
+// NavigatorIndex returns the navigator-backed index, parsing it lazily on
+// first access. Returns nil only when the original BuildIndex invocation had
+// no tree/document source to parse from.
 func (idx *Index) NavigatorIndex() *navigator.Index {
 	if idx == nil {
 		return nil
 	}
-	return idx.nav
+	return idx.navIndex()
 }
 
 // IsOpenAPI returns true if the index represents a root OpenAPI document.
