@@ -34,9 +34,24 @@
 		"onLanguage:jsonc",
 		"onLanguage:openapi-yaml",
 		"onLanguage:openapi-json",
+		"onLanguage:go",
+		"onLanguage:java",
+		"onLanguage:typescript",
+		"onLanguage:typescriptreact",
 		"onView:telescope.openApiFiles",
 		"onView:telescope.contractTests",
-		"onView:telescope.breakingChanges"
+		"onView:telescope.breakingChanges",
+		"onView:telescope.generatedSpec",
+		"onView:telescope.sourceContributions",
+		"onView:telescope.generationDiagnostics",
+		"workspaceContains:**/.cartographer/cartographer.yaml",
+		"workspaceContains:**/openapi.yaml",
+		"workspaceContains:**/openapi.yml",
+		"onCommand:telescope.regenerate",
+		"onCommand:telescope.openGeneratedSpec",
+		"onCommand:telescope.writeSpecNow",
+		"onCommand:telescope.showSourceMap",
+		"onCommand:telescope.revealGeneratedSpec"
 	],
 	"contributes": {
 		"viewsContainers": {
@@ -61,6 +76,18 @@
 				{
 					"id": "telescope.breakingChanges",
 					"name": "Breaking Changes"
+				},
+				{
+					"id": "telescope.generatedSpec",
+					"name": "Generated Spec"
+				},
+				{
+					"id": "telescope.sourceContributions",
+					"name": "Source Contributions"
+				},
+				{
+					"id": "telescope.generationDiagnostics",
+					"name": "Generation Diagnostics"
 				}
 			]
 		},
@@ -327,6 +354,26 @@
 		],
 		"commands": [
 			{
+				"command": "telescope.regenerate",
+				"title": "Telescope: Regenerate Spec"
+			},
+			{
+				"command": "telescope.openGeneratedSpec",
+				"title": "Telescope: Open Generated Spec"
+			},
+			{
+				"command": "telescope.writeSpecNow",
+				"title": "Telescope: Write Spec to Disk Now"
+			},
+			{
+				"command": "telescope.showSourceMap",
+				"title": "Telescope: Show SourceMap for Current File"
+			},
+			{
+				"command": "telescope.revealGeneratedSpec",
+				"title": "Telescope: Reveal Generated Spec in Activity Bar"
+			},
+			{
 				"command": "openapi-grammar.classifyDocument",
 				"title": "OpenAPI: Classify Current Document"
 			},
@@ -563,6 +610,33 @@
 					"type": "string",
 					"default": "http://localhost:8080",
 					"description": "Default base URL used when running Telescope's live contract-test command."
+				},
+				"telescope.generation.enabled": {
+					"type": "boolean",
+					"default": false,
+					"description": "Enable the in-process cartographer generation loop."
+				},
+				"telescope.generation.triggerMode": {
+					"type": "string",
+					"enum": ["always", "save"],
+					"default": "always",
+					"description": "When the generation loop should regenerate: on any source change or only on save."
+				},
+				"telescope.generation.writeMode": {
+					"type": "string",
+					"enum": ["never", "onDemand", "onSave", "always"],
+					"default": "onDemand",
+					"description": "When Telescope persists the generated spec to disk."
+				},
+				"telescope.generation.showCodeLens": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show inline CodeLenses over source-file contributions."
+				},
+				"telescope.generation.showTreeView": {
+					"type": "boolean",
+					"default": true,
+					"description": "Populate the Generated Spec and Source Contributions TreeViews."
 				},
 				"telescope.lintEngine": {
 					"type": "string",
