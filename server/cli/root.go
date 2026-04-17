@@ -27,6 +27,7 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newLintCmd())
 	cmd.AddCommand(newValidateCmd())
+	cmd.AddCommand(newFixCmd())
 	cmd.AddCommand(newCICmd())
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newBundleCmd())

@@ -35,6 +35,28 @@ jobs:
           report-json: telescope-report.json
           report-sarif: telescope-report.sarif
 
+      - name: Build telescope binary for fix guard
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - name: Run telescope fix --dry-run over test-files
+        id: telescope_fix_guard
+        continue-on-error: true
+        run: |
+          cd server
+          go build -o ../telescope .
+          cd ..
+          # If any patches would apply, fail the job so the committed
+          # fixtures stay stable. This is the Phase 3 guard: a broken
+          # codemod that rewrites unrelated fixtures gets caught here
+          # before it ships.
+          OUTPUT=$(./telescope fix --dry-run test-files/openapi/ 2>&1 || true)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q "^=== "; then
+            echo "::error::telescope fix --dry-run would rewrite test-files; review the diff above."
+            exit 1
+          fi
+
       - name: Upload Telescope SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v3
