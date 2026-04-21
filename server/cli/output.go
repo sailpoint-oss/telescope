@@ -156,8 +156,17 @@ func outputGitHub(results []fileDiagnostics) {
 			case protocol.SeverityInformation, protocol.SeverityHint:
 				level = "notice"
 			}
+			// Annotate the diagnostic. Reviewers that want true
+			// "Commit suggestion" buttons should run
+			//   telescope fix --format=json
+			// and feed the JSON to a review-posting Action (the JSON
+			// carries the byte-range patch for each fixable finding).
+			msg := d.Message
+			if ruleID, ok := d.Code.(string); ok && ruleID != "" {
+				msg = fmt.Sprintf("[%s] %s", ruleID, msg)
+			}
 			fmt.Fprintf(os.Stdout, "::%s file=%s,line=%d,col=%d::%s\n",
-				level, relPath, d.Range.Start.Line+1, d.Range.Start.Character+1, d.Message)
+				level, relPath, d.Range.Start.Line+1, d.Range.Start.Character+1, msg)
 		}
 	}
 }

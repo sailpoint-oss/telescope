@@ -11,6 +11,7 @@ import (
 	"github.com/LukasParke/gossip/jsonschema"
 	"github.com/LukasParke/gossip/protocol"
 	barrelAnalyzers "github.com/sailpoint-oss/barrelman/analyzers"
+	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/config"
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
@@ -85,10 +86,19 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 			}
 
 			if ruleID != "" {
+				// SailPoint rule auto-fix (Phase 2 codemod framework).
+				// Offered first so it appears above the Suppress /
+				// View-docs actions in editor menus.
+				var navIdx *navigator.Index
+				if idx != nil {
+					navIdx = idx.NavigatorIndex()
+				}
+				actions = append(actions, sailpointFixActions(uri, navIdx, doc, diag)...)
+
 				actions = append(actions, protocol.CodeAction{
 					Title:       fmt.Sprintf("Suppress '%s' for this line", ruleID),
 					Kind:        "quickfix",
-					IsPreferred: true,
+					IsPreferred: false,
 					Diagnostics: []protocol.Diagnostic{diag},
 					Edit: &protocol.WorkspaceEdit{
 						Changes: map[protocol.DocumentURI][]protocol.TextEdit{
