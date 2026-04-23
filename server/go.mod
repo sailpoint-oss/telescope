@@ -4,12 +4,12 @@ go 1.25.5
 
 require (
 	github.com/LukasParke/gossip v0.1.12
-	github.com/daveshanley/vacuum v0.25.9
+	github.com/daveshanley/vacuum v0.26.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/pb33f/libopenapi v0.36.1
-	github.com/sailpoint-oss/barometer v0.3.0
+	github.com/sailpoint-oss/barometer v0.3.1
 	github.com/sailpoint-oss/barrelman v0.8.0
-	github.com/sailpoint-oss/cartographer v0.1.0
+	github.com/sailpoint-oss/cartographer v0.2.0
 	github.com/sailpoint-oss/navigator v0.12.1
 	github.com/sailpoint-oss/tree-sitter-openapi v0.1.0
 	github.com/spf13/cobra v1.10.2
@@ -28,22 +28,22 @@ require (
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260413211237-bd52878bcec2 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260422141423-a0f1f21775f7 // indirect
 	github.com/charmbracelet/x/ansi v0.11.7 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
-	github.com/dlclark/regexp2 v1.11.5 // indirect
+	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c // indirect
 	github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14 // indirect
 	github.com/dprotaso/go-yit v0.0.0-20260209000607-dfb86291624d // indirect
 	github.com/getkin/kin-openapi v0.135.0 // indirect
-	github.com/go-openapi/jsonpointer v0.22.5 // indirect
-	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
+	github.com/go-openapi/jsonpointer v0.23.1 // indirect
+	github.com/go-openapi/swag/jsonname v0.26.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
-	github.com/google/pprof v0.0.0-20250501235452-c0086092b71a // indirect
+	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
@@ -58,7 +58,7 @@ require (
 	github.com/oasdiff/yaml v0.0.9 // indirect
 	github.com/oasdiff/yaml3 v0.0.9 // indirect
 	github.com/oliveagle/jsonpath v0.1.4 // indirect
-	github.com/pb33f/doctor v0.0.54 // indirect
+	github.com/pb33f/doctor v0.0.58 // indirect
 	github.com/pb33f/jsonpath v0.8.2 // indirect
 	github.com/pb33f/libopenapi-validator v0.13.4 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
