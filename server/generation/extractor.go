@@ -31,6 +31,16 @@ type ExtractorOptions struct {
 	Version     string
 	Description string
 	OutputPath  string
+	// Kind marks non-REST services (worker, library, non-rest,
+	// scheduler, connector, cli). When set, cartographer skips source
+	// extraction and either uses an in-repo canonical spec or emits a
+	// minimal stub.
+	Kind string
+	// PreferCanonicalSpec tells cartographer to auto-discover an
+	// in-repo OpenAPI/Swagger spec (sailpoint-api.yaml, docs/swagger.yaml,
+	// openapi.yaml, ...) and use it instead of running source extraction
+	// when one is found. Falls back to source extraction otherwise.
+	PreferCanonicalSpec bool
 }
 
 // ExtractResult is the in-memory output of a single extraction.
@@ -43,6 +53,21 @@ type ExtractResult struct {
 	Types       int
 	GeneratedAt time.Time
 	Duration    time.Duration
+	// SpecSource records which cartographer path produced the spec:
+	// "extracted" (source extraction), "canonical-openapi3"
+	// (in-repo OpenAPI 3 file), "canonical-swagger2" (auto-converted
+	// Swagger 2), or "non-rest-stub" (library/worker placeholder).
+	SpecSource string
+	// CanonicalSpecPath is the absolute path of the in-repo spec used
+	// by the passthrough, or empty when source extraction ran.
+	CanonicalSpecPath string
+	// DetectedLanguage is what cartographer's on-disk heuristics would
+	// have picked as the language. Used to surface mislabelled services
+	// in downstream reports without forcing the pipeline to bail.
+	DetectedLanguage string
+	// LanguageMismatch is true when DetectedLanguage disagrees with the
+	// resolved Lang (e.g. atlas-boot template on a go.mod repo).
+	LanguageMismatch bool
 }
 
 // Extractor is a thin adapter around cartographer/extraction.ExtractProject.
@@ -64,14 +89,16 @@ func (e *Extractor) Extract(ctx context.Context, opts ExtractorOptions) (*Extrac
 	started := time.Now()
 
 	projectResult, err := extraction.ExtractProject(extraction.ProjectOptions{
-		ConfigDir:   opts.ConfigDir,
-		RootDir:     opts.RootDir,
-		OutputPath:  opts.OutputPath,
-		Lang:        opts.Lang,
-		Template:    opts.Template,
-		Title:       opts.Title,
-		Version:     opts.Version,
-		Description: opts.Description,
+		ConfigDir:           opts.ConfigDir,
+		RootDir:             opts.RootDir,
+		OutputPath:          opts.OutputPath,
+		Lang:                opts.Lang,
+		Template:            opts.Template,
+		Title:               opts.Title,
+		Version:             opts.Version,
+		Description:         opts.Description,
+		Kind:                opts.Kind,
+		PreferCanonicalSpec: opts.PreferCanonicalSpec,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cartographer extract: %w", err)
@@ -90,14 +117,18 @@ func (e *Extractor) Extract(ctx context.Context, opts ExtractorOptions) (*Extrac
 	sm := sourcemap.BuildFromSpec(projectResult.SpecMap)
 
 	return &ExtractResult{
-		SpecBytes:   specBytes,
-		SpecMap:     projectResult.SpecMap,
-		SourceMap:   sm,
-		OutputPath:  projectResult.OutputPath,
-		Operations:  projectResult.Operations,
-		Types:       projectResult.Types,
-		GeneratedAt: started,
-		Duration:    time.Since(started),
+		SpecBytes:         specBytes,
+		SpecMap:           projectResult.SpecMap,
+		SourceMap:         sm,
+		OutputPath:        projectResult.OutputPath,
+		Operations:        projectResult.Operations,
+		Types:             projectResult.Types,
+		GeneratedAt:       started,
+		Duration:          time.Since(started),
+		SpecSource:        string(projectResult.Source),
+		CanonicalSpecPath: projectResult.CanonicalSpecPath,
+		DetectedLanguage:  projectResult.DetectedLanguage,
+		LanguageMismatch:  projectResult.LanguageMismatch,
 	}, nil
 }
 
