@@ -82,5 +82,3 @@ require (
 )
 
 replace github.com/dprotaso/go-yit => github.com/dprotaso/go-yit v0.0.0-20191028211022-135eb7262960
-
-replace github.com/sailpoint-oss/cartographer => ../../cartographer/cartographer
