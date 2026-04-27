@@ -173,6 +173,38 @@ func TestFirstRefAtOrAfter(t *testing.T) {
 	}
 }
 
+func TestFirstPathAtOrAfter(t *testing.T) {
+	entries := []SortedPathEntry{
+		{Line: 5, Path: "/a"},
+		{Line: 15, Path: "/b"},
+	}
+	if got := FirstPathAtOrAfter(entries, 0); got != 0 {
+		t.Fatalf("got %d", got)
+	}
+	if got := FirstPathAtOrAfter(entries, 10); got != 1 {
+		t.Fatalf("line 10: got %d", got)
+	}
+	if got := FirstPathAtOrAfter(entries, 99); got != len(entries) {
+		t.Fatalf("past end: got %d", got)
+	}
+}
+
+func TestFirstComponentAtOrAfter(t *testing.T) {
+	entries := []SortedComponentEntry{
+		{Line: 3, Name: "x"},
+		{Line: 12, Name: "y"},
+	}
+	if got := FirstComponentAtOrAfter(entries, 3); got != 0 {
+		t.Fatalf("line 3: got %d", got)
+	}
+	if got := FirstComponentAtOrAfter(entries, 8); got != 1 {
+		t.Fatalf("line 8: got %d", got)
+	}
+	if got := FirstComponentAtOrAfter(entries, 100); got != len(entries) {
+		t.Fatalf("past end: got %d", got)
+	}
+}
+
 // TestPositionProtocolCompat ensures navigator.Position and protocol.Position
 // still line up at the field level. Prevents silent drift when navigator
 // bumps a field name and this package keeps compiling but returns garbage.

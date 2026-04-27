@@ -75,6 +75,28 @@ func TestIndexCache_SetBuilder_OnDemand(t *testing.T) {
 	}
 }
 
+func TestIndexCache_SetGeneratedBuilderPrecedence(t *testing.T) {
+	cache := NewIndexCache()
+	uri := protocol.DocumentURI("file:///gen.yaml")
+	fromGen := &Index{Document: &Document{Version: "3.0.0"}}
+	fromRegular := &Index{Document: &Document{Version: "9.9.9"}}
+
+	cache.SetBuilder(func(protocol.DocumentURI) *Index { return fromRegular })
+	cache.SetGeneratedBuilder(func(protocol.DocumentURI) *Index { return fromGen })
+
+	got := cache.Get(uri)
+	if got == nil || got.Document.Version != "3.0.0" {
+		t.Fatalf("expected generated builder index, got %+v", got)
+	}
+
+	cache2 := NewIndexCache()
+	cache2.SetBuilder(func(protocol.DocumentURI) *Index { return fromRegular })
+	cache2.SetGeneratedBuilder(func(protocol.DocumentURI) *Index { return nil })
+	if got := cache2.Get(uri); got != fromRegular {
+		t.Fatalf("expected regular builder when generated returns nil, got %+v", got)
+	}
+}
+
 func TestIndexCache_Rebuild_RefreshesCachedEntry(t *testing.T) {
 	cache := NewIndexCache()
 	uri := protocol.DocumentURI("file:///test.yaml")

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
@@ -238,5 +239,38 @@ func TestSendReturnsErrorWhenConnMissing(t *testing.T) {
 	err := m.send(&Envelope{ID: "1", Type: MsgPing})
 	if err == nil {
 		t.Fatal("expected send to fail when connection is missing")
+	}
+}
+
+func TestLogWriterTrimsAndLogs(t *testing.T) {
+	var buf strings.Builder
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	w := &logWriter{logger: logger, level: slog.LevelDebug}
+	msg := []byte("  sidecar says hello  \n")
+	n, err := w.Write(msg)
+	if err != nil || n != len(msg) {
+		t.Fatalf("Write: n=%d err=%v", n, err)
+	}
+	emptyish := []byte("   \t  ")
+	n2, err2 := w.Write(emptyish)
+	if err2 != nil || n2 != len(emptyish) {
+		t.Fatalf("Write whitespace-only: n=%d err=%v", n2, err2)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("expected log output for non-empty trimmed message")
+	}
+}
+
+func TestFindBundledRunnerScriptDiscoversBundledDist(t *testing.T) {
+	// go test is normally invoked from server/ (e.g. CI: cd server && go test ./...).
+	// findBundledRunnerScript joins candidates against os.Getwd().
+	t.Setenv("TELESCOPE_BUN_RUNNER_PATH", "")
+	got, err := findBundledRunnerScript()
+	if err != nil {
+		t.Skip("bundled runner dist not found from current working directory:", err)
+	}
+	wantSub := filepath.Join("lsp", "bun", "runner", "dist", "runner.js")
+	if !strings.Contains(got, wantSub) {
+		t.Fatalf("got %q, want path containing %q", got, wantSub)
 	}
 }
