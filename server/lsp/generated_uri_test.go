@@ -3,6 +3,7 @@ package lsp
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/LukasParke/gossip/protocol"
@@ -24,6 +25,12 @@ func TestURIMatchesGeneratedSpec(t *testing.T) {
 	uri := protocol.DocumentURI("file://" + filepath.ToSlash(absOut))
 	if !uriMatchesGeneratedSpec(uri, out, root) {
 		t.Fatalf("relative output under root should match: uri=%q out=%q root=%q", uri, out, root)
+	}
+	if runtime.GOOS == "windows" {
+		uriThree := protocol.DocumentURI("file:///" + filepath.ToSlash(absOut))
+		if !uriMatchesGeneratedSpec(uriThree, out, root) {
+			t.Fatalf("three-slash Windows file URI should match: uri=%q out=%q root=%q", uriThree, out, root)
+		}
 	}
 	if uriMatchesGeneratedSpec("file:///other/out.yaml", out, root) {
 		t.Fatal("non-matching path")

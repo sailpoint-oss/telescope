@@ -1,8 +1,11 @@
 package lsp
 
 import (
+	"net/url"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"unicode"
 
 	"github.com/LukasParke/gossip/protocol"
 )
@@ -11,10 +14,49 @@ import (
 // to display the in-memory spec when no disk path is configured.
 const GeneratedURIScheme = "telescope-generated"
 
+// isWindowsDriveURLHost reports whether the URL host is a single-letter
+// Windows drive (e.g. "C:") as produced for the file://C:/... URI form.
+func isWindowsDriveURLHost(host string) bool {
+	if len(host) != 2 || host[1] != ':' {
+		return false
+	}
+	r := rune(host[0])
+	return unicode.IsLetter(r)
+}
+
+// localPathFromFileURI returns a cleaned filesystem path for a file:// URI, or
+// "" on parse failure or a non-file scheme. Handles both file:///C:/... and
+// file://C:/... (drive in Host per net/url.Parse on any GOOS).
+func localPathFromFileURI(uri protocol.DocumentURI) string {
+	raw := string(uri)
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "file" {
+		return ""
+	}
+	p := u.Path
+	if isWindowsDriveURLHost(u.Host) {
+		p = u.Host + p
+	} else if len(p) >= 3 && p[0] == '/' && p[2] == ':' {
+		// file:///C:/... (path is /C:/...)
+		p = p[1:]
+	}
+	if p == "" {
+		return ""
+	}
+	return filepath.Clean(filepath.FromSlash(p))
+}
+
+func pathEqualForOS(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
 // uriMatchesGeneratedSpec reports whether the given URI should be served by
 // the generation-loop builder. Matches the telescope-generated:// virtual
-// URI and any file:// URI that suffix-equals the loop's resolved output
-// path.
+// URI and any file:// URI whose resolved path equals the loop's resolved
+// output path.
 func uriMatchesGeneratedSpec(uri protocol.DocumentURI, outputPath, root string) bool {
 	raw := string(uri)
 	if raw == "" {
@@ -30,9 +72,12 @@ func uriMatchesGeneratedSpec(uri protocol.DocumentURI, outputPath, root string) 
 	if !filepath.IsAbs(abs) && root != "" {
 		abs = filepath.Join(root, outputPath)
 	}
-	clean := filepath.Clean(abs)
-	norm := string(protocol.NormalizeURI(uri))
-	return strings.HasSuffix(strings.ToLower(norm), strings.ToLower(filepath.ToSlash(clean)))
+	want := filepath.Clean(abs)
+	got := localPathFromFileURI(uri)
+	if got == "" {
+		return false
+	}
+	return pathEqualForOS(want, got)
 }
 
 // isSourceFileURI reports whether a URI points at a Go/Java/TS source file
