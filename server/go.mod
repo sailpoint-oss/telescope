@@ -4,12 +4,12 @@ go 1.25.5
 
 require (
 	github.com/LukasParke/gossip v0.1.12
-	github.com/daveshanley/vacuum v0.26.1
+	github.com/daveshanley/vacuum v0.26.4
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/pb33f/libopenapi v0.36.1
 	github.com/sailpoint-oss/barometer v0.3.1
 	github.com/sailpoint-oss/barrelman v0.8.0
-	github.com/sailpoint-oss/cartographer v0.2.0
+	github.com/sailpoint-oss/cartographer v0.4.0
 	github.com/sailpoint-oss/navigator v0.12.1
 	github.com/sailpoint-oss/tree-sitter-openapi v0.1.0
 	github.com/spf13/cobra v1.10.2
@@ -39,30 +39,23 @@ require (
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c // indirect
 	github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14 // indirect
 	github.com/dprotaso/go-yit v0.0.0-20260209000607-dfb86291624d // indirect
-	github.com/getkin/kin-openapi v0.135.0 // indirect
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/swag/jsonname v0.26.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.4+incompatible // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/josharian/intern v1.0.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/lucasjones/reggen v0.0.0-20200904144131-37ba4fa293bb // indirect
-	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/oasdiff/yaml v0.0.9 // indirect
-	github.com/oasdiff/yaml3 v0.0.9 // indirect
 	github.com/oliveagle/jsonpath v0.1.4 // indirect
-	github.com/pb33f/doctor v0.0.58 // indirect
+	github.com/pb33f/doctor v0.0.59 // indirect
 	github.com/pb33f/jsonpath v0.8.2 // indirect
-	github.com/pb33f/libopenapi-validator v0.13.4 // indirect
+	github.com/pb33f/libopenapi-validator v0.13.7 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
-	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
@@ -70,7 +63,6 @@ require (
 	github.com/tree-sitter/tree-sitter-java v0.23.5 // indirect
 	github.com/tree-sitter/tree-sitter-python v0.25.0 // indirect
 	github.com/tree-sitter/tree-sitter-typescript v0.23.2 // indirect
-	github.com/woodsbury/decimal128 v1.4.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/mod v0.35.0 // indirect
