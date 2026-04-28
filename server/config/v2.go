@@ -37,6 +37,23 @@ type OpenAPIGenerationSection struct {
 	Root         string                    `yaml:"root,omitempty"`
 	Output       string                    `yaml:"output,omitempty"`
 	Cartographer CartographerConfigSection `yaml:"cartographer,omitempty"`
+
+	// TriggerMode is "always" (debounce + save) or "save" (save only).
+	TriggerMode string `yaml:"triggerMode,omitempty"`
+	// DebounceMs is the idle window for the in-memory loop; default 500.
+	DebounceMs int `yaml:"debounceMs,omitempty"`
+	// WriteMode controls disk materialisation:
+	// never | onDemand | onSave | always.
+	// Default is onDemand when Output is set, never otherwise.
+	WriteMode string `yaml:"writeMode,omitempty"`
+	// WriteSourceMap mirrors an openapi.sourcemap.json file alongside the
+	// spec when a disk write is performed.
+	WriteSourceMap bool `yaml:"writeSourceMap,omitempty"`
+	// ShowCodeLens and ShowTreeView are extension-surface flags passed
+	// through initializationOptions so a single config file can control
+	// server + extension behaviour.
+	ShowCodeLens *bool `yaml:"showCodeLens,omitempty"`
+	ShowTreeView *bool `yaml:"showTreeView,omitempty"`
 }
 
 type CartographerConfigSection struct {
@@ -640,6 +657,9 @@ func (c *Config) validateV2() error {
 		return err
 	}
 	if err := c.validateTargetRefs("formatting.prettier.targets", c.Formatting.Prettier.Targets); err != nil {
+		return err
+	}
+	if err := c.validateGeneration(); err != nil {
 		return err
 	}
 	for i, rule := range c.Linting.CustomRules.Bun {

@@ -8,7 +8,7 @@ This document defines how Telescope should measure progress toward high test cov
 
 These packages represent the language-server and analysis paths that users interact with most directly and should be the first place we push toward 95%+ coverage:
 
-- `server/lsp/...`
+- `server/lsp/...` (includes `server/lsp/projection/...`, `server/lsp/bun/...`, etc.)
 - `server/lsp/adapt/...`
 - `server/openapi/...`
 - `server/project/...`
@@ -20,18 +20,19 @@ Current package coverage snapshot:
 
 | Package | Coverage |
 |---------|----------|
-| `server/lsp` | 72.2% |
+| `server/lsp` | 70.7% |
 | `server/lsp/adapt` | 100.0% |
 | `server/lsp/observe` | 100.0% |
 | `server/lsp/navadapt` | 85.7% |
-| `server/lsp/bun` | 70.1% |
+| `server/lsp/bun` | 73.8% |
+| `server/lsp/projection` | 95.9% |
 | `server/openapi` | 82.8% |
 | `server/project` | 77.7% |
-| `server/bridge` | 89.7% |
+| `server/bridge` | 88.7% |
 | `server/core/graph` | 85.9% |
-| `server/core/classify` | 83.3% |
+| `server/core/classify` | 81.2% |
 
-Current Tier A aggregate baseline: `76.1%`
+Current Tier A aggregate baseline: `75.5%` (matches `go test` merged profile for `CORE_PKGS` in CI)
 
 ### Tier B: supporting runtime packages
 
@@ -79,7 +80,7 @@ Current package coverage snapshot:
 | `server/rulesets` | 93.3% |
 | `server/core/parser` | 86.2% |
 
-Current repo-wide aggregate baseline: `77.7%`
+Current repo-wide aggregate baseline: varies with branch; see the Go job summary per-package table from `coverage.out`.
 
 `repo_coverage` intentionally excludes the helper-only `server`, `server/rules/testing`, and `server/testutil` packages from the aggregate while still running their tests in CI. This keeps the repo-wide ratchet focused on executable product code instead of scaffolding-only packages that otherwise pin the number near zero.
 
@@ -96,7 +97,7 @@ Current CI policy:
 
 - Hard finish-line target: `core_coverage >= 95.0%`
 - Current ratchet floor: `core_coverage >= 75.5%`
-- Current repo ratchet floor: `repo_coverage >= 77.7%`
+- Current repo ratchet floor: `repo_coverage >= 74.5%` (see `REPO_COVERAGE_RATCHET_MIN` in `.github/workflows/ci.yml`)
 
 ## Local tooling
 

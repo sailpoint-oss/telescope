@@ -27,6 +27,7 @@ import (
 	"github.com/sailpoint-oss/telescope/server/contractrunner"
 	"github.com/sailpoint-oss/telescope/server/core/graph"
 	"github.com/sailpoint-oss/telescope/server/extensions"
+	"github.com/sailpoint-oss/telescope/server/generation"
 	"github.com/sailpoint-oss/telescope/server/lsp/bun"
 	"github.com/sailpoint-oss/telescope/server/lsp/observe"
 	"github.com/sailpoint-oss/telescope/server/openapi"
@@ -43,7 +44,7 @@ var Version = "dev"
 
 // telescopeSetup is a gossip Option that wires the OpenAPI index and rules
 // after the tree-sitter manager has been initialized by WithTreeSitter.
-func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, semanticTokenCache *SemanticTokenCache, rsMgr *RulesetManager, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, graphBridge *GraphBridge, bunMgr *bun.Manager, workspaceRootPtr *string) gossip.Option {
+func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, semanticTokenCache *SemanticTokenCache, rsMgr *RulesetManager, extRegistry *extensions.Registry, addlValidator *validation.AdditionalValidator, projMgr *project.Manager, graphBridge *GraphBridge, bunMgr *bun.Manager, genMgr *generation.Manager, workspaceRootPtr *string) gossip.Option {
 	return func(s *gossip.Server) {
 		// Bind the DiagnosticEngine now that WithTreeSitter has been applied.
 		// This must happen here (inside an Option) because gossip.NewServer
@@ -80,6 +81,34 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, semantic
 				}
 			}
 			return graphBridge.IndexForURI(string(uri))
+		})
+
+		// Generation-loop-backed builder: when the caller asks for the URI
+		// of a generated spec (disk path or telescope-generated:// virtual
+		// URI), parse an index off the loop's last in-memory bytes so
+		// downstream lint, hover, and codemod flows are consistent with the
+		// live extraction rather than a stale on-disk copy.
+		indexCache.SetGeneratedBuilder(func(uri protocol.DocumentURI) *openapi.Index {
+			if genMgr == nil {
+				return nil
+			}
+			for _, root := range genMgr.Roots() {
+				loop, ok := genMgr.Get(root)
+				if !ok {
+					continue
+				}
+				result, ok := loop.Current()
+				if !ok || result == nil {
+					continue
+				}
+				if !uriMatchesGeneratedSpec(uri, result.OutputPath, root) {
+					continue
+				}
+				if idx := openapi.ParseAndIndex(result.SpecBytes); idx != nil {
+					return idx
+				}
+			}
+			return nil
 		})
 
 		// Wire UserData so Analyzers receive the OpenAPI index and an
@@ -196,7 +225,7 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, semantic
 		rsMgr.SetTelescopeConfig(cfg)
 
 		// Register file watchers for ruleset hot-reload
-		s.OnDidChangeWatchedFiles(NewWatchedFilesHandler(rsMgr, projMgr, graphBridge, indexCache, s.Logger()))
+		s.OnDidChangeWatchedFiles(NewWatchedFilesHandler(rsMgr, projMgr, graphBridge, indexCache, genMgr, s.Logger()))
 	}
 }
 
@@ -279,6 +308,11 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	projMgr := project.NewManager(indexCache, logger)
 	bunMgr := bun.NewManager(logger)
 
+	// Generation loop manager -- constructed here so telescopeSetup can
+	// thread it through to NewWatchedFilesHandler and the generated-index
+	// builder. Start is deferred to the initialized handler below.
+	genMgr := generation.NewManager(logger)
+
 	// V2 graph engine: runs alongside the existing IndexCache/ProjectManager
 	// during the migration period. Handlers can opt-in to using graphBridge.
 	graphBridge, err := NewGraphBridge(logger)
@@ -323,7 +357,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		gossip.WithMiddleware(middleware.Logging(logger), middleware.Recovery(), observe.TraceID(logger)),
 		gossip.WithCompletionTriggerCharacters("$", "/", "#", ":"),
 		gossip.WithSemanticTokensLegend(semanticTokensLegend),
-		telescopeSetup(cfg, indexCache, semanticTokenCache, rsMgr, extRegistry, addlValidator, projMgr, graphBridge, bunMgr, &workspaceRootStr),
+		telescopeSetup(cfg, indexCache, semanticTokenCache, rsMgr, extRegistry, addlValidator, projMgr, graphBridge, bunMgr, genMgr, &workspaceRootStr),
 	)
 
 	// Register document sync handlers and update the V2 graph engine.
@@ -356,6 +390,13 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 			}
 			sendClassifyNotification(ctx, graphBridge, uri, content)
 		}
+		// Forward source-file edits to the generation loop so cartographer
+		// re-extracts once the debouncer window expires.
+		if genMgr != nil && isSourceFileURI(string(params.TextDocument.URI)) {
+			for _, root := range genMgr.Roots() {
+				genMgr.NotifyChange(root, string(params.TextDocument.URI))
+			}
+		}
 		return nil
 	})
 	s.OnDidClose(func(ctx *gossip.Context, params *protocol.DidCloseTextDocumentParams) error {
@@ -378,6 +419,13 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		}
 		if err := docsPreviewMgr.Refresh(ctx, indexCache, graphBridge, params.TextDocument.URI); err != nil {
 			logger.Warn("failed to refresh docs preview", "uri", params.TextDocument.URI, "error", err)
+		}
+		// didSave forces an immediate regenerate, bypassing the debouncer,
+		// so that onSave / onDemand write modes have fresh bytes to flush.
+		if genMgr != nil && isSourceFileURI(string(params.TextDocument.URI)) {
+			for _, root := range genMgr.Roots() {
+				genMgr.NotifySave(root, string(params.TextDocument.URI))
+			}
 		}
 		return nil
 	})
@@ -519,7 +567,16 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 				recomputeOpenDiagnostics()
 			}()
 		}
-		registerFileWatchers(ctx)
+		// Start the generation loop once the workspace is known. Loop
+		// construction happened in NewServer; Start deliberately runs here
+		// so the server's `initialize` response is unblocked and returns
+		// promptly.
+		wireGenerationNotifications(s, genMgr, logger)
+		wireWorkspaceFolderChanges(s, genMgr, rsMgr.TelescopeConfig, logger)
+		wireConfigReload(s, genMgr, rsMgr.TelescopeConfig, logger)
+		genLangs := startGenerationLoops(bgCtx, genMgr, cfg, rootPath, logger)
+
+		registerFileWatchers(ctx, genLangs)
 
 		// Force re-evaluation of any documents that were opened during the
 		// initialized race window. This ensures their indexes are built and
@@ -548,6 +605,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		Runner:               contractrunner.New(cfg),
 		DocsPreview:          docsPreviewMgr,
 		DiagnosticMux:        diagMux,
+		Generation:           genMgr,
 	}
 	s.OnExecuteCommand(NewExecuteCommandHandler(indexCache, graphBridge, execDeps))
 	s.OnCompletionResolve(NewCompletionResolveHandler(indexCache, graphBridge))
@@ -594,6 +652,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		execDeps.Runner.StopWiretap()
 		docsPreviewMgr.StopAll()
 		bunMgr.Stop()
+		genMgr.StopAll(500 * time.Millisecond)
 		logger.Info("server cleanup complete")
 	}
 

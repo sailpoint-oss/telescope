@@ -260,7 +260,11 @@ for mode in "${requested_modes[@]}"; do
 				add_pipeline_mode "diff"
 			fi
 			;;
-		lint|validate|diff|contract|docs)
+		generate-and-lint)
+			add_pipeline_mode "generate"
+			add_pipeline_mode "lint"
+			;;
+		lint|validate|diff|contract|docs|generate)
 			add_pipeline_mode "$mode"
 			;;
 		*)
@@ -395,6 +399,25 @@ for mode in "${pipeline_modes[@]}"; do
 				cmd+=(--config "$(resolve_path "$workspace_dir" "$CONFIG_PATH")")
 			fi
 			run_plain "docs" "${cmd[@]}"
+			;;
+		generate)
+			cmd=("$TELESCOPE_BIN" generate)
+			if [ -n "${GENERATE_ROOT:-}" ]; then
+				cmd+=(--root "$(resolve_path "$workspace_dir" "$GENERATE_ROOT")")
+			fi
+			if [ -n "${GENERATE_LANG:-}" ]; then
+				cmd+=(--lang "$GENERATE_LANG")
+			fi
+			if [ -n "${GENERATE_OUTPUT:-}" ]; then
+				cmd+=(--output "$(resolve_path "$workspace_dir" "$GENERATE_OUTPUT")")
+			fi
+			if [ -n "${GENERATE_CONFIG:-}" ]; then
+				cmd+=(--config "$(resolve_path "$workspace_dir" "$GENERATE_CONFIG")")
+			fi
+			if bool_true "${GENERATE_SOURCEMAP:-false}"; then
+				cmd+=(--write-sourcemap)
+			fi
+			run_plain "generate" "${cmd[@]}"
 			;;
 	esac
 done

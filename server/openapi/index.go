@@ -514,9 +514,10 @@ func (idx *Index) RefsTo(target string) []RefUsage {
 
 // IndexCache provides a thread-safe cache of per-document indexes.
 type IndexCache struct {
-	mu      sync.RWMutex
-	indexes map[protocol.DocumentURI]*Index
-	builder func(protocol.DocumentURI) *Index
+	mu               sync.RWMutex
+	indexes          map[protocol.DocumentURI]*Index
+	builder          func(protocol.DocumentURI) *Index
+	generatedBuilder func(protocol.DocumentURI) *Index
 }
 
 // NewIndexCache creates a new index cache.
@@ -542,15 +543,38 @@ func (c *IndexCache) SetBuilder(fn func(protocol.DocumentURI) *Index) {
 	c.builder = fn
 }
 
+// SetGeneratedBuilder registers a higher-priority builder consulted before
+// the regular builder and cache. The generation loop installs one so
+// navigator + barrelman see the loop's in-memory spec bytes for generated
+// URIs (both the telescope-generated:// virtual URI and the configured
+// on-disk path) rather than stale disk-cached bytes.
+func (c *IndexCache) SetGeneratedBuilder(fn func(protocol.DocumentURI) *Index) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.generatedBuilder = fn
+}
+
 // Get returns the cached index for a URI. If no cached entry exists and a
 // builder has been registered via SetBuilder, it builds, caches, and returns
 // the index on demand. The URI is normalized before lookup.
+//
+// The generation-loop builder (installed via SetGeneratedBuilder) is
+// consulted before either the cache or the regular builder: this keeps
+// generated-spec consumers reading the loop's in-memory bytes instead of a
+// stale disk copy.
 func (c *IndexCache) Get(uri protocol.DocumentURI) *Index {
 	norm := protocol.NormalizeURI(uri)
 	c.mu.RLock()
 	idx := c.indexes[norm]
 	builder := c.builder
+	genBuilder := c.generatedBuilder
 	c.mu.RUnlock()
+	if genBuilder != nil {
+		if gen := genBuilder(uri); gen != nil {
+			c.Set(uri, gen)
+			return gen
+		}
+	}
 	if idx != nil {
 		return idx
 	}

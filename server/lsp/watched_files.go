@@ -7,6 +7,7 @@ import (
 
 	"github.com/LukasParke/gossip"
 	"github.com/LukasParke/gossip/protocol"
+	"github.com/sailpoint-oss/telescope/server/generation"
 	"github.com/sailpoint-oss/telescope/server/lsp/observe"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 	"github.com/sailpoint-oss/telescope/server/project"
@@ -15,7 +16,11 @@ import (
 // NewWatchedFilesHandler returns a handler that triggers ruleset reload when
 // Spectral or Telescope config files change on disk, and propagates changes
 // to the project manager for cross-file diagnostic updates.
-func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, graphBridge *GraphBridge, indexCache *openapi.IndexCache, logger *slog.Logger) gossip.DidChangeWatchedFilesHandler {
+//
+// When genMgr is non-nil, file events on cartographer-watched source globs
+// are additionally dispatched to generation.Loop.NotifyChange so the
+// generation loop can debounce-regenerate the spec.
+func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, graphBridge *GraphBridge, indexCache *openapi.IndexCache, genMgr *generation.Manager, logger *slog.Logger) gossip.DidChangeWatchedFilesHandler {
 	return func(ctx *gossip.Context, params *protocol.DidChangeWatchedFilesParams) error {
 		traceID := observe.GetTraceID(ctx)
 		if logger != nil {
@@ -42,6 +47,22 @@ func NewWatchedFilesHandler(rsMgr *RulesetManager, projMgr *project.Manager, gra
 			logger.Info("ruleset config changed, reloading")
 			if err := rsMgr.Reload(); err != nil {
 				logger.Warn("failed to reload rulesets", "error", err)
+			}
+		}
+
+		// Forward source-file events to the generation loop. Source file
+		// watchers are registered separately from OpenAPI watchers; we route
+		// them here so the rest of the file-change pipeline stays focused on
+		// spec-side invalidation.
+		if genMgr != nil {
+			for _, change := range params.Changes {
+				uri := string(change.URI)
+				if !isSourceFileURI(uri) {
+					continue
+				}
+				for _, root := range genMgr.Roots() {
+					genMgr.NotifyChange(root, uri)
+				}
 			}
 		}
 
@@ -120,7 +141,10 @@ type watchedFilesRegOpts struct {
 
 // registerFileWatchers dynamically registers file watchers for config files
 // and OpenAPI document files (YAML/JSON) via client/registerCapability.
-func registerFileWatchers(ctx *gossip.Context) {
+//
+// sourceLanguages, when non-empty, adds globs for source files the generation
+// loop cares about (Go/Java/TS). An empty slice skips source-file watching.
+func registerFileWatchers(ctx *gossip.Context, sourceLanguages []string) {
 	if ctx.Client == nil {
 		return
 	}
@@ -132,6 +156,12 @@ func registerFileWatchers(ctx *gossip.Context) {
 
 	// Watch OpenAPI-relevant files for cross-file dependency tracking
 	for _, pattern := range []string{"**/*.yaml", "**/*.yml", "**/*.json"} {
+		watchers = append(watchers, fileSystemWatcher{GlobPattern: pattern})
+	}
+
+	// Source-file globs drive the generation loop when cartographer is
+	// configured. Only register when the caller explicitly opts in.
+	for _, pattern := range sourceGlobsForLanguages(sourceLanguages) {
 		watchers = append(watchers, fileSystemWatcher{GlobPattern: pattern})
 	}
 

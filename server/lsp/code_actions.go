@@ -46,6 +46,11 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 
 		// Diagnostic-triggered actions
 		for _, diag := range params.Context.Diagnostics {
+			// Projected-diagnostic quickfix: always offer "Open generated
+			// spec at this location" when the diagnostic was folded down
+			// from a generated spec onto a source file.
+			actions = append(actions, projectedCodeActions(diag)...)
+
 			if diag.Source == vacuum.Source {
 				vacuumDiagnostics = append(vacuumDiagnostics, diag)
 				continue
