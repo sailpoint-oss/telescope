@@ -170,7 +170,8 @@ func TestScanRatchetLog_NoMatchAndMissingFile(t *testing.T) {
 }
 
 func TestNoteFixApplied_AppendsEntry(t *testing.T) {
-	t.Parallel()
+	// This test redirects process-wide stderr; keep it serial to avoid
+	// racing parallel tests that may emit warnings.
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -221,12 +222,18 @@ func TestNoteFixApplied_AppendsEntry(t *testing.T) {
 }
 
 func TestNoteFixApplied_UnwritableRoot(t *testing.T) {
-	// findRepoRoot failure path: pass a clearly invalid absolute
-	// reference and confirm noteFixApplied swallows the error instead
-	// of panicking. We can force this by making the file argument
-	// contain a NUL byte, which os.Stat rejects.
 	t.Parallel()
-	noteFixApplied("\x00bad\x00path", []byte("pre"), []byte("post"))
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Make the ratchet log directory impossible to create and confirm
+	// noteFixApplied swallows the advisory logging error.
+	if err := os.WriteFile(filepath.Join(dir, ".telescope"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "spec.yaml")
+	noteFixApplied(file, []byte("pre"), []byte("post"))
 }
 
 func TestGuardFixResults(t *testing.T) {
