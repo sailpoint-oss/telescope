@@ -27,6 +27,7 @@
 
 ### Editor Features
 
+- **Live OpenAPI generation** - Debounced cartographer extraction from Go, Java, TypeScript, Python, and C# sources with reverse-projected diagnostics onto originating code
 - **Code Lens** - Reference counts, response summaries, security indicators
 - **Bundle Preview** - Workspace-aware multi-file bundle previews directly from the editor
 - **Inlay Hints** - Type hints for `$ref` targets, required property markers
@@ -107,11 +108,12 @@ See [docs/CONFIGURATION-V2.md](docs/CONFIGURATION-V2.md) for the full `v2` confi
 - **Navigator** - Parse, index, schema/meta validation, fragment semantics, and canonical document issues for OpenAPI and Arazzo
 - **Barrelman** - Shared lint/check execution and built-in rule catalogs
 - **Barometer** - Contract-test HTTP execution; linked into the Telescope binary for in-process runs (no separate Barometer install)
-- **Telescope** - VS Code client, LSP handlers, diagnostics aggregation, custom-rule runtimes, and spec-side CLI/editor UX
+- **Cartographer** - Service-local source extraction; Telescope wraps it for the LSP generation loop and `telescope generate`
+- **Telescope** - VS Code client, LSP handlers, diagnostics aggregation, custom-rule runtimes, generation loop, and spec-side CLI/editor UX
 
 Contract tests are configured under `testing.contract` in `.telescope/config.yaml` (base URL, credentials keyed by OpenAPI security scheme names, shared `workspace.envFiles` for dotenv loading, optional TLS/mTLS file paths, optional OAuth token exchange, concurrency, and Wiretap settings). Workspace `.env` / `.env.local` are loaded and reloaded when those files change (same watcher as Telescope config). The editor runs tests asynchronously via LSP (`telescope.runContractTests`); the CLI runs the same engine with `telescope contract test <spec.yaml>`. See [docs/CONFIGURATION-V2.md](docs/CONFIGURATION-V2.md).
 
-Use `Meridian` when you need codebase-side generation, extraction orchestration, or repo-scale report pipelines. Use Telescope when you already have workspace files in spec form and want linting, validation surfacing, and editor intelligence.
+Use **Cartographer** (`cartographer extract` or the public GitHub Action) when you want extraction inside a service repository. Use **Telescope** when you want linting, validation, editor intelligence, or the live generation loop that keeps an in-memory spec synchronized with your source tree. See [docs/GENERATION.md](docs/GENERATION.md) for generation configuration.
 
 ### Multi-root workspaces
 
@@ -249,9 +251,14 @@ See [docs/RULES.md](docs/RULES.md) for the complete rule reference with IDs and 
 
 ## CLI
 
-The Go server ships a CLI with four main subcommands:
+The Go server ships a CLI with these main subcommands:
 
 ```bash
+# Generate OpenAPI from source via cartographer (stdout or disk)
+telescope generate --root ./my-service --lang go --output openapi.yaml
+telescope generate --root ./my-service --watch
+telescope generate --dry-run
+
 # Structural validation only
 telescope validate api.yaml
 telescope validate workflows.arazzo.yaml --format json
@@ -358,6 +365,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ## Documentation
 
+- [OpenAPI Generation Loop](docs/GENERATION.md)
 - [Server & SDK Reference](server/README.md)
 - [Built-in Rules Reference](docs/RULES.md)
 - [LSP Features Reference](docs/LSP-FEATURES.md)

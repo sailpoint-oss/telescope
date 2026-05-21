@@ -22,7 +22,8 @@ A fast, extensible OpenAPI linter and language server written in Go.
 - **Tree-sitter native** -- YAML/JSON parsed by tree-sitter with incremental re-parsing; no double-parsing overhead
 - **88 built-in rules** -- Comprehensive OpenAPI validation covering naming, structure, security, paths, and OWASP
 - **LSP server** -- Full Language Server Protocol support with hover, completion, go-to-definition, references, rename, code actions, and more
-- **CLI** -- Lint files from the command line with multiple output formats (text, JSON, SARIF, GitHub annotations)
+- **OpenAPI generation** -- Cartographer-backed `telescope generate` CLI and LSP generation loop with reverse-projected diagnostics
+- **CLI** -- Lint, validate, generate, and run CI checks from the command line with multiple output formats (text, JSON, SARIF, GitHub annotations)
 - **CI integration** -- Diff-aware linting with GitHub PR comments and quality gating
 - **Custom rules** -- YAML in config plus Bun-backed TypeScript/JavaScript (see [Custom Rules](../docs/CUSTOM-RULES.md))
 - **Schema extensibility** -- Validate custom `x-*` extensions and arbitrary YAML/JSON files against JSON Schema
@@ -38,6 +39,16 @@ go install github.com/sailpoint-oss/telescope/server@latest
 For Bun-backed TypeScript/JavaScript custom rules or Spectral rulesets, install Bun as well. Core CLI and LSP features still work without Bun; only sidecar-backed rule execution is disabled.
 
 ## Quick Start
+
+### Generate OpenAPI from source
+
+```bash
+telescope generate --root ./my-service --lang go --output openapi.yaml
+telescope generate --root ./my-service --watch
+telescope generate --dry-run
+```
+
+See [docs/GENERATION.md](../docs/GENERATION.md) for LSP loop configuration, write modes, and reverse projection.
 
 ### Validate files
 

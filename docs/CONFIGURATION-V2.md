@@ -143,9 +143,11 @@ Supported target kinds:
 
 Holds code-to-spec and spec-assembly workflows:
 
-- `openapi`: inline Cartographer configuration
+- `openapi`: inline Cartographer configuration, debounce/write-mode controls, and optional `cartographer.extraction` overrides
 - `bundle`: default output for bundled specs
 - `overlays`: overlay files and output path
+
+See [GENERATION.md](GENERATION.md) for the LSP loop, write-mode matrix, reverse projection, and CLI commands.
 
 ### `linting`
 

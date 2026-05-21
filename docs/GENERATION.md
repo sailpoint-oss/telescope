@@ -9,7 +9,7 @@ reverse-projected onto the Go / Java / TS code that produced them.
 
 ```mermaid
 flowchart TB
-  src[Source files Go/Java/TS] -->|didChange debounced 500ms| loop[generation.Loop]
+  src[Source files Go/Java/TS/Python/C#] -->|didChange debounced 500ms| loop[generation.Loop]
   loop -->|cartographer.Extract| spec["In-memory spec (x-source-* intact)"]
   spec --> sm[SourceMap]
   spec --> nav[navigator.Index + barrelman]
@@ -62,7 +62,11 @@ generation:
       config:
         lang: go
         title: My API
-        template: atlas-go
+        template: go-web
+      extraction:
+        errorSchema: legacy-error-response
+        signaturePaginationTypes: []
+        mergeCoLocatedOpenAPI: false
 ```
 
 ### Write mode matrix
@@ -76,6 +80,11 @@ generation:
 
 All modes keep an in-memory copy available to navigator, barrelman, hover,
 code actions, and the `telescope-generated://` virtual URI.
+
+`generation.openapi.cartographer.extraction` maps to cartographer's
+`extractionopts.Options` and merges with `.cartographer/cartographer.yaml`
+when present. Supported templates: `go-web`, `java-spring`,
+`typescript-node`, `python-fastapi`, `csharp-web`.
 
 The validator rejects silent no-op combinations: `writeSourceMap: true`
 without `output`, `writeMode: onSave` without `output`, unknown trigger/
@@ -130,6 +139,6 @@ to render:
 - an activity-bar container with Generated Spec, Source Contributions, and
   Generation Diagnostics tree views
 - a readonly `telescope-generated://` virtual document
-- inline CodeLenses on Go / Java / TS source declarations
+- inline CodeLenses on Go / Java / TS / Python / C# source declarations
 - palette commands for Regenerate Spec, Open Generated Spec, Write Spec to
   Disk Now, and Show SourceMap
