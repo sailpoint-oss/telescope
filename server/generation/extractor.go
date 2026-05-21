@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sailpoint-oss/cartographer/extraction"
+	"github.com/sailpoint-oss/cartographer/extract/extractionopts"
 	"github.com/sailpoint-oss/cartographer/sourcemap"
 	"gopkg.in/yaml.v3"
 )
@@ -37,10 +38,14 @@ type ExtractorOptions struct {
 	// minimal stub.
 	Kind string
 	// PreferCanonicalSpec tells cartographer to auto-discover an
-	// in-repo OpenAPI/Swagger spec (sailpoint-api.yaml, docs/swagger.yaml,
-	// openapi.yaml, ...) and use it instead of running source extraction
+	// in-repo OpenAPI/Swagger spec (openapi.yaml, docs/swagger.yaml,
+	// ...) and use it instead of running source extraction
 	// when one is found. Falls back to source extraction otherwise.
 	PreferCanonicalSpec bool
+	// Extraction configures code-derived extraction behavior (error schema,
+	// signature pagination types, co-located OpenAPI merge). When unset,
+	// cartographer.yaml extraction block is used when present.
+	Extraction extractionopts.Options
 }
 
 // ExtractResult is the in-memory output of a single extraction.
@@ -66,8 +71,12 @@ type ExtractResult struct {
 	// in downstream reports without forcing the pipeline to bail.
 	DetectedLanguage string
 	// LanguageMismatch is true when DetectedLanguage disagrees with the
-	// resolved Lang (e.g. atlas-boot template on a go.mod repo).
+	// resolved Lang (e.g. java-spring template on a go.mod repo).
 	LanguageMismatch bool
+	// HasConfig is true when .cartographer/cartographer.yaml was loaded.
+	HasConfig bool
+	// ConfigApplied is true when service-local shaping (path rewrites, metadata) ran.
+	ConfigApplied bool
 }
 
 // Extractor is a thin adapter around cartographer/extraction.ExtractProject.
@@ -99,6 +108,7 @@ func (e *Extractor) Extract(ctx context.Context, opts ExtractorOptions) (*Extrac
 		Description:         opts.Description,
 		Kind:                opts.Kind,
 		PreferCanonicalSpec: opts.PreferCanonicalSpec,
+		Extraction:          opts.Extraction,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cartographer extract: %w", err)
@@ -129,6 +139,8 @@ func (e *Extractor) Extract(ctx context.Context, opts ExtractorOptions) (*Extrac
 		CanonicalSpecPath: projectResult.CanonicalSpecPath,
 		DetectedLanguage:  projectResult.DetectedLanguage,
 		LanguageMismatch:  projectResult.LanguageMismatch,
+		HasConfig:         projectResult.HasConfig,
+		ConfigApplied:     projectResult.ConfigApplied,
 	}, nil
 }
 

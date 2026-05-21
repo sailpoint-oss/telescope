@@ -63,8 +63,8 @@ github.com/go-openapi/testify/v2 v2.4.2/go.mod h1:SgsVHtfooshd0tublTtJ50FPKhujf4
 github.com/go-sourcemap/sourcemap v2.1.4+incompatible h1:a+iTbH5auLKxaNwQFg0B+TCYl6lbukKPc7b5x0n1s6Q=
 github.com/go-sourcemap/sourcemap v2.1.4+incompatible/go.mod h1:F8jJfvm2KbVjc5NqelyYJmf/v5J0dwNLS2mL4sNA1Jg=
 github.com/golang/protobuf v1.2.0/go.mod h1:6lQm79b+lXiMfvg/cZm0SGofjICqVBUtrP5yJMmIC1U=
-github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
-github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
+github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
+github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
 github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 h1:EwtI+Al+DeppwYX2oXJCETMO23COyaKGP6fHVpkpWpg=
 github.com/google/pprof v0.0.0-20260402051712-545e8a4df936/go.mod h1:MxpfABSjhmINe3F1It9d+8exIHFvUqtLIRCdOGNXqiI=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
@@ -121,8 +121,8 @@ github.com/sailpoint-oss/barometer v0.3.1 h1:ink550SQe0BTAsgP6ACeErpPXPh0nKQjCGP
 github.com/sailpoint-oss/barometer v0.3.1/go.mod h1:GdHJ2zd2mnnO3u31r5Z5q7hir+xMr+PY4tPAZ4OHBlI=
 github.com/sailpoint-oss/barrelman v0.8.0 h1:79CCG/BHH7JhGgKN99CuYrpI46ZVI8pKBD3k4zsqYVU=
 github.com/sailpoint-oss/barrelman v0.8.0/go.mod h1:qVABatUTcQTDPXGjxRXC0XH1aLGFuTIVAsGDoutLiBY=
-github.com/sailpoint-oss/cartographer v0.4.0 h1:/pYfIoJAfRK+tAG/6V5yZX6sJTPyDQjY+mzXNPm7APk=
-github.com/sailpoint-oss/cartographer v0.4.0/go.mod h1:nQnYsm6c8n86rhJw9VtjC7emxWo48PEdnfZ8/7/rl+E=
+github.com/sailpoint-oss/cartographer v0.7.0 h1:im3LvONjBdPpnnkC2ksVZnvjMQu4xU1t5ZRqjEZhxUI=
+github.com/sailpoint-oss/cartographer v0.7.0/go.mod h1:C/QOPpR+SsDiFsbTpp04GXBjykvAnvt+ewQie585oGc=
 github.com/sailpoint-oss/navigator v0.12.1 h1:6slybm/cBXwMDM7ld7SI9Z5oN0v/0dw78ADoesVCa4A=
 github.com/sailpoint-oss/navigator v0.12.1/go.mod h1:iVh7sjbrrUVMUvMbjWEqlHTzxnlm1VhdzXDxjmCPfok=
 github.com/sailpoint-oss/tree-sitter-openapi v0.1.0 h1:Vgv/dTfNrItDpK3p1A7yr33gdOzVf6Kfgqu5mQ/6Mjk=
@@ -150,6 +150,8 @@ github.com/tree-sitter/go-tree-sitter v0.25.0 h1:sx6kcg8raRFCvc9BnXglke6axya12kr
 github.com/tree-sitter/go-tree-sitter v0.25.0/go.mod h1:r77ig7BikoZhHrrsjAnv8RqGti5rtSyvDHPzgTPsUuU=
 github.com/tree-sitter/tree-sitter-c v0.23.4 h1:nBPH3FV07DzAD7p0GfNvXM+Y7pNIoPenQWBpvM++t4c=
 github.com/tree-sitter/tree-sitter-c v0.23.4/go.mod h1:MkI5dOiIpeN94LNjeCp8ljXN/953JCwAby4bClMr6bw=
+github.com/tree-sitter/tree-sitter-c-sharp v0.23.5 h1:EeUc2WJE5G1pD6YEqera2yVHYeroeR+/MakKX2a+0xQ=
+github.com/tree-sitter/tree-sitter-c-sharp v0.23.5/go.mod h1:H7/aFm5vR1A8Yn5VIOfLWPdlKuJsMgZ5eDmaJdv8bY0=
 github.com/tree-sitter/tree-sitter-cpp v0.23.4 h1:LaWZsiqQKvR65yHgKmnaqA+uz6tlDJTJFCyFIeZU/8w=
 github.com/tree-sitter/tree-sitter-cpp v0.23.4/go.mod h1:doqNW64BriC7WBCQ1klf0KmJpdEvfxyXtoEybnBo6v8=
 github.com/tree-sitter/tree-sitter-embedded-template v0.23.2 h1:nFkkH6Sbe56EXLmZBqHHcamTpmz3TId97I16EnGy4rg=
