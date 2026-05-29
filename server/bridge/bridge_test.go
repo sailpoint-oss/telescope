@@ -7,7 +7,6 @@ import (
 	"github.com/LukasParke/gossip/protocol"
 	gtreesitter "github.com/LukasParke/gossip/treesitter"
 	"github.com/sailpoint-oss/barrelman"
-	barrelAnalyzers "github.com/sailpoint-oss/barrelman/analyzers"
 	navigator "github.com/sailpoint-oss/navigator"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
@@ -290,15 +289,8 @@ paths:
 		wantRelatedMsg string
 	}{
 		{
-			name:           "legacy",
-			code:           duplicateOperationIDCodeLegacy,
-			message:        "operationId 'dup' is already used at GET /zebra",
-			wantMessage:    "operationId 'dup' is already used at GET /alpha",
-			wantRelatedMsg: "First defined here at GET /alpha",
-		},
-		{
-			name:           "guideline",
-			code:           duplicateOperationIDCodeGuideline,
+			name:           "duplicate operationId",
+			code:           duplicateOperationIDCode,
 			message:        "operationId 'dup' is already used at GET /zebra",
 			wantMessage:    "operationId 'dup' is already used at GET /alpha",
 			wantRelatedMsg: "First defined here at GET /alpha",
@@ -368,66 +360,5 @@ components:
 	}
 }
 
-func TestSailpointOperationIDUniqueProtocolDiagnostics_IncludeGuidelineLinkAndRelatedInfo(t *testing.T) {
-	barrelAnalyzers.RegisterAll(barrelman.DefaultRegistry)
-	reg := barrelman.NewRegistry()
-	barrelAnalyzers.RegisterAll(reg)
-
-	var rule barrelman.Rule
-	found := false
-	for _, candidate := range reg.AllRules() {
-		if candidate.ID == "sailpoint-operation-id-unique" {
-			rule = candidate
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("expected sailpoint-operation-id-unique rule to be registered")
-	}
-
-	idx := navigator.ParseContent([]byte(`openapi: "3.1.0"
-info:
-  title: Duplicate IDs
-  version: "1.0.0"
-paths:
-  /zebra:
-    get:
-      operationId: dup
-      responses:
-        "200":
-          description: ok
-  /alpha:
-    get:
-      operationId: dup
-      responses:
-        "200":
-          description: ok
-`), "file:///spec.yaml")
-	if idx == nil || idx.Document == nil {
-		t.Fatal("expected parsed index")
-	}
-
-	diags := rule.Run(&barrelman.AnalysisContext{Index: idx, URI: "file:///spec.yaml"})
-	diags = stabilizeDiagnostics(idx, diags)
-	proto := DiagnosticsToProtocol(diags)
-	if len(proto) == 0 {
-		t.Fatal("expected protocol diagnostics")
-	}
-	var match *protocol.Diagnostic
-	for i := range proto {
-		if code, ok := proto[i].Code.(string); ok && code == "sailpoint-operation-id-unique" {
-			match = &proto[i]
-			break
-		}
-	}
-	if match == nil {
-		t.Fatalf("expected sailpoint-operation-id-unique diagnostic, got %+v", proto)
-	}
-	if match.CodeDescription == nil || match.CodeDescription.Href != protocol.URI(barrelman.GuidelineDocURL("122")) {
-		t.Fatalf("expected CodeDescription href %q, got %+v", barrelman.GuidelineDocURL("122"), match.CodeDescription)
-	}
-	if len(match.RelatedInformation) == 0 {
-		t.Fatalf("expected related information, got %+v", match)
-	}
-}
+// Private rule-pack rendering is covered by the downstream consumer that owns
+// those rules.

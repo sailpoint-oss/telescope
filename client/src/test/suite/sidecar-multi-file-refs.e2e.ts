@@ -67,7 +67,7 @@ suite("Sidecar: Multi-file Refs", () => {
 			relativePath,
 			[
 				'openapi: "3.2.0"',
-				"x-sailpoint-api:",
+				"x-example-api:",
 				"  version: v2025",
 				"  audience: external-public",
 				"info:",

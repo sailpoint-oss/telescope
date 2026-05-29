@@ -10,13 +10,10 @@ import (
 )
 
 const (
-	duplicateOperationIDCodeLegacy       = "operation-operationId-unique"
-	duplicateOperationIDCodeGuideline    = "sailpoint-operation-id-unique"
-	duplicateOperationIDPrefixLegacy     = "operationId '"
-	duplicateOperationIDPrefixGuideline  = "operationId '"
-	duplicateOperationIDMessage          = "' is already used at "
-	duplicateOperationIDRelatedLegacy    = "First defined here at %s"
-	duplicateOperationIDRelatedGuideline = "First defined here at %s"
+	duplicateOperationIDCode    = "operation-operationId-unique"
+	duplicateOperationIDPrefix  = "operationId '"
+	duplicateOperationIDMessage = "' is already used at "
+	duplicateOperationIDRelated = "First defined here at %s"
 )
 
 type duplicateOperationIDFirst struct {
@@ -64,7 +61,7 @@ func stabilizeDiagnostics(idx *navigator.Index, diags []barrelman.Diagnostic) []
 }
 
 func isDuplicateOperationIDCode(code string) bool {
-	return code == duplicateOperationIDCodeLegacy || code == duplicateOperationIDCodeGuideline
+	return code == duplicateOperationIDCode
 }
 
 func canonicalDuplicateOperationIDFirsts(doc *navigator.Document) map[string]duplicateOperationIDFirst {
@@ -99,25 +96,19 @@ func canonicalDuplicateOperationIDFirsts(doc *navigator.Document) map[string]dup
 }
 
 func duplicateOperationIDFromMessage(message string) (string, string, bool) {
-	for _, prefix := range []string{duplicateOperationIDPrefixLegacy, duplicateOperationIDPrefixGuideline} {
-		rest, ok := strings.CutPrefix(message, prefix)
-		if !ok {
-			continue
-		}
-		opID, _, ok := strings.Cut(rest, duplicateOperationIDMessage)
-		if !ok || opID == "" {
-			return "", "", false
-		}
-		return opID, prefix, true
+	rest, ok := strings.CutPrefix(message, duplicateOperationIDPrefix)
+	if !ok {
+		return "", "", false
 	}
-	return "", "", false
+	opID, _, ok := strings.Cut(rest, duplicateOperationIDMessage)
+	if !ok || opID == "" {
+		return "", "", false
+	}
+	return opID, duplicateOperationIDPrefix, true
 }
 
 func duplicateOperationIDRelatedMessage(prefix string) string {
-	if prefix == duplicateOperationIDPrefixGuideline {
-		return duplicateOperationIDRelatedGuideline
-	}
-	return duplicateOperationIDRelatedLegacy
+	return duplicateOperationIDRelated
 }
 
 func sortedDuplicateOperationIDPaths(paths map[string]*navigator.PathItem) []string {

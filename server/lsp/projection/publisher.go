@@ -31,7 +31,7 @@ type ProjectionData struct {
 type Publisher struct {
 	Resolver *Resolver
 	// WorkspaceRoot is the absolute filesystem root used to convert relative
-	// source file paths (from x-source-file) into full URIs.
+	// source file paths (from x-source.file) into full URIs.
 	WorkspaceRoot string
 }
 

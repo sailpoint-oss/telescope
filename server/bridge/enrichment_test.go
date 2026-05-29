@@ -63,7 +63,7 @@ func TestEnrichStructuralMessages_UnknownPointerPassthrough(t *testing.T) {
 
 func TestEnrichStructuralMessages_NonSchemaCodeUntouched(t *testing.T) {
 	diags := []barrelman.Diagnostic{{
-		Code:    "sp-115",
+		Code:    "custom-rule",
 		Message: "Parameter must include a description",
 		Data:    map[string]string{"pointer": "/paths/~1users/get/parameters/0"},
 	}}

@@ -229,18 +229,17 @@ func TestSemanticValidation_InvalidOpenAPI(t *testing.T) {
 	diags := runFullPipelineYAML(t, s.Content)
 	dumpDiags(t, "invalid-openapi-semantic", diags)
 
+	// Only generic, vendor-neutral rules are exercised here. Private rule-pack
+	// checks are covered by the consumers that own those rules.
 	expectedRules := []struct {
 		code    string
 		minHits int
 	}{
 		{"operation-description", 1},
-		{"sailpoint-operation-id-camel-case", 1},
-		{"sailpoint-tag-documented", 1},
 		{"info-contact", 1},
 		{"info-license", 1},
 		{"kebab-case", 1},
 		{"no-http-verbs", 1},
-		{"sailpoint-operation-id-unique", 1},
 	}
 
 	for _, exp := range expectedRules {
@@ -441,11 +440,8 @@ func TestDiagnosticSeverities_AreCorrect(t *testing.T) {
 	}
 
 	errorCodes := map[string]bool{
-		"duplicate-keys":                   true,
-		"oas3-schema":                      true,
-		"sailpoint-operation-id-unique":    true,
-		"sailpoint-operation-id-camel-case": true,
-		"sailpoint-tag-documented":         true,
+		"duplicate-keys": true,
+		"oas3-schema":    true,
 	}
 
 	for _, d := range diags {

@@ -161,8 +161,8 @@ func (e *Engine) convertResults(results []vmodel.RuleFunctionResult, uri string)
 
 func convertResult(result vmodel.RuleFunctionResult, uri string) barrelman.Diagnostic {
 	// Route the vacuum rule id through the bridge so diagnostics emitted by
-	// vacuum converge on the same canonical SailPoint slug that barrelman
-	// emits. Rules with no bridge entry pass through unchanged.
+	// vacuum converge on the same canonical slug that barrelman emits. Rules
+	// with no bridge entry pass through unchanged.
 	ruleID := bridge.Canonical(result.RuleId)
 	diag := barrelman.Diagnostic{
 		URI:      uri,

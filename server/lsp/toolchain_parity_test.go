@@ -32,10 +32,6 @@ func TestToolchainFixtureParity_BarrelmanRulesAndLSP(t *testing.T) {
 			codes: []string{"oas3-schema"},
 		},
 		{
-			name:  "test-duplicate-operation-ids",
-			codes: []string{"sailpoint-operation-id-unique"},
-		},
-		{
 			name:  "missing-path-parameters",
 			codes: []string{"path-params"},
 		},
@@ -139,7 +135,7 @@ func stabilizeDuplicateOperationIDDiagnostics(diags []barrelman.Diagnostic, doc 
 	copy(stable, diags)
 
 	for i := range stable {
-		if stable[i].Code != "operation-operationId-unique" && stable[i].Code != "sailpoint-operation-id-unique" {
+		if stable[i].Code != "operation-operationId-unique" {
 			continue
 		}
 		opID, ok := duplicateOperationIDFromMessage(stable[i].Message)

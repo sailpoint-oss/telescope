@@ -7,10 +7,10 @@ import (
 	"github.com/sailpoint-oss/telescope/server/rules"
 )
 
-// TestFilterAnalyzers_AllowlistSemantics captures the fix for the ruleset
-// gating bug described in docs/pr-review-tooling.md gap #9: when a user
-// extends a named preset (e.g. telescope:recommended), rules NOT present in
-// the preset must not run, even if they are not explicitly disabled.
+// TestFilterAnalyzers_AllowlistSemantics captures the allowlist gating
+// behaviour: when a user extends a named preset (e.g. telescope:recommended),
+// rules NOT present in the preset must not run, even if they are not
+// explicitly disabled.
 func TestFilterAnalyzers_AllowlistSemantics(t *testing.T) {
 	all := []rules.NamedAnalyzer{
 		{ID: "in-preset"},

@@ -86,7 +86,7 @@ type Extractor struct{}
 func NewExtractor() *Extractor { return &Extractor{} }
 
 // Extract runs cartographer extraction and renders the result as YAML bytes,
-// plus a SourceMap derived from the spec's x-source-* extensions.
+// plus a SourceMap derived from the spec's structured x-source metadata.
 //
 // ctx is accepted for future cancellation support; cartographer's current API
 // is synchronous so ctx is used only to abort before the run and to bound any

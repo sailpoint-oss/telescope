@@ -98,7 +98,7 @@ Every cartographer-extracted operation, schema, and field carries
 layer then translates a diagnostic's JSON pointer into the originating source
 location.
 
-Example: a `sailpoint-parameter-description` diagnostic on
+Example: a `parameter-description` diagnostic on
 `/paths/~1v1~1users/post/parameters/0/description` is resolved to
 `UserController.java:42` and re-published on that source URI, with
 `Data.ProjectedFrom = "telescope/generated"` so clients can distinguish

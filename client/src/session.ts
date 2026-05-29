@@ -115,6 +115,7 @@ export class Session implements vscode.Disposable {
 
 	/** Timer for delayed background scan */
 	private backgroundScanTimer: ReturnType<typeof setTimeout> | null = null;
+	private classificationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	/** Crash recovery state */
 	private restartAttempts = 0;
@@ -651,8 +652,25 @@ export class Session implements vscode.Disposable {
 		const fileWatcher = vscode.workspace.createFileSystemWatcher(
 			new vscode.RelativePattern(this.workspaceFolder, "**/*.{yaml,yml,json}"),
 		);
+		const scheduleClassify = (uri: vscode.Uri, recount: boolean) => {
+			const key = uri.toString();
+			const existing = this.classificationTimers.get(key);
+			if (existing) {
+				clearTimeout(existing);
+			}
+			this.classificationTimers.set(
+				key,
+				setTimeout(async () => {
+					this.classificationTimers.delete(key);
+					await this.scanner?.classifyFile(uri);
+					if (recount) {
+						this.scanner?.recount();
+					}
+				}, 150),
+			);
+		};
 
-		fileWatcher.onDidChange(async (uri) => {
+		fileWatcher.onDidChange((uri) => {
 			if (this.ownsUri(uri)) {
 				appendTraceEvent(this.outputChannel, "session.file.changed", {
 					workspace: this.workspaceFolder.uri.toString(),
@@ -660,7 +678,7 @@ export class Session implements vscode.Disposable {
 				});
 				this.scanner?.invalidate(uri.toString());
 				if (!this.matchesOpenAPIPatterns(uri)) return;
-				await this.scanner?.classifyFile(uri);
+				scheduleClassify(uri, false);
 			}
 		});
 
@@ -676,18 +694,25 @@ export class Session implements vscode.Disposable {
 			}
 		});
 
-		fileWatcher.onDidCreate(async (uri) => {
+		fileWatcher.onDidCreate((uri) => {
 			if (this.ownsUri(uri) && this.matchesOpenAPIPatterns(uri)) {
 				appendTraceEvent(this.outputChannel, "session.file.created", {
 					workspace: this.workspaceFolder.uri.toString(),
 					uri: uri.toString(),
 				});
-				await this.scanner?.classifyFile(uri);
-				this.scanner?.recount();
+				scheduleClassify(uri, true);
 			}
 		});
 
 		this.disposables.push(fileWatcher);
+		this.disposables.push({
+			dispose: () => {
+				for (const timer of this.classificationTimers.values()) {
+					clearTimeout(timer);
+				}
+				this.classificationTimers.clear();
+			},
+		});
 
 		const handleConfigChange = async () => {
 			this.log("Config file changed, reloading...");

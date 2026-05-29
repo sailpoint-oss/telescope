@@ -13,7 +13,7 @@ import (
 // table (server/rulesets/spectral_oas.go) previously listed as TODO. These
 // live alongside example-matches-format because they share the same shape
 // (walk navigator.Index, emit barrelman.Diagnostic) and are registered via
-// telescopeNativeRules() in register.go.
+// telescopeGenericRules() / telescopePolicyRules() in register.go.
 //
 // Scope (current): contact-properties, license-url.
 // Deferred: oas3-valid-media-example and oas3-valid-schema-example, which

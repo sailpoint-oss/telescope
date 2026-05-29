@@ -66,11 +66,11 @@ func TestResolveFixInputs_SingleFileAndDirectoryWalk(t *testing.T) {
 	dir := t.TempDir()
 	// Mix of matching and non-matching files, plus a nested dir.
 	files := map[string]string{
-		"a.yaml":      "x",
-		"b.yml":       "x",
-		"c.json":      "x",
-		"readme.md":   "x",
-		"nested/d.yaml": "x",
+		"a.yaml":         "x",
+		"b.yml":          "x",
+		"c.json":         "x",
+		"readme.md":      "x",
+		"nested/d.yaml":  "x",
 		"nested/skip.ts": "x",
 	}
 	for rel, body := range files {
@@ -215,7 +215,7 @@ func TestLoadFixWaivers_Present(t *testing.T) {
 		t.Fatal(err)
 	}
 	waiverBody := `waivers:
-  - rule: sailpoint-foo
+  - rule: example-foo
     pointer: "#/paths/~1x"
     reason: "needed"
     expires: "2030-01-01"
@@ -231,7 +231,7 @@ func TestLoadFixWaivers_Present(t *testing.T) {
 }
 
 func TestWriteFixText(t *testing.T) {
-	patch := codemod.Patch{RuleID: "sailpoint-foo", Description: "insert description"}
+	patch := codemod.Patch{RuleID: "example-foo", Description: "insert description"}
 	r1 := barrelman.FixResult{File: "a.yaml", Original: []byte("a"), Patched: []byte("b"), Patches: []codemod.Patch{patch}}
 	r2 := barrelman.FixResult{File: "b.yaml", Original: []byte("a"), Patched: []byte("a")}
 
@@ -239,7 +239,7 @@ func TestWriteFixText(t *testing.T) {
 	if !strings.Contains(out, "=== a.yaml") {
 		t.Errorf("expected file header for a.yaml, got: %s", out)
 	}
-	if !strings.Contains(out, "sailpoint-foo") {
+	if !strings.Contains(out, "example-foo") {
 		t.Errorf("expected rule id in output, got: %s", out)
 	}
 	if strings.Contains(out, "b.yaml") {

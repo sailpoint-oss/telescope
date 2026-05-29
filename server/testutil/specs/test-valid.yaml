@@ -1,5 +1,5 @@
 openapi: 3.1.0
-x-sailpoint-api:
+x-example-api:
   version: v2025
   audience: external-public
 info:
@@ -116,7 +116,7 @@ paths:
       operationId: testOperationUserLevelsValid
       summary: Get admin data
       description: Operation with valid user levels
-      x-sailpoint-userLevels:
+      x-example-userLevels:
         - ORG_ADMIN
         - USER
       tags:

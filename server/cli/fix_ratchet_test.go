@@ -239,7 +239,7 @@ func TestNoteFixApplied_UnwritableRoot(t *testing.T) {
 func TestGuardFixResults(t *testing.T) {
 	t.Parallel()
 	// No shrink patches -> no error.
-	insert := codemod.Patch{RuleID: "sailpoint-rule", StartByte: 10, EndByte: 10, Replacement: []byte("xyz")}
+	insert := codemod.Patch{RuleID: "example-rule", StartByte: 10, EndByte: 10, Replacement: []byte("xyz")}
 	ok := []barrelman.FixResult{{File: "a.yaml", Patches: []codemod.Patch{insert}}}
 	if err := guardFixResults(ok); err != nil {
 		t.Fatalf("insertion should be accepted, got err: %v", err)

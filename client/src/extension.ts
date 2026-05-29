@@ -35,6 +35,26 @@ const execFileAsync = promisify(execFile);
 /** Global session manager instance */
 let sessionManager: SessionManager | null = null;
 
+function debounce(fn: () => void, delayMs: number): (() => void) & vscode.Disposable {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const debounced = (() => {
+		if (timer) {
+			clearTimeout(timer);
+		}
+		timer = setTimeout(() => {
+			timer = undefined;
+			fn();
+		}, delayMs);
+	}) as (() => void) & vscode.Disposable;
+	debounced.dispose = () => {
+		if (timer) {
+			clearTimeout(timer);
+			timer = undefined;
+		}
+	};
+	return debounced;
+}
+
 function protocolRangeToCodeRange(range: {
 	start: { line: number; character: number };
 	end: { line: number; character: number };
@@ -356,7 +376,7 @@ export async function activate(context: ExtensionContext) {
 			breakingChangesView,
 		);
 
-		const refreshOpenAPIViews = () => {
+		const refreshOpenAPIViewsNow = () => {
 			openAPIFilesProvider.refresh();
 			breakingChangesProvider.refresh();
 			const contractSummary = contractTestsProvider.getSummary();
@@ -385,7 +405,9 @@ export async function activate(context: ExtensionContext) {
 				breakingStatusBarItem.show();
 			}
 		};
-		refreshOpenAPIViews();
+		const refreshOpenAPIViews = debounce(refreshOpenAPIViewsNow, 200);
+		context.subscriptions.push(refreshOpenAPIViews);
+		refreshOpenAPIViewsNow();
 
 		// Deprecated element decorations: red italic "deprecated" label after the name
 		const deprecatedDecorationType =

@@ -95,7 +95,7 @@ tags:
               <UDN>uuid:42fde8e4-93b6-41e5-8a63-12d848655811</UDN>
               <serviceList>
                   <service>
-                      <URLBase>http://10.0.0.5:8088</URLBase>
+                      <URLBase>http://192.0.2.5:8088</URLBase>
                       <serviceType>urn:plex-tv:service:MediaGrabber:1</serviceType>
                       <serviceId>urn:plex-tv:serviceId:MediaGrabber</serviceId>
                   </service>
@@ -2532,7 +2532,7 @@ paths:
           in: query
           schema:
             type: string
-          example: http://10.0.0.5
+          example: http://192.0.2.5
       responses:
         "200":
           description: OK

@@ -84,16 +84,13 @@ func TestRuleDefinitionUnmarshalArray(t *testing.T) {
 	}
 }
 
-func TestLoadBytes_NormalizesLegacyRuleIDs(t *testing.T) {
+func TestLoadBytes_PreservesUnmappedRuleIDs(t *testing.T) {
 	rs, err := rulesets.LoadBytes([]byte("rules:\n  operation-tags: error\n"))
 	if err != nil {
 		t.Fatalf("LoadBytes: %v", err)
 	}
-	if _, ok := rs.Rules["operation-tags"]; ok {
-		t.Fatalf("expected legacy rule ID to be normalized, got %+v", rs.Rules)
-	}
-	if def, ok := rs.Rules["sailpoint-operation-single-tag"]; !ok {
-		t.Fatalf("expected sailpoint-operation-single-tag rule, got %+v", rs.Rules)
+	if def, ok := rs.Rules["operation-tags"]; !ok {
+		t.Fatalf("expected operation-tags rule, got %+v", rs.Rules)
 	} else if def.Severity != "error" {
 		t.Fatalf("Severity = %q, want error", def.Severity)
 	}

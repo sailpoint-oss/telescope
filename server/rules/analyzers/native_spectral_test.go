@@ -99,7 +99,7 @@ func TestLicenseURL_NilSafe(t *testing.T) {
 }
 
 func TestNativeSpectralRegistry(t *testing.T) {
-	rules := telescopeNativeRules()
+	rules := telescopeGenericRules()
 	ids := make(map[string]bool, len(rules))
 	for _, r := range rules {
 		ids[r.ID] = true

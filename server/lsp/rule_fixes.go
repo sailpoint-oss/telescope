@@ -12,13 +12,10 @@ import (
 	navigator "github.com/sailpoint-oss/navigator"
 )
 
-// sailpointFixActions returns CodeActions backed by the barrelman
-// codemod framework for a single diagnostic. Returns nil when the
-// diagnostic's rule has no Fix attached or when the fix declines to
-// produce patches (typically because the target has already been
-// corrected). The returned actions have Kind = "quickfix" and carry
-// a WorkspaceEdit built from the patches.
-func sailpointFixActions(uri protocol.DocumentURI, idx *navigator.Index, doc *document.Document, diag protocol.Diagnostic) []protocol.CodeAction {
+// ruleFixActions returns CodeActions backed by the barrelman codemod framework
+// for a single diagnostic. Returns nil when the diagnostic's rule has no Fix
+// attached or when the fix declines to produce patches.
+func ruleFixActions(uri protocol.DocumentURI, idx *navigator.Index, doc *document.Document, diag protocol.Diagnostic) []protocol.CodeAction {
 	if idx == nil || doc == nil {
 		return nil
 	}
@@ -31,10 +28,8 @@ func sailpointFixActions(uri protocol.DocumentURI, idx *navigator.Index, doc *do
 		return nil
 	}
 
-	// Translate the protocol diagnostic back into a barrelman
-	// diagnostic carrying the byte range the fix needs. Tree-sitter
-	// byte offsets are derived from the start/end positions by
-	// walking the document's text; we compute them from the range.
+	// Translate the protocol diagnostic back into a barrelman diagnostic
+	// carrying the byte range the fix needs.
 	content := []byte(doc.Text())
 	startByte, endByte, okRange := rangeToByteSpan(content, diag.Range)
 	if !okRange {
@@ -91,8 +86,8 @@ func sailpointFixActions(uri protocol.DocumentURI, idx *navigator.Index, doc *do
 	}}
 }
 
-// findBarrelmanRule looks up a rule in the barrelman DefaultRegistry
-// by ID. Returns false when no rule with that ID is registered.
+// findBarrelmanRule looks up a rule in the barrelman DefaultRegistry by ID.
+// Returns false when no rule with that ID is registered.
 func findBarrelmanRule(id string) (barrelman.Rule, bool) {
 	for _, r := range barrelman.DefaultRegistry.AllRules() {
 		if r.ID == id {
@@ -102,9 +97,9 @@ func findBarrelmanRule(id string) (barrelman.Rule, bool) {
 	return barrelman.Rule{}, false
 }
 
-// rangeToByteSpan converts an LSP (line, UTF-16 character) Range into
-// a (startByte, endByte) span in content. Returns false when the
-// range falls outside the document.
+// rangeToByteSpan converts an LSP (line, UTF-16 character) Range into a
+// (startByte, endByte) span in content. Returns false when the range falls
+// outside the document.
 func rangeToByteSpan(content []byte, r protocol.Range) (int, int, bool) {
 	s, ok := positionToByte(content, r.Start)
 	if !ok {
@@ -120,9 +115,8 @@ func rangeToByteSpan(content []byte, r protocol.Range) (int, int, bool) {
 	return s, e, true
 }
 
-// positionToByte walks content, counting newlines and UTF-16 code
-// units on the target line, until it reaches the requested position.
-// Uses the LSP UTF-16 convention.
+// positionToByte walks content, counting newlines and UTF-16 code units on the
+// target line, until it reaches the requested position.
 func positionToByte(content []byte, pos protocol.Position) (int, bool) {
 	line := uint32(0)
 	col := uint32(0)

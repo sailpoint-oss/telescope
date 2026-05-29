@@ -1,5 +1,5 @@
 openapi: 3.1.0
-x-sailpoint-api:
+x-example-api:
   version: v2025
   audience: external-public
 info:

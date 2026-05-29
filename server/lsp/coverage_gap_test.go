@@ -772,7 +772,7 @@ func TestCompletionContextHelpers(t *testing.T) {
 	if !isHeaderContext("headers:") || !isContentContext("content:") || !isPathTemplateContext("/users:") {
 		t.Fatal("expected positive helper classifications")
 	}
-	if !isSecurityScopeContext("bearerAuth: [read]") || !isExtensionContext("x-sailpoint:") {
+	if !isSecurityScopeContext("bearerAuth: [read]") || !isExtensionContext("x-example:") {
 		t.Fatal("expected positive security/extension classifications")
 	}
 	if isPathTemplateContext("users:") || isExtensionContext("summary: test") {

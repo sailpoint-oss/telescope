@@ -8,10 +8,10 @@ import (
 	"github.com/sailpoint-oss/barrelman/rulesets/bridge"
 )
 
-// canonicalRuleID returns the canonical SailPoint slug for an aliased
-// rule id (vacuum, spectral, or legacy kebab), or the input unchanged
-// if no bridge entry applies. Lookups go through barrelman's bridge
-// so telescope and barrelman stay in sync.
+// canonicalRuleID returns the canonical slug for an aliased rule id (vacuum,
+// spectral, or legacy kebab), or the input unchanged if no bridge entry
+// applies. Lookups go through barrelman's bridge so telescope and barrelman
+// stay in sync.
 func canonicalRuleID(code string) string {
 	return bridge.Canonical(code)
 }
@@ -19,8 +19,8 @@ func canonicalRuleID(code string) string {
 // Deduplicate keeps all primary diagnostics and drops secondary diagnostics
 // that collide on start position plus a canonical category bucket. The
 // canonical bucket folds aliased rule pairs (for example
-// `parameter-description` and `sailpoint-parameter-description`) onto a
-// single key so reviewers see one row per underlying rule.
+// aliased diagnostics onto a single key so reviewers see one row per
+// underlying rule.
 func Deduplicate(primary []protocol.Diagnostic, secondary []protocol.Diagnostic) []protocol.Diagnostic {
 	if len(primary) == 0 {
 		return append([]protocol.Diagnostic(nil), secondary...)
@@ -46,9 +46,8 @@ func Deduplicate(primary []protocol.Diagnostic, secondary []protocol.Diagnostic)
 
 // DeduplicateWithin folds aliased rule IDs within a single diagnostic stream.
 // Callers like the lintengine apply this after merging Barrelman + Vacuum
-// results to ensure the combined set does not emit both the canonical
-// SailPoint slug and its vacuum/spectral/legacy alias for the same
-// source location.
+// results to ensure the combined set does not emit both a canonical slug and
+// its vacuum/spectral/legacy alias for the same source location.
 func DeduplicateWithin(diags []protocol.Diagnostic) []protocol.Diagnostic {
 	if len(diags) <= 1 {
 		return diags
@@ -59,8 +58,8 @@ func DeduplicateWithin(diags []protocol.Diagnostic) []protocol.Diagnostic {
 		key := dedupKey(diag)
 		if idx, ok := seen[key]; ok {
 			// Prefer the diagnostic whose code already matches the canonical
-			// bucket (has the richer guideline-link metadata). If the existing
-			// entry is canonical, keep it; otherwise swap.
+			// bucket. If the existing entry is canonical, keep it; otherwise
+			// swap.
 			existingCode, _ := out[idx].Code.(string)
 			newCode, _ := diag.Code.(string)
 			if existingCode != canonicalRuleID(existingCode) && newCode == canonicalRuleID(newCode) {

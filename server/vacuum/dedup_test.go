@@ -46,56 +46,49 @@ func TestDeduplicate_PrefersPrimaryAtSameLocation(t *testing.T) {
 	}
 }
 
-// TestDeduplicate_FoldsAliasPairs confirms the cross-engine dedup drops
-// one of each aliased pair (vacuum-shaped alongside canonical SailPoint)
-// when both land at the same source location. The categoryBucket routes
-// the code through the barrelman bridge so
-// `parameter-description` and `sailpoint-parameter-description` collide
-// on the same key.
+// TestDeduplicate_FoldsExactMatches confirms the cross-engine dedup drops
+// duplicate diagnostics when both engines land at the same source location.
 func TestDeduplicate_FoldsAliasPairs(t *testing.T) {
 	pos := protocol.Range{
 		Start: protocol.Position{Line: 10, Character: 4},
 		End:   protocol.Position{Line: 10, Character: 20},
 	}
 	primary := []protocol.Diagnostic{
-		{Range: pos, Code: "sailpoint-parameter-description", Message: "missing description", Source: "telescope"},
-		{Range: pos, Code: "sailpoint-operation-4xx-response", Message: "missing 4xx", Source: "telescope"},
+		{Range: pos, Code: "parameter-description", Message: "missing description", Source: "telescope"},
+		{Range: pos, Code: "operation-4xx-response", Message: "missing 4xx", Source: "telescope"},
 	}
 	secondary := []protocol.Diagnostic{
-		{Range: pos, Code: "parameter-description", Message: "alias of sailpoint-parameter-description", Source: Source},
-		{Range: pos, Code: "missing-error-responses", Message: "alias of sailpoint-operation-4xx-response", Source: Source},
+		{Range: pos, Code: "parameter-description", Message: "duplicate description", Source: Source},
+		{Range: pos, Code: "operation-4xx-response", Message: "duplicate 4xx", Source: Source},
 	}
 	got := Deduplicate(primary, secondary)
 	if len(got) != 2 {
-		t.Fatalf("alias-aliased secondaries should collapse onto primaries; got %d: %+v", len(got), got)
+		t.Fatalf("duplicates should collapse onto primaries; got %d: %+v", len(got), got)
 	}
 	for _, d := range got {
-		if code, _ := d.Code.(string); code == "parameter-description" || code == "missing-error-responses" {
-			t.Fatalf("alias %q should have been dropped; got %+v", code, got)
+		if d.Source == Source {
+			t.Fatalf("secondary diagnostic should have been dropped; got %+v", got)
 		}
 	}
 }
 
-// TestDeduplicateWithin_FoldsAliasPairs covers the single-stream dedup
-// path used after Barrelman+Vacuum merge. Both the canonical SailPoint
-// slug and its vacuum-shaped alias share a bridge bucket, so the
-// second one collapses onto the first.
+// TestDeduplicateWithin_FoldsDuplicateCodes covers the single-stream dedup path
+// used after Barrelman+Vacuum merge.
 func TestDeduplicateWithin_FoldsAliasPairs(t *testing.T) {
 	pos := protocol.Range{
 		Start: protocol.Position{Line: 1, Character: 0},
 		End:   protocol.Position{Line: 1, Character: 5},
 	}
 	diags := []protocol.Diagnostic{
-		{Range: pos, Code: "parameter-description", Message: "alias first"},
-		{Range: pos, Code: "sailpoint-parameter-description", Message: "canonical second"},
+		{Range: pos, Code: "parameter-description", Message: "first"},
+		{Range: pos, Code: "parameter-description", Message: "second"},
 	}
 	got := DeduplicateWithin(diags)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 diagnostic after within-dedup, got %d: %+v", len(got), got)
 	}
-	// Canonical rule should win even when it arrives second.
-	if code, _ := got[0].Code.(string); code != "sailpoint-parameter-description" {
-		t.Fatalf("expected canonical sailpoint-parameter-description to be retained, got %q (msg=%q)", code, got[0].Message)
+	if code, _ := got[0].Code.(string); code != "parameter-description" {
+		t.Fatalf("expected parameter-description to be retained, got %q (msg=%q)", code, got[0].Message)
 	}
 }
 
@@ -104,8 +97,8 @@ func TestDeduplicateWithin_FoldsAliasPairs(t *testing.T) {
 // positions.
 func TestDeduplicateWithin_KeepsDistinctLocations(t *testing.T) {
 	diags := []protocol.Diagnostic{
-		{Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}}, Code: "sailpoint-parameter-description"},
-		{Range: protocol.Range{Start: protocol.Position{Line: 5, Character: 2}}, Code: "sailpoint-parameter-description"},
+		{Range: protocol.Range{Start: protocol.Position{Line: 1, Character: 0}}, Code: "parameter-description"},
+		{Range: protocol.Range{Start: protocol.Position{Line: 5, Character: 2}}, Code: "parameter-description"},
 	}
 	got := DeduplicateWithin(diags)
 	if len(got) != 2 {
@@ -115,12 +108,11 @@ func TestDeduplicateWithin_KeepsDistinctLocations(t *testing.T) {
 
 func TestCanonicalRuleID(t *testing.T) {
 	cases := map[string]string{
-		"parameter-description":           "sailpoint-parameter-description",
-		"missing-error-responses":         "sailpoint-operation-4xx-response",
-		"missing-pagination":              "sailpoint-collection-offset-pagination",
-		"sailpoint-parameter-description": "sailpoint-parameter-description",
-		"some-other-rule":                 "some-other-rule",
-		"":                                "",
+		"no-trailing-slash":     "path-keys-no-trailing-slash",
+		"template-valid":        "path-declarations-must-exist",
+		"parameter-description": "parameter-description",
+		"some-other-rule":       "some-other-rule",
+		"":                      "",
 	}
 	for in, want := range cases {
 		if got := canonicalRuleID(in); got != want {

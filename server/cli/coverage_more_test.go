@@ -27,7 +27,7 @@ func TestBaselineSaveLoadCompare(t *testing.T) {
 	current := []fileDiagnostics{{
 		Path: "spec.yaml",
 		Diagnostics: []protocol.Diagnostic{{
-			Code:    "sailpoint-operation-single-tag",
+			Code:    "operation-tags",
 			Message: "missing tags",
 			Range: protocol.Range{
 				Start: protocol.Position{Line: 4},
@@ -50,14 +50,14 @@ func TestBaselineSaveLoadCompare(t *testing.T) {
 	comp := CompareBaseline(baseline, []fileDiagnostics{{
 		Path: "spec.yaml",
 		Diagnostics: []protocol.Diagnostic{{
-			Code:    "sailpoint-operation-single-tag",
+			Code:    "operation-tags",
 			Message: "missing tags",
 			Range: protocol.Range{
 				Start: protocol.Position{Line: 4},
 				End:   protocol.Position{Line: 4, Character: 10},
 			},
 		}, {
-			Code:    "sailpoint-error-problem-details-shared-component",
+			Code:    "error-problem-details-shared-component",
 			Message: "missing error response",
 			Range: protocol.Range{
 				Start: protocol.Position{Line: 8},

@@ -17,7 +17,7 @@ func TestCheckFormat_AcceptsValid(t *testing.T) {
 		{"uuid", "550e8400-e29b-41d4-a716-446655440000"},
 		{"email", "user@example.com"},
 		{"uri", "https://example.com/path"},
-		{"ipv4", "192.168.1.1"},
+		{"ipv4", "203.0.113.1"},
 		{"ipv6", "2001:db8::1"},
 		{"hostname", "api.example.com"},
 		// An unknown format must pass through without failing.
@@ -45,7 +45,7 @@ func TestCheckFormat_RejectsInvalid(t *testing.T) {
 		{"email", "no-at-sign"},
 		{"uri", "relative-only"},
 		{"ipv4", "999.999.999.999"},
-		{"ipv6", "192.168.1.1"}, // IPv4 passed as IPv6
+		{"ipv6", "203.0.113.1"}, // IPv4 passed as IPv6
 		{"hostname", "not a hostname with spaces"},
 	}
 	for _, tc := range cases {
@@ -57,8 +57,8 @@ func TestCheckFormat_RejectsInvalid(t *testing.T) {
 	}
 }
 
-// TestCheckFormat_EmptyExampleFlagged reproduces the Cursor Bugbot class of
-// bug: a YAML round-trip silently turned `created: '2021-09-28T02:15:44.644Z'`
+// TestCheckFormat_EmptyExampleFlagged reproduces a common class of bug:
+// a YAML round-trip silently turned `created: '2021-09-28T02:15:44.644Z'`
 // into `created: {}`, which navigator exposes as an Example node with an
 // empty Value. The rule must flag this as a non-string example.
 func TestCheckFormat_EmptyExampleFlagged(t *testing.T) {

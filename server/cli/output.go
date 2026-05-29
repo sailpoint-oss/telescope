@@ -69,11 +69,11 @@ func fixSuggestion(ruleID string) string {
 	switch ruleID {
 	case "operation-description", "deprecated-description":
 		return "(add 'description' field)"
-	case "sailpoint-operation-id-camel-case":
+	case "operation-operationId":
 		return "(add 'operationId' field)"
-	case "sailpoint-operation-single-tag":
+	case "operation-tags":
 		return "(add an operation tag)"
-	case "sailpoint-operation-4xx-response":
+	case "operation-4xx-response":
 		return "(add standard error responses)"
 	case "no-request-body-on-get":
 		return "(remove requestBody)"

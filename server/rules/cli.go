@@ -1,6 +1,9 @@
 package rules
 
 import (
+	"reflect"
+	"sync"
+
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/LukasParke/gossip"
@@ -10,6 +13,13 @@ import (
 	"github.com/sailpoint-oss/telescope/server/lsp/adapt"
 	"github.com/sailpoint-oss/telescope/server/openapi"
 )
+
+var collectAllCache sync.Map
+
+type collectAllCacheEntry struct {
+	analyzers []NamedAnalyzer
+	checks    []NamedCheck
+}
 
 // NamedAnalyzer pairs a rule ID with its built analyzer for use outside the
 // gossip LSP server (e.g., CLI lint mode).
@@ -30,6 +40,12 @@ type NamedCheck struct {
 // checks. This uses gossip Server hooks to capture everything, including
 // analyzers registered directly via s.Analyze() (like oas3-schema).
 func CollectAll(analyzerFn, checkFn func(s *gossip.Server)) ([]NamedAnalyzer, []NamedCheck) {
+	key := collectAllCacheKey(analyzerFn, checkFn)
+	if cached, ok := collectAllCache.Load(key); ok {
+		entry := cached.(collectAllCacheEntry)
+		return cloneNamedAnalyzers(entry.analyzers), cloneNamedChecks(entry.checks)
+	}
+
 	var collectedAnalyzers []NamedAnalyzer
 	var collectedChecks []NamedCheck
 
@@ -44,7 +60,31 @@ func CollectAll(analyzerFn, checkFn func(s *gossip.Server)) ([]NamedAnalyzer, []
 
 	analyzerFn(s)
 	checkFn(s)
+	entry := collectAllCacheEntry{
+		analyzers: cloneNamedAnalyzers(collectedAnalyzers),
+		checks:    cloneNamedChecks(collectedChecks),
+	}
+	collectAllCache.Store(key, entry)
 	return collectedAnalyzers, collectedChecks
+}
+
+func collectAllCacheKey(analyzerFn, checkFn func(s *gossip.Server)) [2]uintptr {
+	return [2]uintptr{
+		reflect.ValueOf(analyzerFn).Pointer(),
+		reflect.ValueOf(checkFn).Pointer(),
+	}
+}
+
+func cloneNamedAnalyzers(in []NamedAnalyzer) []NamedAnalyzer {
+	out := make([]NamedAnalyzer, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneNamedChecks(in []NamedCheck) []NamedCheck {
+	out := make([]NamedCheck, len(in))
+	copy(out, in)
+	return out
 }
 
 // CollectAnalyzers calls fn (which should invoke RegisterAll for analyzers)

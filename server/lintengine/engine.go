@@ -129,7 +129,7 @@ func Run(ctx context.Context, opts Options, logger *slog.Logger) (*RunResult, er
 			}
 			diags = vacuum.Deduplicate(diags, adapt.DiagnosticsToProtocol(vacuumDiags))
 		}
-		// Fold aliased rule IDs (parameter-description → sp-115 etc.) so
+		// Fold aliased rule IDs so
 		// reviewers only see one diagnostic per underlying rule.
 		diags = vacuum.DeduplicateWithin(diags)
 		diags = filterDisabledDiagnostics(diags, enabledRules)
@@ -363,8 +363,6 @@ func pathToFileURI(fsPath string) string {
 //
 // Prior behavior skipped only rules explicitly set to `off`, which let OWASP
 // and other non-recommended rules run under `extends: telescope:recommended`.
-// See .telescope/TRIAGE-SUMMARY.md §3.2 in cloud-api-client-common for the bug
-// report, and docs/pr-review-tooling.md gap #9.
 func filterAnalyzers(all []rules.NamedAnalyzer, enabled map[string]bool) []rules.NamedAnalyzer {
 	if len(enabled) == 0 {
 		return all

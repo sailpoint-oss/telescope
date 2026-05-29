@@ -38,9 +38,8 @@ func WrapForGossip(rule barrelman.Rule) treesitter.Analyzer {
 // we only prefix when the location is unambiguously one of the well-known
 // classes (Response Object, Reference Object, Path Item, Operation).
 //
-// Closes docs/pr-review-tooling.md gap #2 without requiring a Barrelman
-// upstream release: the issueCode + pointer payload barrelman already emits
-// is sufficient to classify the violation.
+// The issueCode + pointer payload barrelman already emits is sufficient to
+// classify the violation without a Barrelman upstream change.
 func enrichStructuralMessages(diags []barrelman.Diagnostic) []barrelman.Diagnostic {
 	for i := range diags {
 		if diags[i].Code != "oas3-schema" {

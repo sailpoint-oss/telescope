@@ -337,9 +337,9 @@ func TestFixSuggestion_DeepCoverage(t *testing.T) {
 		want string
 	}{
 		{"deprecated-description", "(add 'description' field)"},
-		{"sailpoint-operation-id-camel-case", "(add 'operationId' field)"},
-		{"sailpoint-operation-single-tag", "(add an operation tag)"},
-		{"sailpoint-operation-4xx-response", "(add standard error responses)"},
+		{"operation-operationId", "(add 'operationId' field)"},
+		{"operation-tags", "(add an operation tag)"},
+		{"operation-4xx-response", "(add standard error responses)"},
 		{"no-request-body-on-get", "(remove requestBody)"},
 		{"migration-nullable", "(use type array in 3.1)"},
 		{"unknown-rule", ""},
@@ -462,4 +462,3 @@ func TestCiShouldFail(t *testing.T) {
 		t.Error("expected warning NOT to fail with ciFailOn=error")
 	}
 }
-

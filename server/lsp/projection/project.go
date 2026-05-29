@@ -2,8 +2,8 @@
 // that contributed each spec element.
 //
 // A diagnostic attached to e.g. /paths/~1foo/get/responses/200 is translated
-// to the Go / Java / TS source location recorded in the spec's x-source-*
-// extensions (consumed through cartographer's sourcemap package). The result
+// to the Go / Java / TS source location recorded in the spec's structured
+// x-source metadata (consumed through cartographer's sourcemap package). The result
 // is one or more additional diagnostics that the editor can render on the
 // originating source line, giving developers squiggles where the bug
 // actually lives.

@@ -1,5 +1,5 @@
 openapi: 3.1.0
-x-sailpoint-api:
+x-example-api:
   version: v2025
   audience: external-public
 info:
@@ -260,7 +260,7 @@ paths:
       operationId: testOperationUserLevelsInvalidFormat
       summary: Get data
       description: Operation with invalid user level format
-      x-sailpoint-userLevels:
+      x-example-userLevels:
         - org-admin
       tags:
         - Users
@@ -636,7 +636,7 @@ paths:
       description: Get pet owner by petId and ownerId - missing both path parameters
       tags:
         - Users
-      x-sailpoint-userLevels:
+      x-example-userLevels:
         - ADMIN
       security:
         - userAuth: []
@@ -846,10 +846,10 @@ paths:
                       name:
                         type: string
 
-  # Note: Root-level error tests (missing info, missing x-sailpoint-api, etc.)
+  # Note: Root-level error tests (missing info, missing x-example-api, etc.)
   # must be in separate files since they test the root document structure itself.
   # See: test-info-should-error-when-info-section-is-missing.yaml
-  #      test-sailpoint-api-should-error-when-*.yaml
+  #      test-example-api-should-error-when-*.yaml
   #      test-ascii-should-error-when-non-ascii-characters-are-present.yaml
 
   # Unresolved Ref - Error

@@ -1,0 +1,7 @@
+# Local skip-globs additions. Not overwritten on regen.
+# One glob per line; # begins a comment.
+
+# Third-party OpenAPI fixtures vendored verbatim. We cannot edit Plex's spec
+# to remove RFC 1918 examples or MPEG-DASH URN namespaces from its example
+# server entries.
+server/testutil/specs/Plex-API.yaml

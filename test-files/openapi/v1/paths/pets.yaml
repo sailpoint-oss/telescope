@@ -6,7 +6,7 @@ get:
   description: Retrieve a list of all pets from the store with pagination support
   security:
     - userAuth: []
-  x-sailpoint-userLevels:
+  x-example-userLevels:
     - Admin
     - User
   parameters:

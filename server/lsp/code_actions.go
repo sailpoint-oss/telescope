@@ -86,14 +86,13 @@ func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.Code
 			}
 
 			if ruleID != "" {
-				// SailPoint rule auto-fix (Phase 2 codemod framework).
-				// Offered first so it appears above the Suppress /
-				// View-docs actions in editor menus.
+				// Rule auto-fixes are offered first so they appear above the
+				// suppress and view-docs actions in editor menus.
 				var navIdx *navigator.Index
 				if idx != nil {
 					navIdx = idx.NavigatorIndex()
 				}
-				actions = append(actions, sailpointFixActions(uri, navIdx, doc, diag)...)
+				actions = append(actions, ruleFixActions(uri, navIdx, doc, diag)...)
 
 				actions = append(actions, protocol.CodeAction{
 					Title:       fmt.Sprintf("Suppress '%s' for this line", ruleID),

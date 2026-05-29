@@ -11,7 +11,7 @@
 
 - **Real-time Diagnostics** - See linting issues as you type in VS Code
 - **Navigator-backed Structural Diagnostics** - Canonical parse, schema-shape, and meta-schema issues surfaced live in the editor
-- **88 Built-in OpenAPI Rules** - Barrelman-backed lint coverage for naming, security, paths, documentation, and OWASP guidance
+- **Vendor-neutral built-in rule set** - Barrelman-backed lint coverage for naming, security, paths, documentation, and OWASP guidance. Branded rule packs (organisation-specific guideline families) attach via the `barrelman.RulePack` plug-in surface, so the default install ships only generic OpenAPI rules.
 - **Multi-file Support** - Full `$ref` resolution across your API project
 - **Custom Rules** - YAML rules in config, Bun sidecar TypeScript/JavaScript rules, and Spectral-compatible YAML rulesets
 - **Pattern Matching** - Glob-based file inclusion/exclusion
@@ -105,11 +105,11 @@ See [docs/CONFIGURATION-V2.md](docs/CONFIGURATION-V2.md) for the full `v2` confi
 
 ### Toolchain ownership
 
-- **Navigator** - Parse, index, schema/meta validation, fragment semantics, and canonical document issues for OpenAPI and Arazzo
-- **Barrelman** - Shared lint/check execution and built-in rule catalogs
-- **Barometer** - Contract-test HTTP execution; linked into the Telescope binary for in-process runs (no separate Barometer install)
-- **Cartographer** - Service-local source extraction; Telescope wraps it for the LSP generation loop and `telescope generate`
-- **Telescope** - VS Code client, LSP handlers, diagnostics aggregation, custom-rule runtimes, generation loop, and spec-side CLI/editor UX
+- **Navigator** - Parse, index, schema/meta validation, fragment semantics, and canonical document issues for OpenAPI and Arazzo.
+- **Barrelman** - Shared lint/check execution and built-in generic rule catalog. Exposes a `RulePack` plug-in interface (`RegisterPlugin` / `ApplyPlugins`) so downstream consumers can attach branded rule packs without forking.
+- **Barometer** - Contract-test HTTP execution; linked into the Telescope binary for in-process runs (no separate Barometer install).
+- **Cartographer** - Service-local source extraction with neutral `x-source-*` evidence extensions; Telescope wraps it for the LSP generation loop and `telescope generate`.
+- **Telescope** - VS Code client, LSP handlers, diagnostics aggregation, custom-rule runtimes, generation loop, and spec-side CLI/editor UX. Ships only vendor-neutral rules; branded rules attach via the Barrelman plug-in surface.
 
 Contract tests are configured under `testing.contract` in `.telescope/config.yaml` (base URL, credentials keyed by OpenAPI security scheme names, shared `workspace.envFiles` for dotenv loading, optional TLS/mTLS file paths, optional OAuth token exchange, concurrency, and Wiretap settings). Workspace `.env` / `.env.local` are loaded and reloaded when those files change (same watcher as Telescope config). The editor runs tests asynchronously via LSP (`telescope.runContractTests`); the CLI runs the same engine with `telescope contract test <spec.yaml>`. See [docs/CONFIGURATION-V2.md](docs/CONFIGURATION-V2.md).
 
@@ -225,29 +225,35 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Built-in Rules
 
-Telescope includes **88** built-in OpenAPI rules organized into rulesets:
+Telescope ships only **vendor-neutral** rules: generic OAS / OWASP / naming / documentation / structure / paths / types / servers / references / syntax. Branded guideline rules (organisation-specific naming, layout, or extension policies) attach at runtime via the `barrelman.RulePack` plug-in surface (see the Custom Rules section below).
+
+The built-in rules are organised into rulesets:
 
 | Ruleset | Description |
 | ------- | ----------- |
-| `telescope:recommended` | 50 curated rules for most projects |
-| `telescope:all` | All 56 non-OWASP rules |
-| `telescope:owasp` | 32 OWASP API security rules |
+| `telescope:recommended` | Curated default suite for most projects |
+| `telescope:all` | Every non-OWASP rule |
+| `telescope:owasp` | OWASP API security ruleset (Spectral OWASP v2.x parity) |
 | `telescope:strict` | Recommended + OWASP combined |
 
-| Category | Count | Examples |
-| -------- | ----- | -------- |
-| Structure | 14 | Structural/schema coverage surfaced through Navigator and Barrelman parity checks |
-| Documentation | 17 | Descriptions, deprecation, markdown quality |
-| Paths | 8 | Kebab-case, trailing slashes, parameter matching |
-| Naming | 4 | Schema/example casing, operationId uniqueness |
-| Security | 4 | API key placement, OAuth URLs, security requirements |
-| Types | 4 | Format validation, example type/enum matching |
-| Servers | 2 | Server definitions, HTTPS |
-| References | 1 | Unresolved `$ref` detection |
-| Syntax | 2 | Duplicate keys, ASCII |
-| OWASP | 32 | Full Spectral OWASP v2.x parity |
+| Category | Examples |
+| -------- | -------- |
+| Structure | Structural/schema coverage surfaced through Navigator and Barrelman parity checks |
+| Documentation | Descriptions, deprecation, markdown quality |
+| Paths | Kebab-case, trailing slashes, parameter matching |
+| Naming | Schema/example casing, operationId uniqueness |
+| Security | API key placement, OAuth URLs, security requirements |
+| Types | Format validation, example type/enum matching |
+| Servers | Server definitions, HTTPS |
+| References | Unresolved `$ref` detection |
+| Syntax | Duplicate keys, ASCII |
+| OWASP | Full Spectral OWASP v2.x parity |
 
 See [docs/RULES.md](docs/RULES.md) for the complete rule reference with IDs and descriptions.
+
+### Plug-in surface for branded rule packs
+
+Downstream consumers can register additional rules by implementing `barrelman.RulePack` and calling `barrelman.RegisterPlugin` from their package `init()`. Telescope's lint engine applies every registered plug-in alongside the generic rule set, so any binary that blank-imports the consumer's package picks up the extra rules automatically.
 
 ## CLI
 
@@ -375,6 +381,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 - [Publishing Guide](docs/PUBLISHING.md)
 - [Architecture](ARCHITECTURE.md)
 - [Contributing](CONTRIBUTING.md)
+
+## Related Repositories
+
+This repo is part of a six-repo OpenAPI toolchain:
+
+- [tree-sitter-openapi](https://github.com/sailpoint-oss/tree-sitter-openapi) — grammar and tree-sitter bindings
+- [navigator](https://github.com/sailpoint-oss/navigator) — parse, index, `$ref` resolution, document validation
+- [barrelman](https://github.com/sailpoint-oss/barrelman) — generic OpenAPI lint rules and plug-in surface
+- [cartographer](https://github.com/sailpoint-oss/cartographer) — source-to-OpenAPI extractor for Go, Java, TypeScript, Python, C#
+- [barometer](https://github.com/sailpoint-oss/barometer) — live HTTP contract testing and Arazzo runner
 
 ## License
 

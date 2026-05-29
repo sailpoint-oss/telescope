@@ -197,6 +197,11 @@ paths:
       security:
         - oauth2:
             - read:pets
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
         "200":
           description: ok
@@ -244,8 +249,8 @@ components:
 		"--no-external-lsp",
 		specPath,
 	)
-	if err == nil {
-		t.Fatal("expected lint subprocess to exit non-zero for fixture diagnostics")
+	if err != nil {
+		t.Fatalf("expected lint subprocess to write reports successfully: %v", err)
 	}
 	for _, report := range []string{lintJSON, lintMD} {
 		if _, err := os.Stat(report); err != nil {
@@ -265,8 +270,8 @@ components:
 		"--no-external-lsp",
 		specPath,
 	)
-	if err == nil {
-		t.Fatal("expected ci subprocess to exit non-zero for fixture diagnostics")
+	if err != nil {
+		t.Fatalf("expected ci subprocess to write reports successfully: %v", err)
 	}
 	for _, report := range []string{ciJSON, ciMD} {
 		if _, err := os.Stat(report); err != nil {

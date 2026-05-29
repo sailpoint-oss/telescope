@@ -17,16 +17,13 @@ import (
 // string format (date-time, date, time, uuid, email, uri, ipv4, ipv6) has an
 // example/default whose value actually conforms to that format.
 //
-// This rule exists because the Bugbot-class bug on cloud-api-client-common
-// PR #2699 (see docs/pr-review-tooling.md gap #1) produced examples like
-// `created: {}` after a YAML round-trip silently reinterpreted ISO-8601
-// strings as native timestamps. The example was valid YAML and valid JSON —
-// just semantically broken — so Barrelman's existing string-heuristic
-// examples analyzer did not flag it.
+// This rule catches a common class of bug where examples like `created: {}`
+// appear after a YAML round-trip silently reinterprets ISO-8601 strings as
+// native timestamps. The example is valid YAML and valid JSON — just
+// semantically broken — so a string-heuristic examples analyzer alone does
+// not flag it.
 //
-// The rule emits `example-matches-format` diagnostics at the example location,
-// with guideline-link data pointing at the SailPoint API Guidelines entry for
-// examples.
+// The rule emits `example-matches-format` diagnostics at the example location.
 func exampleMatchesFormatRule() barrelman.Rule {
 	return barrelman.Rule{
 		ID: "example-matches-format",
@@ -230,7 +227,7 @@ func isIPv6(s string) bool {
 
 // jsonStringSanity runs a final sanity check that the value is a JSON-encoded
 // string (as opposed to an object or array). This is the specific shape the
-// Bugbot YAML-round-trip bug produced: the example node's raw text becomes
+// YAML-round-trip bug produces: the example node's raw text becomes
 // `{}` (empty map) rather than a quoted string. If ctx has a RawNode we could
 // inspect the tree-sitter kind, but the Value string comparison is enough for
 // the common case and avoids a tree-sitter dependency inside the analyzer.

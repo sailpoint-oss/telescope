@@ -1,5 +1,5 @@
 openapi: 3.2.0
-x-sailpoint-api:
+x-example-api:
   version: v5
   audience: external-public
 info:
@@ -16,7 +16,7 @@ paths:
       description: Get pet owner by petId and ownerId
       tags:
         - pets
-      x-sailpoint-userLevels:
+      x-example-userLevels:
         - ADMIN
       security:
         - userAuth: []
