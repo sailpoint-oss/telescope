@@ -733,7 +733,7 @@
 	},
 	"dependencies": {
 		"jsonc-parser": "^3.3.1",
-		"minimatch": "^10.1.1",
+		"minimatch": "^10.2.3",
 		"vscode-languageclient": "^9.0.1",
 		"vscode-languageserver-protocol": "^3.17.5",
 		"vscode-textmate": "^9.2.1",
