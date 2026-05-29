@@ -737,6 +737,6 @@
 		"vscode-languageclient": "^9.0.1",
 		"vscode-languageserver-protocol": "^3.17.5",
 		"vscode-textmate": "^9.2.1",
-		"yaml": "^2.8.1"
+		"yaml": "^2.8.3"
 	}
 }
