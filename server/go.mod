@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/LukasParke/gossip v0.1.12
-	github.com/daveshanley/vacuum v0.27.2
+	github.com/daveshanley/vacuum v0.29.2
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/pb33f/libopenapi v0.37.2
 	github.com/sailpoint-oss/barometer v0.4.0
@@ -22,9 +22,10 @@ require (
 
 require (
 	charm.land/bubbles/v2 v2.1.0 // indirect
-	charm.land/bubbletea/v2 v2.0.6 // indirect
+	charm.land/bubbletea/v2 v2.0.7 // indirect
 	charm.land/lipgloss/v2 v2.0.3 // indirect
 	github.com/BurntSushi/toml v1.6.0 // indirect
+	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/a-h/templ v0.3.1020 // indirect
 	github.com/alecthomas/chroma/v2 v2.26.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
@@ -62,8 +63,9 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/oliveagle/jsonpath v0.1.4 // indirect
-	github.com/pb33f/doctor v0.0.70 // indirect
+	github.com/pb33f/doctor v0.0.72 // indirect
 	github.com/pb33f/jsonpath v0.8.2 // indirect
+	github.com/pb33f/libasyncapi v0.0.1 // indirect
 	github.com/pb33f/libopenapi-validator v0.13.8 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
