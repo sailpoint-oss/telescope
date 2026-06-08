@@ -10,6 +10,7 @@ import * as vscode from "vscode";
 import {
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
+	skipSidecarSuiteIfUnsupported,
 	openAndShow,
 	waitForDiagnostics,
 	waitForSidecarAvailable,
@@ -20,6 +21,7 @@ suite("Sidecar: Generic Rules", () => {
 
 	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
+		if (skipSidecarSuiteIfUnsupported(this)) return;
 		({ folder } = await ensureSidecarWorkspaceReady({
 			skipSuiteIfUnavailable: this,
 		}));

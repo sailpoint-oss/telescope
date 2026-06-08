@@ -38,6 +38,7 @@ jobs:
           output-file-path: server/bench.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
+          skip-fetch-gh-pages: true
           benchmark-data-dir-path: dev/bench
           comment-on-alert: true
           alert-threshold: "130%"
@@ -45,6 +46,7 @@ jobs:
 
   deploy-pages:
     needs: benchmark
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -53,6 +55,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: gh-pages
+          fetch-depth: 0
 
       - uses: actions/configure-pages@v5
 

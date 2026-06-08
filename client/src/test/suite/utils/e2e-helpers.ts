@@ -611,6 +611,20 @@ export async function ensureSingleRootWorkspaceReady(options?: {
 	return singleRootReadyPromise;
 }
 
+/**
+ * Call synchronously at the start of a sidecar suite's suiteSetup (before any
+ * await). Mocha's this.skip() is ignored when invoked after the first await.
+ */
+export function skipSidecarSuiteIfUnsupported(ctx: {
+	skip(): never;
+}): boolean {
+	if (process.platform === "win32") {
+		ctx.skip();
+		return true;
+	}
+	return false;
+}
+
 export async function ensureSidecarWorkspaceReady(options?: {
 	warmupRelativePath?: string;
 	timeoutMs?: number;

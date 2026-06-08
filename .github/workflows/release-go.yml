@@ -43,6 +43,18 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      - name: Install workspace deps (custom rule fixtures)
+        run: pnpm install --frozen-lockfile
+
       - uses: oven-sh/setup-bun@v2
 
       - name: Bundle Bun sidecar

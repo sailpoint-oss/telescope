@@ -57,7 +57,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: "pnpm"
+          cache: ${{ matrix.os != 'windows-latest' && 'pnpm' || '' }}
 
       - name: Install workspace deps (Bun custom rule fixtures)
         run: pnpm install --frozen-lockfile
@@ -229,6 +229,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Audit npm dependencies
+        run: pnpm audit --audit-level=high
 
       - name: Run client typecheck
         run: pnpm --filter ./client run typecheck

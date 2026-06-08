@@ -179,6 +179,32 @@ func TestContextFromGossip_UnrelatedUserData(t *testing.T) {
 	}
 }
 
+func TestDuplicateOperationIDFromMessage(t *testing.T) {
+	msg := "operationId 'listUsers' is already used at GET /users"
+	opID, prefix, ok := duplicateOperationIDFromMessage(msg)
+	if !ok {
+		t.Fatal("expected match")
+	}
+	if opID != "listUsers" {
+		t.Errorf("opID = %q, want listUsers", opID)
+	}
+	if prefix != duplicateOperationIDPrefix {
+		t.Errorf("prefix = %q", prefix)
+	}
+	if _, _, ok := duplicateOperationIDFromMessage("unrelated"); ok {
+		t.Error("expected no match for unrelated message")
+	}
+	if _, _, ok := duplicateOperationIDFromMessage("operationId '' is already used at "); ok {
+		t.Error("expected no match for empty operation id")
+	}
+}
+
+func TestDuplicateOperationIDRelatedMessage(t *testing.T) {
+	if got := duplicateOperationIDRelatedMessage(duplicateOperationIDPrefix); got != duplicateOperationIDRelated {
+		t.Errorf("got %q, want %q", got, duplicateOperationIDRelated)
+	}
+}
+
 func TestShouldSuppressMalformedIndex(t *testing.T) {
 	tests := []struct {
 		name     string

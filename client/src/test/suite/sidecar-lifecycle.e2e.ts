@@ -11,6 +11,7 @@ import {
 	ensureWorkspaceTextDocumentMatches,
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
+	skipSidecarSuiteIfUnsupported,
 	openAndShow,
 	waitForDiagnostics,
 	waitForLanguageId,
@@ -23,6 +24,7 @@ suite("Sidecar: Lifecycle", () => {
 
 	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
+		if (skipSidecarSuiteIfUnsupported(this)) return;
 		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
 			skipSuiteIfUnavailable: this,
 		}));

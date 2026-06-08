@@ -11,6 +11,7 @@ import {
 	diagCode,
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
+	skipSidecarSuiteIfUnsupported,
 	openAndShow,
 	waitForDiagnostics,
 } from "./utils/e2e-helpers";
@@ -21,6 +22,7 @@ suite("Sidecar: Schema Fixture Compatibility (Legacy Zod-Named)", () => {
 
 	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
+		if (skipSidecarSuiteIfUnsupported(this)) return;
 		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
 			skipSuiteIfUnavailable: this,
 		}));

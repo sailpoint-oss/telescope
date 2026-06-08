@@ -3,6 +3,9 @@ package graph
 import (
 	"context"
 	"testing"
+
+	navigator "github.com/sailpoint-oss/navigator"
+	ctypes "github.com/sailpoint-oss/telescope/server/core/types"
 )
 
 func TestPipelineRunner_DefaultStages(t *testing.T) {
@@ -211,4 +214,51 @@ func (s *testStage) DependsOn() []StageName { return s.deps }
 func (s *testStage) Run(_ context.Context, uri string, g *WorkspaceGraph) error {
 	g.SetStageResult(uri, s.name, &StageResult{Data: "ok", Version: 1})
 	return nil
+}
+
+func TestNavigatorSeverity(t *testing.T) {
+	tests := []struct {
+		in   navigator.Severity
+		want ctypes.Severity
+	}{
+		{navigator.SeverityWarning, ctypes.SeverityWarning},
+		{navigator.SeverityInfo, ctypes.SeverityInfo},
+		{navigator.SeverityError, ctypes.SeverityError},
+		{navigator.Severity(99), ctypes.SeverityError},
+	}
+	for _, tt := range tests {
+		if got := navigatorSeverity(tt.in); got != tt.want {
+			t.Errorf("navigatorSeverity(%v) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestNavigatorSource(t *testing.T) {
+	tests := []struct {
+		in   navigator.IssueCategory
+		want string
+	}{
+		{navigator.CategorySyntax, "navigator-syntax"},
+		{navigator.CategoryMeta, "navigator-meta"},
+		{navigator.CategoryStructural, "navigator"},
+		{navigator.IssueCategory(99), "navigator"},
+	}
+	for _, tt := range tests {
+		if got := navigatorSource(tt.in); got != tt.want {
+			t.Errorf("navigatorSource(%v) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestNavigatorIndexIsMalformed(t *testing.T) {
+	if navigatorIndexIsMalformed(nil) {
+		t.Error("nil index should not be malformed")
+	}
+	idx := navigator.ParseContent([]byte(`not: valid: openapi`), "file:///bad.yaml")
+	if idx == nil {
+		t.Fatal("expected non-nil index from ParseContent")
+	}
+	if !navigatorIndexIsMalformed(idx) {
+		t.Error("expected malformed index for invalid document")
+	}
 }

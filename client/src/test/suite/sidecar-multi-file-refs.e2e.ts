@@ -12,6 +12,7 @@ import {
 	diagCode,
 	ensureSidecarWorkspaceReady,
 	isSidecarWorkspace,
+	skipSidecarSuiteIfUnsupported,
 	openAndShow,
 	waitForDiagnostics,
 	writeWorkspaceFile,
@@ -23,6 +24,7 @@ suite("Sidecar: Multi-file Refs", () => {
 
 	suiteSetup(async function () {
 		if (!isSidecarWorkspace()) return;
+		if (skipSidecarSuiteIfUnsupported(this)) return;
 		({ folder, sidecarAvailable } = await ensureSidecarWorkspaceReady({
 			skipSuiteIfUnavailable: this,
 		}));

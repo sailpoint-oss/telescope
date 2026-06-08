@@ -68,6 +68,7 @@ jobs:
           cache-dependency-path: server/go.sum
 
       - name: Build binary
+        shell: bash
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
