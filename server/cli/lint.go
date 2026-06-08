@@ -229,8 +229,8 @@ func countDiags(allDiags []fileDiagnostics) int {
 }
 
 type fileDiagnostics struct {
-	Path        string
-	Diagnostics []protocol.Diagnostic
+	Path        string                 `json:"path"`
+	Diagnostics []protocol.Diagnostic  `json:"diagnostics"`
 }
 
 func shouldFail(sev protocol.DiagnosticSeverity) bool {

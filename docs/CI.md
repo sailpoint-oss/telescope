@@ -78,10 +78,42 @@ jobs:
 - **Always** writes a full markdown report (`telescope-report.md`) suitable for upload as an artifact.
 - **Also** writes a machine-readable JSON report (`telescope-report.json`) for downstream tooling.
 - **Optionally** writes a SARIF report (`telescope-report.sarif`) that can be uploaded to GitHub code scanning.
-- **Fails** the job if:
-  - any **error** exists anywhere in the workspace, OR
-  - any **warning or error** exists in files changed by the PR.
-- When enabled (`--comment-pr`) on `pull_request` events, it posts a PR comment summary.
+
+### Unified vs legacy ci-only mode
+
+The composite action runs in one of two modes:
+
+| Mode | When | Behavior |
+|------|------|----------|
+| **Legacy ci-only** | `mode: ci` and `report-sarif` is empty | Runs `telescope ci` once; supports `comment-pr`. |
+| **Unified** | Any other mode combination, or `report-sarif` is set | Runs `lint`, `validate`, `diff`, etc. as separate steps and merges outputs into one report + optional SARIF. |
+
+The recommended workflow above sets `report-sarif`, so it uses **unified mode**. In that mode, `comment-pr` is not supported (the action logs a warning and skips the PR comment). Use legacy ci-only mode if you need PR comments without SARIF upload.
+
+### Exit semantics (unified mode)
+
+The action step fails when the **aggregated report** shows problems, not merely when an individual CLI subprocess exits non-zero:
+
+- **Lint / validation findings** — total diagnostics across `lint` and `validate` in `telescope-report.json`.
+- **Breaking changes** — when `fail-on-breaking` is `true` (default).
+- **Contract failures** — when `contract` mode is enabled.
+- **Infrastructure errors** — when a CLI command fails and stderr or the action error log has content, even if the report counts are zero.
+
+If lint/validate find issues, the step fails and the report reflects the counts. Spurious CLI exit codes with a clean report are treated as pass.
+
+### Mode expansion and diff
+
+- `mode: ci` expands to `lint`, `validate`, and `diff` when `diff-base` is set (default: `main` in [`action.yml`](../action.yml)).
+- To lint and validate without breaking-change detection on large PRs, use `mode: lint,validate` and omit or clear `diff-base`.
+- Explicit diff inputs: `diff-left` + `diff-right`, or `diff-base` with a single file path in `paths`.
+
+### Legacy ci-only failure rules
+
+In legacy ci-only mode (`telescope ci`), the step fails if:
+
+- any **error** exists anywhere in the workspace, OR
+- any **warning or error** exists in files changed by the PR.
+- When enabled (`comment-pr`) on `pull_request` events, it posts a PR comment summary.
 
 ## Local dev
 

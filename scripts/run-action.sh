@@ -165,10 +165,18 @@ run_capture_stdout() {
 	local outfile="$1"
 	local label="$2"
 	shift 2
+	local cmd_stderr="$tmpdir/${label// /-}.stderr"
 	: >"$outfile"
-	if ! "$@" >"$outfile" 2> >(tee -a "$stderr_file" >&2); then
+	: >"$cmd_stderr"
+	if ! "$@" >"$outfile" 2>"$cmd_stderr"; then
+		cat "$cmd_stderr" >&2
+		cat "$cmd_stderr" >>"$stderr_file"
 		overall_exit=1
 		printf '%s\n' "$label failed" >>"$errors_file"
+		if [ -s "$cmd_stderr" ]; then
+			printf '\n--- %s stderr (last 50 lines) ---\n' "$label" >>"$errors_file"
+			tail -n 50 "$cmd_stderr" >>"$errors_file"
+		fi
 	fi
 }
 
@@ -469,8 +477,17 @@ def severity_level(sev):
         return "warning"
     return "note"
 
+def file_diagnostic_entries(data):
+    return data if isinstance(data, list) else []
+
+def file_path(fd):
+    return fd.get("path") or fd.get("Path") or ""
+
+def file_diagnostics_list(fd):
+    return fd.get("diagnostics") or fd.get("Diagnostics") or []
+
 def count_file_diagnostics(data):
-    return sum(len(fd.get("diagnostics", [])) for fd in (data or []))
+    return sum(len(file_diagnostics_list(fd)) for fd in file_diagnostic_entries(data))
 
 def count_breaking_changes(diff_data, ci_data):
     if isinstance(diff_data, dict):
@@ -547,8 +564,9 @@ if report_sarif:
     results = []
 
     def add_diag_results(data, default_rule):
-        for fd in data or []:
-            for diag in fd.get("diagnostics") or []:
+        for fd in file_diagnostic_entries(data):
+            path = file_path(fd)
+            for diag in file_diagnostics_list(fd):
                 start = ((diag.get("range") or {}).get("start") or {})
                 end = ((diag.get("range") or {}).get("end") or {})
                 results.append({
@@ -557,7 +575,7 @@ if report_sarif:
                     "message": {"text": diag.get("message", "")},
                     "locations": [{
                         "physicalLocation": {
-                            "artifactLocation": {"uri": fd.get("path", "")},
+                            "artifactLocation": {"uri": path},
                             "region": {
                                 "startLine": int(start.get("line", 0)) + 1,
                                 "startColumn": int(start.get("character", 0)) + 1,
@@ -653,6 +671,31 @@ lint_findings="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))
 breaking_changes="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["breaking_changes"])' "$counts_file")"
 contract_passed="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["contract_passed"])' "$counts_file")"
 contract_failed="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["contract_failed"])' "$counts_file")"
+
+findings_exit=0
+if [ "${lint_findings:-0}" -gt 0 ]; then
+	findings_exit=1
+fi
+if bool_true "${FAIL_ON_BREAKING:-true}" && [ "${breaking_changes:-0}" -gt 0 ]; then
+	findings_exit=1
+fi
+if [ "${contract_failed:-0}" -gt 0 ]; then
+	findings_exit=1
+fi
+
+effective_exit=0
+if [ "$findings_exit" -ne 0 ]; then
+	effective_exit=1
+elif [ "$overall_exit" -ne 0 ]; then
+	if [ -s "$errors_file" ] || [ -s "$stderr_file" ]; then
+		effective_exit=1
+		if [ -s "$stderr_file" ] && ! grep -q 'stderr (last 50 lines)' "$errors_file" 2>/dev/null; then
+			printf '\n--- CLI stderr (last 50 lines) ---\n' >>"$errors_file"
+			tail -n 50 "$stderr_file" >>"$errors_file"
+		fi
+	fi
+fi
+
 error_text="$(tr -d '\000' <"$errors_file" 2>/dev/null || true)"
 
 write_output "report-md" "$report_md_path"
@@ -662,9 +705,9 @@ write_output "lint-findings" "$lint_findings"
 write_output "breaking-changes" "$breaking_changes"
 write_output "contract-passed" "$contract_passed"
 write_output "contract-failed" "$contract_failed"
-write_output "exit-code" "$overall_exit"
+write_output "exit-code" "$effective_exit"
 write_output "error" "$error_text"
 
-if [ "$overall_exit" -ne 0 ]; then
-	exit "$overall_exit"
+if [ "$effective_exit" -ne 0 ]; then
+	exit "$effective_exit"
 fi
