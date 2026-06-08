@@ -6,7 +6,7 @@ require (
 	github.com/LukasParke/gossip v0.1.12
 	github.com/daveshanley/vacuum v0.27.2
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/pb33f/libopenapi v0.37.2
+	github.com/pb33f/libopenapi v0.37.3
 	github.com/sailpoint-oss/barometer v0.4.0
 	github.com/sailpoint-oss/barrelman v0.9.0
 	github.com/sailpoint-oss/cartographer v0.8.0
