@@ -719,12 +719,12 @@
 	"devDependencies": {
 		"@types/mocha": "^10.0.6",
 		"@types/node": "^20.19.25",
-		"@types/vscode": "^1.105.0",
+		"@types/vscode": "^1.120.0",
 		"@vscode/test-cli": "^0.0.12",
 		"@vscode/test-electron": "^2.5.2",
-		"@vscode/vsce": "^3.7.1",
-		"esbuild": "^0.25.0",
-		"mocha": "^11.7.5",
+		"@vscode/vsce": "^3.9.2",
+		"esbuild": "^0.28.1",
+		"mocha": "^11.7.6",
 		"typescript": "^5.6.3",
 		"vscode-oniguruma": "^2.0.1"
 	},
@@ -733,10 +733,10 @@
 	},
 	"dependencies": {
 		"jsonc-parser": "^3.3.1",
-		"minimatch": "^10.2.3",
+		"minimatch": "^10.2.5",
 		"vscode-languageclient": "^9.0.1",
-		"vscode-languageserver-protocol": "^3.17.5",
-		"vscode-textmate": "^9.2.1",
+		"vscode-languageserver-protocol": "^3.18.0",
+		"vscode-textmate": "^9.3.2",
 		"yaml": "^2.8.3"
 	}
 }
