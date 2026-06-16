@@ -45,8 +45,11 @@ var pathParamRe = regexp.MustCompile(`\{([^}]+)\}`)
 // handler consults tokenCache (may be nil) for a previously-built token slice
 // keyed by the document's edit version; on hit it returns the cached
 // delta-encoded payload directly.
-func NewSemanticTokensHandler(cache *openapi.IndexCache, _ *GraphBridge, tokenCache *SemanticTokenCache) gossip.SemanticTokensHandler {
+func NewSemanticTokensHandler(cache *openapi.IndexCache, graphBridge *GraphBridge, tokenCache *SemanticTokenCache) gossip.SemanticTokensHandler {
 	return func(ctx *gossip.Context, params *protocol.SemanticTokensParams) (*protocol.SemanticTokens, error) {
+		if !rootOpenAPITargetGate(ctx, graphBridge, cache, params.TextDocument.URI) {
+			return nil, nil
+		}
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
 			return nil, nil
@@ -88,8 +91,11 @@ func NewSemanticTokensHandler(cache *openapi.IndexCache, _ *GraphBridge, tokenCa
 // uses the sorted openapi.Index views for $refs and components to skip work
 // on ref-heavy specs), store it, and serve the Range sub-slice from it. The
 // first Full handler hit after a Range miss then reuses the same payload.
-func NewSemanticTokensRangeHandler(cache *openapi.IndexCache, _ *GraphBridge, tokenCache *SemanticTokenCache) gossip.SemanticTokensRangeHandler {
+func NewSemanticTokensRangeHandler(cache *openapi.IndexCache, graphBridge *GraphBridge, tokenCache *SemanticTokenCache) gossip.SemanticTokensRangeHandler {
 	return func(ctx *gossip.Context, params *protocol.SemanticTokensRangeParams) (*protocol.SemanticTokens, error) {
+		if !rootOpenAPITargetGate(ctx, graphBridge, cache, params.TextDocument.URI) {
+			return nil, nil
+		}
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
 			return nil, nil

@@ -34,8 +34,11 @@ func positionBefore(a, b protocol.Position) bool {
 }
 
 // NewSymbolHandler provides document symbols for the OpenAPI structure.
-func NewSymbolHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.DocumentSymbolHandler {
+func NewSymbolHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.DocumentSymbolHandler {
 	return func(ctx *gossip.Context, params *protocol.DocumentSymbolParams) ([]protocol.DocumentSymbol, error) {
+		if !rootOpenAPITargetGate(ctx, graphBridge, cache, params.TextDocument.URI) {
+			return []protocol.DocumentSymbol{}, nil
+		}
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
 			// Return an empty array instead of null to keep provider behavior

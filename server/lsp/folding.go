@@ -8,8 +8,11 @@ import (
 )
 
 // NewFoldingRangeHandler provides folding ranges based on the OpenAPI structure.
-func NewFoldingRangeHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.FoldingRangeHandler {
+func NewFoldingRangeHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.FoldingRangeHandler {
 	return func(ctx *gossip.Context, params *protocol.FoldingRangeParams) ([]protocol.FoldingRange, error) {
+		if !rootOpenAPITargetGate(ctx, graphBridge, cache, params.TextDocument.URI) {
+			return nil, nil
+		}
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
 			return nil, nil

@@ -278,6 +278,7 @@ When adding or changing fixtures:
 
 - **Extension release**: `.github/workflows/release.yml`
   - Publishes VSIX artifacts to VS Code Marketplace and OpenVSX.
+  - Creates a GitHub Release at tag `extension/v*` with all VSIX files attached for manual download.
   - Triggers on `main` changes affecting release surfaces (`client/**`, `server/**`, workspace lock/config files).
   - Supports skip marker in commit message: `[skip publish]`.
 - **Go module release**: `.github/workflows/release-go.yml`

@@ -8,6 +8,7 @@ Telescope publishes through GitHub Actions on `main`:
 
 - `.github/workflows/release.yml`:
   - Builds bundled Go binaries, bundles the Bun sidecar once, and publishes VSIX artifacts to VS Code Marketplace + OpenVSX.
+  - Creates a GitHub Release at tag `extension/vX.Y.Z` with all VSIX files attached for manual download.
   - Triggered only when release-relevant client/server/workspace files change.
 - `.github/workflows/release-go.yml`:
   - Runs server build/vet/test plus the Bun sidecar bundle step, then tags/releases `server/vX.Y.Z`.
@@ -15,6 +16,12 @@ Telescope publishes through GitHub Actions on `main`:
   - Publishes `@sailpoint-oss/telescope` to npm and creates `sdk/vX.Y.Z` GitHub release tags.
   - Runs when `server/lsp/bun/telescope-server/**` changes on `main`.
   - Publishes only when the package version is not already present on npm.
+
+### Manual download from GitHub Releases
+
+Each successful extension release creates a GitHub Release at tag `extension/vX.Y.Z` with all platform and universal VSIX files attached. Download from **Releases** in the repository, or from the workflow run summary on the **Package & Publish** job.
+
+Re-running the workflow for a version whose tag already exists skips GitHub Release creation but still uploads the `telescope-vsix` Actions artifact (90-day retention).
 
 ## Toolchain Compatibility
 

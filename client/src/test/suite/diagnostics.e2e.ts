@@ -97,6 +97,34 @@ suite("Diagnostics", () => {
 		}
 	});
 
+	test("Non-OpenAPI yaml should not receive Telescope diagnostics", async () => {
+		if (isMultiRootWorkspace()) return;
+
+		const plainFile = vscode.Uri.joinPath(workspaceFolder.uri, "plain.yaml");
+		await openAndShow(plainFile);
+		await waitForDocumentAnalyzed(plainFile, { skipDiagnostics: true, timeoutMs: 15000 });
+
+		const doc = vscode.workspace.textDocuments.find(
+			(d) => d.uri.toString() === plainFile.toString(),
+		);
+		assert.ok(doc, "plain.yaml should be open");
+		assert.strictEqual(
+			doc.languageId,
+			"yaml",
+			"Non-OpenAPI files should remain on the base yaml language ID",
+		);
+
+		const diagnostics = vscode.languages.getDiagnostics(plainFile);
+		const telescopeDiags = diagnostics.filter((d) =>
+			d.source?.toLowerCase().includes("telescope"),
+		);
+		assert.strictEqual(
+			telescopeDiags.length,
+			0,
+			`plain.yaml should not receive Telescope diagnostics. Found: ${telescopeDiags.map((d) => d.message).join("; ")}`,
+		);
+	});
+
 	test("Should not produce errors for valid OpenAPI file", async () => {
 		if (isMultiRootWorkspace()) return;
 

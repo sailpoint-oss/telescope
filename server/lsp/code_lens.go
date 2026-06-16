@@ -16,6 +16,9 @@ import (
 // required-field previews, and operation summaries.
 func NewCodeLensHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.CodeLensHandler {
 	return func(ctx *gossip.Context, params *protocol.CodeLensParams) ([]protocol.CodeLens, error) {
+		if !rootOpenAPITargetGate(ctx, graphBridge, cache, params.TextDocument.URI) {
+			return nil, nil
+		}
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
 			return nil, nil

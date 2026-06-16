@@ -106,6 +106,10 @@ jobs:
     needs: build-binaries
     runs-on: ubuntu-latest
     if: ${{ !contains(github.event.head_commit.message || '', '[skip publish]') && !contains(github.event.head_commit.message || '', '[skip release]') }}
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: extension/v${{ steps.version.outputs.version }}
+      release_url: ${{ steps.release.outputs.url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -265,6 +269,8 @@ jobs:
           echo "Generated VSIXs:"
           ls -lh client/telescope-*.vsix
           echo "vsix_dir=client" >> $GITHUB_OUTPUT
+          VSIX_FILES=$(ls -1 client/telescope-*.vsix | tr '\n' ',' | sed 's/,$//')
+          echo "vsix_files=$VSIX_FILES" >> $GITHUB_OUTPUT
 
       - name: Upload VSIX artifacts
         uses: actions/upload-artifact@v4
@@ -272,6 +278,40 @@ jobs:
           name: telescope-vsix
           path: client/telescope-*.vsix
           retention-days: 90
+
+      - name: Check extension release tag
+        id: release_tag
+        run: |
+          TAG="extension/v${{ steps.version.outputs.version }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "should_create=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG already exists — skipping GitHub Release creation"
+          else
+            echo "should_create=true" >> $GITHUB_OUTPUT
+            echo "Will create GitHub Release for $TAG"
+          fi
+
+      - name: Create GitHub Release
+        id: release
+        if: steps.release_tag.outputs.should_create == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: extension/v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: "Extension extension/v${{ steps.version.outputs.version }}"
+          body: |
+            Telescope VS Code extension v${{ steps.version.outputs.version }}.
+
+            ### VSIX artifacts
+            - Platform bundles: `darwin-arm64`, `darwin-x64`, `linux-x64`, `win32-x64`
+            - Universal builds (no bundled server binary)
+            - VS Code Marketplace IDs: `telescope-vscode-*`
+            - OpenVSX IDs: `telescope-openvsx-*`
+
+            Also published to VS Code Marketplace and OpenVSX by this workflow run.
+          files: |
+            client/telescope-*.vsix
 
       - name: Publish to VS Code Marketplace
         run: |
@@ -295,3 +335,27 @@ jobs:
           git add client/package.json
           git commit -m "chore(release): bump extension version to ${{ steps.version.outputs.version }} [skip publish]"
           git push
+
+      - name: Write workflow summary
+        run: |
+          {
+            echo "## Extension Release"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Version | \`${{ steps.version.outputs.version }}\` |"
+            echo "| Tag | \`extension/v${{ steps.version.outputs.version }}\` |"
+            if [ -n "${{ steps.release.outputs.url }}" ]; then
+              echo "| Release | [extension/v${{ steps.version.outputs.version }}](${{ steps.release.outputs.url }}) |"
+            else
+              echo "| Release | Skipped (tag already exists) |"
+            fi
+            echo ""
+            echo "### VSIX files"
+            echo ""
+            echo "| File | Size |"
+            echo "|------|------|"
+            for f in client/telescope-*.vsix; do
+              echo "| \`$(basename "$f")\` | $(du -h "$f" | cut -f1) |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

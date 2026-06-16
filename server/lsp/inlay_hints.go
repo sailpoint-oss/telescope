@@ -18,8 +18,11 @@ var (
 
 // NewInlayHintHandler provides inline hints for $ref types, required fields,
 // deprecated markers, and parameter locations.
-func NewInlayHintHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.InlayHintHandler {
+func NewInlayHintHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.InlayHintHandler {
 	return func(ctx *gossip.Context, params *protocol.InlayHintParams) ([]protocol.InlayHint, error) {
+		if !rootOpenAPITargetGate(ctx, graphBridge, cache, params.TextDocument.URI) {
+			return nil, nil
+		}
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil || !idx.IsOpenAPI() {
 			return nil, nil

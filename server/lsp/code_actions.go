@@ -26,9 +26,12 @@ func lineEndCharUTF16(line string) uint32 {
 }
 
 // NewCodeActionHandler provides quick fixes, rule suppression, and refactoring actions.
-func NewCodeActionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.CodeActionHandler {
+func NewCodeActionHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.CodeActionHandler {
 	return func(ctx *gossip.Context, params *protocol.CodeActionParams) ([]protocol.CodeAction, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 		doc := ctx.Documents.Get(uri)
 

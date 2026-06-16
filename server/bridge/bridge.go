@@ -18,6 +18,9 @@ func WrapForGossip(rule barrelman.Rule) treesitter.Analyzer {
 	return treesitter.Analyzer{
 		Scope: treesitter.ScopeFile,
 		Run: func(gctx *treesitter.AnalysisContext) []protocol.Diagnostic {
+			if shouldSuppressNonTarget(gctx.UserData) {
+				return nil
+			}
 			if shouldSuppressMalformedIndex(gctx.UserData) {
 				return nil
 			}
@@ -134,6 +137,14 @@ func prefixWithKind(message, kind string) string {
 		return message
 	}
 	return kind + ": " + message
+}
+
+func shouldSuppressNonTarget(userData any) bool {
+	data, ok := userData.(*AnalysisData)
+	if !ok || data == nil || !data.TargetChecked {
+		return false
+	}
+	return !data.IsOpenAPIDiagnosticTarget
 }
 
 func shouldSuppressMalformedIndex(userData any) bool {

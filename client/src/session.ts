@@ -432,9 +432,10 @@ export class Session implements vscode.Disposable {
 		};
 
 		const clientOptions: LanguageClientOptions = {
+			// Only sync classified OpenAPI language IDs to the server. Plain
+			// yaml/json stay on editor-owned services until classification
+			// switches the document to openapi-yaml/openapi-json.
 			documentSelector: [
-				{ language: "yaml" },
-				{ language: "json" },
 				{ language: "openapi-json" },
 				{ language: "openapi-yaml" },
 			],

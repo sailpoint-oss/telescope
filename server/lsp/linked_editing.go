@@ -12,9 +12,12 @@ import (
 // NewLinkedEditingRangeHandler returns linked editing ranges for $ref target
 // strings. When the cursor is on a $ref value, all identical $ref values in the
 // document are returned so editing one edits all simultaneously.
-func NewLinkedEditingRangeHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.LinkedEditingRangeHandler {
+func NewLinkedEditingRangeHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.LinkedEditingRangeHandler {
 	return func(ctx *gossip.Context, params *protocol.LinkedEditingRangeParams) (*protocol.LinkedEditingRanges, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 		if idx == nil {
 			return nil, nil

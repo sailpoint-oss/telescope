@@ -87,8 +87,11 @@ func docForFormatting(ctx *gossip.Context, uri protocol.DocumentURI) *document.D
 // NewFormattingHandler provides document formatting for JSON OpenAPI files.
 // JSON files are re-formatted with consistent indentation via json.MarshalIndent.
 // YAML files are given a trailing-newline normalization pass.
-func NewFormattingHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.FormattingHandler {
+func NewFormattingHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.FormattingHandler {
 	return func(ctx *gossip.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
+		if !handlerTargetGate(ctx, graphBridge, cache, params.TextDocument.URI) {
+			return []protocol.TextEdit{}, nil
+		}
 		idx := cache.Get(params.TextDocument.URI)
 		doc := docForFormatting(ctx, params.TextDocument.URI)
 		if doc == nil {

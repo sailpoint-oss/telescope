@@ -17,9 +17,12 @@ var snippetEscaper = strings.NewReplacer("\\", "\\\\", "$", "\\$", "}", "\\}")
 
 // NewCompletionHandler returns completions for $ref paths, HTTP status codes,
 // media types, security schemes, tags, vendor extensions, and common OpenAPI fields.
-func NewCompletionHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.CompletionHandler {
+func NewCompletionHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.CompletionHandler {
 	return func(ctx *gossip.Context, params *protocol.CompletionParams) (*protocol.CompletionList, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 
 		doc := ctx.Documents.Get(uri)

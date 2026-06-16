@@ -57,6 +57,9 @@ func NewHoverHandler(cache *openapi.IndexCache, bridge *GraphBridge) gossip.Hove
 			}
 		}
 
+		if !rootOpenAPITargetGate(ctx, bridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 		if idx == nil || !idx.IsOpenAPI() {
 			return nil, nil

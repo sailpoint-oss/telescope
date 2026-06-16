@@ -20,9 +20,12 @@ type callHierarchyData struct {
 
 // NewPrepareCallHierarchyHandler identifies the component at cursor and returns
 // a CallHierarchyItem for it.
-func NewPrepareCallHierarchyHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.PrepareCallHierarchyHandler {
+func NewPrepareCallHierarchyHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.PrepareCallHierarchyHandler {
 	return func(ctx *gossip.Context, params *protocol.CallHierarchyPrepareParams) ([]protocol.CallHierarchyItem, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 		if idx == nil {
 			return nil, nil

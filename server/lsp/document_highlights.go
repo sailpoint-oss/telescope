@@ -17,9 +17,12 @@ const (
 
 // NewDocumentHighlightHandler highlights all occurrences of a $ref target,
 // operationId, tag, or component name within the current document.
-func NewDocumentHighlightHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.DocumentHighlightHandler {
+func NewDocumentHighlightHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.DocumentHighlightHandler {
 	return func(ctx *gossip.Context, params *protocol.DocumentHighlightParams) ([]protocol.DocumentHighlight, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 		if idx == nil {
 			return nil, nil

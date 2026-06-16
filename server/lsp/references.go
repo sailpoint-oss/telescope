@@ -19,6 +19,9 @@ var allComponentKinds = []string{
 func NewReferencesHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.ReferencesHandler {
 	return func(ctx *gossip.Context, params *protocol.ReferenceParams) ([]protocol.Location, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 		if idx == nil {
 			return nil, nil

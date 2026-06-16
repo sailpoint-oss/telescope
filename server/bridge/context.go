@@ -14,4 +14,10 @@ type AnalysisData struct {
 	DocURI                       string
 	TargetVersion                navigator.Version
 	SuppressMalformedDiagnostics bool
+	// TargetChecked is set by the LSP UserData provider when targeting deps
+	// are configured. When false, barrelman rules are not suppressed by target gates.
+	TargetChecked bool
+	// IsOpenAPIDiagnosticTarget is set by the LSP UserData provider when the
+	// document matches pattern + content classification gates.
+	IsOpenAPIDiagnosticTarget bool
 }

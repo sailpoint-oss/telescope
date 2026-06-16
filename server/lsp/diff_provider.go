@@ -20,17 +20,18 @@ const diffDiagSource = "telescope-diff"
 
 // DiffProvider publishes breaking-change diagnostics after save when enabled in config.
 type DiffProvider struct {
-	cfg *config.Config
-	mux *DiagnosticMux
-	log *slog.Logger
+	cfg    *config.Config
+	mux    *DiagnosticMux
+	bridge *GraphBridge
+	log    *slog.Logger
 }
 
 // NewDiffProvider wires diff-on-save against a git base ref.
-func NewDiffProvider(cfg *config.Config, mux *DiagnosticMux, log *slog.Logger) *DiffProvider {
+func NewDiffProvider(cfg *config.Config, mux *DiagnosticMux, bridge *GraphBridge, log *slog.Logger) *DiffProvider {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &DiffProvider{cfg: cfg, mux: mux, log: log}
+	return &DiffProvider{cfg: cfg, mux: mux, bridge: bridge, log: log}
 }
 
 // OnDidSave implements gossip.DidSaveHandler.
@@ -50,6 +51,12 @@ func (p *DiffProvider) OnDidSave(ctx *gossip.Context, params *protocol.DidSaveTe
 	if len(strings.TrimSpace(string(updated))) == 0 {
 		p.mux.ClearSource(uri, diffDiagSource)
 		return nil
+	}
+	if p.bridge != nil && p.bridge.TargetDeps() != nil {
+		if !p.bridge.TargetDeps().IsOpenAPIDiagnosticTarget(string(uri), updated, nil) {
+			p.mux.ClearSource(uri, diffDiagSource)
+			return nil
+		}
 	}
 
 	ws := workspaceRootForContext(ctx)

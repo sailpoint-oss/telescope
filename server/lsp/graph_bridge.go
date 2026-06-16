@@ -30,6 +30,7 @@ type GraphBridge struct {
 	classifier *classify.FileClassifier
 	virtualMgr *parser.VirtualDocumentManager
 	logger     *slog.Logger
+	targetDeps *TargetDeps
 }
 
 // NewGraphBridge creates a bridge that wraps the new V2 infrastructure.
@@ -76,6 +77,16 @@ func (b *GraphBridge) Pipeline() *graph.PipelineRunner {
 // Classifier returns the file classifier.
 func (b *GraphBridge) Classifier() *classify.FileClassifier {
 	return b.classifier
+}
+
+// SetTargetDeps wires pattern/classification targeting for diagnostics and handlers.
+func (b *GraphBridge) SetTargetDeps(deps *TargetDeps) {
+	b.targetDeps = deps
+}
+
+// TargetDeps returns the configured targeting dependencies.
+func (b *GraphBridge) TargetDeps() *TargetDeps {
+	return b.targetDeps
 }
 
 // VirtualDocManager returns the virtual document manager.

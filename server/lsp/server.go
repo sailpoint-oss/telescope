@@ -157,10 +157,20 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, semantic
 				}(uri, idx)
 			}
 
+			content := []byte(doc.Text())
+			isTarget := true
+			targetChecked := false
+			if deps := graphBridge.TargetDeps(); deps != nil {
+				targetChecked = true
+				isTarget = deps.IsOpenAPIDiagnosticTarget(string(uri), content, idx)
+			}
+
 			data := &rules.AnalysisData{
 				Index:                        idx,
 				DocURI:                       string(uri),
 				SuppressMalformedDiagnostics: true,
+				TargetChecked:                targetChecked,
+				IsOpenAPIDiagnosticTarget:    isTarget,
 			}
 			if resolver := projMgr.ResolverForFile(string(uri)); resolver != nil {
 				data.Resolver = resolver
@@ -190,10 +200,13 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, semantic
 
 		// Register the Spectral custom rule engine as an analyzer
 		spectralEng := rsMgr.SpectralEngine()
-		s.DiagnosticEngine().RegisterAnalyzer("spectral-custom", spectralEng.Analyzer())
+		targetDeps := graphBridge.TargetDeps()
+		s.DiagnosticEngine().RegisterAnalyzer("spectral-custom",
+			gatedOpenAPIAnalyzer(targetDeps, spectralEng.Analyzer()))
 
 		// Register the extension validation analyzer
-		s.DiagnosticEngine().RegisterAnalyzer("extension-validation", extensions.Analyzer(extRegistry))
+		s.DiagnosticEngine().RegisterAnalyzer("extension-validation",
+			gatedOpenAPIAnalyzer(targetDeps, extensions.Analyzer(extRegistry)))
 
 		// Register additional validation analyzer (non-OpenAPI files).
 		// When Bun is available, schema validation is routed through the sidecar
@@ -212,7 +225,8 @@ func telescopeSetup(cfg *config.Config, indexCache *openapi.IndexCache, semantic
 			if err != nil {
 				serverLogger.Warn("failed to initialize vacuum analyzer", "error", err)
 			} else {
-				s.DiagnosticEngine().RegisterAnalyzer("vacuum", vacuum.Analyzer(vacuumEngine, serverLogger))
+				s.DiagnosticEngine().RegisterAnalyzer("vacuum",
+					gatedOpenAPIAnalyzer(targetDeps, vacuum.Analyzer(vacuumEngine, serverLogger)))
 			}
 		}
 
@@ -321,6 +335,11 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 	}
 	if graphBridge != nil {
 		graphBridge.Classifier().SetIncludeExclude(cfg.Include, cfg.Exclude)
+		graphBridge.SetTargetDeps(&TargetDeps{
+			Config:        rsMgr.TelescopeConfig,
+			Bridge:        graphBridge,
+			WorkspaceRoot: func() string { return workspaceRootStr },
+		})
 	}
 	rulePerfTracker := observe.NewRulePerfTracker()
 
@@ -411,7 +430,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 		return nil
 	})
 
-	diffProv := NewDiffProvider(cfg, diagMux, logger)
+	diffProv := NewDiffProvider(cfg, diagMux, graphBridge, logger)
 	docsPreviewMgr := NewDocsPreviewManager(logger)
 	s.OnDidSave(func(ctx *gossip.Context, params *protocol.DidSaveTextDocumentParams) error {
 		if err := diffProv.OnDidSave(ctx, params); err != nil {
@@ -466,8 +485,22 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*gossip.Server, func())
 			if shouldSuppressMalformedDocumentDiagnostics(ctx, indexCache, params.URI) || hasMalformedDocumentDiagnostics(params.Diagnostics) {
 				enrichedDiags = nil
 			} else {
-				// Enrich diagnostics with RelatedInformation for $ref context.
-				enrichedDiags = enrichDiagsWithRefContext(graphBridge, string(params.URI), params.Diagnostics)
+				if deps := graphBridge.TargetDeps(); deps != nil {
+					var content []byte
+					if doc := ctx.Documents.Get(params.URI); doc != nil {
+						content = []byte(doc.Text())
+					}
+					idx := indexCache.Get(params.URI)
+					isOpenAPITarget := deps.IsOpenAPIDiagnosticTarget(string(params.URI), content, idx)
+					isAddlTarget := deps.IsAdditionalValidationTarget(string(params.URI))
+					if !isOpenAPITarget && !isAddlTarget {
+						enrichedDiags = nil
+					}
+				}
+				if len(enrichedDiags) > 0 {
+					// Enrich diagnostics with RelatedInformation for $ref context.
+					enrichedDiags = enrichDiagsWithRefContext(graphBridge, string(params.URI), enrichedDiags)
+				}
 			}
 			logger.Debug("telescope.diagPublish",
 				"trace_id", observe.GetTraceID(bgCtx),
@@ -746,11 +779,12 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 		patterns []string
 	}
 
-	var allRules []ruleWithPatterns
+	var openAPIRules []ruleWithPatterns
+	var genericRules []ruleWithPatterns
 
 	for _, r := range cfg.OpenAPI.Rules {
 		if r.Rule != "" {
-			allRules = append(allRules, ruleWithPatterns{
+			openAPIRules = append(openAPIRules, ruleWithPatterns{
 				id:       strings.TrimSuffix(r.Rule, filepath.Ext(r.Rule)),
 				patterns: cfg.OpenAPI.Patterns,
 			})
@@ -759,7 +793,7 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 	for _, g := range cfg.AdditionalValidation {
 		for _, r := range g.Rules {
 			if r.Rule != "" {
-				allRules = append(allRules, ruleWithPatterns{
+				genericRules = append(genericRules, ruleWithPatterns{
 					id:       strings.TrimSuffix(r.Rule, filepath.Ext(r.Rule)),
 					patterns: g.Patterns,
 				})
@@ -788,23 +822,50 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 			}
 			uri := string(ctx.Document.URI())
 
-			var ruleIDs []string
-			for _, r := range allRules {
+			var openAPIRuleIDs []string
+			for _, r := range openAPIRules {
 				if matchesFilePatterns(uri, *workspaceRoot, r.patterns) {
-					ruleIDs = append(ruleIDs, r.id)
+					openAPIRuleIDs = append(openAPIRuleIDs, r.id)
+				}
+			}
+			var genericRuleIDs []string
+			for _, r := range genericRules {
+				if matchesFilePatterns(uri, *workspaceRoot, r.patterns) {
+					genericRuleIDs = append(genericRuleIDs, r.id)
 				}
 			}
 
-			if len(ruleIDs) == 0 && len(spectralRulesets) == 0 {
+			if len(openAPIRuleIDs) == 0 && len(genericRuleIDs) == 0 && len(spectralRulesets) == 0 {
 				if logger != nil {
 					logger.Debug("sidecar analyzer skipped: no matching rules",
 						"uri", uri, "root", *workspaceRoot,
-						"totalRules", len(allRules), "spectralRulesets", len(spectralRulesets))
+						"openAPIRules", len(openAPIRules),
+						"genericRules", len(genericRules),
+						"spectralRulesets", len(spectralRulesets))
 				}
 				return nil
 			}
 
 			content := ctx.Document.Text()
+			idx := rules.GetIndex(ctx)
+			deps := graphBridge.TargetDeps()
+			runOpenAPIRules := len(openAPIRuleIDs) > 0
+			runSpectral := len(spectralRulesets) > 0
+			runGenericRules := len(genericRuleIDs) > 0
+			if deps != nil {
+				if runOpenAPIRules || runSpectral {
+					if !deps.IsOpenAPIDiagnosticTarget(uri, []byte(content), idx) {
+						runOpenAPIRules = false
+						runSpectral = false
+					}
+				}
+				if runGenericRules && !deps.IsAdditionalValidationTarget(uri) {
+					runGenericRules = false
+				}
+			}
+			if !runOpenAPIRules && !runGenericRules && !runSpectral {
+				return nil
+			}
 			format := "yaml"
 			if strings.HasSuffix(uri, ".json") {
 				format = "json"
@@ -843,11 +904,18 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 
 			var allDiags []protocol.Diagnostic
 
-			if len(ruleIDs) > 0 {
+			if runOpenAPIRules || runGenericRules {
+				var activeRuleIDs []string
+				if runOpenAPIRules {
+					activeRuleIDs = append(activeRuleIDs, openAPIRuleIDs...)
+				}
+				if runGenericRules {
+					activeRuleIDs = append(activeRuleIDs, genericRuleIDs...)
+				}
 				projectIdx := bun.SerializeIndex(snap)
 				req := &bun.RunRulesRequest{
 					DocumentURI: uri,
-					RuleIDs:     ruleIDs,
+					RuleIDs:     activeRuleIDs,
 					Document:    doc,
 					Project:     projectIdx,
 				}
@@ -858,11 +926,11 @@ func bunSidecarAnalyzer(bunMgr *bun.Manager, cfg *config.Config, graphBridge *Gr
 					allDiags = append(allDiags, sidecarDiagsToProtocol(resp.Diagnostics)...)
 				} else if logger != nil {
 					logger.Debug("sidecar RunRules returned nil response",
-						"uri", uri, "ruleIDs", ruleIDs, "available", bunMgr.Available())
+						"uri", uri, "ruleIDs", activeRuleIDs, "available", bunMgr.Available())
 				}
 			}
 
-			if len(spectralRulesets) > 0 {
+			if runSpectral {
 				req := &bun.RunSpectralRequest{
 					DocumentURI:  uri,
 					Document:     doc,

@@ -131,7 +131,7 @@ func TestDiffProvider_NilSafe(t *testing.T) {
 		t.Fatalf("nil provider should no-op, got %v", err)
 	}
 	// Provider with no config still no-ops.
-	p = NewDiffProvider(nil, nil, nil)
+	p = NewDiffProvider(nil, nil, nil, nil)
 	if err := p.OnDidSave(nil, nil); err != nil {
 		t.Fatalf("config-less provider should no-op, got %v", err)
 	}
@@ -222,7 +222,7 @@ paths:
 	cfg.LSP.DiffOnSave = true
 	cfg.LSP.DiffCompareBaseRef = "HEAD"
 
-	provider := NewDiffProvider(cfg, mux, nil)
+	provider := NewDiffProvider(cfg, mux, nil, nil)
 	env.ctx.Context = context.Background()
 
 	if err := provider.OnDidSave(env.ctx, &protocol.DidSaveTextDocumentParams{
@@ -276,7 +276,7 @@ paths:
 	cfgBad := &config.Config{}
 	cfgBad.LSP.DiffOnSave = true
 	cfgBad.LSP.DiffCompareBaseRef = "nonexistent-ref"
-	badProvider := NewDiffProvider(cfgBad, mux, nil)
+	badProvider := NewDiffProvider(cfgBad, mux, nil, nil)
 	if err := badProvider.OnDidSave(env.ctx, &protocol.DidSaveTextDocumentParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 	}); err != nil {
@@ -285,7 +285,7 @@ paths:
 
 	// Disabled config short-circuits without touching anything.
 	cfgDisabled := &config.Config{}
-	disabledProvider := NewDiffProvider(cfgDisabled, mux, nil)
+	disabledProvider := NewDiffProvider(cfgDisabled, mux, nil, nil)
 	if err := disabledProvider.OnDidSave(env.ctx, &protocol.DidSaveTextDocumentParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 	}); err != nil {

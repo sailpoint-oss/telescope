@@ -77,9 +77,12 @@ func exactWordRangeForURI(doc *document.Document, uri protocol.DocumentURI, pos 
 }
 
 // NewPrepareRenameHandler validates whether a rename is possible at the cursor.
-func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.PrepareRenameHandler {
+func NewPrepareRenameHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.PrepareRenameHandler {
 	return func(ctx *gossip.Context, params *protocol.PrepareRenameParams) (*protocol.PrepareRenameResult, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 		if idx == nil {
 			return nil, nil
@@ -128,6 +131,9 @@ func NewPrepareRenameHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.P
 func NewRenameHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.RenameHandler {
 	return func(ctx *gossip.Context, params *protocol.RenameParams) (*protocol.WorkspaceEdit, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		idx := cache.Get(uri)
 		if idx == nil {
 			return nil, nil

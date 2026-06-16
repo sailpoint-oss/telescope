@@ -28,6 +28,23 @@ Telescope's LSP surface is split across a few distinct layers:
 
 The important distinction is that Telescope does **not** try to replace the editor's generic YAML/JSON language features. Telescope stays focused on OpenAPI-aware behavior, while the editor or other installed language extensions handle generic YAML/JSON syntax feedback.
 
+### Document targeting and gating
+
+Telescope only syncs **classified OpenAPI documents** to the language server. Targeting is enforced at several layers:
+
+| Layer | Mechanism | Effect |
+| ----- | --------- | ------ |
+| **Client LSP sync** | `documentSelector` is limited to `openapi-yaml` and `openapi-json` | Plain `yaml`/`json` files are not sent to the server until content classification switches the language ID |
+| **Client classification** | `openapi.patterns` in `.telescope.yaml` + `isOpenAPIDocument` heuristics (negative patterns for K8s, `package.json`, Docker Compose, etc.) | Controls when VS Code switches to OpenAPI language IDs |
+| **Server patterns** | `openapi.patterns` (or `include` when patterns are unset) and `exclude` globs | Server-side pattern gate shared by diagnostics and LSP handlers |
+| **Server classification** | `FileClassifier` confidence scoring + graph `$ref` membership | Confirms OpenAPI/Arazzo shape before emitting OpenAPI diagnostics and features |
+| **Diagnostic publish** | Central publish hook + per-analyzer gates | Suppresses Telescope diagnostics on non-target files; `additionalValidation` patterns remain intentionally broader |
+| **LSP handlers** | Shared `TargetDeps` checks on completion, formatting, navigation, etc. | Returns empty results for files outside the OpenAPI target set |
+
+**Config alignment:** the VS Code extension reads `openapi.patterns` from workspace config. The server uses the same `openapi.patterns` field when set, otherwise falls back to top-level `include` / `exclude` (defaults: `**/*.{yaml,yml,json}` with standard vendor/node_modules excludes).
+
+**Intentional exception:** `additionalValidation` groups match their own `patterns` and may run schema or generic custom rules on non-OpenAPI YAML/JSON (for example `custom/custom-generic-*.yaml` in the shared test fixtures).
+
 ### Capability Truth Table
 
 | Capability | Telescope core | Editor YAML/JSON services | Bun sidecar |

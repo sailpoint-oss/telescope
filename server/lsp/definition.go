@@ -22,6 +22,9 @@ import (
 func NewDefinitionHandler(cache *openapi.IndexCache, projMgr *project.Manager, graphBridge *GraphBridge) gossip.DefinitionHandler {
 	return func(ctx *gossip.Context, params *protocol.DefinitionParams) ([]protocol.Location, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		traceID := observe.GetTraceID(ctx)
 		var logger *slog.Logger
 		if ctx.Server() != nil {

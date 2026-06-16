@@ -14,8 +14,11 @@ import (
 
 // NewDocumentLinkHandler provides clickable $ref links, URLs extracted from
 // description fields, and externalDocs.url links.
-func NewDocumentLinkHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.DocumentLinkHandler {
+func NewDocumentLinkHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.DocumentLinkHandler {
 	return func(ctx *gossip.Context, params *protocol.DocumentLinkParams) ([]protocol.DocumentLink, error) {
+		if !handlerTargetGate(ctx, graphBridge, cache, params.TextDocument.URI) {
+			return nil, nil
+		}
 		idx := cache.Get(params.TextDocument.URI)
 		if idx == nil {
 			return nil, nil

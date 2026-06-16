@@ -10,9 +10,12 @@ import (
 
 // NewSelectionRangeHandler builds nested selection ranges by walking up the
 // tree-sitter AST from the cursor position through parent nodes.
-func NewSelectionRangeHandler(cache *openapi.IndexCache, _ *GraphBridge) gossip.SelectionRangeHandler {
+func NewSelectionRangeHandler(cache *openapi.IndexCache, graphBridge *GraphBridge) gossip.SelectionRangeHandler {
 	return func(ctx *gossip.Context, params *protocol.SelectionRangeParams) ([]protocol.SelectionRange, error) {
 		uri := params.TextDocument.URI
+		if !handlerTargetGate(ctx, graphBridge, cache, uri) {
+			return nil, nil
+		}
 		tsManager := ctx.Server().TreeSitter()
 		if tsManager == nil {
 			return nil, nil
