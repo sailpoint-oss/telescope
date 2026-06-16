@@ -127,93 +127,11 @@ To merge collected logs into one sortable artifact, use [docs/LSP-TRACE-TIMELINE
 
 ## Architecture
 
-Telescope is a Go language server built on the [gossip](https://github.com/LukasParke/gossip) LSP framework, paired with a TypeScript VS Code extension client. The server uses tree-sitter for incremental YAML/JSON parsing, Navigator for canonical OpenAPI indexing and validation, Barrelman for built-in rule execution, and Telescope-owned adapters to publish diagnostics back to the editor via the LSP push-diagnostic protocol (`textDocument/publishDiagnostics`).
+Telescope is the spec-side editor, CLI, and custom-rule experience layer for the OpenAPI toolchain. The VS Code extension discovers and classifies OpenAPI files per workspace folder, connects to `telescope serve` over stdio, and runs the Go server built on [gossip](https://github.com/LukasParke/gossip) with tree-sitter incremental parsing.
 
-```mermaid
-flowchart TB
-    subgraph client ["VS Code Extension (TypeScript)"]
-        Activate["activate()"]
-        SM["SessionManager"]
-        Session["Session (per folder)"]
-        Scanner["WorkspaceScanner"]
-        Classifier["OpenAPI Classifier"]
-        LC["LanguageClient (stdio)"]
-    end
+The server maintains a **WorkspaceGraph** via **GraphBridge** (parse, bind, snapshot pipeline) and runs **DiagnosticEngine** analyzers (Navigator structural checks, Barrelman rules, Spectral, Bun sidecar). LSP handlers read from graph-backed snapshots and an **IndexCache** projection; diagnostics merge through **DiagnosticMux** before publish.
 
-    subgraph server ["Go Language Server"]
-        Gossip["gossip Server (JSON-RPC)"]
-        DocStore["Document Store"]
-        TSParser["Tree-sitter Manager"]
-        IndexBuild["openapi.BuildIndex()"]
-        IndexCache["IndexCache (per-URI)"]
-
-        subgraph rules ["Rule Engine"]
-            Analyzers["Built-in Analyzers (88 rules)"]
-            Spectral["Spectral Engine (YAML rulesets)"]
-            BunRules["Bun sidecar (TS/JS rules)"]
-            ExtVal["Extension Validator (x-* schemas)"]
-            Checks["Syntactic Checks (duplicate keys, ASCII)"]
-        end
-
-        DiagEngine["DiagnosticEngine (caching, incremental)"]
-        ProjMgr["Project Manager"]
-
-        DiagMux["DiagnosticMux (Telescope-owned sources)"]
-    end
-
-    subgraph features ["LSP Feature Handlers"]
-        Hover["Hover"]
-        Definition["Go to Definition"]
-        References["Find References"]
-        Completion["Completions"]
-        CodeAction["Code Actions / Quick Fixes"]
-        More["Rename, CodeLens, InlayHints, ..."]
-    end
-
-    CLI["CLI (lint, ci, serve)"]
-
-    Activate --> SM --> Session
-    Session --> Scanner --> Classifier
-    Session --> LC
-
-    LC <-->|"stdio"| Gossip
-    CLI --> Gossip
-
-    Gossip --> DocStore
-    Gossip --> TSParser
-    TSParser -->|"onTreeUpdate"| DiagEngine
-    DiagEngine -->|"UserDataProvider"| IndexBuild
-    IndexBuild --> IndexCache
-    DiagEngine --> rules
-    rules --> DiagEngine
-
-    DiagEngine -->|"Set(uri, telescope, diags)"| DiagMux
-    DiagMux -->|"publishDiagnostics"| LC
-
-    ProjMgr -->|"cross-file $ref resolution"| IndexCache
-    ProjMgr -->|"PublishDirect"| LC
-
-    IndexCache --> features
-    features <--> LC
-```
-
-### How it works
-
-1. **Discovery and classification.** The VS Code extension runs a `SessionManager` that creates one `Session` per workspace folder. Each session spawns a `WorkspaceScanner` that discovers YAML/JSON files via glob patterns and classifies them as OpenAPI by checking for the `openapi` or `swagger` root key. When you open a classified file, the extension applies the `openapi-yaml` or `openapi-json` language mode.
-
-2. **Parsing.** The `LanguageClient` connects to the Go server over stdio. The gossip framework receives `didOpen`/`didChange`/`didClose` notifications, stores documents in a thread-safe document store, and feeds them to tree-sitter for incremental parsing. Document lifecycle notifications are serialized via `docSyncMu` to prevent races during language reclassification.
-
-3. **Indexing.** On every tree update, the `DiagnosticEngine` calls the `UserDataProvider`, which runs `openapi.BuildIndex(tree, doc)`. That compatibility layer keeps Telescope's existing typed surface while wrapping Navigator-backed document semantics, operations, components, tags, and `$ref` usages. Indexes are cached per-URI in the `IndexCache` with an on-demand builder fallback.
-
-4. **Rule execution.** The `DiagnosticEngine` runs several categories of checks in parallel: Navigator-issued document issues, Barrelman-backed built-in analyzers/checks, Spectral-compatible YAML rulesets (JSONPath + built-in functions), Bun sidecar TypeScript/JavaScript rules, and Telescope's editor-facing extension schema validators. Each produces diagnostics with precise source locations.
-
-5. **Diagnostic publishing.** Telescope diagnostics flow through a small internal `DiagnosticMux` that merges Telescope-owned sources such as rule-engine diagnostics and contract-test diagnostics before publishing them to the client via `textDocument/publishDiagnostics`. Generic YAML/JSON syntax feedback is left to the editor's own language services.
-
-6. **Cross-file resolution.** The `Project Manager` runs a background workspace scan, builds a dependency graph of root documents and their transitive `$ref` targets, and provides a `CrossFileResolver` to the rule engine. This enables cross-file go-to-definition, find-references, and project-level diagnostics.
-
-7. **Feature handlers.** All 24 LSP feature handlers (hover, definition, references, completions, rename, code actions, etc.) read from the `IndexCache` and optionally the `Project Manager` to provide code intelligence.
-
-For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For detailed architecture, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Repository Structure
 
@@ -225,31 +143,9 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Built-in Rules
 
-Telescope ships only **vendor-neutral** rules: generic OAS / OWASP / naming / documentation / structure / paths / types / servers / references / syntax. Branded guideline rules (organisation-specific naming, layout, or extension policies) attach at runtime via the `barrelman.RulePack` plug-in surface (see the Custom Rules section below).
+Telescope ships only **vendor-neutral** rules. Branded guideline rules attach at runtime via the `barrelman.RulePack` plug-in surface (see Custom Rules below).
 
-The built-in rules are organised into rulesets:
-
-| Ruleset | Description |
-| ------- | ----------- |
-| `telescope:recommended` | Curated default suite for most projects |
-| `telescope:all` | Every non-OWASP rule |
-| `telescope:owasp` | OWASP API security ruleset (Spectral OWASP v2.x parity) |
-| `telescope:strict` | Recommended + OWASP combined |
-
-| Category | Examples |
-| -------- | -------- |
-| Structure | Structural/schema coverage surfaced through Navigator and Barrelman parity checks |
-| Documentation | Descriptions, deprecation, markdown quality |
-| Paths | Kebab-case, trailing slashes, parameter matching |
-| Naming | Schema/example casing, operationId uniqueness |
-| Security | API key placement, OAuth URLs, security requirements |
-| Types | Format validation, example type/enum matching |
-| Servers | Server definitions, HTTPS |
-| References | Unresolved `$ref` detection |
-| Syntax | Duplicate keys, ASCII |
-| OWASP | Full Spectral OWASP v2.x parity |
-
-See [docs/RULES.md](docs/RULES.md) for the complete rule reference with IDs and descriptions.
+Default preset: `telescope:recommended`. See [docs/RULES.md](docs/RULES.md) for the full catalog, rulesets (`:all`, `:owasp`, `:strict`), and rule IDs.
 
 ### Plug-in surface for branded rule packs
 
@@ -323,7 +219,7 @@ Place shared rule files under `.telescope/` and reference them from `.telescope/
 
 Bun is optional for Telescope's core parsing, linting, and LSP features. It is only required when you enable sidecar-backed TypeScript/JavaScript custom rules or Spectral rulesets.
 
-The Go package [`server/sdk`](server/README.md) is for **programmatic linting** (`Workspace`) and type re-exports for embedders, not for Go plugin binaries.
+The Go package [`server/sdk`](docs/SDK.md) is for **programmatic linting** (`Workspace`) and type re-exports for embedders, not for Go plugin binaries.
 
 ## Development
 
@@ -371,16 +267,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
 ## Documentation
 
-- [OpenAPI Generation Loop](docs/GENERATION.md)
-- [Server & SDK Reference](server/README.md)
-- [Built-in Rules Reference](docs/RULES.md)
-- [LSP Features Reference](docs/LSP-FEATURES.md)
-- [CI (GitHub Actions)](docs/CI.md)
-- [Configuration Reference](docs/CONFIGURATION.md)
-- [Custom Rules Guide](docs/CUSTOM-RULES.md)
-- [Publishing Guide](docs/PUBLISHING.md)
-- [Architecture](ARCHITECTURE.md)
-- [Contributing](CONTRIBUTING.md)
+**New maintainers:** start with [docs/MAINTAINER-GUIDE.md](docs/MAINTAINER-GUIDE.md).
+
+Full index by role (users, contributors, maintainers): [docs/README.md](docs/README.md).
 
 ## Related Repositories
 

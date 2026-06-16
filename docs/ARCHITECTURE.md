@@ -1,6 +1,8 @@
-# Telescope V2 Architecture Guide
+# Telescope Architecture
 
-Telescope is the editor, CLI, and SDK experience layer for the shared OpenAPI toolchain. This document describes the V2 architecture around workspace orchestration, user-facing diagnostics, and protocol-independent core types.
+> **Scope:** Unified system architecture for contributors and maintainers. For file-level package map, see [CODEBASE-BREAKDOWN.md](CODEBASE-BREAKDOWN.md).
+
+Telescope is the editor, CLI, and SDK experience layer for the shared OpenAPI toolchain. A **VS Code extension** (TypeScript) acts as the client; a **Go language server** on [gossip](https://github.com/LukasParke/gossip) with tree-sitter integration implements LSP, CLI, and batch lint. Navigator owns canonical OpenAPI parsing and validation; Barrelman owns shared built-in lint logic; Telescope owns editor-facing orchestration and UX.
 
 ## Overview
 
@@ -95,7 +97,7 @@ flowchart TB
 | `project` | Multi-file workspace: file discovery, dependency graph |
 | `plugin` | In-process `Plugin` interface; YAML/Bun wiring (no Go plugin RPC) |
 | `openapi` | Compatibility layer around Navigator types used by existing Telescope surfaces |
-| `config` | `.telescope.yaml` loading, ruleset merging |
+| `config` | `.telescope/config.yaml` loading, ruleset merging |
 | `extensions` | `x-*` vendor extension schema validation and completion metadata |
 | `markdown` | Markdown parsing/validation in description fields |
 | `validation` | Additional JSON Schema validation for non-OpenAPI files |
@@ -199,6 +201,8 @@ Sync handlers read from `CurrentSnapshot()`, and document open/change/close plus
 
 The LSP now uses the workspace graph as the structural source of truth. The remaining compatibility surfaces are projections or orchestration layers on top of that graph, rather than parallel parsers.
 
+**Document targeting:** LSP handlers and diagnostic publish paths share `TargetDeps` in [server/lsp/target.go](../server/lsp/target.go). Targeting checks use workspace config patterns and file classification so features and diagnostics run only on OpenAPI-targeted files. See [LSP-FEATURES.md § Document targeting and gating](LSP-FEATURES.md#document-targeting-and-gating).
+
 | Area | Owner now | Notes |
 | ---- | --------- | ----- |
 | Open and closed document lifecycle | `GraphBridge` + `WorkspaceGraph` | Open buffers use `SyntheticSource`; discovered and watched files use `FilesystemSource` |
@@ -237,3 +241,84 @@ Custom LSP notifications:
 | **Spectral rulesets** | YAML files with JSONPath + built-in functions. No JS execution. Configure via `.telescope.yaml` `spectralRulesets` field. |
 | **Bun sidecar** | TypeScript/JavaScript rules run in a Bun subprocess with health checks and crash recovery. IPC protocol in `lsp/bun/protocol.go`. |
 | **Additional JSON Schema** | Non-OpenAPI schema validation handled by the Go validator via `additionalValidation.schemas`. |
+
+## LSP runtime data flow
+
+End-to-end path from editor open to diagnostics and code intelligence:
+
+```mermaid
+flowchart TB
+    Client[VSCodeClient] --> Gossip[gossip LSP]
+    Gossip --> TreeSitter[tree-sitter]
+    TreeSitter --> GraphBridge[GraphBridge]
+    GraphBridge --> WorkspaceGraph[WorkspaceGraph pipeline]
+    WorkspaceGraph --> IndexCache[IndexCache projection]
+    GraphBridge --> Handlers[25 LSP handlers]
+    TreeSitter --> DiagnosticEngine[DiagnosticEngine]
+    DiagnosticEngine --> Rules[Navigator + Barrelman + Spectral + Bun]
+    Rules --> DiagnosticMux[DiagnosticMux]
+    DiagnosticMux --> Client
+    Handlers --> IndexCache
+    Handlers --> GraphBridge
+```
+
+### Processing phases
+
+1. **Initialization** — gossip starts with tree-sitter YAML/JSON; configuration loads from `.telescope/config.yaml` (legacy root paths still supported); `RulesetManager` merges presets and overrides; Bun sidecar starts when custom TS/JS or Spectral paths require it.
+2. **Document sync** — tree-sitter incrementally parses buffers; `GraphBridge` runs the pipeline (`raw → parse → lint → bind → validate → analyze`) and updates snapshots; `IndexCache` projects graph parse results for typed handler lookups during migration.
+3. **Rule execution** — `DiagnosticEngine` runs Navigator validation, Barrelman analyzers, syntactic checks, Spectral rules, Bun sidecar rules, extension schema validation, and `additionalValidation` matchers in parallel.
+4. **Publish** — `RulesetManager` applies severity overrides; `DiagnosticMux` merges Telescope-owned sources; `textDocument/publishDiagnostics` sends results to the client.
+
+### LSP feature handlers
+
+Handlers gate on OpenAPI document targeting via `TargetDeps` in [server/lsp/target.go](../server/lsp/target.go). See [LSP-FEATURES.md § Document targeting and gating](LSP-FEATURES.md#document-targeting-and-gating).
+
+Twenty-five feature handlers are registered in [server/lsp/server.go](../server/lsp/server.go):
+
+| Feature | Handler file |
+| ------- | ------------ |
+| Hover | `hover.go` |
+| Completion / Completion resolve | `completion.go` |
+| Definition | `definition.go` |
+| References | `references.go` |
+| Type definition | `type_definition.go` |
+| Code actions | `code_actions.go` |
+| Document / workspace symbols | `symbols.go` |
+| Code lens | `code_lens.go` |
+| Document links | `document_links.go` |
+| Rename / Prepare rename | `rename.go` |
+| Inlay hints | `inlay_hints.go` |
+| Semantic tokens / range | `semantic_tokens.go` |
+| Folding ranges | `folding.go` |
+| Document highlights | `document_highlights.go` |
+| Call hierarchy (prepare, incoming, outgoing) | `call_hierarchy.go` |
+| Selection ranges | `selection_range.go` |
+| Linked editing | `linked_editing.go` |
+| Formatting | `formatting.go` |
+| Execute command | `execute_command.go` |
+
+Diagnostics run through the analyzer pipeline rather than a dedicated `On*` handler.
+
+### VS Code client
+
+| Component | File | Purpose |
+| --------- | ---- | ------- |
+| Extension entry | `client/src/extension.ts` | Activation, commands, Go binary resolution |
+| Session manager | `session-manager.ts` | One LSP session per workspace folder |
+| Session | `session.ts` | Server lifecycle, trace config |
+| Classifier | `classifier.ts` | OpenAPI document detection |
+| Workspace scanner | `workspace-scanner.ts` | File discovery and classification |
+
+### Performance
+
+- Tree-sitter incremental parsing limits re-parse work to edits
+- Graph pipeline re-runs only dirty nodes; stage results are cached per `GraphNode.Version`
+- `IndexCache` avoids rebuilding typed indexes when unchanged
+- LSP diagnostics are debounced (configurable, default 300ms)
+
+## Related documentation
+
+- [CODEBASE-BREAKDOWN.md](CODEBASE-BREAKDOWN.md) — domain/file map
+- [LSP-FEATURES.md](LSP-FEATURES.md) — user-facing LSP reference
+- [TECH-DEBT.md](TECH-DEBT.md) — migration and handler backlog
+- [README.md](../README.md) — product overview

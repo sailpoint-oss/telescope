@@ -350,7 +350,7 @@ Color picker for color values in JSON documents.
 
 Validation sources:
 
-1. **OpenAPI Rules**: 88 built-in rules covering best practices, security, and OWASP
+1. **OpenAPI Rules**: 84 built-in rules covering best practices, security, and OWASP (see [RULES.md](RULES.md))
 2. **Schema Validation**: JSON Schema structural validation for OpenAPI 3.0/3.1/3.2
 3. **Custom Rules**: Spectral-compatible YAML rulesets and Bun sidecar TS/JS rules
 4. **Reference Validation**: `$ref` resolution and cycle detection
@@ -478,7 +478,7 @@ Context menu commands are also available when right-clicking on files in Explore
 
 ## Related Documentation
 
-- [Configuration Reference](CONFIGURATION.md) - Configure patterns and rules
+- [Configuration Reference (v2)](CONFIGURATION-V2.md) - Configure patterns and rules
 - [Custom Rules Guide](CUSTOM-RULES.md) - Create custom validation rules
-- [Architecture](../ARCHITECTURE.md) - Technical implementation details
-- [Built-in Rules](../server/README.md) - Rule reference
+- [Architecture](ARCHITECTURE.md) - System architecture
+- [Built-in Rules](RULES.md) - Rule reference

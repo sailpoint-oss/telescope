@@ -1,34 +1,8 @@
-# Telescope
+# Telescope Server
 
-A fast, extensible OpenAPI linter and language server written in Go.
+Go language server, CLI, and lint engine for OpenAPI workspaces.
 
-## Table of Contents
-
-- [Features](#features)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Built-in Rulesets](#built-in-rulesets)
-- [Custom rules (YAML and Bun)](#custom-rules-yaml-and-bun)
-- [Schema Extensibility](#schema-extensibility)
-- [Testing Rules](#testing-rules)
-- [Design Considerations](#design-considerations)
-- [Performance Notes](#performance-notes)
-- [Architecture](#architecture)
-- [License](#license)
-
-## Features
-
-- **Tree-sitter native** -- YAML/JSON parsed by tree-sitter with incremental re-parsing; no double-parsing overhead
-- **88 built-in rules** -- Comprehensive OpenAPI validation covering naming, structure, security, paths, and OWASP
-- **LSP server** -- Full Language Server Protocol support with hover, completion, go-to-definition, references, rename, code actions, and more
-- **OpenAPI generation** -- Cartographer-backed `telescope generate` CLI and LSP generation loop with reverse-projected diagnostics
-- **CLI** -- Lint, validate, generate, and run CI checks from the command line with multiple output formats (text, JSON, SARIF, GitHub annotations)
-- **CI integration** -- Diff-aware linting with GitHub PR comments and quality gating
-- **Custom rules** -- YAML in config plus Bun-backed TypeScript/JavaScript (see [Custom Rules](../docs/CUSTOM-RULES.md))
-- **Schema extensibility** -- Validate custom `x-*` extensions and arbitrary YAML/JSON files against JSON Schema
-- **Spectral/Vacuum compatible** -- Load existing rulesets in Spectral/Vacuum YAML format
-- **Markdown validation** -- Lint markdown content inside OpenAPI description fields (headings, links, formatting)
+For product overview and CLI examples, see [README.md](../README.md). For configuration, see [docs/CONFIGURATION-V2.md](../docs/CONFIGURATION-V2.md). For built-in rules, see [docs/RULES.md](../docs/RULES.md). For the Go embed API, see [docs/SDK.md](../docs/SDK.md).
 
 ## Installation
 
@@ -36,122 +10,33 @@ A fast, extensible OpenAPI linter and language server written in Go.
 go install github.com/sailpoint-oss/telescope/server@latest
 ```
 
-For Bun-backed TypeScript/JavaScript custom rules or Spectral rulesets, install Bun as well. Core CLI and LSP features still work without Bun; only sidecar-backed rule execution is disabled.
+For Bun-backed TypeScript/JavaScript custom rules or Spectral rulesets, install [Bun](https://bun.sh) as well. Core CLI and LSP features work without Bun; only sidecar-backed rule execution is disabled.
 
-## Quick Start
-
-### Generate OpenAPI from source
+## CLI Quick Reference
 
 ```bash
 telescope generate --root ./my-service --lang go --output openapi.yaml
-telescope generate --root ./my-service --watch
-telescope generate --dry-run
-```
-
-See [docs/GENERATION.md](../docs/GENERATION.md) for LSP loop configuration, write modes, and reverse projection.
-
-### Validate files
-
-```bash
 telescope validate api.yaml
-telescope validate workflows.arazzo.yaml --format json
-```
-
-### Lint files
-
-```bash
-telescope lint api.yaml
 telescope lint ./specs/ --format json
-telescope lint --severity warn --fail-on error
-```
-
-### Start LSP server
-
-```bash
+telescope ci --diff-base main --comment-pr
 telescope serve              # stdio (default)
 telescope serve --tcp :9257  # TCP
 ```
 
-### CI mode
+`validate` is structural/schema-only. `lint` layers configured rules on top. See [docs/GENERATION.md](../docs/GENERATION.md) for generation and [docs/CI.md](../docs/CI.md) for CI integration.
 
-```bash
-telescope ci --diff-base main --comment-pr
-```
+## Custom Rules and SDK
 
-`validate` is the structural/schema-only entrypoint. `lint` layers configured rules on top of the same shared validation flow.
+User-defined rules are configured in `.telescope/config.yaml` under `linting.rulesets` and `linting.customRules`. See [docs/CUSTOM-RULES.md](../docs/CUSTOM-RULES.md).
 
-## Configuration
-
-Create `.telescope/config.yaml` in your project root:
-
-```yaml
-configVersion: 2
-
-workspace:
-  targets:
-    apis:
-      kind: openapi
-      include:
-        - api/**/*.{yaml,yml,json}
-
-linting:
-  targets:
-    - apis
-  presets:
-    - telescope:recommended
-  rulesets:
-    spectral:
-      - rulesets/custom.yaml
-
-validation:
-  openapi:
-    targets:
-      - apis
-    targetVersion: "3.1"
-    breakingChanges:
-      enabled: true
-      compareTo: HEAD
-```
-
-### Configuration Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `workspace` | `map` | Shared file targets, ignores, and dotenv defaults |
-| `generation` | `map` | Inline Cartographer config plus bundle/overlay defaults |
-| `linting` | `map` | Presets, overrides, Barrelman/Vacuum engines, Spectral rulesets, Bun rules |
-| `validation` | `map` | OpenAPI validation, breaking changes, and file-schema validation |
-| `formatting` | `map` | Prettier / OpenAPI formatting defaults |
-| `testing` | `map` | Contract tests, workflow targets, and mock settings |
-| `documentation` | `map` | printing-press generation and preview defaults |
-| `extension` | `map` | LSP/editor-only defaults |
-| `automation` | `map` | CI and GitHub Action defaults |
-
-## Built-in Rulesets
-
-| Ruleset | Description |
-|---|---|
-| `telescope:recommended` | 50 curated rules for most projects |
-| `telescope:all` | All 56 non-OWASP rules |
-| `telescope:owasp` | 32 OWASP API security rules |
-| `telescope:strict` | Recommended + OWASP combined |
-
----
-
-## Custom rules (YAML and Bun)
-
-User-defined rules are configured in `.telescope/config.yaml` under `linting.rulesets` and `linting.customRules`, with TypeScript/JavaScript rules executed by the optional Bun sidecar. See the [Custom Rules Guide](../docs/CUSTOM-RULES.md) for formats and examples.
-
-When running the standalone server from a source checkout, build the bundled sidecar script once before using Bun-backed rules:
+When running from a source checkout, build the bundled sidecar script before using Bun-backed rules:
 
 ```bash
 cd server
 bash lsp/bun/runner/build.sh
 ```
 
-The Go package [`server/sdk`](./sdk/) provides the programmatic [Workspace] API and re-exports OpenAPI model types for embedders. There is no Go plugin or subprocess RPC surface for custom rules.
-
----
+The Go package [`server/sdk`](./sdk/) provides the programmatic `Workspace` API and re-exports OpenAPI model types for embedders. There is no Go plugin or subprocess RPC surface for custom rules.
 
 ## Schema Extensibility
 
@@ -173,8 +58,6 @@ Define extension schemas as JSON files in `.telescope/extensions/`:
 }
 ```
 
-**Fields:**
-
 | Field | Type | Description |
 |---|---|---|
 | `name` | `string` | The extension name (e.g., `x-stability`) |
@@ -186,56 +69,19 @@ When an extension is used outside its declared scope, Telescope reports a warnin
 
 ### Built-in Vendor Extensions
 
-Telescope ships with built-in schemas for popular vendor extensions:
-
-- **Redocly** -- `x-logo`, `x-tagGroups`, `x-displayName`, etc.
-- **Scalar** -- `x-scalar-*` properties
-- **Speakeasy** -- `x-speakeasy-*` code generation directives
-- **Stoplight** -- `x-stoplight` metadata
-
-Built-in extensions are loaded automatically. No configuration required.
+Telescope ships with built-in schemas for Redocly, Scalar, Speakeasy, and Stoplight extensions. No configuration required.
 
 ### Required Extensions
 
-Mark extensions as required in `.telescope.yaml` to enforce their presence at all scoped locations:
-
-```yaml
-openapi:
-  extensions:
-    required:
-      - x-stability
-      - x-internal
-```
+In v2 config, mark extensions as required under `validation.openapi.extensions.required`. See [CONFIGURATION-V2.md](../docs/CONFIGURATION-V2.md).
 
 ### Additional Validation (Non-OpenAPI Files)
 
-Apply JSON Schema validation to any YAML/JSON file by configuring pattern-based matching:
-
-```yaml
-additionalValidation:
-  github-actions:
-    patterns:
-      - ".github/workflows/*.yaml"
-    schemas:
-      - schema: github-actions.json
-
-  tsconfig:
-    patterns:
-      - "**/tsconfig.json"
-      - "**/tsconfig.*.json"
-    schemas:
-      - schema: tsconfig.json
-```
-
-Place the referenced schema files in `.telescope/schemas/`. Telescope matches open files against the patterns and validates their content against the associated JSON Schema, surfacing diagnostics in the LSP. This additional-validation feature is separate from OpenAPI document validation, which is now sourced from Navigator.
-
----
+In v2 config, use `validation.files` with pattern-based JSON Schema matching. Legacy `additionalValidation` is documented in [CONFIGURATION.md](../docs/CONFIGURATION.md). Place schema files in `.telescope/schemas/`.
 
 ## Testing Rules
 
 The `rules/testing` package provides a test harness for validating rules with exact diagnostic assertions.
-
-### Testing Go Rules
 
 ```go
 package myrules_test
@@ -246,7 +92,7 @@ import (
 )
 
 func TestRequireSecurity(t *testing.T) {
-    _, analyzer := myRule.Build()  // from rules.Define(...).Build()
+    _, analyzer := myRule.Build()
 
     rulestest.Run(t, analyzer,
         rulestest.Case{
@@ -266,114 +112,20 @@ paths:
                 {Line: 7, Code: "require-security", Severity: rulestest.Error},
             },
         },
-        rulestest.Case{
-            Name: "passes with security",
-            Spec: `openapi: "3.1.0"
-info:
-  title: Test
-  version: "1.0"
-security:
-  - bearerAuth: []
-paths:
-  /users:
-    get:
-      operationId: listUsers
-      responses:
-        "200":
-          description: OK`,
-            Expect: []rulestest.Diag{},
-        },
     )
 }
 ```
 
-### Testing with Visitors Directly
-
-```go
-func TestMyVisitors(t *testing.T) {
-    rulestest.RunVisitors(t, "my-rule", rulestest.Warn, rules.Visitors{
-        Operation: func(path, method string, op *openapi.Operation, r *rules.Reporter) {
-            if op.Summary == "" {
-                r.At(op.Loc, "missing summary")
-            }
-        },
-    }, rulestest.Case{
-        Name: "catches missing summary",
-        Spec: `...`,
-        Expect: []rulestest.Diag{
-            {Line: 5, Code: "my-rule", Severity: rulestest.Warn, Message: "missing summary"},
-        },
-    })
-}
-```
-
-### Diagnostic Assertions
-
-Each `rulestest.Diag` supports:
-
-| Field | Type | Matching |
-|---|---|---|
-| `Line` | `uint32` | Exact 0-based line match |
-| `Col` | `uint32` | Exact 0-based character (0 = skip check) |
-| `Code` | `string` | Exact rule ID match |
-| `Severity` | `DiagnosticSeverity` | Exact severity match |
-| `Message` | `string` | Substring match against diagnostic message |
-
----
-
-## Design Considerations
-
-### User-authored rules
-
-Custom rules for end users are **YAML-first** (`.telescope.yaml`, `openapi.rules`, `spectralRulesets`) and **TypeScript/JavaScript** via the optional Bun sidecar. They are hot-reloaded where supported (Spectral rulesets and sidecar rule files).
-
-### Spectral compatibility
-
-Existing Spectral-style YAML rulesets load through `spectralRulesets` and integrate with the same severity override model as built-in rules.
-
----
-
-## Performance Notes
-
-- **Tree-sitter incremental parsing** keeps re-parse work proportional to edits.
-- **Index caching** avoids rebuilding the OpenAPI index when unchanged.
-- **Debounced diagnostics** (configurable LSP debounce) batch rapid edits.
-
----
+Each `rulestest.Diag` supports exact `Line`, `Col`, `Code`, `Severity`, and substring `Message` matching. See [CONTRIBUTING.md](../CONTRIBUTING.md#adding-new-rules) for the full contributor workflow.
 
 ## Architecture
 
-Built on the [gossip](https://github.com/LukasParke/gossip) LSP framework with native tree-sitter integration. Telescope owns the editor-facing LSP and CLI surfaces; Navigator provides canonical OpenAPI parsing/validation and Barrelman provides shared built-in rule execution.
+Built on [gossip](https://github.com/LukasParke/gossip) with tree-sitter integration. Navigator provides canonical OpenAPI parsing/validation; Barrelman provides shared built-in rule execution.
 
-```
-server/
-├── cli/            Command-line interface (lint, ci, serve)
-├── config/         Configuration loading and defaults
-├── extensions/     x-* extension schema validation
-├── lsp/            LSP server with feature handlers
-├── markdown/       Markdown parsing and validation (goldmark)
-├── openapi/        Compatibility model and adapters over Navigator-backed document data
-├── plugin/         In-process Plugin interface; YAML rule helpers (`yaml_rules.go`)
-├── project/        Multi-file workspace and cross-file $ref resolution
-├── rules/          Rule registry, builder, walker, and validators
-├── rulesets/       Spectral/Vacuum-compatible ruleset loading
-├── sdk/            Public Go API: Workspace, LintFiles, type re-exports
-├── spectral/       Spectral custom rule engine (JSONPath + built-in functions)
-├── testutil/       Test utilities and fixture specs
-└── validation/     Additional non-OpenAPI file validation (`additionalValidation`)
-```
-
-### Key Dependencies
-
-| Package | Purpose |
-|---|---|
-| [gossip](https://github.com/LukasParke/gossip) | LSP framework (server, protocol, document store, tree-sitter integration) |
-| [navigator](https://github.com/sailpoint-oss/navigator) | Canonical OpenAPI parsing, indexing, and validation |
-| [barrelman](https://github.com/sailpoint-oss/barrelman) | Shared built-in lint/check execution |
-| [go-tree-sitter](https://github.com/tree-sitter/go-tree-sitter) | Incremental parsing for YAML/JSON |
-| [yuin/goldmark](https://github.com/yuin/goldmark) | Markdown parsing and validation |
-| [vmware-labs/yaml-jsonpath](https://github.com/vmware-labs/yaml-jsonpath) | JSONPath evaluation for Spectral rules |
-| [spf13/cobra](https://github.com/spf13/cobra) | CLI framework |
+- [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) — V2 workspace graph
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — gossip LSP implementation
+- [docs/CODEBASE-BREAKDOWN.md](../docs/CODEBASE-BREAKDOWN.md) — file-level package map
+- [docs/MAINTAINER-GUIDE.md](../docs/MAINTAINER-GUIDE.md#subsystem-ownership-map) — subsystem ownership
 
 ## License
 

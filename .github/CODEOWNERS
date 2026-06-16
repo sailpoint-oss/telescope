@@ -1,1 +1,27 @@
+# CODEOWNERS — replace placeholder handles when the maintainer team is confirmed.
+# See docs/MAINTAINER-GUIDE.md for the maintainer roster template.
+
+# Default owner for unmatched paths
+# * @your-org/telescope-maintainers
+
+# Go LSP server and core engine
+# /server/lsp/ @your-org/telescope-lsp
+# /server/core/ @your-org/telescope-lsp
+
+# CLI, lint engine, SDK
+# /server/cli/ @your-org/telescope-server
+# /server/lintengine/ @your-org/telescope-server
+# /server/sdk/ @your-org/telescope-server
+
+# VS Code extension
+# /client/ @your-org/telescope-client
+
+# Documentation
+# /docs/ @your-org/telescope-maintainers
+# /*.md @your-org/telescope-maintainers
+
+# CI and release workflows
+# /.github/workflows/ @your-org/telescope-maintainers
+
+# Until team handles are assigned, use a single fallback owner:
 * @luke-hagar-sp

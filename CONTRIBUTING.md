@@ -2,6 +2,10 @@
 
 Thank you for your interest in contributing to Telescope! This document provides guidelines and instructions for contributing.
 
+## Maintainers
+
+If you are taking over repository ownership, start with [docs/MAINTAINER-GUIDE.md](docs/MAINTAINER-GUIDE.md). The full documentation index is at [docs/README.md](docs/README.md).
+
 ## Table of Contents
 
 - [Development Setup](#development-setup)
@@ -19,6 +23,7 @@ Thank you for your interest in contributing to Telescope! This document provides
 - **Bun** (v1.0+): TypeScript runtime and test runner - [Install Bun](https://bun.sh/docs/installation)
 - **pnpm** (v8+): TypeScript package manager - [Install pnpm](https://pnpm.io/installation)
 - **VS Code**: Recommended for extension development
+- **gossip** (optional): Only needed when developing against a local gossip checkout. Normal builds use the pinned module version from the Go proxy.
 
 ### Getting Started
 
@@ -26,6 +31,10 @@ Thank you for your interest in contributing to Telescope! This document provides
 # Clone the repository
 git clone https://github.com/sailpoint-oss/telescope.git
 cd telescope
+
+# Optional: local gossip development (sibling of telescope/, not inside it)
+# git clone https://github.com/LukasParke/gossip.git ../gossip
+# cp go.work.example go.work   # gitignored; enables replace => ../gossip
 
 # Go server
 cd server
@@ -38,8 +47,6 @@ pnpm install
 pnpm build
 ```
 
-**Note:** The Go server depends on the [gossip](https://github.com/LukasParke/gossip) LSP framework via a local `replace` directive in `go.mod`. You need the gossip repo cloned as a sibling directory (`../../gossip`).
-
 ### Workspace Structure
 
 ```
@@ -47,15 +54,21 @@ telescope/
 ├── server/                # Go language server + CLI (primary)
 │   ├── cli/               # CLI subcommands (lint, ci, serve)
 │   ├── config/            # Configuration loading
+│   ├── core/              # Workspace graph, parser, types
+│   ├── bridge/            # Barrelman → gossip diagnostic adapter
+│   ├── generation/        # Cartographer extraction wrapper
 │   ├── lsp/               # LSP server + feature handlers
-│   ├── openapi/           # Tree-sitter → typed OpenAPI model
+│   ├── lintengine/        # Batch lint for CLI
+│   ├── openapi/           # Navigator compatibility layer
 │   ├── rules/             # Rule builder, analyzers, checks
-│   ├── sdk/               # Plugin SDK for third-party authors
+│   ├── sdk/               # Programmatic Workspace API
 │   └── ...
 ├── client/                # VS Code extension client
 ├── test-files/            # Test fixtures and examples
 └── docs/                  # Documentation
 ```
+
+System architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Development Workflow
 
@@ -137,67 +150,23 @@ docs: update configuration guide
 
 ## Adding New Rules
 
-### Go Rules (primary)
+### Upstream in Barrelman (preferred)
 
-1. Define the rule using the fluent builder API:
+Generic OAS, OWASP, naming, and structural rules belong in [barrelman](https://github.com/sailpoint-oss/barrelman). After the upstream change lands, bump `server/go.mod` and run the full test suite. See [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md).
 
-```go
-// server/rules/analyzers/my_rule.go
-package analyzers
+### Telescope-native generic rules (rare)
 
-import (
-    "github.com/sailpoint-oss/telescope/server/openapi"
-    "github.com/sailpoint-oss/telescope/server/rules"
-)
+For vendor-neutral rules that must ship in this repository, implement a `barrelman.Rule` in `server/rules/analyzers/` and register it in `telescopeGenericRules()` inside [server/rules/analyzers/register.go](server/rules/analyzers/register.go). See `example_matches_format.go` and `native_spectral.go` for patterns.
 
-var myRule = rules.Define("my-rule-id", rules.RuleMeta{
-    Description: "Description of what the rule checks",
-    Severity:    protocol.DiagnosticSeverityWarning,
-    Category:    rules.CategoryNaming,
-    Recommended: true,
-}).Operations(func(path, method string, op *openapi.Operation, r *rules.Reporter) {
-    // Rule logic here
-    if op.Summary == "" {
-        r.At(op.Loc, "%s %s is missing summary", method, path)
-    }
-})
-```
+Do not add organisation-specific or branded rules here; downstream consumers register those via `barrelman.RegisterPlugin`.
 
-2. Register the rule in `RegisterAll`:
+### User-defined rules (no Telescope code change)
 
-```go
-// server/rules/analyzers/register.go
-func RegisterAll(s *gossip.Server) {
-    // ...existing rules...
-    registerRule(s, myRule)
-}
-```
+Project-specific rules use YAML, Spectral rulesets, or the Bun sidecar. See [docs/CUSTOM-RULES.md](docs/CUSTOM-RULES.md).
 
-3. Add tests using the test harness:
+### Testing rules
 
-```go
-// server/rules/analyzers/my_rule_test.go
-func TestMyRule(t *testing.T) {
-    _, analyzer := myRule.Build()
-
-    rulestest.Run(t, analyzer,
-        rulestest.Case{
-            Name: "catches missing summary",
-            Spec: `openapi: "3.1.0"
-info:
-  title: Test
-  version: "1.0"
-paths:
-  /users:
-    get:
-      operationId: listUsers`,
-            Expect: []rulestest.Diag{
-                {Line: 7, Code: "my-rule-id", Severity: rulestest.Warn},
-            },
-        },
-    )
-}
-```
+Use `rules/testing` (`rulestest.Run`) for exact diagnostic assertions. See [server/README.md](server/README.md) § Testing Rules for examples.
 
 ## Testing
 

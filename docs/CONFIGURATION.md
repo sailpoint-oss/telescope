@@ -1,4 +1,4 @@
-# Configuration Reference
+> **Legacy only.** Canonical configuration schema: [CONFIGURATION-V2.md](CONFIGURATION-V2.md). Built-in rulesets and counts: [RULES.md](RULES.md).
 
 Telescope's canonical configuration file is now `.telescope/config.yaml` using the action-oriented `configVersion: 2` layout.
 
@@ -24,19 +24,21 @@ exclude:
 
 ## File Location
 
-Telescope searches for configuration files in this priority order:
+Telescope searches for configuration files in this priority order (see [CONFIGURATION-V2.md](CONFIGURATION-V2.md) § Legacy Compatibility for the authoritative list):
 
-1. `.telescope.yaml`
-2. `.telescope.yml`
-3. `.telescope/config.yaml`
-4. `.telescope/config.yml`
+1. `.telescope/config.yaml`
+2. `.telescope/config.yml`
+3. `.telescope.yaml`
+4. `.telescope.yml`
 
 If no config file is found, sensible defaults are used.
 
 ```
 your-project/
-├── .telescope.yaml              # Configuration file (preferred location)
-├── .telescope/                  # Rules, scripts, extension schemas (see Custom Rules)
+├── .telescope/
+│   ├── config.yaml              # Preferred configuration file (v2)
+│   ├── rules/
+│   └── schemas/
 └── api/
     └── openapi.yaml
 ```
@@ -114,9 +116,9 @@ extends: telescope:recommended
 
 | Name | Description |
 | ---- | ----------- |
-| `telescope:recommended` | 50 curated rules for most projects (default) |
-| `telescope:all` | All 56 non-OWASP rules |
-| `telescope:owasp` | 32 OWASP API security rules |
+| `telescope:recommended` | Curated rules for most projects (default). See [RULES.md](RULES.md) for counts. |
+| `telescope:all` | All non-OWASP rules |
+| `telescope:owasp` | OWASP API security rules |
 | `telescope:strict` | Recommended + OWASP combined |
 
 ### `rules`

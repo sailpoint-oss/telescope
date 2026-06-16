@@ -2,7 +2,7 @@
 
 ## What is Telescope?
 
-Telescope is an **OpenAPI linting and language-support tool** built on the Language Server Protocol (LSP). It ships as a VS Code extension, a standalone Go language server, and a CLI for CI pipelines. It supports Swagger 2.0 and OpenAPI 3.0.x through 3.2.x, with 88 built-in rules. Licensed MIT by SailPoint Technologies.
+Telescope is an **OpenAPI linting and language-support tool** built on the Language Server Protocol (LSP). It ships as a VS Code extension, a standalone Go language server, and a CLI for CI pipelines. It supports Swagger 2.0 and OpenAPI 3.0.x through 3.2.x, with 84 built-in rules (see [RULES.md](RULES.md)). Licensed MIT by SailPoint Technologies.
 
 The codebase has three major components:
 
@@ -13,6 +13,13 @@ The codebase has three major components:
 ```
 telescope/
 ├── server/                    # Go language server + CLI (primary)
+│   ├── core/                  # Workspace graph, parser, types
+│   ├── bridge/                # Barrelman → gossip adapter
+│   ├── generation/            # Cartographer wrapper
+│   ├── lintengine/              # Batch CLI lint
+│   ├── contractrunner/          # Barometer contract tests
+│   ├── lsp/                     # LSP server + handlers
+│   └── ...
 ├── client/                    # VS Code extension client (TypeScript)
 ├── test-files/                # Test fixtures and examples
 ├── docs/                      # Documentation
@@ -58,7 +65,7 @@ The codebase breaks into **8 distinct functional domains**.
 ### 2. Go LSP Server
 
 **Package:** `server/lsp/`
-**Purpose:** gossip-based LSP server with 20+ feature handlers.
+**Purpose:** gossip-based LSP server with 25 feature handlers plus `GraphBridge` workspace graph integration.
 
 | File | Responsibility |
 |------|----------------|
@@ -77,16 +84,15 @@ The codebase breaks into **8 distinct functional domains**.
 | `semantic_tokens.go` | OpenAPI-specific syntax highlighting |
 | `document_links.go` | Clickable `$ref` links |
 | `call_hierarchy.go` | Component reference relationships |
-| `diagnostics_view_test.go` | Diagnostic view tests |
-| `folding_ranges.go` | Code folding |
+| `graph_bridge.go` | Connects WorkspaceGraph pipeline to LSP lifecycle and handlers |
+| `target.go` | Shared document targeting for handlers and diagnostics |
 
 **Key wiring in `server.go`:**
 
 - Registers tree-sitter parsers for YAML and JSON
-- Sets `UserDataProvider` to build `openapi.Index` on-demand per document
-- Registers 6 analyzer types: checks, analyzers, spectral, plugins, extensions, additional validation
-- Sets up `RulesetManager` as `DiagnosticTransformer` for severity filtering
-- Registers file watchers for ruleset hot-reload
+- Wires `GraphBridge` pipeline and `IndexCache` projection for handlers
+- Registers analyzers: checks, Barrelman analyzers, spectral, plugins, extensions, additional validation
+- Uses `RulesetManager` and `DiagnosticMux` before publishing diagnostics
 
 ---
 
@@ -237,60 +243,9 @@ rulestest.Run(t, analyzer, rulestest.Case{
 
 ---
 
-## Architecture Diagram
+## Architecture diagram
 
-```mermaid
-flowchart TB
-    subgraph Clients["Entry Points"]
-        VSCode["VS Code Extension"]
-        CLI_Tool["CLI (lint / ci / serve)"]
-    end
-
-    subgraph GoServer["Go Language Server"]
-        subgraph LSP_Layer["LSP Layer (server/lsp/)"]
-            Gossip["gossip Framework"]
-            TreeSitter["Tree-sitter (YAML + JSON)"]
-            Handlers["Feature Handlers x20+"]
-            RulesetMgr["RulesetManager"]
-            ChildLSP["Child YAML/JSON LSPs"]
-        end
-
-        subgraph Engine["Rule Engine"]
-            OpenAPIIndex["OpenAPI Index"]
-            Analyzers["Built-in Analyzers"]
-            Checks["Syntactic Checks"]
-            SpectralEng["Spectral Engine"]
-            PluginHost["Plugin Host"]
-            ExtValidator["Extension Validator"]
-            AddlValidator["Additional Validator"]
-        end
-
-        subgraph Support["Support Packages"]
-            ProjectMgr["Project Manager"]
-            Config["Config + Rulesets"]
-            Schemas["JSON Schemas"]
-            Markdown["Markdown Parser"]
-        end
-    end
-
-    VSCode -->|"LSP stdio/TCP"| Gossip
-    CLI_Tool -->|"direct call"| Engine
-    CLI_Tool -->|"serve subcommand"| Gossip
-
-    Gossip --> TreeSitter
-    TreeSitter --> OpenAPIIndex
-    Gossip --> Handlers
-    Gossip --> RulesetMgr
-
-    OpenAPIIndex --> Analyzers
-    OpenAPIIndex --> Checks
-    OpenAPIIndex --> SpectralEng
-    OpenAPIIndex --> PluginHost
-    OpenAPIIndex --> ExtValidator
-
-    ProjectMgr --> OpenAPIIndex
-    Config --> RulesetMgr
-```
+System architecture (data flow, pipeline stages, handler inventory): [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -306,7 +261,7 @@ flowchart TB
 | `rules.RuleMeta` | `rules/registry.go` | Rule metadata (ID, description, severity, category) |
 | `rules.Reporter` | `rules/reporter.go` | Diagnostic reporting with enrichment |
 | `rules.AnalysisData` | `rules/index.go` | Per-document index + optional cross-file resolver |
-| `config.Config` | `config/config.go` | Parsed `.telescope.yaml` |
+| `config.Config` | `config/config.go` | Parsed `.telescope/config.yaml` (legacy root paths supported) |
 | `rulesets.RuleSet` | `rulesets/model.go` | Ruleset with extends, rules, severity overrides |
 | `spectral.Rule` | `spectral/types.go` | Spectral rule: JSONPath + functions |
 
@@ -347,5 +302,5 @@ flowchart TB
 ### External Integrations
 
 - **GitHub API** (`cli/github.go`): PR comment posting via REST API
-- **Child YAML/JSON LSPs**: Spawned for syntax-level validation
+- **Generic YAML/JSON language services**: Provided by the editor or other extensions; Telescope does not spawn child LSPs for syntax validation
 - **gossip**: LSP connection over stdio or TCP

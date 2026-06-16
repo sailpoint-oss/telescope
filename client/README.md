@@ -1,47 +1,10 @@
 # Telescope - OpenAPI Language Server
 
-A powerful VS Code extension for OpenAPI specifications with real-time validation, intelligent code navigation, and extensive customization options.
+VS Code extension for OpenAPI specifications with real-time validation, code navigation, and customization.
 
-## Features
+For the complete feature list, see [docs/LSP-FEATURES.md](../docs/LSP-FEATURES.md).
 
-### Validation & Diagnostics
-
-- **Real-time Diagnostics** — See linting issues as you type
-- **88 Built-in Rules** — OpenAPI best practices, security, and OWASP coverage
-- **Multi-file Support** — Full `$ref` resolution across your API project
-- **Custom Rules** — YAML in config, Spectral-compatible YAML rulesets, and optional Bun-backed JS/TS rules
-
-### Code Intelligence
-
-- **Go to Definition** — Navigate to `$ref` targets, operationId definitions, security schemes
-- **Find All References** — Find all usages of schemas, components, and operationIds
-- **Hover Information** — Preview referenced content inline
-- **Completions** — Smart suggestions for `$ref` values, status codes, media types, tags
-- **Rename Symbol** — Safely rename operationIds and components across your workspace
-- **Call Hierarchy** — Visualize component reference relationships
-
-### Editor Features
-
-- **Code Lens** — Reference counts, response summaries, security indicators
-- **Inlay Hints** — Type hints for `$ref` targets, required property markers
-- **Semantic Highlighting** — Enhanced syntax highlighting for OpenAPI elements
-- **Quick Fixes** — Auto-add descriptions, summaries, operationIds; convert to kebab-case
-- **Document Links** — Clickable `$ref` links with precise navigation
-
-### Syntax Highlighting
-
-- Full syntax highlighting for OpenAPI YAML and JSON
-- Embedded code block highlighting for 21+ languages in descriptions (TypeScript, Python, Go, Java, and more)
-- Path parameter highlighting in URL templates
-
-### Format Conversion
-
-- Convert between JSON and YAML with a single command
-- Available from the editor context menu and command palette
-
-## Getting Started
-
-### Installation
+## Installation
 
 Telescope is published with different extension IDs depending on the store:
 
@@ -56,7 +19,7 @@ The universal VSIX works on other platforms too, but it does not bundle the `tel
 
 All VSIX variants include the bundled Bun sidecar script used for TypeScript/JavaScript custom rules and Spectral rulesets. Bun itself is only required on the user's system when those sidecar-backed features are enabled; base OpenAPI language-server features continue to work without Bun.
 
-### Automatic Detection
+## Automatic Detection
 
 The extension automatically detects OpenAPI documents based on:
 
@@ -67,56 +30,9 @@ Once detected, Telescope treats the file as OpenAPI for language server features
 
 ## Configuration
 
-Create `.telescope/config.yaml` in your workspace root to customize behavior. Legacy `.telescope.yaml` and `.telescope.yml` files are still supported for compatibility:
+Create `.telescope/config.yaml` in your workspace root. Legacy `.telescope.yaml` and `.telescope.yml` files are still supported.
 
-```yaml
-configVersion: 2
-
-workspace:
-  targets:
-    apis:
-      kind: openapi
-      include:
-        - api/**/*.{yaml,yml,json}
-
-linting:
-  targets:
-    - apis
-  presets:
-    - telescope:recommended
-
-validation:
-  openapi:
-    targets:
-      - apis
-    breakingChanges:
-      enabled: true
-      onSave: true
-```
-
-### Configuration Options
-
-| Option    | Description                                                           |
-| --------- | --------------------------------------------------------------------- |
-| `workspace` | Shared targets, ignore patterns, and dotenv defaults |
-| `linting` | Rule presets, overrides, engines, Spectral rulesets, and Bun custom rules |
-| `validation` | OpenAPI validation, breaking-change checks, and schema validation |
-| `testing` | Contract tests, workflows, and mock defaults |
-| `documentation` | printing-press defaults for previews and generation |
-
-### Default Patterns
-
-When no configuration exists, the extension matches:
-
-```yaml
-include:
-  - "**/*.yaml"
-  - "**/*.yml"
-  - "**/*.json"
-  - "**/*.jsonc"
-```
-
-### Configuration Reload
+See [docs/CONFIGURATION-V2.md](../docs/CONFIGURATION-V2.md) for the canonical configuration reference. For built-in rules and severity overrides, see [docs/RULES.md](../docs/RULES.md). For custom rules, see [docs/CUSTOM-RULES.md](../docs/CUSTOM-RULES.md).
 
 Configuration automatically reloads when any supported Telescope config file is modified, and when relevant VS Code settings change.
 
@@ -135,52 +51,6 @@ Available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`):
 
 Conversion commands are also available in the editor and file explorer context menus.
 
-## Built-in Rules
-
-### Built-in Rulesets
-
-| Ruleset                  | Rules | Description                           |
-| ------------------------ | ----- | ------------------------------------- |
-| `telescope:recommended`  | 50    | Core best practices                   |
-| `telescope:all`          | 56    | All non-OWASP rules                  |
-| `telescope:owasp`        | 32    | OWASP API Security Top 10            |
-| `telescope:strict`       | 82    | Recommended + OWASP combined          |
-
-### Rule Categories
-
-| Category          | Examples                                                              |
-| ----------------- | --------------------------------------------------------------------- |
-| **References**    | Unresolved `$ref` detection                                           |
-| **Naming**        | Unique operationIds, schema naming conventions, tag formatting        |
-| **Documentation** | HTML in descriptions, deprecation explanations, enum descriptions     |
-| **Structure**     | allOf composition, array items, discriminator mappings, JSON Schema   |
-| **Security**      | Security scheme definitions, API key placement, OAuth URLs, OWASP    |
-| **Paths**         | Parameter matching, trailing slashes, kebab-case, HTTP verbs in paths |
-| **Types**         | String maxLength hints, format validation                             |
-| **Servers**       | Server definitions, HTTPS requirements                                |
-
-### Overriding Rule Severity
-
-```yaml
-rules:
-  # Disable a rule
-  string-max-length: off
-
-  # Reduce to warning
-  path-kebab-case: warn
-
-  # Increase to error
-  security-schemes-defined: error
-```
-
-## Custom Rules
-
-Telescope supports custom rules via `.telescope/config.yaml` under `linting.rulesets` and `linting.customRules`, plus TypeScript/JavaScript rules through the optional Bun sidecar.
-
-If Bun is not installed, YAML-native rules still work and the extension's core OpenAPI diagnostics/navigation remain available, but Bun-backed TypeScript/JavaScript rules and Spectral rulesets stay disabled.
-
-For full documentation, see the [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md).
-
 ## Extension Settings
 
 | Setting                           | Description                                                    | Default |
@@ -190,9 +60,11 @@ For full documentation, see the [Custom Rules Guide](https://github.com/sailpoin
 | `telescope.contractTestBaseUrl`   | Default base URL used by the contract-test command             | `http://localhost:8080` |
 | `telescope.trace`                 | LSP trace logging level (`off`, `messages`, `verbose`)         | `off`   |
 
+For LSP trace debugging, see [docs/LSP-TRACE-RUNBOOK.md](../docs/LSP-TRACE-RUNBOOK.md).
+
 ## Architecture
 
-The extension follows a per-folder session architecture:
+The extension follows a per-folder session architecture. For the full client breakdown, see [docs/CODEBASE-BREAKDOWN.md](../docs/CODEBASE-BREAKDOWN.md) § VS Code Extension Client. Maintainer subsystem map: [docs/MAINTAINER-GUIDE.md](../docs/MAINTAINER-GUIDE.md#subsystem-ownership-map).
 
 - **SessionManager** creates one `Session` per workspace folder when the extension activates.
 - Each **Session** spawns a Go language server process (`telescope serve`) via `vscode-languageclient`, connected over stdio.
@@ -212,6 +84,7 @@ pnpm --filter ./client test:e2e:run:multi
 ```
 
 Notes:
+
 - The multi-root run is intentionally minimal (multi-root isolation + startup smoke).
 - VS Code downloads/user-data are written under `client/.vscode-test` and are ignored by git.
 
@@ -227,36 +100,39 @@ Notes:
 ### No Diagnostics Appearing
 
 1. Check the document parses as valid YAML/JSON
-2. Verify the file matches your `patterns` in `.telescope.yaml` or `.telescope/config.yaml`
+2. Verify the file matches your include patterns in `.telescope/config.yaml` (see [CONFIGURATION-V2.md](../docs/CONFIGURATION-V2.md))
 3. Ensure the file contains an `openapi:` or `swagger:` root key
 4. Check the output channel for classification messages
 
 ### Configuration Not Loading
 
-1. Verify file location: `.telescope.yaml`, `.telescope.yml`, `.telescope/config.yaml`, or `.telescope/config.yml`
+1. Verify file location: `.telescope/config.yaml`, `.telescope/config.yml`, `.telescope.yaml`, or `.telescope.yml`
 2. Check YAML syntax is valid
 3. Look for errors in the output channel
 
 ### Slow Performance
 
-Add exclusion patterns for large directories in `.telescope.yaml`:
+Add ignore patterns under `workspace.ignore` in `.telescope/config.yaml` (see [CONFIGURATION-V2.md](../docs/CONFIGURATION-V2.md)):
 
 ```yaml
-exclude:
-  - "node_modules/**"
-  - "dist/**"
-  - ".git/**"
+workspace:
+  ignore:
+    - node_modules/**
+    - dist/**
+    - .git/**
 ```
 
 ## Links
 
-- [GitHub Repository](https://github.com/sailpoint-oss/telescope)
-- [Issue Tracker](https://github.com/sailpoint-oss/telescope/issues)
-- [Configuration Reference](https://github.com/sailpoint-oss/telescope/blob/main/docs/CONFIGURATION.md)
-- [LSP Features Reference](https://github.com/sailpoint-oss/telescope/blob/main/docs/LSP-FEATURES.md)
-- [Custom Rules Guide](https://github.com/sailpoint-oss/telescope/blob/main/docs/CUSTOM-RULES.md)
-- [Built-in Rules Reference](https://github.com/sailpoint-oss/telescope/blob/main/server/README.md)
+- [Product overview](../README.md)
+- [Documentation index](../docs/README.md)
+- [Configuration (v2)](../docs/CONFIGURATION-V2.md)
+- [LSP features](../docs/LSP-FEATURES.md)
+- [Built-in rules](../docs/RULES.md)
+- [Custom rules](../docs/CUSTOM-RULES.md)
+- [GitHub repository](https://github.com/sailpoint-oss/telescope)
+- [Issue tracker](https://github.com/sailpoint-oss/telescope/issues)
 
 ## License
 
-[MIT](https://github.com/sailpoint-oss/telescope/blob/main/LICENSE) - Copyright (c) 2026 SailPoint Technologies
+[MIT](../LICENSE) - Copyright (c) 2026 SailPoint Technologies

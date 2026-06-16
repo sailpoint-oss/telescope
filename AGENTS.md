@@ -97,17 +97,27 @@ VS Code extension (TypeScript)
    │  stdio
    ▼
 Go language server (gossip)
-   ├─ tree-sitter parsers → IndexCache
+   ├─ tree-sitter parsers
+   ├─ GraphBridge → WorkspaceGraph pipeline (parse, bind, snapshot)
+   ├─ IndexCache (typed projection for handlers during migration)
    ├─ DiagnosticEngine → rule pipeline
    │     ├─ Navigator structural validation
    │     ├─ Barrelman analyzers + plug-ins
    │     ├─ Spectral YAML rulesets
    │     └─ Bun sidecar (TS/JS custom rules)
+   ├─ DiagnosticMux → publishDiagnostics
    ├─ generation adapter → cartographer/extraction
-   └─ ProjectManager → cross-file $ref resolver
+   └─ ProjectManager → workspace discovery + graph seeding
 ```
 
-See [docs/LSP-FEATURES.md](docs/LSP-FEATURES.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for the full breakdown.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/LSP-FEATURES.md](docs/LSP-FEATURES.md) for the full breakdown.
+
+## Maintainer docs
+
+- [docs/MAINTAINER-GUIDE.md](docs/MAINTAINER-GUIDE.md) — primary handover hub for OSS maintainers
+- [docs/README.md](docs/README.md) — documentation index by role
+- [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md) — six-repo coordination and dependency bumps
+- [docs/TECH-DEBT.md](docs/TECH-DEBT.md) — tracked backlog
 
 ## Related repositories
 

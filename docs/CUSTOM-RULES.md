@@ -224,7 +224,7 @@ exclude:
 
 | Ruleset | Description |
 |---------|-------------|
-| `telescope:recommended` | ~50 rules, balanced |
-| `telescope:all` | ~56 non-OWASP rules |
+| `telescope:recommended` | Curated rules for most projects. See [RULES.md](RULES.md) for counts. |
+| `telescope:all` | All non-OWASP rules |
 | `telescope:owasp` | ~32 OWASP security rules |
 | `telescope:strict` | recommended + OWASP |

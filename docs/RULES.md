@@ -1,17 +1,27 @@
 # Built-in Rules Reference
 
-Telescope includes **88 built-in rules** organized by category. Each rule has a default severity and belongs to one or more rulesets.
+Telescope includes **84 built-in rules** organized by category. Each rule has a default severity and belongs to one or more rulesets. Counts are derived from `rules.DefaultRegistry` after `analyzers.RegisterAll` and `checks.RegisterAll`.
 
 ## Rulesets
 
 | Ruleset | Rules | Description |
 |---------|-------|-------------|
-| `telescope:recommended` | 50 | Curated rules for most projects (rules marked Recommended) |
-| `telescope:all` | 56 | All non-OWASP rules |
+| `telescope:recommended` | 46 | Curated rules for most projects (rules marked Recommended) |
+| `telescope:all` | 52 | All non-OWASP rules |
 | `telescope:owasp` | 32 | OWASP API security rules |
-| `telescope:strict` | 82 | Recommended + OWASP combined |
+| `telescope:strict` | 78 | Recommended + OWASP combined |
 
 ## Rules by Category
+
+### Telescope-native (3 rules)
+
+Vendor-neutral rules registered in Telescope via `telescopeGenericRules()` in [server/rules/analyzers/register.go](../server/rules/analyzers/register.go). Generic OAS/OWASP rules live upstream in Barrelman.
+
+| Rule ID | Description | Severity | Rec |
+|---------|-------------|----------|-----|
+| `example-matches-format` | Schema examples must satisfy the declared format (date-time, uuid, email, uri, etc.). | Error | Yes |
+| `contact-properties` | Contact object should declare name, url, and email. | Warning | Yes |
+| `license-url` | License object should include a url when no SPDX identifier is provided. | Warning | Yes |
 
 ### Naming (4 rules)
 
@@ -176,6 +186,6 @@ rules:
 
 ## Related Documentation
 
-- [Configuration Reference](CONFIGURATION.md)
+- [Configuration Reference (v2)](CONFIGURATION-V2.md)
 - [Custom Rules Guide](CUSTOM-RULES.md)
-- [Server & SDK Reference](../server/README.md)
+- [Go SDK](SDK.md)

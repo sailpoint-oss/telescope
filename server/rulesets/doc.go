@@ -9,10 +9,10 @@
 //
 // Telescope ships with four built-in rulesets accessible via [GetBuiltin]:
 //
-//   - telescope:recommended — ~35 commonly useful rules
-//   - telescope:all — all available rules (~65+)
-//   - telescope:owasp — security-focused rules
-//   - telescope:strict — recommended + stricter OWASP enforcement
+//   - telescope:recommended — rules marked Recommended in DefaultRegistry (46 rules)
+//   - telescope:all — all non-OWASP rules (52 rules)
+//   - telescope:owasp — OWASP API security rules (32 rules)
+//   - telescope:strict — recommended + OWASP combined (78 rules)
 //
 // # Loading Custom Rulesets
 //
