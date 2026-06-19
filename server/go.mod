@@ -1,12 +1,12 @@
 module github.com/sailpoint-oss/telescope/server
 
-go 1.25.5
+go 1.25.7
 
 require (
 	github.com/LukasParke/gossip v0.1.12
 	github.com/daveshanley/vacuum v0.27.2
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/pb33f/libopenapi v0.37.2
+	github.com/pb33f/libopenapi v0.38.1
 	github.com/sailpoint-oss/barometer v0.4.0
 	github.com/sailpoint-oss/barrelman v0.9.0
 	github.com/sailpoint-oss/cartographer v0.8.0
@@ -16,7 +16,7 @@ require (
 	github.com/tree-sitter/go-tree-sitter v0.25.0
 	github.com/vmware-labs/yaml-jsonpath v0.3.2
 	github.com/yuin/goldmark v1.8.2
-	go.yaml.in/yaml/v4 v4.0.0-rc.4
+	go.yaml.in/yaml/v4 v4.0.0-rc.5
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -80,7 +80,7 @@ require (
 	golang.org/x/exp v0.0.0-20260529124908-c761662dc8c9 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
