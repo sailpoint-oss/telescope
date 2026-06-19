@@ -9,7 +9,7 @@ require (
 	github.com/pb33f/libopenapi v0.37.2
 	github.com/sailpoint-oss/barometer v0.4.0
 	github.com/sailpoint-oss/barrelman v0.9.0
-	github.com/sailpoint-oss/cartographer v0.8.0
+	github.com/sailpoint-oss/cartographer v0.9.0
 	github.com/sailpoint-oss/navigator v0.13.0
 	github.com/sailpoint-oss/tree-sitter-openapi v0.1.0
 	github.com/spf13/cobra v1.10.2
